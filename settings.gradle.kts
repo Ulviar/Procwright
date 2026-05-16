@@ -7,9 +7,9 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        mavenCentral()
-    }
+    repositories { mavenCentral() }
 }
 
 rootProject.name = "icli"
+
+include("icli-kotlin")

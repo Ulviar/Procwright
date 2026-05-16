@@ -51,6 +51,21 @@
   block the process runtime path.
 - Test fixtures provide a thread-safe diagnostic recorder for assertions.
 
+## Kotlin ergonomics
+
+- Kotlin module compiles as a separate optional Gradle project.
+- Java core does not depend on Kotlin runtime or coroutines.
+- Receiver-style `runCommand` compiles and runs.
+- Suspending `runCommandAwait`, `Session.awaitExit`, `LineSession.requestAwait` and `StreamSession.awaitExit` work without
+  blocking the caller coroutine.
+- Отмена coroutine, ожидающей `Session.awaitExit` или `StreamSession.awaitExit`, не отменяет общий `onExit()` future и не
+  обходит session shutdown policy.
+- `listenFlow` exposes streaming output as `Flow<StreamChunk>` через узкий `ListenFlowInvocation`, который не позволяет
+  заменить внутренний listener.
+- Медленный `listenFlow` collector не должен молча терять chunks; adapter использует bounded/rendezvous delivery и
+  сохраняет backpressure вместо бесконечной очереди.
+- Kotlin tests exercise the public extension API against real commands.
+
 ## Interactive session
 
 - Session открывается и закрывается без утечки процесса.

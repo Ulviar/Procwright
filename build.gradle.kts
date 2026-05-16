@@ -2,9 +2,11 @@ plugins {
     `java-library`
     `java-test-fixtures`
     id("com.diffplug.spotless") version "8.0.0"
+    id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
 }
 
 group = "com.github.ulviar"
+
 version = "0.0.0-SNAPSHOT"
 
 java {
@@ -44,25 +46,30 @@ tasks.withType<JavaCompile>().configureEach {
     options.release.set(25)
 }
 
-tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
-}
+tasks.withType<Test>().configureEach { useJUnitPlatform() }
 
-val integrationTest = tasks.register<Test>("integrationTest") {
-    description = "Runs integration tests that exercise real processes."
-    group = LifecycleBasePlugin.VERIFICATION_GROUP
-    testClassesDirs = sourceSets["integrationTest"].output.classesDirs
-    classpath = sourceSets["integrationTest"].runtimeClasspath
-    shouldRunAfter(tasks.test)
-}
+val integrationTest =
+    tasks.register<Test>("integrationTest") {
+        description = "Runs integration tests that exercise real processes."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        testClassesDirs = sourceSets["integrationTest"].output.classesDirs
+        classpath = sourceSets["integrationTest"].runtimeClasspath
+        shouldRunAfter(tasks.test)
+    }
 
-tasks.check {
-    dependsOn(integrationTest)
-}
+tasks.check { dependsOn(integrationTest) }
 
 spotless {
     java {
         palantirJavaFormat("2.80.0")
         target("src/**/*.java")
+    }
+    kotlin {
+        ktfmt("0.58").kotlinlangStyle()
+        target("icli-kotlin/src/**/*.kt")
+    }
+    kotlinGradle {
+        ktfmt("0.58").kotlinlangStyle()
+        target("*.gradle.kts", "icli-kotlin/*.gradle.kts")
     }
 }

@@ -35,5 +35,7 @@ messages are written in English.
   deferred stdin close, timeout, listener-failure propagation, and stdout/stderr draining.
 - Diagnostics hooks with structured lifecycle/timeout/truncation events, redaction-friendly command echo, and optional
   transcript sinks. Diagnostic failures do not change command behavior.
+- Optional `:icli-kotlin` module with Kotlin receiver-style extensions, suspending wrappers, and Flow adapters. The Java
+  core artifact remains Kotlin-free.
 
 See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.

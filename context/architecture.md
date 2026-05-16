@@ -29,6 +29,7 @@ scenario-specific execution plan. Это описано в [scenario-api.md](sce
 - PTY как узкая transport strategy для session-сценариев.
 - Listen-only streaming helper с bounded diagnostics.
 - Наблюдательная diagnostics layer без влияния на runtime behavior.
+- Optional Kotlin ergonomics module без Kotlin dependency в Java core.
 - Детерминированный fixture/eval набор.
 
 ## Не входит в MVP
@@ -36,7 +37,6 @@ scenario-specific execution plan. Это описано в [scenario-api.md](sce
 - Process pooling.
 - Stateful conversation affinity.
 - MCP adapters.
-- Kotlin coroutine/Flow модуль.
 - Benchmarks.
 - Competitor samples.
 - Централизованная diagnostics bus или logging framework.
@@ -119,6 +119,15 @@ com.github.ulviar.icli
   Session
   SessionOptions
   CommandException
+
+com.github.ulviar.icli.kotlin
+  runCommand(...)
+  runCommandAwait(...)
+  openSession(...)
+  awaitExit(...)
+  requestAwait(...)
+  ListenFlowInvocation
+  listenFlow(...)
 ```
 
 Публичных пакетов должно быть мало. Поэтому первый `PtyProvider` SPI находится в корневом пакете рядом с остальным
@@ -129,7 +138,7 @@ com.github.ulviar.icli
 
 1. PTY hardening и кроссплатформенная матрица.
 2. Более богатый expect DSL.
-3. Kotlin extensions.
+3. Более богатый Kotlin DSL поверх optional Kotlin module.
 4. Process pooling отдельным модулем.
 5. MCP adapter templates.
 6. Benchmarks.
