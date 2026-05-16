@@ -4,7 +4,7 @@ import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.Objects;
 
-sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioProfile.Run {
+sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioProfile.Run, ScenarioProfile.Stream {
 
     String name();
 
@@ -31,6 +31,16 @@ sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioPr
                 options.terminalPolicy(),
                 options.ptyProvider(),
                 options.terminalSize());
+    }
+
+    static Stream stream(StreamOptions options) {
+        Objects.requireNonNull(options, "options");
+        return new Stream(
+                options.shutdownPolicy(),
+                options.timeout(),
+                options.charset(),
+                options.diagnosticLimit(),
+                TerminalPolicy.DISABLED);
     }
 
     private static CapturePolicy.Bounded bounded(CapturePolicy capturePolicy) {
@@ -93,6 +103,33 @@ sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioPr
         @Override
         public String name() {
             return "interactive";
+        }
+    }
+
+    record Stream(
+            ShutdownPolicy shutdownPolicy,
+            Duration timeout,
+            Charset charset,
+            int diagnosticLimit,
+            TerminalPolicy terminalPolicy)
+            implements ScenarioProfile {
+
+        public Stream {
+            Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
+            Objects.requireNonNull(timeout, "timeout");
+            if (timeout.isNegative()) {
+                throw new IllegalArgumentException("timeout must not be negative");
+            }
+            Objects.requireNonNull(charset, "charset");
+            if (diagnosticLimit <= 0) {
+                throw new IllegalArgumentException("diagnosticLimit must be positive");
+            }
+            Objects.requireNonNull(terminalPolicy, "terminalPolicy");
+        }
+
+        @Override
+        public String name() {
+            return "stream";
         }
     }
 }

@@ -12,6 +12,7 @@ public final class CommandService {
     private final RunOptions runOptions;
     private final SessionOptions sessionOptions;
     private final LineSessionOptions lineSessionOptions;
+    private final StreamOptions streamOptions;
 
     /**
      * Creates a service from a base command specification and default run options.
@@ -47,10 +48,29 @@ public final class CommandService {
             RunOptions runOptions,
             SessionOptions sessionOptions,
             LineSessionOptions lineSessionOptions) {
+        this(commandSpec, runOptions, sessionOptions, lineSessionOptions, StreamOptions.defaults());
+    }
+
+    /**
+     * Creates a service from base command and all scenario defaults.
+     *
+     * @param commandSpec base command specification
+     * @param runOptions default run options
+     * @param sessionOptions default interactive session options
+     * @param lineSessionOptions default line-session options
+     * @param streamOptions default stream options
+     */
+    public CommandService(
+            CommandSpec commandSpec,
+            RunOptions runOptions,
+            SessionOptions sessionOptions,
+            LineSessionOptions lineSessionOptions,
+            StreamOptions streamOptions) {
         this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
         this.runOptions = Objects.requireNonNull(runOptions, "runOptions");
         this.sessionOptions = Objects.requireNonNull(sessionOptions, "sessionOptions");
         this.lineSessionOptions = Objects.requireNonNull(lineSessionOptions, "lineSessionOptions");
+        this.streamOptions = Objects.requireNonNull(streamOptions, "streamOptions");
     }
 
     /**
@@ -107,6 +127,15 @@ public final class CommandService {
      */
     public LineSessionOptions lineSessionOptions() {
         return lineSessionOptions;
+    }
+
+    /**
+     * Returns the default stream options.
+     *
+     * @return default stream options
+     */
+    public StreamOptions streamOptions() {
+        return streamOptions;
     }
 
     /**
@@ -169,5 +198,24 @@ public final class CommandService {
             session.close();
             throw exception;
         }
+    }
+
+    /**
+     * Opens a listen-only streaming session.
+     *
+     * @param configure invocation callback
+     * @return streaming session
+     * @throws CommandExecutionException when the process cannot be started
+     */
+    public StreamSession listen(Consumer<StreamInvocation.Builder> configure) {
+        Objects.requireNonNull(configure, "configure");
+
+        StreamInvocation.Builder builder = StreamInvocation.builder();
+        configure.accept(builder);
+        StreamInvocation invocation = builder.build();
+
+        StreamExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.stream(streamOptions), commandSpec, invocation);
+        return StreamRuntime.open(plan);
     }
 }

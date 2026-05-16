@@ -13,6 +13,8 @@ import com.github.ulviar.icli.RunOptions;
 import com.github.ulviar.icli.Session;
 import com.github.ulviar.icli.SessionOptions;
 import com.github.ulviar.icli.ShutdownPolicy;
+import com.github.ulviar.icli.StreamSession;
+import com.github.ulviar.icli.StreamSource;
 import com.github.ulviar.icli.TerminalPolicy;
 import com.github.ulviar.icli.TerminalSignal;
 import java.nio.file.Path;
@@ -91,6 +93,19 @@ final class CommandServiceApiExamples {
 
         try (Session session = shell.interactive(call -> call.terminal(TerminalPolicy.REQUIRED))) {
             session.sendSignal(TerminalSignal.INTERRUPT);
+        }
+    }
+
+    void listenOnlyStreamingScenario() {
+        CommandService tool = CommandService.forCommand("tool");
+
+        try (StreamSession stream =
+                tool.listen(call -> call.args("logs", "--follow").onOutput(chunk -> {
+                    if (chunk.source() == StreamSource.STDERR) {
+                        System.err.print(chunk.text());
+                    }
+                }))) {
+            stream.onExit().join();
         }
     }
 }

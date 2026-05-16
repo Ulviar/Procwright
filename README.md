@@ -4,8 +4,8 @@ iCLI is being rewritten as a JVM library for safe, scenario-first control of ext
 
 This branch currently contains the foundation for the rewrite, the first one-shot execution kernel, a raw interactive
 session scenario, the first line-oriented request/response workflow, a small expect automation helper, and initial PTY
-transport support for terminal-required interactive sessions. The public API and runtime are still incomplete:
-documentation must not promise behavior before tests and implementation prove it.
+transport support for terminal-required interactive sessions, and a listen-only streaming scenario. The public API and
+runtime are still incomplete: documentation must not promise behavior before tests and implementation prove it.
 
 Project context is maintained in Russian under [context/](context/). Code, public APIs, Javadocs, tests, and commit
 messages are written in English.
@@ -31,5 +31,7 @@ messages are written in English.
 - Terminal policy for session scenarios: `DISABLED`, `AUTO`, and `REQUIRED`.
 - PTY provider SPI with an initial Unix `script(1)` system provider, explicit unavailable behavior, terminal size
   request handling, and terminal control signal helpers.
+- Listen-only `listen` scenario with synchronous output listeners, bounded diagnostics, default stdin close, optional
+  deferred stdin close, timeout, listener-failure propagation, and stdout/stderr draining.
 
 See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.

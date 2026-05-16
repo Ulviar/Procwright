@@ -81,4 +81,12 @@ final class PolicyValueTest {
         assertEquals(provider, options.ptyProvider());
         assertEquals(new TerminalSize(100, 40), options.terminalSize());
     }
+
+    @Test
+    void streamOptionsRejectInvalidDiagnosticLimitAndNegativeTimeout() {
+        assertThrows(
+                IllegalArgumentException.class, () -> StreamOptions.defaults().withDiagnosticLimit(0));
+        assertThrows(
+                IllegalArgumentException.class, () -> StreamOptions.defaults().withTimeout(Duration.ofMillis(-1)));
+    }
 }

@@ -152,6 +152,13 @@ final class ProcessFixtureProgram {
                 System.err.flush();
                 System.out.print("done\n");
             }
+            case "paired-streams" -> {
+                System.out.println("out-start");
+                System.out.flush();
+                System.err.println("err-start");
+                System.err.flush();
+                Thread.sleep(Long.parseLong(args[1]));
+            }
             default -> throw new IllegalArgumentException("Unknown fixture command: " + args[0]);
         }
     }

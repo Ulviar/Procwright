@@ -1,6 +1,7 @@
 package com.github.ulviar.icli;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -66,6 +67,24 @@ final class ExecutionPlanResolver {
                 profile.terminalSize());
     }
 
+    static StreamExecutionPlan resolve(ScenarioProfile.Stream profile, CommandSpec spec, StreamInvocation invocation) {
+        InvocationShape invocationShape = shape(invocation);
+        LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, OutputMode.SEPARATE);
+        SessionExecutionPlan sessionPlan = new SessionExecutionPlan(
+                launchPlan,
+                invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
+                Duration.ZERO,
+                profile.charset(),
+                PtyProvider.unavailable("listen scenario does not request PTY"),
+                TerminalSize.defaults());
+        return new StreamExecutionPlan(
+                sessionPlan,
+                invocation.timeout().orElse(profile.timeout()),
+                invocation.stdinPolicy(),
+                profile.diagnosticLimit(),
+                invocation.listener());
+    }
+
     private static LaunchPlan launchPlan(
             ScenarioProfile profile, CommandSpec spec, InvocationShape invocation, OutputMode outputMode) {
         return launchPlan(profile, spec, invocation, outputMode, profile.terminalPolicy());
@@ -126,6 +145,10 @@ final class ExecutionPlanResolver {
     }
 
     private static InvocationShape shape(LineSessionInvocation invocation) {
+        return new InvocationShape(invocation.arguments(), invocation.workingDirectory(), invocation.environment());
+    }
+
+    private static InvocationShape shape(StreamInvocation invocation) {
         return new InvocationShape(invocation.arguments(), invocation.workingDirectory(), invocation.environment());
     }
 

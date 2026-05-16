@@ -1,0 +1,206 @@
+package com.github.ulviar.icli;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.Test;
+
+final class StreamScenarioIntegrationTest {
+
+    @Test
+    void listenDispatchesStdoutAndStderrChunksAndReportsExit() throws Exception {
+        CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session =
+                service.listen(call -> call.args("stdout-stderr", "out", "err").onOutput(chunks::add))) {
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertEquals(0, exit.exitCode().orElseThrow());
+            assertFalse(exit.timedOut());
+            assertTrue(chunks.stream()
+                    .anyMatch(chunk -> chunk.source() == StreamSource.STDOUT
+                            && chunk.text().contains("out")));
+            assertTrue(chunks.stream()
+                    .anyMatch(chunk -> chunk.source() == StreamSource.STDERR
+                            && chunk.text().contains("err")));
+            assertTrue(exit.diagnostics().text().contains("stdout: out"));
+            assertTrue(exit.diagnostics().text().contains("stderr: err"));
+        }
+    }
+
+    @Test
+    void listenClosesStdinOnStartByDefault() throws Exception {
+        CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session =
+                service.listen(call -> call.args("wait-eof").onOutput(chunks::add))) {
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertEquals(0, exit.exitCode().orElseThrow());
+            assertTrue(chunks.stream().anyMatch(chunk -> chunk.text().contains("eof:0")));
+        }
+    }
+
+    @Test
+    void listenCanKeepStdinOpenUntilCallerClosesIt() throws Exception {
+        CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session =
+                service.listen(call -> call.args("wait-eof").keepStdinOpen().onOutput(chunks::add))) {
+            Thread.sleep(100);
+            assertFalse(session.onExit().isDone());
+
+            session.closeStdin();
+
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+            assertEquals(0, exit.exitCode().orElseThrow());
+            assertTrue(chunks.stream().anyMatch(chunk -> chunk.text().contains("eof:0")));
+        }
+    }
+
+    @Test
+    void streamTimeoutStopsLongRunningProcess() throws Exception {
+        CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
+        CommandService service = fixtureService(StreamOptions.defaults().withTimeout(Duration.ofMillis(100)));
+
+        try (StreamSession session =
+                service.listen(call -> call.args("sleep", "5000").onOutput(chunks::add))) {
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertTrue(exit.timedOut());
+            assertTrue(chunks.stream().anyMatch(chunk -> chunk.text().contains("started")));
+        }
+    }
+
+    @Test
+    void explicitCloseReportsClosedExit() throws Exception {
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session = service.listen(call -> call.args("sleep", "5000"))) {
+            session.close();
+
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+            assertTrue(exit.closed());
+        }
+    }
+
+    @Test
+    void listenerFailureCompletesExitExceptionallyWithDiagnostics() {
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session =
+                service.listen(call -> call.args("stdout", "boom").onOutput(chunk -> {
+                    throw new IllegalStateException("listener failed");
+                }))) {
+            ExecutionException exception = assertThrows(
+                    ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+            StreamException streamException = assertInstanceOf(StreamException.class, exception.getCause());
+
+            assertTrue(streamException.diagnostics().text().contains("stdout: boom"));
+        }
+    }
+
+    @Test
+    void listenerCallbacksAreSerialized() throws Exception {
+        AtomicBoolean insideListener = new AtomicBoolean();
+        CopyOnWriteArrayList<String> chunks = new CopyOnWriteArrayList<>();
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session =
+                service.listen(call -> call.args("paired-streams", "100").onOutput(chunk -> {
+                    assertFalse(insideListener.getAndSet(true));
+                    try {
+                        chunks.add(chunk.text());
+                        Thread.sleep(50);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError("interrupted", exception);
+                    } finally {
+                        insideListener.set(false);
+                    }
+                }))) {
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertEquals(0, exit.exitCode().orElseThrow());
+            assertTrue(chunks.stream().anyMatch(text -> text.contains("out-start")));
+            assertTrue(chunks.stream().anyMatch(text -> text.contains("err-start")));
+        }
+    }
+
+    @Test
+    void callerCannotCompleteStreamExitFuture() throws Exception {
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session = service.listen(call -> call.args("sleep", "200"))) {
+            CompletableFuture<StreamExit> callerFuture = session.onExit();
+            callerFuture.complete(new StreamExit(
+                    java.util.OptionalInt.of(99), false, false, new StreamTranscript("fake", false), Duration.ZERO));
+
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+            assertEquals(0, exit.exitCode().orElseThrow());
+        }
+    }
+
+    @Test
+    void boundedDiagnosticsDoNotStoreEntireOutput() throws Exception {
+        CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(64));
+
+        try (StreamSession session = service.listen(call -> call.args("large-stdout", "128", "x"))) {
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertTrue(exit.diagnostics().truncated());
+            assertTrue(exit.diagnostics().text().length() <= 64);
+        }
+    }
+
+    @Test
+    void stderrIsDrainedWhileStreamingStdout() throws Exception {
+        CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
+        CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(1024));
+
+        try (StreamSession session = service.listen(
+                call -> call.args("flood-stderr", Integer.toString(256 * 1024)).onOutput(chunks::add))) {
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertEquals(0, exit.exitCode().orElseThrow());
+            assertTrue(chunks.stream()
+                    .anyMatch(chunk -> chunk.source() == StreamSource.STDOUT
+                            && chunk.text().contains("done")));
+            assertTrue(chunks.stream().anyMatch(chunk -> chunk.source() == StreamSource.STDERR));
+        }
+    }
+
+    private static CommandService fixtureService(StreamOptions streamOptions) {
+        CommandSpec command = CommandSpec.builder(javaExecutable())
+                .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
+                .build();
+        return new CommandService(
+                command,
+                RunOptions.defaults(),
+                SessionOptions.defaults(),
+                LineSessionOptions.defaults(),
+                streamOptions);
+    }
+
+    private static String javaExecutable() {
+        String executableName = isWindows() ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+}

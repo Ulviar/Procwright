@@ -12,7 +12,7 @@ Java/Kotlin приложений.
 должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
 
 Внешний пользовательский слой при этом остается scenario-first. Пользователь выбирает workflow (`run`,
-`lineSession`, `interactive`, `expect`), а библиотека разворачивает его в policies, общий launch plan и
+`lineSession`, `interactive`, `expect`, `listen`), а библиотека разворачивает его в policies, общий launch plan и
 scenario-specific execution plan. Это описано в [scenario-api.md](scenario-api.md).
 
 ## Входит в MVP
@@ -27,6 +27,7 @@ scenario-specific execution plan. Это описано в [scenario-api.md](sce
 - Минимальный line-oriented helper поверх session.
 - Небольшой expect helper после стабилизации session.
 - PTY как узкая transport strategy для session-сценариев.
+- Listen-only streaming helper с bounded diagnostics.
 - Детерминированный fixture/eval набор.
 
 ## Не входит в MVP
@@ -86,6 +87,16 @@ com.github.ulviar.icli
   LineSessionOptions
   LineResponse
   ResponseDecoder
+  StreamSession
+  StreamOptions
+  StreamInvocation
+  StreamChunk
+  StreamSource
+  StreamListener
+  StreamStdinPolicy
+  StreamExit
+  StreamTranscript
+  StreamException
   Expect
   ExpectOptions
   ExpectOutputFilter
@@ -110,8 +121,7 @@ com.github.ulviar.icli
 
 1. PTY hardening и кроссплатформенная матрица.
 2. Более богатый expect DSL.
-3. Listen-only streaming helper.
-4. Kotlin extensions.
-5. Process pooling отдельным модулем.
-6. MCP adapter templates.
-7. Benchmarks.
+3. Kotlin extensions.
+4. Process pooling отдельным модулем.
+5. MCP adapter templates.
+6. Benchmarks.

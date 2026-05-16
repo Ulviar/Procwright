@@ -30,7 +30,13 @@
 - Stdout и stderr дренируются параллельно.
 - Процесс, который пишет много в stderr и мало в stdout, не зависает.
 - Streaming listener получает chunks до завершения процесса.
-- Медленный listener не должен бесконечно раздувать память.
+- Медленный listener не должен бесконечно раздувать память; текущий `listen` вызывает listener синхронно и
+  сериализованно, тем самым применяя backpressure к pipe.
+- `listen` закрывает stdin на старте по умолчанию.
+- `keepStdinOpen()` позволяет отложить EOF, а `StreamSession.closeStdin()` завершает stdin без записи input.
+- Timeout stream-сценария проходит через общий shutdown path и помечает `StreamExit.timedOut()`.
+- Listener failure завершает `StreamSession.onExit()` exceptionally с bounded diagnostics.
+- Diagnostic transcript bounded и не хранит весь output.
 
 ## Interactive session
 
@@ -42,7 +48,7 @@
   чтения через session streams.
 - `close()` и idle timeout проходят через общий shutdown helper; отдельная hardening-проверка escalation path остается
   открытой.
-- Ctrl+C/interrupt поведение будет проверяться после появления signal/PTY transport.
+- Ctrl+C/interrupt поведение проверяется через PTY `TerminalSignal.INTERRUPT`.
 
 ## Line-oriented workflow
 

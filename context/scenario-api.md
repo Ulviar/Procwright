@@ -158,6 +158,35 @@ try (Session session = service.interactive(call -> call.args("-i"));
 }
 ```
 
+### `listen`
+
+Listen-only streaming workflow для `tail`, `logs --follow` и похожих процессов.
+
+Инварианты сценария:
+
+- stdout/stderr дренируются параллельно;
+- listener получает chunks синхронно из pump thread;
+- callback delivery сериализован: один listener не получает два chunks одновременно;
+- медленный listener создает backpressure на pipe, а не бесконечную очередь в памяти;
+- diagnostics bounded и доступны в `StreamExit`/`StreamException`;
+- stdin закрывается на старте по умолчанию;
+- если процессу нельзя сразу посылать EOF, caller выбирает `keepStdinOpen()` и позже вызывает `StreamSession.closeStdin()`;
+- timeout и listener failure завершают session через общий shutdown path.
+
+Пользовательский пример:
+
+```java
+try (StreamSession logs = service.listen(call -> call
+        .args("logs", "--follow")
+        .onOutput(chunk -> {
+            if (chunk.source() == StreamSource.STDERR) {
+                System.err.print(chunk.text());
+            }
+        }))) {
+    logs.onExit().join();
+}
+```
+
 ## Сценарий как preset, не как мешок flags
 
 Каждый сценарий должен иметь свой default profile:
@@ -180,6 +209,12 @@ interactive
   capture: caller-driven streams
   terminal: disabled by default; per-call AUTO/REQUIRED available through session invocation
   timeout: idle/lifecycle policy
+
+listen
+  stdin: close on start by default
+  capture: bounded diagnostics window, not full output
+  listener: synchronous chunks with process backpressure
+  timeout: optional absolute stream timeout
 ```
 
 Пользователь может переопределить части профиля:
@@ -201,6 +236,7 @@ service.run(call -> call
 CommandService.run(...)
 CommandService.lineSession(...)
 CommandService.interactive(...)
+CommandService.listen(...)
 Session.expect()
 ```
 
@@ -228,6 +264,7 @@ Scenario-first не означает "класс на каждый use case".
 - `lineSession`;
 - `interactive`;
 - `expect`;
+- `listen`;
 - позже `pooled`.
 
 Плохо на раннем этапе:
