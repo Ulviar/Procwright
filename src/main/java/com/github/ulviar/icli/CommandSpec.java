@@ -19,12 +19,14 @@ public final class CommandSpec {
     private final List<String> arguments;
     private final Path workingDirectory;
     private final Map<String, String> environment;
+    private final boolean shell;
 
     private CommandSpec(Builder builder) {
         executable = builder.executable;
         arguments = List.copyOf(builder.arguments);
         workingDirectory = builder.workingDirectory;
         environment = Collections.unmodifiableMap(new LinkedHashMap<>(builder.environment));
+        shell = builder.shell;
     }
 
     /**
@@ -38,6 +40,16 @@ public final class CommandSpec {
     }
 
     /**
+     * Creates a shell command specification.
+     *
+     * @param commandLine command line interpreted by the system shell
+     * @return immutable shell command specification
+     */
+    public static CommandSpec shell(String commandLine) {
+        return new Builder(commandLine, true).build();
+    }
+
+    /**
      * Creates a command specification builder.
      *
      * @param executable executable name or path
@@ -48,9 +60,9 @@ public final class CommandSpec {
     }
 
     /**
-     * Returns the executable name or path.
+     * Returns the direct executable name/path or explicit shell command line.
      *
-     * @return executable name or path
+     * @return direct executable name/path or shell command line
      */
     public String executable() {
         return executable;
@@ -83,6 +95,15 @@ public final class CommandSpec {
         return environment;
     }
 
+    /**
+     * Returns whether this command is interpreted by the system shell.
+     *
+     * @return {@code true} for explicit shell commands
+     */
+    public boolean usesShell() {
+        return shell;
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {
@@ -94,12 +115,13 @@ public final class CommandSpec {
         return executable.equals(that.executable)
                 && arguments.equals(that.arguments)
                 && Objects.equals(workingDirectory, that.workingDirectory)
-                && environment.equals(that.environment);
+                && environment.equals(that.environment)
+                && shell == that.shell;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(executable, arguments, workingDirectory, environment);
+        return Objects.hash(executable, arguments, workingDirectory, environment, shell);
     }
 
     /**
@@ -110,10 +132,16 @@ public final class CommandSpec {
         private final String executable;
         private final ArrayList<String> arguments = new ArrayList<>();
         private final LinkedHashMap<String, String> environment = new LinkedHashMap<>();
+        private final boolean shell;
         private Path workingDirectory;
 
         private Builder(String executable) {
+            this(executable, false);
+        }
+
+        private Builder(String executable, boolean shell) {
             this.executable = requireText(executable, "executable");
+            this.shell = shell;
         }
 
         /**

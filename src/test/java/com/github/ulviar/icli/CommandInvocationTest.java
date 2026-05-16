@@ -3,6 +3,7 @@ package com.github.ulviar.icli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -36,6 +37,9 @@ final class CommandInvocationTest {
                 .putEnvironment("TERM", "dumb")
                 .capture(capturePolicy)
                 .shutdown(shutdownPolicy)
+                .timeout(Duration.ofSeconds(3))
+                .charset(StandardCharsets.UTF_8)
+                .output(OutputMode.MERGED)
                 .build();
 
         assertEquals("status", invocation.arguments().getFirst());
@@ -43,6 +47,9 @@ final class CommandInvocationTest {
         assertEquals("dumb", invocation.environment().get("TERM"));
         assertEquals(capturePolicy, invocation.capturePolicy().orElseThrow());
         assertEquals(shutdownPolicy, invocation.shutdownPolicy().orElseThrow());
+        assertEquals(Duration.ofSeconds(3), invocation.timeout().orElseThrow());
+        assertEquals(StandardCharsets.UTF_8, invocation.charset().orElseThrow());
+        assertEquals(OutputMode.MERGED, invocation.outputMode().orElseThrow());
     }
 
     @Test
@@ -67,5 +74,12 @@ final class CommandInvocationTest {
         CommandInvocation.Builder builder = CommandInvocation.builder();
 
         assertThrows(IllegalArgumentException.class, () -> builder.putEnvironment("", "value"));
+    }
+
+    @Test
+    void rejectsNegativeTimeout() {
+        CommandInvocation.Builder builder = CommandInvocation.builder();
+
+        assertThrows(IllegalArgumentException.class, () -> builder.timeout(Duration.ofMillis(-1)));
     }
 }

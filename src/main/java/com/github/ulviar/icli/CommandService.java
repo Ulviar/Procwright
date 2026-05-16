@@ -33,6 +33,16 @@ public final class CommandService {
     }
 
     /**
+     * Creates a service for an explicit shell command using default run options.
+     *
+     * @param commandLine command line interpreted by the system shell
+     * @return command service
+     */
+    public static CommandService forShellCommand(String commandLine) {
+        return new CommandService(CommandSpec.shell(commandLine), RunOptions.defaults());
+    }
+
+    /**
      * Returns the base command specification.
      *
      * @return base command specification
@@ -53,19 +63,18 @@ public final class CommandService {
     /**
      * Defines a one-shot run scenario.
      *
-     * <p>The phase 1 foundation validates the invocation callback and intentionally fails before process execution.
-     *
      * @param configure invocation callback
-     * @return command result when the execution kernel is implemented
-     * @throws UnsupportedOperationException until the execution kernel is implemented
+     * @return command result
+     * @throws CommandExecutionException when the process cannot be started, supervised, or captured
      */
     public CommandResult run(Consumer<CommandInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
 
         CommandInvocation.Builder builder = CommandInvocation.builder();
         configure.accept(builder);
-        builder.build();
+        CommandInvocation invocation = builder.build();
 
-        throw new UnsupportedOperationException("Command execution is not implemented in the phase 1 foundation.");
+        ExecutionPlan plan = ExecutionPlanResolver.resolve(commandSpec, runOptions, invocation);
+        return ProcessKernel.run(plan);
     }
 }

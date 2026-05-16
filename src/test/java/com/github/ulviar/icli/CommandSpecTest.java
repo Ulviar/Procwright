@@ -16,6 +16,11 @@ final class CommandSpecTest {
     }
 
     @Test
+    void rejectsBlankShellCommand() {
+        assertThrows(IllegalArgumentException.class, () -> CommandSpec.shell(" "));
+    }
+
+    @Test
     void capturesImmutableArgumentsSnapshot() {
         ArrayList<String> arguments = new ArrayList<>();
         arguments.add("status");

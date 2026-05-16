@@ -2,9 +2,9 @@
 
 ## Статус
 
-Фаза 1 начата. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline, compile-tested API sketches и
-детерминированную process fixture. Реального execution kernel еще нет: `CommandService.run(...)` валидирует invocation
-callback и явно падает как не реализованный до фазы 2.
+Фаза 2 начата. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline, compile-tested API sketches,
+детерминированную process fixture и первый one-shot execution kernel. `CommandService.run(...)` уже запускает реальные
+процессы, но resolver/profile layer, interactive/session, expect и PTY еще не реализованы.
 
 ## Release-relevant критерии
 
@@ -12,10 +12,10 @@ callback и явно падает как не реализованный до ф
 | --- | --- | --- |
 | Engineering charter | Active | Качество важнее скорости; требования закреплены как проектный стандарт. |
 | Scenario API | Started | Compile-tested examples фиксируют `CommandService.run(...)` как one-shot workflow. |
-| Invariant model | Started | `CommandSpec`, `CapturePolicy`, `ShutdownPolicy` и fixture result уже валидируют базовые инварианты. |
-| One-shot execution | Not started | Direct argv запуск, параллельный drain stdout/stderr. |
-| Capture policy | Started | Bounded capture имеет value object и тесты; streaming/discard еще не добавлены. |
-| Timeout/shutdown | Started | Shutdown policy value object есть; runtime shutdown behavior начнется в фазе 2. |
+| Invariant model | Started | Command/invocation/options разворачиваются в валидированный `ExecutionPlan`. |
+| One-shot execution | Started | Direct argv, explicit shell, working directory, env, charset, timeout и drain покрыты integration tests. |
+| Capture policy | Started | Bounded stdout/stderr capture и truncation flags покрыты; streaming/discard еще не добавлены. |
+| Timeout/shutdown | Started | Timeout supervision и soft-then-hard shutdown path покрыты integration tests. |
 | Command model | Started | Immutable command spec и per-call invocation builder компилируются и покрыты базовыми тестами. |
 | Interactive session | Not started | Есть минимальная session abstraction с lifecycle tests. |
 | Expect helper | Deferred | Добавляется только после session. |
@@ -27,8 +27,9 @@ callback и явно падает как не реализованный до ф
 ## Решения, которые нужно принять
 
 - Итоговые имена `CommandSpec` / `CommandService` / `RunOptions`.
-- Полный набор one-shot policies для фазы 2.
-- Формат structured failure model для реального runtime.
+- Нужно ли оставлять `CommandService` итоговым именем или переименовать до stabilization.
+- Полный набор capture policies после bounded-only MVP.
+- Формат diagnostics/failure metadata до расширения streaming/session.
 
 ## Что считается прогрессом
 

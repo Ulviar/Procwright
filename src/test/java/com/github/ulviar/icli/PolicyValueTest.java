@@ -30,4 +30,16 @@ final class PolicyValueTest {
                 IllegalArgumentException.class,
                 () -> ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ofMillis(-1)));
     }
+
+    @Test
+    void runOptionsRejectNegativeTimeout() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new RunOptions(
+                        CapturePolicy.bounded(512),
+                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                        Duration.ofMillis(-1),
+                        java.nio.charset.StandardCharsets.UTF_8,
+                        OutputMode.SEPARATE));
+    }
 }

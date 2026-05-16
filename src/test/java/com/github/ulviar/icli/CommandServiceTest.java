@@ -16,18 +16,17 @@ final class CommandServiceTest {
     }
 
     @Test
-    void runValidatesConfigurationCallbackBeforeExecutionExists() {
+    void runValidatesConfigurationCallback() {
         CommandService service = CommandService.forCommand("git");
 
         assertThrows(NullPointerException.class, () -> service.run(null));
     }
 
     @Test
-    void runScenarioIsExplicitlyUnavailableUntilKernelExists() {
-        CommandService service = CommandService.forCommand("git");
+    void createsServiceForShellCommandWithDefaultOptions() {
+        CommandService service = CommandService.forShellCommand("echo hello");
 
-        assertThrows(
-                UnsupportedOperationException.class,
-                () -> service.run(call -> call.args("status").capture(CapturePolicy.bounded(1024))));
+        assertEquals("echo hello", service.commandSpec().executable());
+        assertEquals(RunOptions.defaults(), service.runOptions());
     }
 }

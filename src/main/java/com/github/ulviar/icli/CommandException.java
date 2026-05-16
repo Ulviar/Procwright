@@ -16,8 +16,7 @@ public final class CommandException extends RuntimeException {
      * @param result command result
      */
     public CommandException(CommandResult result) {
-        super("Command exited with code "
-                + Objects.requireNonNull(result, "result").exitCode());
+        super(message(Objects.requireNonNull(result, "result")));
         this.result = result;
     }
 
@@ -28,5 +27,15 @@ public final class CommandException extends RuntimeException {
      */
     public CommandResult result() {
         return result;
+    }
+
+    private static String message(CommandResult result) {
+        if (result.timedOut()) {
+            return "Command timed out";
+        }
+        return result.exitCode().stream()
+                .mapToObj(exitCode -> "Command exited with code " + exitCode)
+                .findFirst()
+                .orElse("Command did not produce an exit code");
     }
 }

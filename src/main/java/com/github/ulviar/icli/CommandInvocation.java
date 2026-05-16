@@ -1,6 +1,8 @@
 package com.github.ulviar.icli;
 
+import java.nio.charset.Charset;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -20,6 +22,9 @@ public final class CommandInvocation {
     private final Map<String, String> environment;
     private final CapturePolicy capturePolicy;
     private final ShutdownPolicy shutdownPolicy;
+    private final Duration timeout;
+    private final Charset charset;
+    private final OutputMode outputMode;
 
     private CommandInvocation(Builder builder) {
         arguments = List.copyOf(builder.arguments);
@@ -27,6 +32,9 @@ public final class CommandInvocation {
         environment = Collections.unmodifiableMap(new LinkedHashMap<>(builder.environment));
         capturePolicy = builder.capturePolicy;
         shutdownPolicy = builder.shutdownPolicy;
+        timeout = builder.timeout;
+        charset = builder.charset;
+        outputMode = builder.outputMode;
     }
 
     /**
@@ -83,6 +91,33 @@ public final class CommandInvocation {
         return Optional.ofNullable(shutdownPolicy);
     }
 
+    /**
+     * Returns the per-call timeout override.
+     *
+     * @return timeout when configured
+     */
+    public Optional<Duration> timeout() {
+        return Optional.ofNullable(timeout);
+    }
+
+    /**
+     * Returns the per-call charset override.
+     *
+     * @return charset when configured
+     */
+    public Optional<Charset> charset() {
+        return Optional.ofNullable(charset);
+    }
+
+    /**
+     * Returns the per-call output mode override.
+     *
+     * @return output mode when configured
+     */
+    public Optional<OutputMode> outputMode() {
+        return Optional.ofNullable(outputMode);
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {
@@ -95,12 +130,16 @@ public final class CommandInvocation {
                 && Objects.equals(workingDirectory, that.workingDirectory)
                 && environment.equals(that.environment)
                 && Objects.equals(capturePolicy, that.capturePolicy)
-                && Objects.equals(shutdownPolicy, that.shutdownPolicy);
+                && Objects.equals(shutdownPolicy, that.shutdownPolicy)
+                && Objects.equals(timeout, that.timeout)
+                && Objects.equals(charset, that.charset)
+                && Objects.equals(outputMode, that.outputMode);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(arguments, workingDirectory, environment, capturePolicy, shutdownPolicy);
+        return Objects.hash(
+                arguments, workingDirectory, environment, capturePolicy, shutdownPolicy, timeout, charset, outputMode);
     }
 
     /**
@@ -113,6 +152,9 @@ public final class CommandInvocation {
         private Path workingDirectory;
         private CapturePolicy capturePolicy;
         private ShutdownPolicy shutdownPolicy;
+        private Duration timeout;
+        private Charset charset;
+        private OutputMode outputMode;
 
         private Builder() {}
 
@@ -201,12 +243,53 @@ public final class CommandInvocation {
         }
 
         /**
+         * Sets the per-call timeout override.
+         *
+         * @param timeout timeout
+         * @return this builder
+         */
+        public Builder timeout(Duration timeout) {
+            this.timeout = requireNonNegative(timeout, "timeout");
+            return this;
+        }
+
+        /**
+         * Sets the per-call output charset override.
+         *
+         * @param charset output charset
+         * @return this builder
+         */
+        public Builder charset(Charset charset) {
+            this.charset = Objects.requireNonNull(charset, "charset");
+            return this;
+        }
+
+        /**
+         * Sets the per-call output mode override.
+         *
+         * @param outputMode output mode
+         * @return this builder
+         */
+        public Builder output(OutputMode outputMode) {
+            this.outputMode = Objects.requireNonNull(outputMode, "outputMode");
+            return this;
+        }
+
+        /**
          * Builds an immutable invocation draft.
          *
          * @return immutable invocation draft
          */
         public CommandInvocation build() {
             return new CommandInvocation(this);
+        }
+
+        private static Duration requireNonNegative(Duration duration, String name) {
+            Objects.requireNonNull(duration, name);
+            if (duration.isNegative()) {
+                throw new IllegalArgumentException(name + " must not be negative");
+            }
+            return duration;
         }
     }
 }
