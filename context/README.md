@@ -18,6 +18,8 @@
 - [quality/engineering-charter.md](quality/engineering-charter.md) — обязательные требования к качеству проекта.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и известные разрывы.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
+- [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — Java 21 baseline для clean rewrite.
+- [decisions/ADR-0003-pty-packaging.md](decisions/ADR-0003-pty-packaging.md) — PTY не входит в core foundation.
 
 ## Правило навигации
 

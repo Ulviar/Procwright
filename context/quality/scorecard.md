@@ -2,32 +2,33 @@
 
 ## Статус
 
-Текущая ветка содержит только контекст для чистого переписывания. Кода библиотеки пока нет.
+Фаза 1 начата. Ветка содержит контекст clean rewrite, Gradle foundation, compile-tested API sketches и
+детерминированную process fixture. Реального execution kernel еще нет: `CommandService.run(...)` валидирует invocation
+callback и явно падает как не реализованный до фазы 2.
 
 ## Release-relevant критерии
 
 | Область | Статус | Что должно быть верно |
 | --- | --- | --- |
 | Engineering charter | Active | Качество важнее скорости; требования закреплены как проектный стандарт. |
-| Scenario API | Not started | Пользователь выбирает workflow, а не низкоуровневые flags. |
-| Invariant model | Not started | Value objects, policies и resolver изолируют правила API/runtime. |
+| Scenario API | Started | Compile-tested examples фиксируют `CommandService.run(...)` как one-shot workflow. |
+| Invariant model | Started | `CommandSpec`, `CapturePolicy`, `ShutdownPolicy` и fixture result уже валидируют базовые инварианты. |
 | One-shot execution | Not started | Direct argv запуск, параллельный drain stdout/stderr. |
-| Capture policy | Not started | Bounded, streaming и discard policies имеют тесты. |
-| Timeout/shutdown | Not started | Есть soft-then-hard shutdown и понятная диагностика. |
-| Command model | Not started | Immutable command spec и per-call builder удобны из Java/Kotlin. |
+| Capture policy | Started | Bounded capture имеет value object и тесты; streaming/discard еще не добавлены. |
+| Timeout/shutdown | Started | Shutdown policy value object есть; runtime shutdown behavior начнется в фазе 2. |
+| Command model | Started | Immutable command spec и per-call invocation builder компилируются и покрыты базовыми тестами. |
 | Interactive session | Not started | Есть минимальная session abstraction с lifecycle tests. |
 | Expect helper | Deferred | Добавляется только после session. |
 | PTY | Deferred | Узкий transport/provider, без раздувания public API. |
-| Fixture/evals | Not started | Детерминированные сценарии покрывают основные failure modes. |
-| Documentation | Not started | README описывает только реализованное поведение. |
+| Fixture/evals | Started | Process fixture моделирует success, stderr, large output и timeout. |
+| Documentation | Started | README описывает foundation и явно говорит, что runtime пока неполный. |
 | Pooling | Deferred | Не входит в MVP. |
 
 ## Решения, которые нужно принять
 
-- Java baseline: Java 21 или Java 25.
-- PTY packaging: core dependency или optional module.
 - Итоговые имена `CommandSpec` / `CommandService` / `RunOptions`.
-- Формат fixture: test utility или маленький CLI-модуль.
+- Полный набор one-shot policies для фазы 2.
+- Формат structured failure model для реального runtime.
 
 ## Что считается прогрессом
 
