@@ -1,0 +1,40 @@
+package com.github.ulviar.icli;
+
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Structured diagnostic event.
+ *
+ * @param type event type
+ * @param timestamp event timestamp
+ * @param scenario scenario that emitted the event
+ * @param command redaction-friendly command echo
+ * @param attributes structured event attributes
+ */
+public record DiagnosticEvent(
+        DiagnosticEventType type,
+        Instant timestamp,
+        String scenario,
+        CommandEcho command,
+        Map<String, String> attributes) {
+
+    /**
+     * Validates and snapshots a diagnostic event.
+     *
+     * @param type event type
+     * @param timestamp event timestamp
+     * @param scenario scenario that emitted the event
+     * @param command redaction-friendly command echo
+     * @param attributes structured event attributes
+     */
+    public DiagnosticEvent {
+        Objects.requireNonNull(type, "type");
+        Objects.requireNonNull(timestamp, "timestamp");
+        CommandSpec.requireText(scenario, "scenario");
+        Objects.requireNonNull(command, "command");
+        attributes = Map.copyOf(new LinkedHashMap<>(attributes));
+    }
+}

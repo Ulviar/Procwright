@@ -15,7 +15,19 @@ final class ProcessKernel {
 
     static CommandResult run(ExecutionPlan plan) {
         Instant started = Instant.now();
-        Process process = ProcessLifecycle.start(plan.launchPlan());
+        Diagnostics diagnostics = Diagnostics.of(plan.diagnosticsOptions(), "run", CommandEcho.from(plan.launchPlan()));
+        diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
+        Process process;
+        try {
+            process = ProcessLifecycle.start(plan.launchPlan());
+            diagnostics.emit(
+                    DiagnosticEventType.PROCESS_STARTED, Diagnostics.attributes("pid", Long.toString(process.pid())));
+        } catch (RuntimeException exception) {
+            diagnostics.emit(
+                    DiagnosticEventType.PROCESS_FAILED,
+                    Diagnostics.attributes("error", exception.getClass().getName()));
+            throw exception;
+        }
 
         ExecutorService executor = Executors.newThreadPerTaskExecutor(
                 Thread.ofVirtual().name("icli-output-pump-", 0).factory());
@@ -29,8 +41,15 @@ final class ProcessKernel {
 
             try {
                 boolean timedOut = !waitFor(process, plan.timeout());
-                OptionalInt exitCode =
-                        timedOut ? stopTimedOut(process, plan.shutdownPolicy()) : OptionalInt.of(process.exitValue());
+                OptionalInt exitCode;
+                if (timedOut) {
+                    diagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
+                    diagnostics.emit(
+                            DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "timeout"));
+                    exitCode = stopTimedOut(process, plan.shutdownPolicy());
+                } else {
+                    exitCode = OptionalInt.of(process.exitValue());
+                }
 
                 if (timedOut) {
                     stdin.cancel(true);
@@ -40,6 +59,25 @@ final class ProcessKernel {
 
                 CapturedOutput stdoutOutput = await(stdout);
                 CapturedOutput stderrOutput = stderr == null ? CapturedOutput.empty() : await(stderr);
+                if (stdoutOutput.truncated()) {
+                    diagnostics.emit(
+                            DiagnosticEventType.OUTPUT_TRUNCATED,
+                            Diagnostics.attributes(
+                                    "source",
+                                    "stdout",
+                                    "limitBytes",
+                                    Integer.toString(plan.capturePolicy().byteLimit())));
+                }
+                if (stderrOutput.truncated()) {
+                    diagnostics.emit(
+                            DiagnosticEventType.OUTPUT_TRUNCATED,
+                            Diagnostics.attributes(
+                                    "source",
+                                    "stderr",
+                                    "limitBytes",
+                                    Integer.toString(plan.capturePolicy().byteLimit())));
+                }
+                diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, exitAttributes(exitCode, timedOut));
 
                 return new CommandResult(
                         exitCode,
@@ -50,6 +88,13 @@ final class ProcessKernel {
                         timedOut,
                         Duration.between(started, Instant.now()));
             } catch (RuntimeException exception) {
+                diagnostics.emit(
+                        DiagnosticEventType.PROCESS_FAILED,
+                        Diagnostics.attributes("error", exception.getClass().getName()));
+                if (process.isAlive()) {
+                    diagnostics.emit(
+                            DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "failure"));
+                }
                 process.destroyForcibly();
                 closeStreams(process);
                 throw exception;
@@ -113,5 +158,12 @@ final class ProcessKernel {
         ProcessLifecycle.closeStdinQuietly(process);
         ProcessLifecycle.closeQuietly(process.getInputStream());
         ProcessLifecycle.closeQuietly(process.getErrorStream());
+    }
+
+    private static java.util.Map<String, String> exitAttributes(OptionalInt exitCode, boolean timedOut) {
+        java.util.LinkedHashMap<String, String> attributes = new java.util.LinkedHashMap<>();
+        attributes.put("timedOut", Boolean.toString(timedOut));
+        exitCode.ifPresent(value -> attributes.put("exitCode", Integer.toString(value)));
+        return attributes;
     }
 }

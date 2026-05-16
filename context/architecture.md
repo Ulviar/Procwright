@@ -28,6 +28,7 @@ scenario-specific execution plan. Это описано в [scenario-api.md](sce
 - Небольшой expect helper после стабилизации session.
 - PTY как узкая transport strategy для session-сценариев.
 - Listen-only streaming helper с bounded diagnostics.
+- Наблюдательная diagnostics layer без влияния на runtime behavior.
 - Детерминированный fixture/eval набор.
 
 ## Не входит в MVP
@@ -38,7 +39,7 @@ scenario-specific execution plan. Это описано в [scenario-api.md](sce
 - Kotlin coroutine/Flow модуль.
 - Benchmarks.
 - Competitor samples.
-- Публичная diagnostics bus.
+- Централизованная diagnostics bus или logging framework.
 - Отдельный public runner под каждый сценарий.
 - Release publishing.
 
@@ -63,6 +64,7 @@ Runtime
   capture policies
   timeout supervision
   shutdown policy
+  diagnostics emission
 
 Transport
   pipe transport
@@ -97,6 +99,12 @@ com.github.ulviar.icli
   StreamExit
   StreamTranscript
   StreamException
+  DiagnosticsOptions
+  DiagnosticEvent
+  DiagnosticEventType
+  DiagnosticListener
+  DiagnosticTranscriptSink
+  CommandEcho
   Expect
   ExpectOptions
   ExpectOutputFilter

@@ -27,6 +27,7 @@ public final class StreamSession implements AutoCloseable {
     private final Duration timeout;
     private final Charset charset;
     private final StreamListener listener;
+    private final Diagnostics eventDiagnostics;
     private final TranscriptBuffer diagnostics;
     private final Instant started = Instant.now();
     private final CompletableFuture<StreamExit> exit = new CompletableFuture<>();
@@ -36,14 +37,16 @@ public final class StreamSession implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean stopping = new AtomicBoolean();
     private final AtomicBoolean timedOut = new AtomicBoolean();
+    private final AtomicBoolean truncationEmitted = new AtomicBoolean();
     private final ReentrantLock deliveryLock = new ReentrantLock();
 
-    StreamSession(Session session, StreamExecutionPlan plan) {
+    StreamSession(Session session, StreamExecutionPlan plan, Diagnostics eventDiagnostics) {
         this.session = Objects.requireNonNull(session, "session");
         Objects.requireNonNull(plan, "plan");
         this.timeout = plan.timeout();
         this.charset = plan.sessionPlan().charset();
         this.listener = plan.listener();
+        this.eventDiagnostics = Objects.requireNonNull(eventDiagnostics, "eventDiagnostics");
         this.diagnostics = new TranscriptBuffer(plan.diagnosticLimit());
         this.session.claimOutputOwner("StreamSession");
 
@@ -88,9 +91,14 @@ public final class StreamSession implements AutoCloseable {
      */
     @Override
     public void close() {
-        closed.set(true);
-        stopping.set(true);
-        session.close();
+        if (closed.compareAndSet(false, true)) {
+            boolean alreadyStopping = stopping.getAndSet(true);
+            if (!alreadyStopping && !session.onExit().isDone()) {
+                eventDiagnostics.emit(
+                        DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "close"));
+            }
+            session.close();
+        }
     }
 
     private void startPump(StreamSource source, InputStream stream) {
@@ -106,7 +114,13 @@ public final class StreamSession implements AutoCloseable {
                     continue;
                 }
                 String text = new String(buffer, 0, count);
-                diagnostics.append(source, text);
+                boolean truncated = diagnostics.append(source, text);
+                if (truncated && truncationEmitted.compareAndSet(false, true)) {
+                    eventDiagnostics.emit(
+                            DiagnosticEventType.OUTPUT_TRUNCATED,
+                            Diagnostics.attributes(
+                                    "source", "diagnostics", "limitChars", Integer.toString(diagnostics.limit())));
+                }
                 if (!deliver(new StreamChunk(source, text))) {
                     return;
                 }
@@ -128,6 +142,7 @@ public final class StreamSession implements AutoCloseable {
             listener.onChunk(chunk);
             return true;
         } catch (RuntimeException exception) {
+            eventDiagnostics.emit(DiagnosticEventType.LISTENER_FAILED);
             recordFailure("Streaming listener failed", exception);
             return false;
         } finally {
@@ -155,6 +170,9 @@ public final class StreamSession implements AutoCloseable {
             if (!exit.isDone()) {
                 timedOut.set(true);
                 stopping.set(true);
+                eventDiagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
+                eventDiagnostics.emit(
+                        DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "timeout"));
                 session.close();
             }
         });
@@ -164,6 +182,7 @@ public final class StreamSession implements AutoCloseable {
         StreamException exception = new StreamException(message, diagnostics.snapshot(), cause);
         if (failure.compareAndSet(null, exception)) {
             stopping.set(true);
+            eventDiagnostics.emit(DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "failure"));
             session.close();
         }
     }
@@ -180,6 +199,9 @@ public final class StreamSession implements AutoCloseable {
             return;
         }
 
+        eventDiagnostics.emit(
+                DiagnosticEventType.PROCESS_EXITED,
+                exitAttributes(processExit, timedOut.get() || processExit.timedOut()));
         exit.complete(new StreamExit(
                 processExit.exitCode(),
                 timedOut.get() || processExit.timedOut(),
@@ -204,6 +226,13 @@ public final class StreamSession implements AutoCloseable {
         }
     }
 
+    private static java.util.Map<String, String> exitAttributes(SessionExit processExit, boolean timedOut) {
+        java.util.LinkedHashMap<String, String> attributes = new java.util.LinkedHashMap<>();
+        attributes.put("timedOut", Boolean.toString(timedOut));
+        processExit.exitCode().ifPresent(value -> attributes.put("exitCode", Integer.toString(value)));
+        return attributes;
+    }
+
     private static final class TranscriptBuffer {
 
         private final int limit;
@@ -219,7 +248,12 @@ public final class StreamSession implements AutoCloseable {
             this.limit = limit;
         }
 
-        private synchronized void append(StreamSource source, String chunk) {
+        private int limit() {
+            return limit;
+        }
+
+        private synchronized boolean append(StreamSource source, String chunk) {
+            boolean alreadyTruncated = truncated;
             for (int index = 0; index < chunk.length(); index++) {
                 String label = source.label();
                 if (atLineStart || !label.equals(currentSource)) {
@@ -241,6 +275,7 @@ public final class StreamSession implements AutoCloseable {
                 text.delete(0, text.length() - limit);
                 truncated = true;
             }
+            return truncated && !alreadyTruncated;
         }
 
         private synchronized StreamTranscript snapshot() {

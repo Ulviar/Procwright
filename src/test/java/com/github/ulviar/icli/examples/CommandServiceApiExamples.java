@@ -4,6 +4,7 @@ import com.github.ulviar.icli.CapturePolicy;
 import com.github.ulviar.icli.CommandResult;
 import com.github.ulviar.icli.CommandService;
 import com.github.ulviar.icli.CommandSpec;
+import com.github.ulviar.icli.DiagnosticsOptions;
 import com.github.ulviar.icli.Expect;
 import com.github.ulviar.icli.ExpectOptions;
 import com.github.ulviar.icli.LineResponse;
@@ -107,5 +108,17 @@ final class CommandServiceApiExamples {
                 }))) {
             stream.onExit().join();
         }
+    }
+
+    void diagnosticsScenario() {
+        CommandService tool = CommandService.forCommand("tool")
+                .withDiagnostics(DiagnosticsOptions.defaults().withListener(event -> {
+                    if (event.attributes().containsKey("exitCode")) {
+                        System.out.println(
+                                event.type() + ":" + event.attributes().get("exitCode"));
+                    }
+                }));
+
+        tool.run(call -> call.args("--version"));
     }
 }

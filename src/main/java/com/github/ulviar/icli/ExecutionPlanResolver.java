@@ -13,10 +13,18 @@ final class ExecutionPlanResolver {
     private ExecutionPlanResolver() {}
 
     static ExecutionPlan resolve(CommandSpec spec, RunOptions options, CommandInvocation invocation) {
-        return resolve(ScenarioProfile.run(options), spec, invocation);
+        return resolve(ScenarioProfile.run(options), spec, invocation, DiagnosticsOptions.defaults());
     }
 
     static ExecutionPlan resolve(ScenarioProfile.Run profile, CommandSpec spec, CommandInvocation invocation) {
+        return resolve(profile, spec, invocation, DiagnosticsOptions.defaults());
+    }
+
+    static ExecutionPlan resolve(
+            ScenarioProfile.Run profile,
+            CommandSpec spec,
+            CommandInvocation invocation,
+            DiagnosticsOptions diagnosticsOptions) {
         if (profile.terminalPolicy() == TerminalPolicy.REQUIRED) {
             throw new IllegalArgumentException("run scenario does not have a terminal-capable transport yet");
         }
@@ -28,7 +36,8 @@ final class ExecutionPlanResolver {
                 invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
                 invocation.timeout().orElse(profile.timeout()),
                 invocation.charset().orElse(profile.charset()),
-                invocation.input().map(StdinPolicy::input).orElse(profile.stdin()));
+                invocation.input().map(StdinPolicy::input).orElse(profile.stdin()),
+                diagnosticsOptions);
     }
 
     static SessionExecutionPlan resolve(
@@ -68,6 +77,14 @@ final class ExecutionPlanResolver {
     }
 
     static StreamExecutionPlan resolve(ScenarioProfile.Stream profile, CommandSpec spec, StreamInvocation invocation) {
+        return resolve(profile, spec, invocation, DiagnosticsOptions.defaults());
+    }
+
+    static StreamExecutionPlan resolve(
+            ScenarioProfile.Stream profile,
+            CommandSpec spec,
+            StreamInvocation invocation,
+            DiagnosticsOptions diagnosticsOptions) {
         InvocationShape invocationShape = shape(invocation);
         LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, OutputMode.SEPARATE);
         SessionExecutionPlan sessionPlan = new SessionExecutionPlan(
@@ -82,7 +99,8 @@ final class ExecutionPlanResolver {
                 invocation.timeout().orElse(profile.timeout()),
                 invocation.stdinPolicy(),
                 profile.diagnosticLimit(),
-                invocation.listener());
+                invocation.listener(),
+                diagnosticsOptions);
     }
 
     private static LaunchPlan launchPlan(

@@ -38,6 +38,19 @@
 - Listener failure завершает `StreamSession.onExit()` exceptionally с bounded diagnostics.
 - Diagnostic transcript bounded и не хранит весь output.
 
+## Diagnostics
+
+- `run` emits structured lifecycle events: command prepared, process started, process exited.
+- `run` emits output truncation metadata with stream source and byte limit.
+- `run` emits timeout and shutdown-request events on timeout.
+- `listen` emits lifecycle, timeout, shutdown and listener-failure events.
+- Command echo is redaction-friendly: raw argument values and environment values are not emitted; executable, argument
+  count and environment names are listed.
+- Diagnostic listener and transcript sink failures, including non-runtime failures, do not change command behavior.
+- Diagnostic listener and transcript sink delivery is best-effort asynchronous, so slow diagnostics callbacks do not
+  block the process runtime path.
+- Test fixtures provide a thread-safe diagnostic recorder for assertions.
+
 ## Interactive session
 
 - Session открывается и закрывается без утечки процесса.

@@ -13,7 +13,8 @@ record ExecutionPlan(
         ShutdownPolicy shutdownPolicy,
         Duration timeout,
         Charset charset,
-        StdinPolicy stdin) {
+        StdinPolicy stdin,
+        DiagnosticsOptions diagnosticsOptions) {
 
     ExecutionPlan {
         Objects.requireNonNull(launchPlan, "launchPlan");
@@ -25,6 +26,7 @@ record ExecutionPlan(
         }
         Objects.requireNonNull(charset, "charset");
         Objects.requireNonNull(stdin, "stdin");
+        Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
     }
 
     LaunchMode launchMode() {

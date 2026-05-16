@@ -8,7 +8,8 @@ record StreamExecutionPlan(
         Duration timeout,
         StreamStdinPolicy stdinPolicy,
         int diagnosticLimit,
-        StreamListener listener) {
+        StreamListener listener,
+        DiagnosticsOptions diagnosticsOptions) {
 
     StreamExecutionPlan {
         Objects.requireNonNull(sessionPlan, "sessionPlan");
@@ -21,5 +22,6 @@ record StreamExecutionPlan(
             throw new IllegalArgumentException("diagnosticLimit must be positive");
         }
         Objects.requireNonNull(listener, "listener");
+        Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
     }
 }

@@ -27,6 +27,7 @@ public final class Session implements AutoCloseable {
     private final ShutdownPolicy shutdownPolicy;
     private final Charset charset;
     private final Duration idleTimeout;
+    private final Diagnostics diagnostics;
     private final SessionStdin stdin;
     private final InputStream stdout;
     private final InputStream stderr;
@@ -38,10 +39,25 @@ public final class Session implements AutoCloseable {
     private final Object stdinLock = new Object();
 
     Session(Process process, Duration idleTimeout, ShutdownPolicy shutdownPolicy, Charset charset) {
+        this(
+                process,
+                idleTimeout,
+                shutdownPolicy,
+                charset,
+                Diagnostics.of(DiagnosticsOptions.defaults(), "session", CommandEcho.empty()));
+    }
+
+    Session(
+            Process process,
+            Duration idleTimeout,
+            ShutdownPolicy shutdownPolicy,
+            Charset charset,
+            Diagnostics diagnostics) {
         this.process = Objects.requireNonNull(process, "process");
         this.idleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
         this.shutdownPolicy = Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
         this.charset = Objects.requireNonNull(charset, "charset");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         this.stdin = new SessionStdin(process.getOutputStream());
         this.stdout = new ActivityInputStream(process.getInputStream(), this::markActivity);
         this.stderr = new ActivityInputStream(process.getErrorStream(), this::markActivity);
@@ -224,11 +240,18 @@ public final class Session implements AutoCloseable {
         }
 
         try {
+            diagnostics.emit(
+                    DiagnosticEventType.SHUTDOWN_REQUESTED,
+                    Diagnostics.attributes("reason", timedOut ? "idleTimeout" : "close"));
             OptionalInt exitCode = process.isAlive()
                     ? ProcessLifecycle.stop(process, shutdownPolicy)
                     : OptionalInt.of(process.exitValue());
+            diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, exitAttributes(exitCode, timedOut));
             complete(new SessionExit(exitCode, timedOut));
         } catch (RuntimeException exception) {
+            diagnostics.emit(
+                    DiagnosticEventType.PROCESS_FAILED,
+                    Diagnostics.attributes("error", exception.getClass().getName()));
             completeExceptionally(exception);
             if (!timedOut) {
                 throw exception;
@@ -262,6 +285,7 @@ public final class Session implements AutoCloseable {
                 return;
             }
             if (state.compareAndSet(current, State.CLOSED)) {
+                diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, exitAttributes(OptionalInt.of(exitCode), false));
                 exit.complete(new SessionExit(OptionalInt.of(exitCode), false));
                 return;
             }
@@ -286,6 +310,17 @@ public final class Session implements AutoCloseable {
         if (!outputOwned.compareAndSet(false, true)) {
             throw new IllegalStateException("Session output is already owned");
         }
+    }
+
+    long pid() {
+        return process.pid();
+    }
+
+    private static java.util.Map<String, String> exitAttributes(OptionalInt exitCode, boolean timedOut) {
+        java.util.LinkedHashMap<String, String> attributes = new java.util.LinkedHashMap<>();
+        attributes.put("timedOut", Boolean.toString(timedOut));
+        exitCode.ifPresent(value -> attributes.put("exitCode", Integer.toString(value)));
+        return attributes;
     }
 
     private void ensureCanWrite() {

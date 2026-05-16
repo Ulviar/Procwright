@@ -13,6 +13,7 @@ public final class CommandService {
     private final SessionOptions sessionOptions;
     private final LineSessionOptions lineSessionOptions;
     private final StreamOptions streamOptions;
+    private final DiagnosticsOptions diagnosticsOptions;
 
     /**
      * Creates a service from a base command specification and default run options.
@@ -66,11 +67,22 @@ public final class CommandService {
             SessionOptions sessionOptions,
             LineSessionOptions lineSessionOptions,
             StreamOptions streamOptions) {
+        this(commandSpec, runOptions, sessionOptions, lineSessionOptions, streamOptions, DiagnosticsOptions.defaults());
+    }
+
+    private CommandService(
+            CommandSpec commandSpec,
+            RunOptions runOptions,
+            SessionOptions sessionOptions,
+            LineSessionOptions lineSessionOptions,
+            StreamOptions streamOptions,
+            DiagnosticsOptions diagnosticsOptions) {
         this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
         this.runOptions = Objects.requireNonNull(runOptions, "runOptions");
         this.sessionOptions = Objects.requireNonNull(sessionOptions, "sessionOptions");
         this.lineSessionOptions = Objects.requireNonNull(lineSessionOptions, "lineSessionOptions");
         this.streamOptions = Objects.requireNonNull(streamOptions, "streamOptions");
+        this.diagnosticsOptions = Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
     }
 
     /**
@@ -139,6 +151,30 @@ public final class CommandService {
     }
 
     /**
+     * Returns the default diagnostics options.
+     *
+     * @return diagnostics options
+     */
+    public DiagnosticsOptions diagnosticsOptions() {
+        return diagnosticsOptions;
+    }
+
+    /**
+     * Returns a copy with different diagnostics options.
+     *
+     * <p>Diagnostics are emitted by command-service scenarios that own process lifecycle: {@code run},
+     * {@code interactive}, {@code lineSession}, and {@code listen}. {@code Expect} is a helper over an already opened
+     * {@link Session} and does not emit separate process lifecycle events.
+     *
+     * @param diagnosticsOptions diagnostics options
+     * @return updated command service
+     */
+    public CommandService withDiagnostics(DiagnosticsOptions diagnosticsOptions) {
+        return new CommandService(
+                commandSpec, runOptions, sessionOptions, lineSessionOptions, streamOptions, diagnosticsOptions);
+    }
+
+    /**
      * Defines a one-shot run scenario.
      *
      * @param configure invocation callback
@@ -152,7 +188,8 @@ public final class CommandService {
         configure.accept(builder);
         CommandInvocation invocation = builder.build();
 
-        ExecutionPlan plan = ExecutionPlanResolver.resolve(ScenarioProfile.run(runOptions), commandSpec, invocation);
+        ExecutionPlan plan = ExecutionPlanResolver.resolve(
+                ScenarioProfile.run(runOptions), commandSpec, invocation, diagnosticsOptions);
         return ProcessKernel.run(plan);
     }
 
@@ -172,7 +209,7 @@ public final class CommandService {
 
         SessionExecutionPlan plan =
                 ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
-        return SessionRuntime.open(plan);
+        return openSession("interactive", plan);
     }
 
     /**
@@ -191,7 +228,7 @@ public final class CommandService {
 
         SessionExecutionPlan plan =
                 ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
-        Session session = SessionRuntime.open(plan);
+        Session session = openSession("lineSession", plan);
         try {
             return new LineSession(session, lineSessionOptions);
         } catch (RuntimeException exception) {
@@ -214,8 +251,21 @@ public final class CommandService {
         configure.accept(builder);
         StreamInvocation invocation = builder.build();
 
-        StreamExecutionPlan plan =
-                ExecutionPlanResolver.resolve(ScenarioProfile.stream(streamOptions), commandSpec, invocation);
+        StreamExecutionPlan plan = ExecutionPlanResolver.resolve(
+                ScenarioProfile.stream(streamOptions), commandSpec, invocation, diagnosticsOptions);
         return StreamRuntime.open(plan);
+    }
+
+    private Session openSession(String scenario, SessionExecutionPlan plan) {
+        Diagnostics diagnostics = Diagnostics.of(diagnosticsOptions, scenario, CommandEcho.from(plan.launchPlan()));
+        diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
+        try {
+            return SessionRuntime.open(plan, diagnostics);
+        } catch (RuntimeException exception) {
+            diagnostics.emit(
+                    DiagnosticEventType.PROCESS_FAILED,
+                    Diagnostics.attributes("error", exception.getClass().getName()));
+            throw exception;
+        }
     }
 }

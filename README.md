@@ -33,5 +33,7 @@ messages are written in English.
   request handling, and terminal control signal helpers.
 - Listen-only `listen` scenario with synchronous output listeners, bounded diagnostics, default stdin close, optional
   deferred stdin close, timeout, listener-failure propagation, and stdout/stderr draining.
+- Diagnostics hooks with structured lifecycle/timeout/truncation events, redaction-friendly command echo, and optional
+  transcript sinks. Diagnostic failures do not change command behavior.
 
 See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.

@@ -285,6 +285,16 @@ Scenario-first API отвечает на вопрос пользователя: 
 Invariant-first runtime отвечает на вопрос библиотеки: "какие правила должны быть истинны, чтобы это безопасно
 выполнить?"
 
+Diagnostics не являются отдельным пользовательским workflow. Это наблюдательный слой поверх сценариев:
+
+- `DiagnosticsOptions` подключаются к `CommandService`;
+- lifecycle events испускают `run`, `interactive`, `lineSession` и `listen`; `Expect` не испускает отдельные process
+  lifecycle events, потому что работает поверх уже открытой `Session`;
+- listener и transcript sink получают structured events асинхронно best-effort;
+- failures listener/sink игнорируются runtime и не меняют результат процесса;
+- `CommandEcho` не содержит environment values и argument values; он публикует executable, argument count,
+  environment names и launch metadata.
+
 Итоговая архитектура должна удерживать оба слоя:
 
 - scenario methods дают clean API;

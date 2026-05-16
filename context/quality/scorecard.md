@@ -2,15 +2,16 @@
 
 ## Статус
 
-Фаза 8 реализуется. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline, compile-tested API
+Фаза 9 реализуется. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline, compile-tested API
 sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для `run`, raw
 interactive session scenario, line-oriented request/response workflow, expect automation helper, первый PTY transport и
-listen-only streaming scenario.
+listen-only streaming scenario, а также первый diagnostics/observability слой.
 `CommandService.run(...)`, `CommandService.interactive(...)` и `CommandService.lineSession(...)` уже запускают реальные
 процессы через `ScenarioProfile -> LaunchPlan -> ExecutionPlan/SessionExecutionPlan`; `CommandService.listen(...)`
 добавляет streaming через `StreamExecutionPlan`, а `Session.expect(...)` добавляет prompt automation поверх raw session.
 Session-сценарии поддерживают `TerminalPolicy.DISABLED`, `AUTO` и `REQUIRED`; PTY доступен через узкий `PtyProvider`
-SPI и системный Unix-провайдер на базе `script(1)`.
+SPI и системный Unix-провайдер на базе `script(1)`. Diagnostics events подключены к service-owned сценариям:
+`run`, `interactive`, `lineSession` и `listen`.
 
 ## Release-relevant критерии
 
@@ -28,8 +29,9 @@ SPI и системный Unix-провайдер на базе `script(1)`.
 | Expect helper | Started | Literal/regex matching, send/sendLine, bounded transcript, различение timeout/EOF и ANSI filter покрыты tests. |
 | PTY | Started | `TerminalPolicy`, `PtyProvider`, Unix `script(1)` provider, explicit unsupported behavior, terminal size request и Ctrl+C-style signal mapping покрыты tests. |
 | Streaming/listen | Started | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, timeout/listener failure покрыты tests. |
+| Diagnostics | Started | Structured lifecycle/timeout/truncation events, redaction-friendly command echo без raw argv/env values, async listener SPI, transcript sink и diagnostic test recorder покрыты tests для service scenarios. |
 | Fixture/evals | Started | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
-| Documentation | Started | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY и `listen`, явно говорит, что runtime пока неполный. |
+| Documentation | Started | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen` и diagnostics, явно говорит, что runtime пока неполный. |
 | Pooling | Deferred | Не входит в MVP. |
 
 ## Решения, которые нужно принять
@@ -37,7 +39,8 @@ SPI и системный Unix-провайдер на базе `script(1)`.
 - Итоговые имена `CommandSpec` / `CommandService` / `RunOptions`.
 - Нужно ли оставлять `CommandService` итоговым именем или переименовать до stabilization.
 - Полный набор capture policies после bounded-only MVP.
-- Формат diagnostics/failure metadata до расширения streaming/session.
+- Нужно ли добавлять отдельные `Expect`-level diagnostic events до public stabilization; process lifecycle уже живет
+  на уровне owning `Session`.
 - Нужен ли отдельный optional PTY artifact после расширения platform matrix.
 - Какой Windows ConPTY provider будет добавлен: отдельный artifact или runtime-specific implementation.
 - Нужно ли переименовать `SessionOptions.idleTimeout` перед публичной стабилизацией; текущая семантика зафиксирована
