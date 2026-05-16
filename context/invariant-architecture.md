@@ -174,6 +174,7 @@ Transport failures переводятся в типизированные оши
 - raw `Session` может иметь минимальные guarantees;
 - `LineSession` сериализует request/response cycle;
 - `ResponseDecoder` владеет правилом завершения line response;
+- высокоуровневые helpers (`LineSession`, `Expect`) должны иметь одного владельца output streams;
 - async API не должен обходить shutdown policy;
 - cancellation должна попадать в тот же lifecycle path, что timeout.
 

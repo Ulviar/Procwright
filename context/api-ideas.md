@@ -111,8 +111,8 @@ try (LineSession session = service.lineSession(call -> call.args("-i"))) {
 
 ```java
 try (Session session = service.interactive(call -> call.args("-i"));
-        Expect expect = Expect.on(session).withTimeout(Duration.ofSeconds(2))) {
-    expect.expectRegex("Python .*");
+        Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
+    expect.expectRegex(Pattern.compile("Python .*"));
     expect.sendLine("print(6 * 7)");
     expect.expectText("42");
 }

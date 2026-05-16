@@ -52,4 +52,14 @@ final class PolicyValueTest {
         assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
                 .withStdoutBacklogLimit(0));
     }
+
+    @Test
+    void expectOptionsRejectInvalidTimeoutAndTranscriptLimit() {
+        assertThrows(
+                IllegalArgumentException.class, () -> ExpectOptions.defaults().withTimeout(Duration.ZERO));
+        assertThrows(
+                IllegalArgumentException.class, () -> ExpectOptions.defaults().withTranscriptLimit(0));
+        assertThrows(
+                IllegalArgumentException.class, () -> ExpectOptions.defaults().withMatchBufferLimit(0));
+    }
 }

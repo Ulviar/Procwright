@@ -93,6 +93,23 @@ final class ProcessFixtureProgram {
                 Thread.sleep(Long.parseLong(args[1]));
             }
             case "ignore-stdin" -> Thread.sleep(Long.parseLong(args[1]));
+            case "prompt-repl" -> {
+                System.out.print("ready> ");
+                System.out.flush();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println("echo:" + line);
+                    System.out.print("ready> ");
+                    System.out.flush();
+                }
+            }
+            case "ansi-prompt" -> {
+                System.out.print("\u001B[31mREADY\u001B[0m> ");
+                System.out.flush();
+                Thread.sleep(5000);
+            }
+            case "exit-now" -> {}
             case "stdin-hex" -> {
                 for (byte value : System.in.readAllBytes()) {
                     System.out.printf("%02x", value);

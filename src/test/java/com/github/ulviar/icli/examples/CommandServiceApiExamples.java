@@ -4,6 +4,8 @@ import com.github.ulviar.icli.CapturePolicy;
 import com.github.ulviar.icli.CommandResult;
 import com.github.ulviar.icli.CommandService;
 import com.github.ulviar.icli.CommandSpec;
+import com.github.ulviar.icli.Expect;
+import com.github.ulviar.icli.ExpectOptions;
 import com.github.ulviar.icli.LineResponse;
 import com.github.ulviar.icli.LineSession;
 import com.github.ulviar.icli.LineSessionOptions;
@@ -68,6 +70,17 @@ final class CommandServiceApiExamples {
             if (response.text().isBlank()) {
                 throw new IllegalStateException("empty response");
             }
+        }
+    }
+
+    void expectScenario() {
+        CommandService repl = CommandService.forCommand("tool");
+
+        try (Session session = repl.interactive(call -> call.args("repl"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
+            expect.expectText("ready> ");
+            expect.sendLine("status");
+            expect.expectRegex(java.util.regex.Pattern.compile("ok|ready"));
         }
     }
 }

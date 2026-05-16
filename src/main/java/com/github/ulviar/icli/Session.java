@@ -32,6 +32,7 @@ public final class Session implements AutoCloseable {
     private final InputStream stderr;
     private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private final AtomicBoolean resourcesClosed = new AtomicBoolean();
+    private final AtomicBoolean outputOwned = new AtomicBoolean();
     private final AtomicReference<State> state = new AtomicReference<>(State.RUNNING);
     private final AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
     private final Object stdinLock = new Object();
@@ -130,6 +131,25 @@ public final class Session implements AutoCloseable {
      */
     public CompletableFuture<SessionExit> onExit() {
         return exit.copy();
+    }
+
+    /**
+     * Creates an expect automation helper using default options.
+     *
+     * @return expect helper
+     */
+    public Expect expect() {
+        return expect(ExpectOptions.defaults());
+    }
+
+    /**
+     * Creates an expect automation helper using explicit options.
+     *
+     * @param options expect options
+     * @return expect helper
+     */
+    public Expect expect(ExpectOptions options) {
+        return Expect.on(this, options);
     }
 
     /**
@@ -242,6 +262,17 @@ public final class Session implements AutoCloseable {
 
     private void markActivity() {
         lastActivityNanos.set(System.nanoTime());
+    }
+
+    void claimOutputOwner(String owner) {
+        CommandSpec.requireText(owner, "owner");
+        State current = state.get();
+        if (current == State.CLOSING || current == State.CLOSED) {
+            throw new IllegalStateException("Session is closed");
+        }
+        if (!outputOwned.compareAndSet(false, true)) {
+            throw new IllegalStateException("Session output is already owned");
+        }
     }
 
     private void ensureCanWrite() {

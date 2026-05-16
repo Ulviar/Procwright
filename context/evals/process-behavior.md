@@ -53,15 +53,19 @@
 - Timeout закрывает `LineSession`, чтобы следующий request не читал хвосты старого ответа.
 - EOF before response отличается от timeout.
 - Stderr дренируется в transcript, чтобы line workflow не зависал на заполненном stderr.
-- Незавершенный partial output попадает в transcript с корректной stream attribution.
+- Незавершенный partial output попадает в transcript с корректной привязкой к потоку.
 
 ## Expect helper
 
-- Literal match.
-- Regex match.
-- Timeout with transcript.
-- EOF before expected output.
+- Совпадение с literal text.
+- Совпадение с regex.
+- Timeout содержит transcript.
+- EOF до ожидаемого output отличается от timeout.
 - Отправка строки после match.
+- Порядок send/sendLine виден в transcript.
+- ANSI/control-sequence filter может нормализовать вывод перед matching.
+- Один `Expect` владеет output streams сессии.
+- Match buffer ограничен и не растет бесконечно.
 
 ## PTY
 

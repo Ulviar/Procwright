@@ -121,21 +121,24 @@ try (Session session = service.interactive(call -> call.args("-i"))) {
 
 ### `expect`
 
-Scripted prompt automation поверх `Session`.
+Сценарная автоматизация prompt-диалогов поверх `Session`.
 
 Инварианты сценария:
 
-- matching владеет timeout;
-- transcript bounded;
+- ожидание совпадения владеет timeout;
+- transcript ограничен;
+- match buffer ограничен отдельной policy;
 - EOF и timeout различаются;
-- send/expect order виден в failure.
+- порядок send/expect виден в ошибке.
+- optional output filters нормализуют вывод перед matching и записью в transcript.
+- один `Expect` владеет output streams сессии; закрытие `Expect` закрывает underlying `Session`.
 
 Пользовательский пример:
 
 ```java
 try (Session session = service.interactive(call -> call.args("-i"));
         Expect expect = session.expect()) {
-    expect.expectRegex("Python .*");
+    expect.expectRegex(Pattern.compile("Python .*"));
     expect.sendLine("print(6 * 7)");
     expect.expectText("42");
 }

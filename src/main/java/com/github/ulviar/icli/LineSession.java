@@ -37,6 +37,7 @@ public final class LineSession implements AutoCloseable {
         this.options = Objects.requireNonNull(options, "options");
         this.transcript = new TranscriptBuffer(options.transcriptLimit());
         this.stdoutEvents = new ArrayBlockingQueue<>(options.stdoutBacklogLimit());
+        this.session.claimOutputOwner("LineSession");
         startPumps();
     }
 

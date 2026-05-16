@@ -86,15 +86,15 @@ com.github.ulviar.icli
   LineSessionOptions
   LineResponse
   ResponseDecoder
+  Expect
+  ExpectOptions
+  ExpectOutputFilter
+  ExpectException
   CapturePolicy
   ShutdownPolicy
   Session
   SessionOptions
   CommandException
-
-future session helpers, package TBD
-  Expect
-  ExpectException
 
 com.github.ulviar.icli.spi
   ProcessLauncher
