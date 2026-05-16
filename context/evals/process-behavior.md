@@ -97,6 +97,20 @@
 - `warmWorkerPool` задает max/warmup size и acquire timeout для `pooled`.
 - Невалидные preset policies падают до применения к builder.
 
+## CLI-backed integrations
+
+- Optional `:icli-integrations` module компилируется отдельно от core и не добавляет новый process runtime.
+- JSON codec round-trips object/array/string/number/boolean/null values и экранирует control characters.
+- JSON parser отклоняет trailing content, invalid numbers и raw unescaped control characters.
+- JSON Lines helper не допускает raw line separators в frame boundary, но сохраняет escaped embedded line separators.
+- `JsonLineSession` отправляет JSON request через existing `LineSession` и получает ровно одну JSON response line.
+- Malformed JSON response отличается от command launch failure и мапится в protocol error на adapter layer.
+- Content-Length framed JSON helper проверяет missing/invalid headers, oversized body и EOF before body completion.
+- `CancellableCall.cancel()` сначала фиксирует cancelled outcome, затем закрывает underlying session/lifecycle owner.
+- `ToolCallResult` возвращает structured success/failure, чтобы command-backed tool всегда давал observation.
+- `CliAdapterError` не включает raw stdout/stderr excerpts по умолчанию и сохраняет machine-readable code/details.
+- Compile-tested examples показывают one-shot command-backed tool, JSONL tool, cancellation и Content-Length framing.
+
 ## Интерактивная session
 
 - Session открывается и закрывается без утечки процесса.

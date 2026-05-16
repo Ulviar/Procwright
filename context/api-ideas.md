@@ -158,3 +158,35 @@ service.run(call -> {
 Это сохраняет важную идею: пользователь сначала выбирает сценарий (`run`, `listen`, `lineSession`, `pooled`), а preset
 лишь применяет осмысленный набор overrides. Если preset начинает требовать новый lifecycle, state или transport, это уже
 не preset, а кандидат на отдельный сценарий и ADR.
+
+## CLI-backed integrations
+
+Интеграции должны выглядеть как тонкий adapter layer поверх сценариев, а не как новый `Runner`:
+
+```java
+try (LineSession line = service.lineSession(call -> call.args("json-worker"));
+        JsonLineSession json = JsonLineSession.over(line)) {
+    CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
+            json,
+            input -> JsonValue.object(Map.of("input", JsonValue.string(input))),
+            Function.identity());
+
+    ToolCallResult<JsonValue> result = tool.call("payload");
+}
+```
+
+Сохраняем:
+
+- structured `ToolCallResult` вместо исключений как единственного observation;
+- JSON/JSONL helpers для command-backed tools;
+- Content-Length framed JSON helpers для MCP-like stdin/stdout протоколов;
+- cancellation как явный outcome, который закрывает underlying session;
+- security note: output CLI — это недоверенные данные, а не инструкции.
+
+Не переносим в core:
+
+- MCP SDK dependency;
+- registry tools;
+- permission framework;
+- agent loop;
+- broad generic tool execution API.

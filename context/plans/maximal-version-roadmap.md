@@ -321,10 +321,13 @@ one-shot запуска до интерактивных REPL, prompt automation,
 Ключевой инвариант:
 
 - external protocol adapters не должны становиться частью core runtime.
+- integration helpers используют существующие сценарии, а не создают новый launcher.
 
 Выход фазы:
 
 - iCLI можно использовать как process harness для CLI-backed tools.
+- optional `:icli-integrations` содержит JSON/JSONL, Content-Length framing, cancellation/error mapping и compile-tested
+  command-backed tool examples. Реальный MCP SDK adapter остается отдельным будущим модулем поверх этого слоя.
 
 ## Фаза 14: performance and stress
 

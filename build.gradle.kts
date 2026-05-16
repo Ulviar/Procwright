@@ -62,7 +62,7 @@ tasks.check { dependsOn(integrationTest) }
 spotless {
     java {
         palantirJavaFormat("2.80.0")
-        target("src/**/*.java")
+        target("src/**/*.java", "icli-integrations/src/**/*.java")
     }
     kotlin {
         ktfmt("0.58").kotlinlangStyle()
@@ -70,6 +70,6 @@ spotless {
     }
     kotlinGradle {
         ktfmt("0.58").kotlinlangStyle()
-        target("*.gradle.kts", "icli-kotlin/*.gradle.kts")
+        target("*.gradle.kts", "icli-kotlin/*.gradle.kts", "icli-integrations/*.gradle.kts")
     }
 }

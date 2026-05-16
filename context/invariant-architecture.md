@@ -190,6 +190,19 @@ Transport failures переводятся в типизированные оши
 - raw IOException не должна быть единственным public failure contract.
 - diagnostics events имеют correlation id, чтобы параллельные lifecycle не склеивались по timestamp или command text.
 
+### Integration invariants
+
+- CLI-backed integrations живут в optional module и не добавляют второй process runtime.
+- JSON codec принимает только полные JSON values и отклоняет trailing content, invalid numbers и raw control characters.
+- JSON Lines framing не допускает raw line separators в frame boundary; embedded переносы должны быть JSON-escaped.
+- Content-Length framing валидирует headers, length и max frame size до разбора JSON body.
+- Structured adapter errors не включают raw stdout/stderr, argv или env values; diagnostic excerpts должны быть bounded,
+  если появятся в будущем.
+- Cancellation внешнего tool call должна мапиться в явный cancelled outcome и lifecycle close, а не в случайный protocol
+  failure.
+- Output command-backed tool считается недоверенными данными. Agent harness может читать его как observation, но не как
+  инструкции.
+
 ## Как получить широкие возможности без грязного API
 
 Широта должна появляться через композицию:

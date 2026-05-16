@@ -2,19 +2,20 @@
 
 ## Статус
 
-Фаза 12 реализована в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
+Фаза 13 реализуется в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
 compile-tested API sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для
 `run`, raw interactive session scenario, line-oriented request/response workflow, expect automation helper, первый PTY
 transport, listen-only streaming scenario, первый diagnostics/observability слой, optional Kotlin ergonomics module и
-pooled line-session scenario, а также scenario presets как typed builder customizers.
+pooled line-session scenario, scenario presets как typed builder customizers и optional CLI-backed integrations module.
 `CommandService.run(...)`, `CommandService.interactive(...)` и `CommandService.lineSession(...)` уже запускают реальные
 процессы через `ScenarioProfile -> LaunchPlan -> ExecutionPlan/SessionExecutionPlan`; `CommandService.listen(...)`
 добавляет streaming через `StreamExecutionPlan`, а `Session.expect(...)` добавляет prompt automation поверх raw session.
 Session-сценарии поддерживают `TerminalPolicy.DISABLED`, `AUTO` и `REQUIRED`; PTY доступен через узкий `PtyProvider`
-SPI и системный Unix-провайдер на базе `script(1)`. Diagnostics events имеют lifecycle `runId` и подключены к service-owned сценариям:
-`run`, `interactive`, `lineSession`, `listen` и worker launches внутри `pooled`. Kotlin module дает
-extension/suspend/Flow API без Kotlin dependency в Java core. `CommandService.pooled(...)` переиспользует существующий
-`LineSession` runtime для прогретых workers.
+SPI и системный Unix-провайдер на базе `script(1)`. Diagnostics events имеют lifecycle `runId` и подключены к
+service-owned сценариям: `run`, `interactive`, `lineSession`, `listen` и worker launches внутри `pooled`. Kotlin module
+дает extension/suspend/Flow API без Kotlin dependency в Java core. `CommandService.pooled(...)` переиспользует
+существующий `LineSession` runtime для прогретых workers. `:icli-integrations` добавляет JSON/JSONL, Content-Length
+framing, structured adapter errors, cancellable calls и command-backed tool wrappers поверх существующих сценариев.
 
 ## Release-релевантные критерии
 
@@ -36,8 +37,9 @@ extension/suspend/Flow API без Kotlin dependency в Java core. `CommandServic
 | Kotlin ergonomics | Начато | Optional `:icli-kotlin` module компилируется отдельно, содержит receiver extensions, suspend wrappers, узкий `ListenFlowInvocation` без listener override и Flow adapter tests без silent drops. |
 | Pooling | Начато | `PooledLineSession` использует existing `LineSession` workers, поддерживает max/warmup size, acquire timeout, reset/health hooks, worker retirement, graceful drain и metrics snapshot. |
 | Scenario presets | Начато | `ScenarioPresets` дает typed builder customizers для command automation, env diagnostics, REPL, prompt automation, log following, binary byte snapshots, terminal-required session и warm worker pool без нового runtime. |
+| CLI integrations | Начато | Optional `:icli-integrations` содержит JSON/JSONL codec, Content-Length framed JSON helpers, `JsonLineSession`, cancellation mapping, `ToolCallResult`, `CliAdapterError` и compile-tested command-backed tool examples без MCP dependency в core. |
 | Fixture/evals | Начато | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
-| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers и presets, явно говорит, что runtime пока неполный. |
+| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers, presets и integration module, явно говорит, что runtime пока неполный. |
 | Raw/session affinity pooling | Отложено | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
 
 ## Решения, которые нужно принять
@@ -51,6 +53,8 @@ extension/suspend/Flow API без Kotlin dependency в Java core. `CommandServic
 - Когда Kotlin compiler начнет поддерживать следующие JVM targets, сверять `:icli-kotlin` target с Java baseline.
 - Нужно ли добавлять отдельные diagnostics events для pool worker lifecycle; текущий pool имеет локальные metrics.
 - Какие presets стоит оставить перед public stabilization; каталог presets не должен превращаться в набор use-case runners.
+- Нужен ли реальный MCP SDK adapter как отдельный модуль поверх `:icli-integrations`; core и текущий integration module
+  не должны зависеть от MCP SDK.
 - Нужен ли отдельный optional PTY artifact после расширения platform matrix.
 - Какой Windows ConPTY provider будет добавлен: отдельный artifact или runtime-specific implementation.
 - Нужно ли переименовать `SessionOptions.idleTimeout` перед публичной стабилизацией; текущая семантика зафиксирована

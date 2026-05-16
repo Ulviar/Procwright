@@ -33,13 +33,14 @@ plan и scenario-specific execution plan. Это описано в [scenario-api
 - Optional Kotlin ergonomics module без Kotlin dependency в Java core.
 - Pooled line-session scenario поверх существующих `LineSession` workers.
 - Scenario presets как typed builder customizers без отдельного runtime.
+- Optional CLI-backed integrations module без dependency на MCP SDK.
 - Детерминированный fixture/eval набор.
 
 ## Не входит в MVP
 
 - Raw session pooling.
 - Stateful conversation affinity.
-- MCP adapters.
+- Реальный MCP SDK adapter.
 - Benchmarks.
 - Competitor samples.
 - Централизованная diagnostics bus или logging framework.
@@ -138,6 +139,17 @@ com.github.ulviar.icli.kotlin
   requestAwait(...)
   ListenFlowInvocation
   listenFlow(...)
+
+com.github.ulviar.icli.integration
+  JsonValue
+  JsonCodec
+  JsonLines
+  JsonLineSession
+  ContentLengthJsonFrames
+  CancellableCall
+  ToolCallResult
+  CliAdapterError
+  CommandBackedTool
 ```
 
 Публичных пакетов должно быть мало. Поэтому первый `PtyProvider` SPI находится в корневом пакете рядом с остальным
@@ -150,5 +162,5 @@ com.github.ulviar.icli.kotlin
 2. Более богатый expect DSL.
 3. Более богатый Kotlin DSL поверх optional Kotlin module.
 4. Stateful affinity и raw session pooling поверх `pooled`.
-5. MCP adapter templates.
+5. Реальный MCP SDK adapter отдельным optional module поверх `:icli-integrations`.
 6. Benchmarks.
