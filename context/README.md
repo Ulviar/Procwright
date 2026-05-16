@@ -13,6 +13,7 @@
 - [api-ideas.md](api-ideas.md) — пользовательский API, который нужно сохранить.
 - [legacy-lessons.md](legacy-lessons.md) — что берем и что не берем из старой версии.
 - [development-model.md](development-model.md) — процесс разработки и работы агентов.
+- [plans/maximal-version-roadmap.md](plans/maximal-version-roadmap.md) — верхнеуровневый план максимальной версии.
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и известные разрывы.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
