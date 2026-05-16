@@ -35,10 +35,12 @@
 - Инварианты должны иметь одного владельца: value object, policy, state machine, validator или test.
 - API-идеи старого проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
 - Старую реализацию не копировать механически.
-- Raw session pooling, stateful affinity, MCP, samples и benchmarks не входят в первый MVP; optional Kotlin module и
-  pooled line-session scenario входят как тонкие layers без отдельного runtime.
+- Raw session pooling, stateful affinity, real MCP SDK adapter, samples и machine-dependent benchmarks не входят в
+  первый MVP. Optional Kotlin module, pooled line-session scenario, CLI-backed integrations и bounded stress suite
+  входят как тонкие layers без отдельного process runtime.
 - Документация описывает только то, что код доказывает тестами.
 - Повторяющиеся правила лучше переносить в тесты, валидаторы или ADR.
+- Release-релевантные изменения должны обновлять `context/release/`, README и release gate checks.
 
 ## Рабочий процесс
 

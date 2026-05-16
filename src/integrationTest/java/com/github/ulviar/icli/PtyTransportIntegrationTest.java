@@ -3,6 +3,7 @@ package com.github.ulviar.icli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.BufferedReader;
@@ -18,7 +19,7 @@ final class PtyTransportIntegrationTest {
     @Test
     void requiredTerminalFailsWhenProviderIsUnavailable() {
         CommandService service = new CommandService(
-                CommandSpec.of("sh"),
+                CommandSpec.of("never-started"),
                 RunOptions.defaults(),
                 SessionOptions.defaults().withPtyProvider(PtyProvider.unavailable()));
 
@@ -30,6 +31,8 @@ final class PtyTransportIntegrationTest {
 
     @Test
     void autoTerminalFallsBackToPipesWhenProviderIsUnavailable() throws Exception {
+        assumePosixShellAvailable();
+
         CommandService service = new CommandService(
                 CommandSpec.of("sh"),
                 RunOptions.defaults(),
@@ -46,6 +49,8 @@ final class PtyTransportIntegrationTest {
 
     @Test
     void disabledTerminalUsesPipesEvenWhenProviderIsAvailable() throws Exception {
+        assumePosixShellAvailable();
+
         PtyProvider forbiddenProvider = new PtyProvider() {
             @Override
             public boolean available() {
@@ -78,6 +83,7 @@ final class PtyTransportIntegrationTest {
 
     @Test
     void autoTerminalUsesSystemPtyWhenAvailable() throws Exception {
+        assumePosixShellAvailable();
         assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
 
         CommandService service = new CommandService(
@@ -96,6 +102,7 @@ final class PtyTransportIntegrationTest {
 
     @Test
     void requiredTerminalUsesSystemPtyWhenAvailable() throws Exception {
+        assumePosixShellAvailable();
         assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
 
         CommandService service = new CommandService(
@@ -122,6 +129,7 @@ final class PtyTransportIntegrationTest {
 
     @Test
     void requiredTerminalReceivesConfiguredSizeWhenAvailable() throws Exception {
+        assumePosixShellAvailable();
         assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
 
         CommandService service = new CommandService(
@@ -143,6 +151,7 @@ final class PtyTransportIntegrationTest {
 
     @Test
     void lineSessionCanUseRequiredTerminalWithEchoAwareDecoderWhenAvailable() {
+        assumePosixShellAvailable();
         assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
         ResponseDecoder responseOnly = reader -> {
             while (true) {
@@ -168,6 +177,7 @@ final class PtyTransportIntegrationTest {
 
     @Test
     void terminalSignalInterruptReachesForegroundCommandWhenAvailable() throws Exception {
+        assumePosixShellAvailable();
         assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
 
         CommandService service = new CommandService(
@@ -210,5 +220,13 @@ final class PtyTransportIntegrationTest {
             }
         }
         throw new AssertionError("missing line containing " + text);
+    }
+
+    private static void assumePosixShellAvailable() {
+        assumeFalse(isWindows(), "POSIX shell fixture requires sh");
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }

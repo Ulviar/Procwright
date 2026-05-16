@@ -5,14 +5,16 @@ plugins {
     id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
 }
 
-group = "com.github.ulviar"
-
-version = "0.0.0-SNAPSHOT"
+allprojects {
+    group = "com.github.ulviar"
+    version = "0.0.0-SNAPSHOT"
+}
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
     withSourcesJar()
+    withJavadocJar()
 }
 
 dependencies {

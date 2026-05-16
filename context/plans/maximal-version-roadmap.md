@@ -373,6 +373,8 @@ one-shot запуска до интерактивных REPL, prompt automation,
 Выход фазы:
 
 - release candidate можно оценивать как OSS library, а не как эксперимент.
+- Apache-2.0 license, CI matrix, release policies, dependency review, release checklist, migration notes, Javadoc
+  artifacts и public package boundary tests добавлены в текущий срез.
 
 ## Итоговая форма максимальной версии
 

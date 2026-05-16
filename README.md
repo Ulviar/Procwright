@@ -2,12 +2,11 @@
 
 iCLI is being rewritten as a JVM library for safe, scenario-first control of external command-line processes.
 
-This branch currently contains the foundation for the rewrite, the first one-shot execution kernel, a raw interactive
-session scenario, the first line-oriented request/response workflow, a small expect automation helper, and initial PTY
-transport support for terminal-required interactive sessions, a listen-only streaming scenario, and pooled line-session
-workers, typed scenario presets for common workflows, an optional CLI-backed integrations module, and a bounded stress
-suite. The public API and runtime are still incomplete: documentation must not promise behavior before tests and
-implementation prove it.
+This branch currently contains the foundation for the rewrite, a one-shot execution kernel, a raw interactive session
+scenario, a line-oriented request/response workflow, a small expect automation helper, initial PTY transport support for
+terminal-required interactive sessions, a listen-only streaming scenario, pooled line-session workers, typed scenario
+presets for common workflows, an optional CLI-backed integrations module, and a bounded stress suite. The public API and
+runtime are still incomplete: documentation must not promise behavior before tests and implementation prove it.
 
 Project context is maintained in Russian under [context/](context/). Code, public APIs, Javadocs, tests, and commit
 messages are written in English.
@@ -16,6 +15,7 @@ messages are written in English.
 
 - Clean rewrite branch.
 - Gradle Java project foundation.
+- Project version: `0.0.0-SNAPSHOT`.
 - Java 25 bytecode target.
 - JDK 25 or newer is required to build the project.
 - Compile-tested API sketches for the first public surface.
@@ -48,5 +48,33 @@ messages are written in English.
   errors, and command-backed tool result wrappers. CLI output is treated as untrusted data, not instructions.
 - Bounded `stressTest` suite wired into `check`, covering large stdout/stderr retention, timeout churn, rapid session
   open/close, pooled contention, and conditional PTY stability.
+- Apache-2.0 license, release policies, dependency review, migration notes, release checklist, unified module
+  coordinates, Javadoc artifacts for Java modules, Kotlin API KDoc checks, and GitHub Actions CI for Linux, macOS, and
+  Windows.
 
 See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.
+
+## Modules
+
+- `:` is the Java core module with no runtime dependencies outside the JDK.
+- `:icli-kotlin` is an optional Kotlin ergonomics module with receiver-style extensions, suspending wrappers, and Flow
+  adapters.
+- `:icli-integrations` is an optional Java module for CLI-backed integration helpers. It does not depend on an MCP SDK.
+
+## Verification
+
+```bash
+./gradlew check
+./gradlew javadoc
+```
+
+`check` runs unit tests, integration tests, module tests, and the bounded stress suite.
+
+## Release status
+
+This rewrite is not published as a public release yet. Release policies and checklists live in
+[context/release/](context/release/), and the current version remains `0.0.0-SNAPSHOT`.
+
+## License
+
+iCLI is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

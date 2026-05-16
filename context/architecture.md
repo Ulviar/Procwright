@@ -36,6 +36,8 @@ plan и scenario-specific execution plan. Это описано в [scenario-api
 - Optional CLI-backed integrations module без dependency на MCP SDK.
 - Детерминированный fixture/eval набор.
 - Bounded stress suite как часть `check`.
+- Release hardening: license, cross-platform CI, versioning/compatibility policies, dependency review и release
+  checklist.
 
 ## Не входит в MVP
 

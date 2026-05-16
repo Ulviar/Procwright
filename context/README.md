@@ -17,6 +17,11 @@
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
 - [quality/engineering-charter.md](quality/engineering-charter.md) — обязательные требования к качеству проекта.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и известные разрывы.
+- [release/versioning-policy.md](release/versioning-policy.md) — политика версий.
+- [release/compatibility-policy.md](release/compatibility-policy.md) — совместимость и platform support.
+- [release/dependency-review.md](release/dependency-review.md) — обзор runtime/build dependencies.
+- [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release candidate.
+- [release/migration-notes.md](release/migration-notes.md) — migration notes из старой iCLI.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
 - [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.
@@ -27,6 +32,7 @@
 - [decisions/ADR-0008-scenario-presets.md](decisions/ADR-0008-scenario-presets.md) — scenario presets как typed builder customizers.
 - [decisions/ADR-0009-cli-backed-integrations.md](decisions/ADR-0009-cli-backed-integrations.md) — optional CLI-backed integrations module.
 - [decisions/ADR-0010-stress-suite.md](decisions/ADR-0010-stress-suite.md) — bounded stress suite как release gate.
+- [decisions/ADR-0011-release-hardening.md](decisions/ADR-0011-release-hardening.md) — release hardening перед первым OSS-кандидатом.
 
 ## Правило навигации
 

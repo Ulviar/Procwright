@@ -178,4 +178,14 @@
 
 ## Release gate
 
-Первый release candidate не готов, пока one-shot, streaming, timeout и базовая session группа не покрыты тестами.
+Первый release candidate не готов, пока выполнены не все условия:
+
+- one-shot, streaming, timeout и базовая session группа покрыты тестами;
+- Kotlin и integrations modules проходят свои tests;
+- bounded `stressTest` входит в `check` и проходит локально;
+- `javadoc` проходит для Java modules;
+- Kotlin public API проходит KDoc source check через `:icli-kotlin:kotlinApiDocsCheck`;
+- public package boundaries покрыты tests;
+- LICENSE присутствует в корне репозитория;
+- versioning policy, compatibility policy, dependency review, release checklist и migration notes актуальны;
+- CI запускает `check` и `javadoc` на Linux, macOS и Windows.

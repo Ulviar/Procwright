@@ -2,7 +2,7 @@
 
 ## Статус
 
-Фаза 14 реализуется в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
+Фаза 15 реализована в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
 compile-tested API sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для
 `run`, raw interactive session scenario, line-oriented request/response workflow, expect automation helper, первый PTY
 transport, listen-only streaming scenario, первый diagnostics/observability слой, optional Kotlin ergonomics module и
@@ -17,7 +17,10 @@ service-owned сценариям: `run`, `interactive`, `lineSession`, `listen` 
 существующий `LineSession` runtime для прогретых workers. `:icli-integrations` добавляет JSON/JSONL, Content-Length
 framing, structured adapter errors, cancellable calls и command-backed tool wrappers поверх существующих сценариев.
 Bounded `stressTest` входит в `check` и проверяет большие потоки, timeout churn, rapid session open/close, pooling
-contention и PTY stability при доступном provider.
+contention и PTY stability при доступном provider. Release hardening добавляет Apache-2.0 license, CI matrix для
+Linux/macOS/Windows, versioning policy, compatibility policy, dependency review, release checklist, migration notes,
+единые group/version для modules, Javadoc artifacts для Java modules, KDoc check для Kotlin API и tests, фиксирующие
+публичные package boundaries по всему production artifact.
 
 ## Release-релевантные критерии
 
@@ -41,8 +44,9 @@ contention и PTY stability при доступном provider.
 | Scenario presets | Начато | `ScenarioPresets` дает typed builder customizers для command automation, env diagnostics, REPL, prompt automation, log following, binary byte snapshots, terminal-required session и warm worker pool без нового runtime. |
 | CLI integrations | Начато | Optional `:icli-integrations` содержит JSON/JSONL codec, Content-Length framed JSON helpers, `JsonLineSession`, cancellation mapping, `ToolCallResult`, `CliAdapterError` и compile-tested command-backed tool examples без MCP dependency в core. |
 | Performance/stress | Начато | `stressTest` входит в `check` и покрывает bounded capture under load, stderr drain, timeout churn, rapid session lifecycle, pooled contention и conditional PTY stability. |
+| Release hardening | Готово | License, cross-platform CI, versioning/compatibility/dependency policies, release checklist, migration notes, unified module coordinates, Javadoc artifacts, Kotlin KDoc check и public package boundary tests добавлены перед первым OSS-кандидатом. |
 | Fixture/evals | Начато | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
-| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers, presets, integration module и bounded stress suite, явно говорит, что runtime пока неполный. |
+| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers, presets, integration module, bounded stress suite и release status, явно говорит, что runtime пока неполный. |
 | Raw/session affinity pooling | Отложено | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
 
 ## Решения, которые нужно принять
@@ -61,6 +65,8 @@ contention и PTY stability при доступном provider.
 - Нужен ли отдельный optional PTY artifact после расширения platform matrix.
 - Какой Windows ConPTY provider будет добавлен: отдельный artifact или runtime-specific implementation.
 - Нужны ли отдельные JMH benchmarks после стабилизации deterministic stress suite.
+- Когда добавлять Maven Central publishing, signing и POM metadata; текущая ветка готовит release candidate, но не
+  публикует артефакты.
 - Нужно ли переименовать `SessionOptions.idleTimeout` перед публичной стабилизацией; текущая семантика зафиксирована
   как caller-visible activity: успешные записи, закрытие stdin и успешные чтения через session streams.
 
