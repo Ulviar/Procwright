@@ -26,7 +26,7 @@ scenario-specific execution plan. Это описано в [scenario-api.md](sce
 - Минимальная interactive session abstraction.
 - Минимальный line-oriented helper поверх session.
 - Небольшой expect helper после стабилизации session.
-- PTY как узкая transport strategy.
+- PTY как узкая transport strategy для session-сценариев.
 - Детерминированный fixture/eval набор.
 
 ## Не входит в MVP
@@ -90,19 +90,21 @@ com.github.ulviar.icli
   ExpectOptions
   ExpectOutputFilter
   ExpectException
+  TerminalPolicy
+  TerminalSize
+  TerminalSignal
+  PtyProvider
+  PtyRequest
   CapturePolicy
   ShutdownPolicy
   Session
   SessionOptions
   CommandException
-
-com.github.ulviar.icli.spi
-  ProcessLauncher
-  PtyProvider
 ```
 
-Публичных пакетов должно быть мало. Внутренняя реализация может быть разложена подробно, но это не должно
-протекать в public API.
+Публичных пакетов должно быть мало. Поэтому первый `PtyProvider` SPI находится в корневом пакете рядом с остальным
+узким API, а не открывает отдельную иерархию `spi` до появления нескольких независимых ports. Внутренняя реализация
+может быть разложена подробно, но это не должно протекать в public API.
 
 ## Расширения после MVP
 

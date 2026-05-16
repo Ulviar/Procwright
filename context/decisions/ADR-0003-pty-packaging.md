@@ -2,7 +2,8 @@
 
 ## Статус
 
-Accepted for foundation.
+Accepted for foundation; concrete Phase 7 transport decision is captured in
+[ADR-0005](ADR-0005-pty-transport.md).
 
 ## Контекст
 
@@ -21,8 +22,7 @@ Clean rewrite должен сначала стабилизировать:
 
 В фазе 1 PTY dependency не подключается к core artifact.
 
-Архитектура оставляет место для `PtyProvider` / transport SPI. Конкретная PTY dependency и packaging будут выбраны
-перед реализацией PTY transport отдельным ADR.
+Архитектура оставляет место для `PtyProvider` / transport SPI. Конкретный Phase 7 transport выбран отдельным ADR.
 
 ## Последствия
 

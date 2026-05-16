@@ -73,6 +73,7 @@ final class ExecutionPlanResolverTest {
                 .shutdown(shutdownPolicy)
                 .idleTimeout(Duration.ofSeconds(3))
                 .charset(StandardCharsets.UTF_8)
+                .terminal(TerminalPolicy.REQUIRED)
                 .build();
 
         SessionExecutionPlan plan =
@@ -85,14 +86,28 @@ final class ExecutionPlanResolverTest {
         assertEquals("1", plan.launchPlan().environment().get("BASE"));
         assertEquals("2", plan.launchPlan().environment().get("CALL"));
         assertEquals(OutputMode.SEPARATE, plan.launchPlan().outputMode());
-        assertEquals(TerminalPolicy.DISABLED, plan.launchPlan().terminalPolicy());
+        assertEquals(TerminalPolicy.REQUIRED, plan.launchPlan().terminalPolicy());
         assertEquals(shutdownPolicy, plan.shutdownPolicy());
         assertEquals(Duration.ofSeconds(3), plan.idleTimeout());
         assertEquals(StandardCharsets.UTF_8, plan.charset());
     }
 
     @Test
-    void rejectsTerminalRequiredProfileUntilTerminalTransportExists() {
+    void resolvesTerminalPolicyFromSessionDefaultsWhenCallDoesNotOverrideIt() {
+        CommandSpec spec = CommandSpec.of("tool");
+        SessionOptions options = SessionOptions.defaults().withTerminalPolicy(TerminalPolicy.AUTO);
+        SessionInvocation invocation = SessionInvocation.builder().build();
+
+        SessionExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.interactive(options), spec, invocation);
+
+        assertEquals(TerminalPolicy.AUTO, plan.launchPlan().terminalPolicy());
+        assertEquals(PtyProvider.system(), plan.ptyProvider());
+        assertEquals(TerminalSize.defaults(), plan.terminalSize());
+    }
+
+    @Test
+    void rejectsTerminalRequiredForOneShotRunUntilRunPtyTransportExists() {
         CommandSpec spec = CommandSpec.of("tool");
         ScenarioProfile.Run terminalProfile = new ScenarioProfile.Run(
                 StdinPolicy.closed(),

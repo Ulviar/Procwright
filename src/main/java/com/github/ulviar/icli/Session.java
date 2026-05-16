@@ -108,6 +108,19 @@ public final class Session implements AutoCloseable {
     }
 
     /**
+     * Writes a terminal control signal and flushes stdin.
+     *
+     * <p>PTY-backed sessions normally translate these control bytes into process signals for the foreground command.
+     * Pipe-backed sessions receive the same bytes as ordinary stdin.
+     *
+     * @param signal terminal signal
+     */
+    public void sendSignal(TerminalSignal signal) {
+        Objects.requireNonNull(signal, "signal");
+        sendBytes(signal.bytes());
+    }
+
+    /**
      * Closes process stdin. The session may keep running until the process exits or is closed.
      */
     public void closeStdin() {

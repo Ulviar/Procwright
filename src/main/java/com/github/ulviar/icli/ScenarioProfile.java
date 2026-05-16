@@ -25,7 +25,12 @@ sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioPr
     static Interactive interactive(SessionOptions options) {
         Objects.requireNonNull(options, "options");
         return new Interactive(
-                options.shutdownPolicy(), options.idleTimeout(), options.charset(), TerminalPolicy.DISABLED);
+                options.shutdownPolicy(),
+                options.idleTimeout(),
+                options.charset(),
+                options.terminalPolicy(),
+                options.ptyProvider(),
+                options.terminalSize());
     }
 
     private static CapturePolicy.Bounded bounded(CapturePolicy capturePolicy) {
@@ -65,7 +70,12 @@ sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioPr
     }
 
     record Interactive(
-            ShutdownPolicy shutdownPolicy, Duration idleTimeout, Charset charset, TerminalPolicy terminalPolicy)
+            ShutdownPolicy shutdownPolicy,
+            Duration idleTimeout,
+            Charset charset,
+            TerminalPolicy terminalPolicy,
+            PtyProvider ptyProvider,
+            TerminalSize terminalSize)
             implements ScenarioProfile {
 
         public Interactive {
@@ -76,6 +86,8 @@ sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioPr
             }
             Objects.requireNonNull(charset, "charset");
             Objects.requireNonNull(terminalPolicy, "terminalPolicy");
+            Objects.requireNonNull(ptyProvider, "ptyProvider");
+            Objects.requireNonNull(terminalSize, "terminalSize");
         }
 
         @Override

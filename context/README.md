@@ -21,6 +21,7 @@
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
 - [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.
 - [decisions/ADR-0003-pty-packaging.md](decisions/ADR-0003-pty-packaging.md) — PTY не входит в core foundation.
+- [decisions/ADR-0005-pty-transport.md](decisions/ADR-0005-pty-transport.md) — PTY transport через узкий provider.
 
 ## Правило навигации
 

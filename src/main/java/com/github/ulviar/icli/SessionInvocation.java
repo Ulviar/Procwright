@@ -23,6 +23,7 @@ public final class SessionInvocation {
     private final ShutdownPolicy shutdownPolicy;
     private final Duration idleTimeout;
     private final Charset charset;
+    private final TerminalPolicy terminalPolicy;
 
     private SessionInvocation(Builder builder) {
         arguments = List.copyOf(builder.arguments);
@@ -31,6 +32,7 @@ public final class SessionInvocation {
         shutdownPolicy = builder.shutdownPolicy;
         idleTimeout = builder.idleTimeout;
         charset = builder.charset;
+        terminalPolicy = builder.terminalPolicy;
     }
 
     /**
@@ -96,6 +98,15 @@ public final class SessionInvocation {
         return Optional.ofNullable(charset);
     }
 
+    /**
+     * Returns the per-session terminal policy override.
+     *
+     * @return terminal policy when configured
+     */
+    public Optional<TerminalPolicy> terminalPolicy() {
+        return Optional.ofNullable(terminalPolicy);
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {
@@ -109,12 +120,14 @@ public final class SessionInvocation {
                 && environment.equals(that.environment)
                 && Objects.equals(shutdownPolicy, that.shutdownPolicy)
                 && Objects.equals(idleTimeout, that.idleTimeout)
-                && Objects.equals(charset, that.charset);
+                && Objects.equals(charset, that.charset)
+                && terminalPolicy == that.terminalPolicy;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(arguments, workingDirectory, environment, shutdownPolicy, idleTimeout, charset);
+        return Objects.hash(
+                arguments, workingDirectory, environment, shutdownPolicy, idleTimeout, charset, terminalPolicy);
     }
 
     /**
@@ -128,6 +141,7 @@ public final class SessionInvocation {
         private ShutdownPolicy shutdownPolicy;
         private Duration idleTimeout;
         private Charset charset;
+        private TerminalPolicy terminalPolicy;
 
         private Builder() {}
 
@@ -223,6 +237,17 @@ public final class SessionInvocation {
          */
         public Builder charset(Charset charset) {
             this.charset = Objects.requireNonNull(charset, "charset");
+            return this;
+        }
+
+        /**
+         * Sets the per-session terminal policy override.
+         *
+         * @param terminalPolicy terminal policy
+         * @return this builder
+         */
+        public Builder terminal(TerminalPolicy terminalPolicy) {
+            this.terminalPolicy = Objects.requireNonNull(terminalPolicy, "terminalPolicy");
             return this;
         }
 

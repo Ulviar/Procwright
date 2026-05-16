@@ -69,12 +69,22 @@
 
 ## PTY
 
-PTY не обязан быть первым реализованным транспортом, но до релиза должны быть проверки:
+Базовый PTY transport реализован для session-сценариев. Минимальные проверки:
 
-- command can request terminal;
-- PTY fallback или unsupported behavior explicit;
+- command can request terminal through `TerminalPolicy`;
+- `REQUIRED` не делает silent fallback и падает с явной ошибкой, если provider unavailable;
+- `AUTO` может fallback в pipes, если provider unavailable;
 - PTY session can send and receive text;
-- terminal-required fixture или real REPL проходит под PTY.
+- `lineSession` может работать под PTY с echo-aware decoder;
+- real shell проходит под Unix `script(1)` provider;
+- terminal size передается в `PtyRequest` и системный provider выставляет `LINES`/`COLUMNS` плюс делает best-effort `stty`;
+- `Session.sendSignal(TerminalSignal.INTERRUPT)` проверен как Ctrl+C-style mapping под PTY.
+
+Ограничения текущего среза:
+
+- PTY child stdout/stderr под Unix terminal приходят как терминальный поток через `Session.stdout()`;
+- Windows ConPTY пока explicit unsupported behavior, а не fallback для `REQUIRED`;
+- one-shot `run` пока не получает PTY transport.
 
 ## Release gate
 

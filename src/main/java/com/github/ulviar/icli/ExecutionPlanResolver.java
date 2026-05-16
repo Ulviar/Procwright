@@ -16,6 +16,9 @@ final class ExecutionPlanResolver {
     }
 
     static ExecutionPlan resolve(ScenarioProfile.Run profile, CommandSpec spec, CommandInvocation invocation) {
+        if (profile.terminalPolicy() == TerminalPolicy.REQUIRED) {
+            throw new IllegalArgumentException("run scenario does not have a terminal-capable transport yet");
+        }
         InvocationShape invocationShape = shape(invocation);
         LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, outputMode(profile, invocation));
         return new ExecutionPlan(
@@ -30,33 +33,50 @@ final class ExecutionPlanResolver {
     static SessionExecutionPlan resolve(
             ScenarioProfile.Interactive profile, CommandSpec spec, SessionInvocation invocation) {
         InvocationShape invocationShape = shape(invocation);
-        LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, OutputMode.SEPARATE);
+        LaunchPlan launchPlan = launchPlan(
+                profile,
+                spec,
+                invocationShape,
+                OutputMode.SEPARATE,
+                invocation.terminalPolicy().orElse(profile.terminalPolicy()));
         return new SessionExecutionPlan(
                 launchPlan,
                 invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
                 invocation.idleTimeout().orElse(profile.idleTimeout()),
-                invocation.charset().orElse(profile.charset()));
+                invocation.charset().orElse(profile.charset()),
+                profile.ptyProvider(),
+                profile.terminalSize());
     }
 
     static SessionExecutionPlan resolve(
             ScenarioProfile.Interactive profile, CommandSpec spec, LineSessionInvocation invocation) {
         InvocationShape invocationShape = shape(invocation);
-        LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, OutputMode.SEPARATE);
+        LaunchPlan launchPlan = launchPlan(
+                profile,
+                spec,
+                invocationShape,
+                OutputMode.SEPARATE,
+                invocation.terminalPolicy().orElse(profile.terminalPolicy()));
         return new SessionExecutionPlan(
                 launchPlan,
                 invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
                 invocation.idleTimeout().orElse(profile.idleTimeout()),
-                profile.charset());
+                profile.charset(),
+                profile.ptyProvider(),
+                profile.terminalSize());
     }
 
     private static LaunchPlan launchPlan(
             ScenarioProfile profile, CommandSpec spec, InvocationShape invocation, OutputMode outputMode) {
-        TerminalPolicy terminalPolicy = profile.terminalPolicy();
-        if (terminalPolicy == TerminalPolicy.REQUIRED) {
-            throw new IllegalArgumentException(
-                    profile.name() + " scenario does not have a terminal-capable transport yet");
-        }
+        return launchPlan(profile, spec, invocation, outputMode, profile.terminalPolicy());
+    }
 
+    private static LaunchPlan launchPlan(
+            ScenarioProfile profile,
+            CommandSpec spec,
+            InvocationShape invocation,
+            OutputMode outputMode,
+            TerminalPolicy terminalPolicy) {
         if (spec.usesShell()) {
             if (!spec.arguments().isEmpty() || !invocation.arguments().isEmpty()) {
                 throw new IllegalArgumentException("shell commands do not accept argv arguments");

@@ -21,6 +21,7 @@ public final class LineSessionInvocation {
     private final Map<String, String> environment;
     private final ShutdownPolicy shutdownPolicy;
     private final Duration idleTimeout;
+    private final TerminalPolicy terminalPolicy;
 
     private LineSessionInvocation(Builder builder) {
         arguments = List.copyOf(builder.arguments);
@@ -28,6 +29,7 @@ public final class LineSessionInvocation {
         environment = Collections.unmodifiableMap(new LinkedHashMap<>(builder.environment));
         shutdownPolicy = builder.shutdownPolicy;
         idleTimeout = builder.idleTimeout;
+        terminalPolicy = builder.terminalPolicy;
     }
 
     /**
@@ -84,6 +86,15 @@ public final class LineSessionInvocation {
         return Optional.ofNullable(idleTimeout);
     }
 
+    /**
+     * Returns the per-session terminal policy override.
+     *
+     * @return terminal policy when configured
+     */
+    public Optional<TerminalPolicy> terminalPolicy() {
+        return Optional.ofNullable(terminalPolicy);
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {
@@ -96,12 +107,13 @@ public final class LineSessionInvocation {
                 && Objects.equals(workingDirectory, that.workingDirectory)
                 && environment.equals(that.environment)
                 && Objects.equals(shutdownPolicy, that.shutdownPolicy)
-                && Objects.equals(idleTimeout, that.idleTimeout);
+                && Objects.equals(idleTimeout, that.idleTimeout)
+                && terminalPolicy == that.terminalPolicy;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(arguments, workingDirectory, environment, shutdownPolicy, idleTimeout);
+        return Objects.hash(arguments, workingDirectory, environment, shutdownPolicy, idleTimeout, terminalPolicy);
     }
 
     /**
@@ -114,6 +126,7 @@ public final class LineSessionInvocation {
         private Path workingDirectory;
         private ShutdownPolicy shutdownPolicy;
         private Duration idleTimeout;
+        private TerminalPolicy terminalPolicy;
 
         private Builder() {}
 
@@ -198,6 +211,17 @@ public final class LineSessionInvocation {
          */
         public Builder idleTimeout(Duration idleTimeout) {
             this.idleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
+            return this;
+        }
+
+        /**
+         * Sets the per-session terminal policy override.
+         *
+         * @param terminalPolicy terminal policy
+         * @return this builder
+         */
+        public Builder terminal(TerminalPolicy terminalPolicy) {
+            this.terminalPolicy = Objects.requireNonNull(terminalPolicy, "terminalPolicy");
             return this;
         }
 

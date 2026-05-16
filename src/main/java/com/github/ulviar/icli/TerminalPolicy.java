@@ -3,7 +3,7 @@ package com.github.ulviar.icli;
 /**
  * Describes terminal preference for a command scenario.
  */
-enum TerminalPolicy {
+public enum TerminalPolicy {
     /**
      * Runs with ordinary pipes and never requests a terminal.
      */

@@ -62,4 +62,23 @@ final class PolicyValueTest {
         assertThrows(
                 IllegalArgumentException.class, () -> ExpectOptions.defaults().withMatchBufferLimit(0));
     }
+
+    @Test
+    void terminalSizeRejectsNonPositiveDimensions() {
+        assertThrows(IllegalArgumentException.class, () -> new TerminalSize(0, 24));
+        assertThrows(IllegalArgumentException.class, () -> new TerminalSize(80, 0));
+    }
+
+    @Test
+    void sessionOptionsCarryTerminalDefaults() {
+        PtyProvider provider = PtyProvider.unavailable("no test provider");
+        SessionOptions options = SessionOptions.defaults()
+                .withTerminalPolicy(TerminalPolicy.REQUIRED)
+                .withPtyProvider(provider)
+                .withTerminalSize(new TerminalSize(100, 40));
+
+        assertEquals(TerminalPolicy.REQUIRED, options.terminalPolicy());
+        assertEquals(provider, options.ptyProvider());
+        assertEquals(new TerminalSize(100, 40), options.terminalSize());
+    }
 }

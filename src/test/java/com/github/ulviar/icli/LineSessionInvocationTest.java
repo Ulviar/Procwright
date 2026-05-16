@@ -35,6 +35,7 @@ final class LineSessionInvocationTest {
                 .putEnvironment("TERM", "dumb")
                 .shutdown(shutdownPolicy)
                 .idleTimeout(Duration.ofSeconds(3))
+                .terminal(TerminalPolicy.REQUIRED)
                 .build();
 
         assertEquals("repl", invocation.arguments().getFirst());
@@ -42,6 +43,7 @@ final class LineSessionInvocationTest {
         assertEquals("dumb", invocation.environment().get("TERM"));
         assertEquals(shutdownPolicy, invocation.shutdownPolicy().orElseThrow());
         assertEquals(Duration.ofSeconds(3), invocation.idleTimeout().orElseThrow());
+        assertEquals(TerminalPolicy.REQUIRED, invocation.terminalPolicy().orElseThrow());
     }
 
     @Test
@@ -50,11 +52,13 @@ final class LineSessionInvocationTest {
                 .args("repl")
                 .putEnvironment("LC_ALL", "C")
                 .idleTimeout(Duration.ofSeconds(3))
+                .terminal(TerminalPolicy.AUTO)
                 .build();
         LineSessionInvocation right = LineSessionInvocation.builder()
                 .args("repl")
                 .putEnvironment("LC_ALL", "C")
                 .idleTimeout(Duration.ofSeconds(3))
+                .terminal(TerminalPolicy.AUTO)
                 .build();
 
         assertEquals(left, right);

@@ -13,6 +13,8 @@ import com.github.ulviar.icli.RunOptions;
 import com.github.ulviar.icli.Session;
 import com.github.ulviar.icli.SessionOptions;
 import com.github.ulviar.icli.ShutdownPolicy;
+import com.github.ulviar.icli.TerminalPolicy;
+import com.github.ulviar.icli.TerminalSignal;
 import java.nio.file.Path;
 import java.time.Duration;
 
@@ -81,6 +83,14 @@ final class CommandServiceApiExamples {
             expect.expectText("ready> ");
             expect.sendLine("status");
             expect.expectRegex(java.util.regex.Pattern.compile("ok|ready"));
+        }
+    }
+
+    void terminalRequiredSessionScenario() {
+        CommandService shell = CommandService.forCommand("sh");
+
+        try (Session session = shell.interactive(call -> call.terminal(TerminalPolicy.REQUIRED))) {
+            session.sendSignal(TerminalSignal.INTERRUPT);
         }
     }
 }

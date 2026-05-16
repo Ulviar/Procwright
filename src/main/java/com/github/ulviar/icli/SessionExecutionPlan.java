@@ -5,7 +5,12 @@ import java.time.Duration;
 import java.util.Objects;
 
 record SessionExecutionPlan(
-        LaunchPlan launchPlan, ShutdownPolicy shutdownPolicy, Duration idleTimeout, Charset charset) {
+        LaunchPlan launchPlan,
+        ShutdownPolicy shutdownPolicy,
+        Duration idleTimeout,
+        Charset charset,
+        PtyProvider ptyProvider,
+        TerminalSize terminalSize) {
 
     SessionExecutionPlan {
         Objects.requireNonNull(launchPlan, "launchPlan");
@@ -15,5 +20,7 @@ record SessionExecutionPlan(
             throw new IllegalArgumentException("idleTimeout must not be negative");
         }
         Objects.requireNonNull(charset, "charset");
+        Objects.requireNonNull(ptyProvider, "ptyProvider");
+        Objects.requireNonNull(terminalSize, "terminalSize");
     }
 }

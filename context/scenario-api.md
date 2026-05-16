@@ -58,6 +58,20 @@ try (Session shell = python.interactive(session -> session.args("-i"))) {
 
 Сценарии — это входные точки, а не отдельные архитектурные миры.
 
+Терминал остается сценарной потребностью, а не набором платформенных flags:
+
+```java
+try (Session shell = CommandService.forCommand("sh")
+        .interactive(session -> session.terminal(TerminalPolicy.REQUIRED))) {
+    shell.sendSignal(TerminalSignal.INTERRUPT);
+}
+```
+
+`TerminalPolicy.REQUIRED` должен завершаться явной ошибкой, если PTY provider недоступен. `TerminalPolicy.AUTO` может
+использовать PTY, когда он есть, и fallback в pipes, когда его нет. `TerminalPolicy.DISABLED` всегда использует pipes.
+Для `lineSession` под PTY decoder должен учитывать terminal echo, CRLF и prompts конкретного процесса; default
+`ResponseDecoder.firstLine()` остается pipe-oriented безопасным default, а не универсальным TTY protocol parser.
+
 ## Минимальные сценарии MVP
 
 ### `run`
@@ -158,13 +172,13 @@ run
 lineSession
   stdin: open
   capture: transcript window
-  terminal: disabled until PTY transport exists
+  terminal: disabled by default; per-call AUTO/REQUIRED available through session invocation
   timeout: request timeout + session idle timeout
 
 interactive
   stdin: open
   capture: caller-driven streams
-  terminal: disabled until PTY transport exists
+  terminal: disabled by default; per-call AUTO/REQUIRED available through session invocation
   timeout: idle/lifecycle policy
 ```
 

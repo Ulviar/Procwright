@@ -37,6 +37,7 @@ final class SessionInvocationTest {
                 .shutdown(shutdownPolicy)
                 .idleTimeout(Duration.ofSeconds(3))
                 .charset(StandardCharsets.UTF_8)
+                .terminal(TerminalPolicy.REQUIRED)
                 .build();
 
         assertEquals("-i", invocation.arguments().getFirst());
@@ -45,6 +46,7 @@ final class SessionInvocationTest {
         assertEquals(shutdownPolicy, invocation.shutdownPolicy().orElseThrow());
         assertEquals(Duration.ofSeconds(3), invocation.idleTimeout().orElseThrow());
         assertEquals(StandardCharsets.UTF_8, invocation.charset().orElseThrow());
+        assertEquals(TerminalPolicy.REQUIRED, invocation.terminalPolicy().orElseThrow());
     }
 
     @Test
@@ -53,11 +55,13 @@ final class SessionInvocationTest {
                 .args("-i")
                 .putEnvironment("LC_ALL", "C")
                 .idleTimeout(Duration.ofSeconds(3))
+                .terminal(TerminalPolicy.AUTO)
                 .build();
         SessionInvocation right = SessionInvocation.builder()
                 .args("-i")
                 .putEnvironment("LC_ALL", "C")
                 .idleTimeout(Duration.ofSeconds(3))
+                .terminal(TerminalPolicy.AUTO)
                 .build();
 
         assertEquals(left, right);
