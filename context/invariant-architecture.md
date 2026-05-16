@@ -118,6 +118,7 @@ Runtime layer исполняет уже нормализованный план.
 - process handle закрывается;
 - timeout supervision запускается один раз;
 - shutdown policy применяется в правильном порядке;
+- overflow-prone duration conversion живет в одном internal helper, а не в случайных `toNanos()` вызовах;
 - result собирается после завершения pumps.
 
 Runtime не должен знать, как пользователь собирал builder.
@@ -144,7 +145,8 @@ Transport failures переводятся в типизированные оши
 - direct argv и shell command не смешиваются;
 - env keys валидируются отдельно от env values;
 - working directory — `Path`, а не строка;
-- command echo безопасен для диагностики и не теряет quoting intent.
+- command echo безопасен для диагностики и не теряет quoting intent;
+- launch failure и validation messages не раскрывают raw argv/env values.
 
 ### Options invariants
 
@@ -186,6 +188,7 @@ Transport failures переводятся в типизированные оши
 - truncated output явно помечен;
 - exception содержит structured data, а не только message;
 - raw IOException не должна быть единственным public failure contract.
+- diagnostics events имеют correlation id, чтобы параллельные lifecycle не склеивались по timestamp или command text.
 
 ## Как получить широкие возможности без грязного API
 

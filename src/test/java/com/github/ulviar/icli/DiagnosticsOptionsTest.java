@@ -2,11 +2,13 @@ package com.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -103,6 +105,42 @@ final class DiagnosticsOptionsTest {
         } finally {
             Thread.setDefaultUncaughtExceptionHandler(previous);
         }
+    }
+
+    @Test
+    void eventsFromOneDiagnosticsEmitterShareCorrelationId() throws Exception {
+        List<DiagnosticEvent> events = java.util.Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch delivered = new CountDownLatch(2);
+        Diagnostics diagnostics = Diagnostics.of(
+                DiagnosticsOptions.defaults().withListener(event -> {
+                    events.add(event);
+                    delivered.countDown();
+                }),
+                "run",
+                CommandEcho.empty());
+
+        diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
+        diagnostics.emit(DiagnosticEventType.PROCESS_EXITED);
+
+        assertTrue(delivered.await(1, TimeUnit.SECONDS));
+        assertEquals(1, events.stream().map(DiagnosticEvent::runId).distinct().count());
+        assertFalse(events.getFirst().runId().isBlank());
+    }
+
+    @Test
+    void separateDiagnosticsEmittersUseSeparateCorrelationIds() throws Exception {
+        List<DiagnosticEvent> events = java.util.Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch delivered = new CountDownLatch(2);
+        DiagnosticsOptions options = DiagnosticsOptions.defaults().withListener(event -> {
+            events.add(event);
+            delivered.countDown();
+        });
+
+        Diagnostics.of(options, "run", CommandEcho.empty()).emit(DiagnosticEventType.COMMAND_PREPARED);
+        Diagnostics.of(options, "run", CommandEcho.empty()).emit(DiagnosticEventType.COMMAND_PREPARED);
+
+        assertTrue(delivered.await(1, TimeUnit.SECONDS));
+        assertNotEquals(events.get(0).runId(), events.get(1).runId());
     }
 
     private static void sleep(Duration duration) {

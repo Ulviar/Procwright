@@ -86,6 +86,19 @@ final class StreamScenarioIntegrationTest {
     }
 
     @Test
+    void streamTimeoutWatcherStopsAfterEarlyProcessExit() throws Exception {
+        CommandService service =
+                fixtureService(StreamOptions.defaults().withTimeout(Duration.ofSeconds(Long.MAX_VALUE)));
+
+        try (StreamSession session = service.listen(call -> call.args("stdout", "done"))) {
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertEquals(0, exit.exitCode().orElseThrow());
+            session.timeoutWatcherStopped().get(2, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     void explicitCloseReportsClosedExit() throws Exception {
         CommandService service = fixtureService(StreamOptions.defaults());
 

@@ -29,8 +29,10 @@ plan и scenario-specific execution plan. Это описано в [scenario-api
 - PTY как узкая transport strategy для session-сценариев.
 - Listen-only streaming helper с bounded diagnostics.
 - Наблюдательная diagnostics layer без влияния на runtime behavior.
+- Correlation-safe diagnostics events с process-lifecycle `runId`.
 - Optional Kotlin ergonomics module без Kotlin dependency в Java core.
 - Pooled line-session scenario поверх существующих `LineSession` workers.
+- Scenario presets как typed builder customizers без отдельного runtime.
 - Детерминированный fixture/eval набор.
 
 ## Не входит в MVP
@@ -66,6 +68,7 @@ Runtime
   timeout supervision
   shutdown policy
   diagnostics emission
+  duration saturation helpers
 
 Transport
   pipe transport
@@ -105,6 +108,7 @@ com.github.ulviar.icli
   PooledLineSessionInvocation
   PooledLineSessionMetrics
   PooledLineSessionException
+  ScenarioPresets
   DiagnosticsOptions
   DiagnosticEvent
   DiagnosticEventType

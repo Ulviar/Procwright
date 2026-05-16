@@ -81,6 +81,8 @@ final class ProcessKernel {
 
                 return new CommandResult(
                         exitCode,
+                        stdoutOutput.bytes(),
+                        stderrOutput.bytes(),
                         decode(stdoutOutput, plan),
                         decode(stderrOutput, plan),
                         stdoutOutput.truncated(),

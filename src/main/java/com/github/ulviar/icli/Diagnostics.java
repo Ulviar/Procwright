@@ -4,21 +4,24 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 final class Diagnostics {
 
     private final DiagnosticsOptions options;
+    private final String runId;
     private final String scenario;
     private final CommandEcho command;
 
-    private Diagnostics(DiagnosticsOptions options, String scenario, CommandEcho command) {
+    private Diagnostics(DiagnosticsOptions options, String runId, String scenario, CommandEcho command) {
         this.options = Objects.requireNonNull(options, "options");
+        this.runId = CommandSpec.requireText(runId, "runId");
         this.scenario = CommandSpec.requireText(scenario, "scenario");
         this.command = Objects.requireNonNull(command, "command");
     }
 
     static Diagnostics of(DiagnosticsOptions options, String scenario, CommandEcho command) {
-        return new Diagnostics(options, scenario, command);
+        return new Diagnostics(options, UUID.randomUUID().toString(), scenario, command);
     }
 
     void emit(DiagnosticEventType type) {
@@ -27,7 +30,7 @@ final class Diagnostics {
 
     void emit(DiagnosticEventType type, Map<String, String> attributes) {
         DiagnosticEvent event =
-                new DiagnosticEvent(type, Instant.now(), scenario, command, new LinkedHashMap<>(attributes));
+                new DiagnosticEvent(type, runId, Instant.now(), scenario, command, new LinkedHashMap<>(attributes));
         Thread.ofVirtual().name("icli-diagnostics-", 0).start(() -> deliver(event));
     }
 

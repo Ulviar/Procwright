@@ -39,6 +39,8 @@ public final class StreamSession implements AutoCloseable {
     private final AtomicBoolean timedOut = new AtomicBoolean();
     private final AtomicBoolean truncationEmitted = new AtomicBoolean();
     private final ReentrantLock deliveryLock = new ReentrantLock();
+    private final AtomicReference<Thread> timeoutWatcher = new AtomicReference<>();
+    private final CompletableFuture<Void> timeoutWatcherStopped = new CompletableFuture<>();
 
     StreamSession(Session session, StreamExecutionPlan plan, Diagnostics eventDiagnostics) {
         this.session = Objects.requireNonNull(session, "session");
@@ -77,6 +79,10 @@ public final class StreamSession implements AutoCloseable {
         return diagnostics.snapshot();
     }
 
+    CompletableFuture<Void> timeoutWatcherStopped() {
+        return timeoutWatcherStopped.copy();
+    }
+
     /**
      * Closes process stdin without writing input. This is useful when the stream was started with
      * {@link StreamInvocation.Builder#keepStdinOpen()}.
@@ -97,6 +103,7 @@ public final class StreamSession implements AutoCloseable {
                 eventDiagnostics.emit(
                         DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "close"));
             }
+            stopTimeoutWatcher();
             session.close();
         }
     }
@@ -163,19 +170,32 @@ public final class StreamSession implements AutoCloseable {
 
     private void startTimeoutWatcher() {
         if (timeout.isZero()) {
+            timeoutWatcherStopped.complete(null);
             return;
         }
-        Thread.ofVirtual().name("icli-stream-timeout-", 0).start(() -> {
-            sleep(timeout);
-            if (!exit.isDone()) {
-                timedOut.set(true);
-                stopping.set(true);
-                eventDiagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
-                eventDiagnostics.emit(
-                        DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "timeout"));
-                session.close();
+        Thread watcher = Thread.ofVirtual().name("icli-stream-timeout-", 0).unstarted(() -> {
+            try {
+                if (!sleep(timeout) || exit.isDone()) {
+                    return;
+                }
+                if (!exit.isDone()) {
+                    timedOut.set(true);
+                    stopping.set(true);
+                    eventDiagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
+                    eventDiagnostics.emit(
+                            DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "timeout"));
+                    session.close();
+                }
+            } finally {
+                timeoutWatcher.compareAndSet(Thread.currentThread(), null);
+                timeoutWatcherStopped.complete(null);
             }
         });
+        timeoutWatcher.set(watcher);
+        watcher.start();
+        if (exit.isDone()) {
+            stopTimeoutWatcher();
+        }
     }
 
     private void recordFailure(String message, Throwable cause) {
@@ -190,7 +210,9 @@ public final class StreamSession implements AutoCloseable {
     private void maybeComplete() {
         StreamException streamFailure = failure.get();
         if (streamFailure != null && pumpsRemaining.get() == 0) {
-            exit.completeExceptionally(streamFailure);
+            if (exit.completeExceptionally(streamFailure)) {
+                stopTimeoutWatcher();
+            }
             return;
         }
 
@@ -202,27 +224,30 @@ public final class StreamSession implements AutoCloseable {
         eventDiagnostics.emit(
                 DiagnosticEventType.PROCESS_EXITED,
                 exitAttributes(processExit, timedOut.get() || processExit.timedOut()));
-        exit.complete(new StreamExit(
+        if (exit.complete(new StreamExit(
                 processExit.exitCode(),
                 timedOut.get() || processExit.timedOut(),
                 closed.get(),
                 diagnostics.snapshot(),
-                Duration.between(started, Instant.now())));
-    }
-
-    private static void sleep(Duration duration) {
-        try {
-            TimeUnit.NANOSECONDS.sleep(saturatedNanos(duration));
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
+                Duration.between(started, Instant.now())))) {
+            stopTimeoutWatcher();
         }
     }
 
-    private static long saturatedNanos(Duration duration) {
+    private void stopTimeoutWatcher() {
+        Thread watcher = timeoutWatcher.getAndSet(null);
+        if (watcher != null) {
+            watcher.interrupt();
+        }
+    }
+
+    private static boolean sleep(Duration duration) {
         try {
-            return duration.toNanos();
-        } catch (ArithmeticException ignored) {
-            return Long.MAX_VALUE;
+            TimeUnit.NANOSECONDS.sleep(DurationSupport.saturatedNanos(duration));
+            return true;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

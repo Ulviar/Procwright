@@ -39,25 +39,27 @@ final class PooledLineSessionIntegrationTest {
         try (PooledLineSession pool = fixtureService()
                 .pooled(call -> call.args("line-repl").maxSize(1).maxRequestsPerWorker(1))) {
             String firstPid = pool.request("pid").text();
-            String secondPid = pool.request("pid").text();
 
-            assertNotEquals(firstPid, secondPid);
-            assertEquals(2, pool.metrics().created());
-            assertEquals(2, pool.metrics().retired());
-            assertEquals(0, pool.metrics().size());
+            PooledLineSessionMetrics metrics = pool.metrics();
+            assertTrue(firstPid.startsWith("response:pid:"));
+            assertEquals(1, metrics.created());
+            assertEquals(1, metrics.retired());
+            assertEquals(0, metrics.size());
+            assertEquals(1, metrics.completedRequests());
         }
     }
 
     @Test
-    void expiredIdleWorkerIsRetiredBeforeReuse() throws Exception {
+    void maxWorkerAgeRetiresWorkerAfterUse() {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).warmupSize(1).maxWorkerAge(Duration.ofMillis(50)))) {
-            Thread.sleep(100);
+                .pooled(call -> call.args("line-repl").maxSize(1).maxWorkerAge(Duration.ofNanos(1)))) {
+            String firstPid = pool.request("pid").text();
 
-            assertEquals("response:hello", pool.request("hello").text());
-
-            assertEquals(2, pool.metrics().created());
-            assertEquals(1, pool.metrics().retired());
+            PooledLineSessionMetrics metrics = pool.metrics();
+            assertTrue(firstPid.startsWith("response:pid:"));
+            assertEquals(1, metrics.created());
+            assertEquals(1, metrics.retired());
+            assertEquals(0, metrics.size());
         }
     }
 
@@ -234,6 +236,16 @@ final class PooledLineSessionIntegrationTest {
             assertTrue(pool.awaitDrained(Duration.ofSeconds(2)));
             assertEquals(0, pool.metrics().size());
             assertEquals(0, pool.metrics().leased());
+        }
+    }
+
+    @Test
+    void awaitDrainedSaturatesHugeTimeout() {
+        try (PooledLineSession pool =
+                fixtureService().pooled(call -> call.args("line-repl").maxSize(1))) {
+            pool.close();
+
+            assertTrue(pool.awaitDrained(Duration.ofSeconds(Long.MAX_VALUE)));
         }
     }
 

@@ -129,6 +129,7 @@ final class ProcessFixtureProgram {
                 }
                 System.out.println();
             }
+            case "stdout-bytes" -> System.out.write(new byte[] {0x00, (byte) 0xFF, 0x41});
             case "stderr-exit" -> {
                 System.out.print(args[2]);
                 System.err.print(args[3]);

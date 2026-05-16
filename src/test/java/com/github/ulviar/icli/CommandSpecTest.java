@@ -1,6 +1,7 @@
 package com.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
@@ -18,6 +19,32 @@ final class CommandSpecTest {
     @Test
     void rejectsBlankShellCommand() {
         assertThrows(IllegalArgumentException.class, () -> CommandSpec.shell(" "));
+    }
+
+    @Test
+    void rejectsNulExecutableWithoutEchoingIt() {
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> CommandSpec.builder("hidden\0tool"));
+
+        assertFalse(exception.getMessage().contains("hidden"));
+    }
+
+    @Test
+    void rejectsNulShellCommandWithoutEchoingIt() {
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> CommandSpec.shell("hidden\0command"));
+
+        assertFalse(exception.getMessage().contains("hidden"));
+    }
+
+    @Test
+    void rejectsNulArgumentWithoutEchoingIt() {
+        CommandSpec.Builder builder = CommandSpec.builder("tool");
+
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> builder.arg("hidden\0argument"));
+
+        assertFalse(exception.getMessage().contains("hidden"));
     }
 
     @Test
@@ -69,5 +96,15 @@ final class CommandSpecTest {
         CommandSpec.Builder builder = CommandSpec.builder("tool");
 
         assertThrows(IllegalArgumentException.class, () -> builder.putEnvironment("BAD=NAME", "value"));
+    }
+
+    @Test
+    void rejectsInvalidEnvironmentValueWithoutEchoingIt() {
+        CommandSpec.Builder builder = CommandSpec.builder("tool");
+
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> builder.putEnvironment("SECRET", "hidden\0value"));
+
+        assertFalse(exception.getMessage().contains("hidden"));
     }
 }

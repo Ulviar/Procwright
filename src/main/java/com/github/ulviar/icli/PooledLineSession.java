@@ -140,7 +140,7 @@ public final class PooledLineSession implements AutoCloseable {
             throw new IllegalArgumentException("timeout must be positive");
         }
         try {
-            drained.get(Math.max(1, timeout.toMillis()), TimeUnit.MILLISECONDS);
+            drained.get(Math.max(1, DurationSupport.saturatedMillis(timeout)), TimeUnit.MILLISECONDS);
             return true;
         } catch (java.util.concurrent.TimeoutException exception) {
             return false;
@@ -195,7 +195,7 @@ public final class PooledLineSession implements AutoCloseable {
     }
 
     private Worker acquire() {
-        long deadlineNanos = deadlineFromNow(options.acquireTimeout());
+        long deadlineNanos = DurationSupport.deadlineFromNow(options.acquireTimeout());
         while (true) {
             Worker worker = takeOrReserveWorker(deadlineNanos);
             if (worker == null) {
@@ -344,7 +344,7 @@ public final class PooledLineSession implements AutoCloseable {
             return true;
         }
         Duration maxAge = options.maxWorkerAge();
-        return !maxAge.isZero() && System.nanoTime() - worker.createdAtNanos >= saturatedNanos(maxAge);
+        return !maxAge.isZero() && System.nanoTime() - worker.createdAtNanos >= DurationSupport.saturatedNanos(maxAge);
     }
 
     private void retire(Worker worker) {
@@ -402,23 +402,6 @@ public final class PooledLineSession implements AutoCloseable {
     private PooledLineSessionException closed() {
         return new PooledLineSessionException(
                 PooledLineSessionException.Reason.CLOSED, "Pooled line session is closed");
-    }
-
-    private static long saturatedNanos(Duration duration) {
-        try {
-            return duration.toNanos();
-        } catch (ArithmeticException ignored) {
-            return Long.MAX_VALUE;
-        }
-    }
-
-    private static long deadlineFromNow(Duration duration) {
-        long now = System.nanoTime();
-        long nanos = saturatedNanos(duration);
-        if (Long.MAX_VALUE - now < nanos) {
-            return Long.MAX_VALUE;
-        }
-        return now + nanos;
     }
 
     private static String requireRequestLine(String line) {

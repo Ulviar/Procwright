@@ -100,39 +100,54 @@ class IcliKotlinTest {
     }
 
     @Test
-    fun `cancelling session awaiter does not cancel shared exit future`() = runBlocking {
-        javaService()
-            .openSession { args(*fixtureArgs("sleep", "5000")) }
-            .use { session ->
-                val job = async { session.awaitExit() }
+    fun `cancelling session awaiter does not cancel shared exit future`() {
+        runBlocking {
+            javaService()
+                .openSession { args(*fixtureArgs("sleep", "5000")) }
+                .use { session ->
+                    val job = async { session.awaitExit() }
 
-                delay(50)
-                job.cancelAndJoin()
+                    delay(50)
+                    job.cancelAndJoin()
 
-                assertFalse(session.onExit().isCancelled)
-                assertFalse(session.onExit().isDone)
+                    assertFalse(session.onExit().isCancelled)
+                    assertFalse(session.onExit().isDone)
 
-                session.close()
-                session.onExit().join()
-            }
+                    session.close()
+                    session.onExit().join()
+                }
+        }
     }
 
     @Test
-    fun `cancelling stream awaiter does not cancel shared exit future`() = runBlocking {
-        javaService()
-            .listen { invocation -> invocation.args(*fixtureArgs("sleep", "5000")) }
-            .use { session ->
-                val job = async { session.awaitExit() }
+    fun `cancelling stream awaiter does not cancel shared exit future`() {
+        runBlocking {
+            javaService()
+                .listen { invocation -> invocation.args(*fixtureArgs("sleep", "5000")) }
+                .use { session ->
+                    val job = async { session.awaitExit() }
 
-                delay(50)
-                job.cancelAndJoin()
+                    delay(50)
+                    job.cancelAndJoin()
 
-                assertFalse(session.onExit().isCancelled)
-                assertFalse(session.onExit().isDone)
+                    assertFalse(session.onExit().isCancelled)
+                    assertFalse(session.onExit().isDone)
 
-                session.close()
-                session.onExit().join()
+                    session.close()
+                    session.onExit().join()
+                }
+        }
+    }
+
+    @Test
+    fun `test methods keep junit compatible void return type`() {
+        val testMethods =
+            IcliKotlinTest::class.java.declaredMethods.filter { method ->
+                method.isAnnotationPresent(org.junit.jupiter.api.Test::class.java)
             }
+
+        assertEquals(11, testMethods.size)
+        assertTrue(testMethods.all { it.returnType == Void.TYPE })
     }
 
     private fun javaService(): CommandService = CommandService.forCommand(javaExecutable())

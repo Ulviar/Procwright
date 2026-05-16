@@ -13,6 +13,7 @@ import com.github.ulviar.icli.LineSessionOptions;
 import com.github.ulviar.icli.PooledLineSession;
 import com.github.ulviar.icli.PooledLineSessionMetrics;
 import com.github.ulviar.icli.RunOptions;
+import com.github.ulviar.icli.ScenarioPresets;
 import com.github.ulviar.icli.Session;
 import com.github.ulviar.icli.SessionOptions;
 import com.github.ulviar.icli.ShutdownPolicy;
@@ -137,6 +138,23 @@ final class CommandServiceApiExamples {
             if (response.text().isBlank() || metrics.size() > 4) {
                 throw new IllegalStateException("unexpected pooled response");
             }
+        }
+    }
+
+    void scenarioPresetComposition() {
+        CommandService tool = CommandService.forCommand("tool");
+
+        tool.run(call -> {
+            call.args("env");
+            ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024)
+                    .accept(call);
+        });
+
+        try (StreamSession stream = tool.listen(call -> {
+            call.args("logs", "--follow").onOutput(chunk -> System.out.print(chunk.text()));
+            ScenarioPresets.logFollowing(Duration.ZERO).accept(call);
+        })) {
+            stream.close();
         }
     }
 }

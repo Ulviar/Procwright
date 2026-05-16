@@ -4,11 +4,13 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Structured diagnostic event.
  *
  * @param type event type
+ * @param runId process-lifecycle correlation id
  * @param timestamp event timestamp
  * @param scenario scenario that emitted the event
  * @param command redaction-friendly command echo
@@ -16,13 +18,14 @@ import java.util.Objects;
  */
 public record DiagnosticEvent(
         DiagnosticEventType type,
+        String runId,
         Instant timestamp,
         String scenario,
         CommandEcho command,
         Map<String, String> attributes) {
 
     /**
-     * Validates and snapshots a diagnostic event.
+     * Creates a diagnostic event with a fresh correlation id.
      *
      * @param type event type
      * @param timestamp event timestamp
@@ -30,11 +33,31 @@ public record DiagnosticEvent(
      * @param command redaction-friendly command echo
      * @param attributes structured event attributes
      */
+    public DiagnosticEvent(
+            DiagnosticEventType type,
+            Instant timestamp,
+            String scenario,
+            CommandEcho command,
+            Map<String, String> attributes) {
+        this(type, UUID.randomUUID().toString(), timestamp, scenario, command, attributes);
+    }
+
+    /**
+     * Validates and snapshots a diagnostic event.
+     *
+     * @param type event type
+     * @param runId process-lifecycle correlation id
+     * @param timestamp event timestamp
+     * @param scenario scenario that emitted the event
+     * @param command redaction-friendly command echo
+     * @param attributes structured event attributes
+     */
     public DiagnosticEvent {
         Objects.requireNonNull(type, "type");
+        CommandSpec.requireText(runId, "runId");
         Objects.requireNonNull(timestamp, "timestamp");
         CommandSpec.requireText(scenario, "scenario");
         Objects.requireNonNull(command, "command");
-        attributes = Map.copyOf(new LinkedHashMap<>(attributes));
+        attributes = Map.copyOf(new LinkedHashMap<>(Objects.requireNonNull(attributes, "attributes")));
     }
 }

@@ -252,13 +252,45 @@ pooled
 Пользователь может переопределить части профиля:
 
 ```java
-service.run(call -> call
-        .args("logs")
-        .scenario(RunScenario.streamingLogs())
-        .timeout(Duration.ofMinutes(2)));
+try (StreamSession stream = service.listen(call -> call
+        .args("logs", "--follow")
+        .timeout(Duration.ofMinutes(2))
+        .onOutput(chunk -> System.out.print(chunk.text())))) {
+    stream.onExit().join();
+}
 ```
 
 Но базовый API должен сначала предложить сценарий, а не заставить пользователя собирать все policies вручную.
+
+## Scenario presets
+
+Preset — это typed customizer существующего scenario builder, а не новый runner и не отдельная подсистема. Пользователь
+все равно выбирает сценарий:
+
+```java
+service.run(call -> {
+    call.args("env");
+    ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024).accept(call);
+});
+```
+
+Для listen-only workflow:
+
+```java
+try (StreamSession stream = service.listen(call -> {
+    call.args("logs", "--follow").onOutput(chunk -> System.out.print(chunk.text()));
+    ScenarioPresets.logFollowing(Duration.ZERO).accept(call);
+})) {
+    stream.onExit().join();
+}
+```
+
+Инварианты:
+
+- preset не выбирает сценарий вместо пользователя;
+- preset не создает process runtime;
+- preset применяет только те overrides, которые уже существуют в соответствующем invocation builder;
+- порядок применения preset и ручных overrides — обычный порядок builder calls.
 
 ## Внутренняя модель
 

@@ -2,6 +2,7 @@ package com.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -79,7 +80,50 @@ final class OneShotExecutionIntegrationTest {
 
         assertTrue(result.stdout().contains("out\n"));
         assertTrue(result.stdout().contains("err\n"));
+        assertTrue(new String(result.stdoutBytes(), StandardCharsets.UTF_8).contains("out\n"));
         assertEquals("", result.stderr());
+        assertEquals(0, result.stderrBytes().length);
+    }
+
+    @Test
+    void capturedOutputBytesAreAvailableForBinaryWorkflows() {
+        CommandResult result = fixtureService().run(call -> {
+            call.args("stdout-bytes");
+            ScenarioPresets.binaryOutputCapture(Duration.ofSeconds(1), 16).accept(call);
+        });
+
+        assertTrue(result.succeeded());
+        assertEquals(java.util.List.of((byte) 0x00, (byte) 0xFF, (byte) 0x41), boxed(result.stdoutBytes()));
+        assertEquals(0, result.stderrBytes().length);
+    }
+
+    @Test
+    void launchFailureDoesNotExposeRawArguments() {
+        CommandService service = CommandService.forCommand("icli-missing-executable-" + System.nanoTime());
+
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class, () -> service.run(call -> call.args("--token", "secret-argument")));
+
+        assertTrue(exception.getMessage().contains("argumentCount=2"));
+        assertFalse(exception.getMessage().contains("--token"));
+        assertFalse(exception.getMessage().contains("secret-argument"));
+    }
+
+    @Test
+    void invalidEnvironmentValueDoesNotExposeRawValue() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> fixtureService()
+                .run(call -> call.putEnvironment("SECRET_VALUE", "hidden\0value")));
+
+        assertFalse(exception.getMessage().contains("hidden"));
+    }
+
+    @Test
+    void hugeTimeoutIsSaturatedInsteadOfOverflowing() {
+        CommandResult result =
+                fixtureService().run(call -> call.args("stdout", "ok\n").timeout(Duration.ofSeconds(Long.MAX_VALUE)));
+
+        assertTrue(result.succeeded());
+        assertEquals("ok\n", result.stdout());
     }
 
     @Test
@@ -182,5 +226,13 @@ final class OneShotExecutionIntegrationTest {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    private static java.util.List<Byte> boxed(byte[] bytes) {
+        java.util.ArrayList<Byte> result = new java.util.ArrayList<>();
+        for (byte value : bytes) {
+            result.add(value);
+        }
+        return result;
     }
 }

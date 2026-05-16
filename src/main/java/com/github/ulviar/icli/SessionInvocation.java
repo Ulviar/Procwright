@@ -203,7 +203,7 @@ public final class SessionInvocation {
          * @return this builder
          */
         public Builder putEnvironment(String name, String value) {
-            environment.put(CommandSpec.requireEnvironmentName(name), Objects.requireNonNull(value, "value"));
+            environment.put(CommandSpec.requireEnvironmentName(name), CommandSpec.requireEnvironmentValue(value));
             return this;
         }
 

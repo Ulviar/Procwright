@@ -202,7 +202,7 @@ public final class CommandSpec {
          * @return this builder
          */
         public Builder putEnvironment(String name, String value) {
-            environment.put(requireEnvironmentName(name), Objects.requireNonNull(value, "value"));
+            environment.put(requireEnvironmentName(name), requireEnvironmentValue(value));
             return this;
         }
 
@@ -221,18 +221,31 @@ public final class CommandSpec {
         if (value.isBlank()) {
             throw new IllegalArgumentException(name + " must not be blank");
         }
+        requireNoNul(value, name);
         return value;
     }
 
     static String requireArgument(String argument) {
-        return Objects.requireNonNull(argument, "argument");
+        return requireNoNul(Objects.requireNonNull(argument, "argument"), "argument");
     }
 
     static String requireEnvironmentName(String name) {
-        requireText(name, "name");
+        requireText(name, "environment name");
         if (name.indexOf('=') >= 0) {
             throw new IllegalArgumentException("environment name must not contain '='");
         }
         return name;
+    }
+
+    static String requireEnvironmentValue(String value) {
+        requireNoNul(Objects.requireNonNull(value, "value"), "environment value");
+        return value;
+    }
+
+    private static String requireNoNul(String value, String name) {
+        if (value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException(name + " must not contain NUL");
+        }
+        return value;
     }
 }

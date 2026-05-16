@@ -5,7 +5,6 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -240,7 +239,7 @@ public final class Expect implements AutoCloseable {
         }
 
         try {
-            monitor.wait(Math.max(1, TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
+            monitor.wait(Math.max(1, DurationSupport.remainingMillis(deadlineNanos)));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw failure("Interrupted while waiting for expected output", exception);
@@ -287,17 +286,7 @@ public final class Expect implements AutoCloseable {
     }
 
     private static long deadlineFromNow(Duration duration) {
-        long now = System.nanoTime();
-        long nanos;
-        try {
-            nanos = duration.toNanos();
-        } catch (ArithmeticException ignored) {
-            return Long.MAX_VALUE;
-        }
-        if (Long.MAX_VALUE - now < nanos) {
-            return Long.MAX_VALUE;
-        }
-        return now + nanos;
+        return DurationSupport.deadlineFromNow(duration);
     }
 
     private static String requireLine(String line) {

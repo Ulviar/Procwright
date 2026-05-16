@@ -20,13 +20,13 @@ final class ProcessLifecycle {
             return builder.start();
         } catch (IOException exception) {
             throw new CommandExecutionException(
-                    "Could not start command: " + String.join(" ", plan.command()), exception);
+                    "Could not start command: " + CommandEcho.from(plan).redactedSummary(), exception);
         }
     }
 
     static boolean waitFor(Process process, Duration timeout) {
         try {
-            return process.waitFor(timeout.toNanos(), TimeUnit.NANOSECONDS);
+            return process.waitFor(DurationSupport.saturatedNanos(timeout), TimeUnit.NANOSECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();

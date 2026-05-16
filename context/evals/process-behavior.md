@@ -1,22 +1,25 @@
-# Поведенческие проверки process execution
+# Поведенческие проверки исполнения процессов
 
 ## Назначение
 
-Этот файл задает минимальный eval-набор для реализации iCLI. Каждый сценарий должен стать тестом или fixture-case
+Этот файл задает минимальный набор оценочных проверок для реализации iCLI. Каждый сценарий должен стать тестом или fixture-case
 до того, как соответствующее поведение будет считаться готовым.
 
-## One-shot команды
+## Одноразовые команды
 
-- Команда завершается с exit code `0`, stdout захвачен полностью.
-- Команда завершается с non-zero exit code, stdout/stderr доступны для диагностики.
-- Большой stdout обрезается по bounded policy и выставляет truncation flag.
+- Команда завершается с кодом выхода `0`, stdout захвачен полностью.
+- Команда завершается с ненулевым кодом выхода, stdout/stderr доступны для диагностики.
+- Большой stdout обрезается по ограничивающей политике и выставляет флаг обрезки.
 - Большой stderr обрезается независимо от stdout.
 - Stdout/stderr можно объединить в один поток.
-- Команда получает working directory.
-- Команда получает environment override.
-- Unicode output декодируется заданным charset.
-- Timeout приводит к shutdown policy и понятному результату или исключению.
-- Interrupted wait не теряет interrupt status.
+- Команда получает рабочую директорию.
+- Команда получает переопределения окружения.
+- Unicode-вывод декодируется заданным charset.
+- Timeout приводит к shutdown-политике и понятному результату или исключению.
+- Очень большие значения `Duration` насыщаются во внутреннем runtime и не превращаются в сырой `ArithmeticException`.
+- Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
+- Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.
+- Прерванное ожидание не теряет interrupt status.
 
 ## Shell и argv
 
@@ -25,51 +28,53 @@
 - Аргументы с пробелами не ломают direct argv запуск.
 - Shell-specific поведение не появляется случайно в direct mode.
 
-## Streaming
+## Стриминг
 
 - Stdout и stderr дренируются параллельно.
 - Процесс, который пишет много в stderr и мало в stdout, не зависает.
-- Streaming listener получает chunks до завершения процесса.
+- Streaming-listener получает chunks до завершения процесса.
 - Медленный listener не должен бесконечно раздувать память; текущий `listen` вызывает listener синхронно и
   сериализованно, тем самым применяя backpressure к pipe.
 - `listen` закрывает stdin на старте по умолчанию.
 - `keepStdinOpen()` позволяет отложить EOF, а `StreamSession.closeStdin()` завершает stdin без записи input.
 - Timeout stream-сценария проходит через общий shutdown path и помечает `StreamExit.timedOut()`.
-- Listener failure завершает `StreamSession.onExit()` exceptionally с bounded diagnostics.
-- Diagnostic transcript bounded и не хранит весь output.
+- Ошибка listener завершает `StreamSession.onExit()` exceptionally с ограниченной диагностикой.
+- Диагностический transcript ограничен и не хранит весь output.
 
-## Diagnostics
+## Диагностика
 
-- `run` emits structured lifecycle events: command prepared, process started, process exited.
-- `run` emits output truncation metadata with stream source and byte limit.
-- `run` emits timeout and shutdown-request events on timeout.
-- `listen` emits lifecycle, timeout, shutdown and listener-failure events.
-- Command echo is redaction-friendly: raw argument values and environment values are not emitted; executable, argument
-  count and environment names are listed.
-- Diagnostic listener and transcript sink failures, including non-runtime failures, do not change command behavior.
-- Diagnostic listener and transcript sink delivery is best-effort asynchronous, so slow diagnostics callbacks do not
-  block the process runtime path.
-- Test fixtures provide a thread-safe diagnostic recorder for assertions.
+- `run` испускает структурированные lifecycle events: command prepared, process started, process exited.
+- `run` испускает метаданные обрезки вывода с источником потока и byte limit.
+- `run` испускает timeout и shutdown-request events при timeout.
+- `listen` испускает lifecycle, timeout, shutdown и listener-failure events.
+- Command echo безопасен для диагностики: сырые значения аргументов и окружения не испускаются; видны executable,
+  число аргументов и имена переменных окружения.
+- Events одного process lifecycle имеют общий `runId`; разные lifecycles получают разные ids, поэтому параллельные
+  запуски можно коррелировать без разбора времени или текста команды.
+- Ошибки diagnostic listener и transcript sink, включая non-runtime failures, не меняют поведение команды.
+- Доставка diagnostic listener и transcript sink асинхронная best-effort, поэтому медленные diagnostic callbacks не
+  блокируют runtime path процесса.
+- Test fixtures предоставляют thread-safe diagnostic recorder для assertions.
 
-## Kotlin ergonomics
+## Kotlin-эргономика
 
-- Kotlin module compiles as a separate optional Gradle project.
-- Java core does not depend on Kotlin runtime or coroutines.
-- Receiver-style `runCommand` compiles and runs.
-- Suspending `runCommandAwait`, `Session.awaitExit`, `LineSession.requestAwait` and `StreamSession.awaitExit` work without
-  blocking the caller coroutine.
+- Kotlin module компилируется как отдельный optional Gradle project.
+- Java core не зависит от Kotlin runtime или coroutines.
+- Receiver-style `runCommand` компилируется и запускается.
+- Suspending `runCommandAwait`, `Session.awaitExit`, `LineSession.requestAwait` и `StreamSession.awaitExit` работают без
+  блокировки caller coroutine.
 - Отмена coroutine, ожидающей `Session.awaitExit` или `StreamSession.awaitExit`, не отменяет общий `onExit()` future и не
   обходит session shutdown policy.
-- `listenFlow` exposes streaming output as `Flow<StreamChunk>` через узкий `ListenFlowInvocation`, который не позволяет
+- `listenFlow` раскрывает streaming output как `Flow<StreamChunk>` через узкий `ListenFlowInvocation`, который не позволяет
   заменить внутренний listener.
 - Медленный `listenFlow` collector не должен молча терять chunks; adapter использует bounded/rendezvous delivery и
   сохраняет backpressure вместо бесконечной очереди.
-- Kotlin tests exercise the public extension API against real commands.
+- Kotlin tests проверяют public extension API на реальных командах.
 
-## Pooled line sessions
+## Пул line-сессий
 
-- `pooled` открывает workers через existing `LineSession`, а не через отдельный process runtime.
-- `warmupSize` заранее создает workers и `maxSize` ограничивает общий live worker count.
+- `pooled` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
+- `warmupSize` заранее создает workers, а `maxSize` ограничивает общий live worker count.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
 - Acquire timeout отличается от request timeout и дает pool-level failure.
 - Request timeout/failure retire worker, а не возвращает его в idle set.
@@ -78,7 +83,21 @@
 - `close()` запрещает новые requests, закрывает idle workers сразу и дает leased workers завершить текущий request.
 - `metrics()` возвращает snapshot counters для size, idle, leased, created, retired и request counts.
 
-## Interactive session
+## Сценарные presets
+
+- Presets компилируются как typed `Consumer` для существующих invocation builders.
+- `commandAutomation` задает bounded capture, timeout и separate output для `run`.
+- `environmentDiagnostics` задает bounded capture, timeout, UTF-8 и merged output для `run`.
+- `binaryOutputCapture` задает bounded capture без per-call text charset override, а `CommandResult` сохраняет byte
+  snapshots captured stdout/stderr.
+- `replLineMode` задает idle timeout и terminal policy для `lineSession`.
+- `promptAutomationSession` задает idle timeout, terminal policy и UTF-8 text-send charset для raw `interactive`.
+- `logFollowing` задает absolute stream timeout и close-stdin-on-start для `listen`.
+- `terminalRequiredSession` задает terminal-required session preset без отдельного runner.
+- `warmWorkerPool` задает max/warmup size и acquire timeout для `pooled`.
+- Невалидные preset policies падают до применения к builder.
+
+## Интерактивная session
 
 - Session открывается и закрывается без утечки процесса.
 - `sendLine` отправляет строку и flush.
@@ -90,14 +109,14 @@
   открытой.
 - Ctrl+C/interrupt поведение проверяется через PTY `TerminalSignal.INTERRUPT`.
 
-## Line-oriented workflow
+## Построчный workflow
 
 - Один input дает один response.
 - Параллельные вызовы не перемешивают stdin/stdout.
 - Response decoder сохраняет значимые переносы строк через `LineResponse.lines()`; `text()` соединяет lines через `\n`.
 - Timeout ожидания response дает bounded transcript.
 - Timeout закрывает `LineSession`, чтобы следующий request не читал хвосты старого ответа.
-- EOF before response отличается от timeout.
+- EOF до response отличается от timeout.
 - Stderr дренируется в transcript, чтобы line workflow не зависал на заполненном stderr.
 - Незавершенный partial output попадает в transcript с корректной привязкой к потоку.
 
@@ -117,10 +136,10 @@
 
 Базовый PTY transport реализован для session-сценариев. Минимальные проверки:
 
-- command can request terminal through `TerminalPolicy`;
+- command может запросить terminal через `TerminalPolicy`;
 - `REQUIRED` не делает silent fallback и падает с явной ошибкой, если provider unavailable;
 - `AUTO` может fallback в pipes, если provider unavailable;
-- PTY session can send and receive text;
+- PTY session может отправлять и получать text;
 - `lineSession` может работать под PTY с echo-aware decoder;
 - real shell проходит под Unix `script(1)` provider;
 - terminal size передается в `PtyRequest` и системный provider выставляет `LINES`/`COLUMNS` плюс делает best-effort `stty`;

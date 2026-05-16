@@ -220,7 +220,7 @@ public final class Session implements AutoCloseable {
             return;
         }
 
-        long idleTimeoutNanos = saturatedNanos(idleTimeout);
+        long idleTimeoutNanos = DurationSupport.saturatedNanos(idleTimeout);
         Thread.ofVirtual().name("icli-session-idle-timeout-", 0).start(() -> {
             while (!exit.isDone()) {
                 long elapsedNanos = System.nanoTime() - lastActivityNanos.get();
@@ -358,14 +358,6 @@ public final class Session implements AutoCloseable {
             throw new IllegalArgumentException(name + " must not be negative");
         }
         return duration;
-    }
-
-    private static long saturatedNanos(Duration duration) {
-        try {
-            return duration.toNanos();
-        } catch (ArithmeticException ignored) {
-            return Long.MAX_VALUE;
-        }
     }
 
     private static void sleepNanos(long nanos) {

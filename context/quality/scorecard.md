@@ -1,43 +1,44 @@
-# Quality scorecard
+# Карта качества
 
 ## Статус
 
-Фаза 11 реализована в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
+Фаза 12 реализована в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
 compile-tested API sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для
 `run`, raw interactive session scenario, line-oriented request/response workflow, expect automation helper, первый PTY
 transport, listen-only streaming scenario, первый diagnostics/observability слой, optional Kotlin ergonomics module и
-pooled line-session scenario.
+pooled line-session scenario, а также scenario presets как typed builder customizers.
 `CommandService.run(...)`, `CommandService.interactive(...)` и `CommandService.lineSession(...)` уже запускают реальные
 процессы через `ScenarioProfile -> LaunchPlan -> ExecutionPlan/SessionExecutionPlan`; `CommandService.listen(...)`
 добавляет streaming через `StreamExecutionPlan`, а `Session.expect(...)` добавляет prompt automation поверх raw session.
 Session-сценарии поддерживают `TerminalPolicy.DISABLED`, `AUTO` и `REQUIRED`; PTY доступен через узкий `PtyProvider`
-SPI и системный Unix-провайдер на базе `script(1)`. Diagnostics events подключены к service-owned сценариям:
+SPI и системный Unix-провайдер на базе `script(1)`. Diagnostics events имеют lifecycle `runId` и подключены к service-owned сценариям:
 `run`, `interactive`, `lineSession`, `listen` и worker launches внутри `pooled`. Kotlin module дает
 extension/suspend/Flow API без Kotlin dependency в Java core. `CommandService.pooled(...)` переиспользует существующий
 `LineSession` runtime для прогретых workers.
 
-## Release-relevant критерии
+## Release-релевантные критерии
 
 | Область | Статус | Что должно быть верно |
 | --- | --- | --- |
-| Engineering charter | Active | Качество важнее скорости; требования закреплены как проектный стандарт. |
-| Scenario API | Started | `run` выбирает сценарный профиль, а не напрямую набор runtime flags. |
-| Invariant model | Started | `ScenarioProfile + CommandSpec + CommandInvocation/SessionInvocation` разворачиваются в валидированные scenario-specific plans. |
-| One-shot execution | Started | Direct argv, explicit shell, stdin, working directory, env, charset, timeout и drain покрыты integration tests. |
-| Capture policy | Started | Bounded stdout/stderr capture и truncation flags покрыты; streaming/discard еще не добавлены. |
-| Timeout/shutdown | Started | Timeout supervision покрыт integration tests; forceful shutdown branch реализован, но требует отдельной hardening-проверки. |
-| Command model | Started | Immutable command spec и per-call invocation builder компилируются и покрыты базовыми тестами. |
-| Interactive session | Started | Raw `Session` имеет защищенный stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout tests. |
-| Line session | Started | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, различение EOF/timeout и stderr drain. |
-| Expect helper | Started | Literal/regex matching, send/sendLine, bounded transcript, различение timeout/EOF и ANSI filter покрыты tests. |
-| PTY | Started | `TerminalPolicy`, `PtyProvider`, Unix `script(1)` provider, explicit unsupported behavior, terminal size request и Ctrl+C-style signal mapping покрыты tests. |
-| Streaming/listen | Started | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, timeout/listener failure покрыты tests. |
-| Diagnostics | Started | Structured lifecycle/timeout/truncation events, redaction-friendly command echo без raw argv/env values, async listener SPI, transcript sink и diagnostic test recorder покрыты tests для service scenarios, включая pooled worker launches. |
-| Kotlin ergonomics | Started | Optional `:icli-kotlin` module компилируется отдельно, содержит receiver extensions, suspend wrappers, узкий `ListenFlowInvocation` без listener override и Flow adapter tests без silent drops. |
-| Pooling | Started | `PooledLineSession` использует existing `LineSession` workers, поддерживает max/warmup size, acquire timeout, reset/health hooks, worker retirement, graceful drain и metrics snapshot. |
-| Fixture/evals | Started | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
-| Documentation | Started | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module и pooled workers, явно говорит, что runtime пока неполный. |
-| Raw/session affinity pooling | Deferred | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
+| Engineering charter | Активно | Качество важнее скорости; требования закреплены как проектный стандарт. |
+| Scenario API | Начато | `run` выбирает сценарный профиль, а не напрямую набор runtime flags. |
+| Invariant model | Начато | `ScenarioProfile + CommandSpec + CommandInvocation/SessionInvocation` разворачиваются в валидированные scenario-specific plans. |
+| One-shot execution | Начато | Direct argv, explicit shell, stdin, working directory, env, charset, timeout и drain покрыты integration tests. |
+| Capture policy | Начато | Bounded stdout/stderr capture и truncation flags покрыты; streaming/discard еще не добавлены. |
+| Timeout/shutdown | Начато | Timeout supervision покрыт integration tests; forceful shutdown branch реализован, но требует отдельной hardening-проверки. |
+| Command model | Начато | Immutable command spec и per-call invocation builder компилируются и покрыты базовыми тестами. |
+| Interactive session | Начато | Raw `Session` имеет защищенный stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout tests. |
+| Line session | Начато | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, различение EOF/timeout и stderr drain. |
+| Expect helper | Начато | Literal/regex matching, send/sendLine, bounded transcript, различение timeout/EOF и ANSI filter покрыты tests. |
+| PTY | Начато | `TerminalPolicy`, `PtyProvider`, Unix `script(1)` provider, explicit unsupported behavior, terminal size request и Ctrl+C-style signal mapping покрыты tests. |
+| Streaming/listen | Начато | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, timeout/listener failure покрыты tests. |
+| Diagnostics | Начато | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo и launch failures без raw argv/env values, async listener SPI, transcript sink и diagnostic test recorder покрыты tests для service scenarios, включая pooled worker launches. |
+| Kotlin ergonomics | Начато | Optional `:icli-kotlin` module компилируется отдельно, содержит receiver extensions, suspend wrappers, узкий `ListenFlowInvocation` без listener override и Flow adapter tests без silent drops. |
+| Pooling | Начато | `PooledLineSession` использует existing `LineSession` workers, поддерживает max/warmup size, acquire timeout, reset/health hooks, worker retirement, graceful drain и metrics snapshot. |
+| Scenario presets | Начато | `ScenarioPresets` дает typed builder customizers для command automation, env diagnostics, REPL, prompt automation, log following, binary byte snapshots, terminal-required session и warm worker pool без нового runtime. |
+| Fixture/evals | Начато | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
+| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers и presets, явно говорит, что runtime пока неполный. |
+| Raw/session affinity pooling | Отложено | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
 
 ## Решения, которые нужно принять
 
@@ -49,6 +50,7 @@ extension/suspend/Flow API без Kotlin dependency в Java core. `CommandServic
 - Нужно ли добавлять ordered/bounded dispatcher для diagnostics transcript sink, если best-effort событий станет мало.
 - Когда Kotlin compiler начнет поддерживать следующие JVM targets, сверять `:icli-kotlin` target с Java baseline.
 - Нужно ли добавлять отдельные diagnostics events для pool worker lifecycle; текущий pool имеет локальные metrics.
+- Какие presets стоит оставить перед public stabilization; каталог presets не должен превращаться в набор use-case runners.
 - Нужен ли отдельный optional PTY artifact после расширения platform matrix.
 - Какой Windows ConPTY provider будет добавлен: отдельный artifact или runtime-specific implementation.
 - Нужно ли переименовать `SessionOptions.idleTimeout` перед публичной стабилизацией; текущая семантика зафиксирована

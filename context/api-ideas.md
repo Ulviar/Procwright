@@ -143,3 +143,18 @@ try (PooledLineSession pool = service.pooled(pool -> pool
 
 Public API не должен включать affinity, lease scope и conversation classes. Retirement остается policy внутри
 `PooledLineSessionOptions`: `maxRequestsPerWorker`, `maxWorkerAge`, health check и reset hook.
+
+## Scenario presets
+
+Готовые профили должны быть не runners, а typed builder customizers:
+
+```java
+service.run(call -> {
+    call.args("env");
+    ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024).accept(call);
+});
+```
+
+Это сохраняет важную идею: пользователь сначала выбирает сценарий (`run`, `listen`, `lineSession`, `pooled`), а preset
+лишь применяет осмысленный набор overrides. Если preset начинает требовать новый lifecycle, state или transport, это уже
+не preset, а кандидат на отдельный сценарий и ADR.

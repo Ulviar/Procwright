@@ -46,7 +46,7 @@ final class SystemPtyProvider implements PtyProvider {
             return builder.start();
         } catch (IOException exception) {
             throw new CommandExecutionException(
-                    "Could not start PTY command: " + String.join(" ", request.command()), exception);
+                    "Could not start PTY command: " + CommandEcho.redactedSummary(request.command()), exception);
         }
     }
 

@@ -11,9 +11,10 @@ import java.util.function.Predicate;
 public final class PooledLineSessionOptions {
 
     private static final Consumer<LineSession> NO_RESET = worker -> {};
-    private static final Predicate<LineSession> ALWAYS_HEALTHY = worker -> true;
+    private static final Predicate<LineSession> PROCESS_ALIVE =
+            worker -> !worker.onExit().isDone();
     private static final PooledLineSessionOptions DEFAULTS = new PooledLineSessionOptions(
-            1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, NO_RESET, ALWAYS_HEALTHY);
+            1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, NO_RESET, PROCESS_ALIVE);
 
     private final int maxSize;
     private final int warmupSize;

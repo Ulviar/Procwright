@@ -65,7 +65,7 @@ public final class LineSession implements AutoCloseable {
         try {
             ensureOpen();
             Instant started = Instant.now();
-            long deadlineNanos = deadlineFromNow(requestTimeout);
+            long deadlineNanos = DurationSupport.deadlineFromNow(requestTimeout);
             writeLine(line, options.charset(), deadlineNanos);
 
             ResponseReader reader = new ResponseReader(deadlineNanos);
@@ -199,7 +199,7 @@ public final class LineSession implements AutoCloseable {
             }
         });
         try {
-            written.get(remainingMillis(deadlineNanos), TimeUnit.MILLISECONDS);
+            written.get(DurationSupport.remainingMillis(deadlineNanos), TimeUnit.MILLISECONDS);
         } catch (IllegalStateException exception) {
             throw closed(exception);
         } catch (java.util.concurrent.TimeoutException exception) {
@@ -283,31 +283,6 @@ public final class LineSession implements AutoCloseable {
             throw new IllegalArgumentException("line must not contain line separators");
         }
         return line;
-    }
-
-    private static long saturatedNanos(Duration duration) {
-        try {
-            return duration.toNanos();
-        } catch (ArithmeticException ignored) {
-            return Long.MAX_VALUE;
-        }
-    }
-
-    private static long deadlineFromNow(Duration duration) {
-        long now = System.nanoTime();
-        long nanos = saturatedNanos(duration);
-        if (Long.MAX_VALUE - now < nanos) {
-            return Long.MAX_VALUE;
-        }
-        return now + nanos;
-    }
-
-    private static long remainingMillis(long deadlineNanos) {
-        long remainingNanos = deadlineNanos - System.nanoTime();
-        if (remainingNanos <= 0) {
-            return 0;
-        }
-        return Math.max(1, TimeUnit.NANOSECONDS.toMillis(remainingNanos));
     }
 
     private final class ResponseReader implements ResponseDecoder.Reader {

@@ -72,4 +72,16 @@ public record CommandEcho(
                 launchPlan.outputMode(),
                 launchPlan.terminalPolicy());
     }
+
+    String redactedSummary() {
+        return "executable=" + executable + ", argumentCount=" + argumentCount;
+    }
+
+    static String redactedSummary(List<String> command) {
+        List<String> commandSnapshot = List.copyOf(command);
+        if (commandSnapshot.isEmpty()) {
+            throw new IllegalArgumentException("command must not be empty");
+        }
+        return "executable=" + commandSnapshot.getFirst() + ", argumentCount=" + (commandSnapshot.size() - 1);
+    }
 }

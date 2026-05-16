@@ -1,6 +1,7 @@
 package com.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.charset.StandardCharsets;
@@ -78,6 +79,26 @@ final class CommandInvocationTest {
         CommandInvocation.Builder builder = CommandInvocation.builder();
 
         assertThrows(IllegalArgumentException.class, () -> builder.putEnvironment("", "value"));
+    }
+
+    @Test
+    void rejectsInvalidEnvironmentValueWithoutEchoingIt() {
+        CommandInvocation.Builder builder = CommandInvocation.builder();
+
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> builder.putEnvironment("SECRET", "hidden\0value"));
+
+        assertFalse(exception.getMessage().contains("hidden"));
+    }
+
+    @Test
+    void rejectsInvalidArgumentWithoutEchoingIt() {
+        CommandInvocation.Builder builder = CommandInvocation.builder();
+
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> builder.arg("hidden\0argument"));
+
+        assertFalse(exception.getMessage().contains("hidden"));
     }
 
     @Test
