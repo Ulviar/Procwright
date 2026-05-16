@@ -111,6 +111,17 @@
 - `CliAdapterError` не включает raw stdout/stderr excerpts по умолчанию и сохраняет machine-readable code/details.
 - Compile-tested examples показывают one-shot command-backed tool, JSONL tool, cancellation и Content-Length framing.
 
+## Performance/stress
+
+- `stressTest` входит в `check` и остается bounded по времени.
+- Большой stdout не удерживается целиком при bounded capture и выставляет truncation flag.
+- Большой stderr не блокирует завершение процесса и ограничивается независимо от stdout.
+- Timeout churn из нескольких параллельных процессов завершается без deadlock и возвращает timeout results.
+- Быстрый open/close interactive sessions не оставляет lifecycle futures незавершенными.
+- Pooling contention завершает все requests, не превышает `maxSize` и сохраняет metrics accounting.
+- PTY stress проверяет несколько terminal-required sessions, если system PTY provider доступен; иначе case skip-ается.
+- Memory behavior проверяется через retained-output bounds, а не через нестабильные heap-size assertions.
+
 ## Интерактивная session
 
 - Session открывается и закрывается без утечки процесса.

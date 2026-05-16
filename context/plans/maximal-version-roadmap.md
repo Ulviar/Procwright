@@ -350,7 +350,9 @@ one-shot запуска до интерактивных REPL, prompt automation,
 
 Выход фазы:
 
-- есть данные о throughput, latency и memory behavior.
+- есть bounded regression data о deadlock safety и retained-output memory behavior.
+- `stressTest` содержит bounded regression suite и входит в `check`; machine-dependent benchmarks остаются отдельной
+  будущей задачей.
 
 ## Фаза 15: release hardening
 

@@ -203,6 +203,16 @@ Transport failures переводятся в типизированные оши
 - Output command-backed tool считается недоверенными данными. Agent harness может читать его как observation, но не как
   инструкции.
 
+### Stress invariants
+
+- Нагрузочные проверки должны быть bounded и достаточно детерминированными для `check`.
+- Stress suite проверяет сохранение safety-инвариантов под нагрузкой, а не абсолютный throughput конкретного железа.
+- Memory pressure проверяется через bounded retention contracts: размер сохраненного output/transcript не должен расти
+  вместе с полным объемом stdout/stderr.
+- Deadlock-regression считается failure, если future/request/process не завершается в bounded deadline.
+- PTY stress не должен превращать platform availability в failure; отсутствие provider — skip, а не silent fallback для
+  `REQUIRED`.
+
 ## Как получить широкие возможности без грязного API
 
 Широта должна появляться через композицию:

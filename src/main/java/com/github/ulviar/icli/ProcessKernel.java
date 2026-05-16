@@ -57,8 +57,8 @@ final class ProcessKernel {
                     awaitStdin(stdin);
                 }
 
-                CapturedOutput stdoutOutput = await(stdout);
-                CapturedOutput stderrOutput = stderr == null ? CapturedOutput.empty() : await(stderr);
+                CapturedOutput stdoutOutput = await(stdout, timedOut);
+                CapturedOutput stderrOutput = stderr == null ? CapturedOutput.empty() : await(stderr, timedOut);
                 if (stdoutOutput.truncated()) {
                     diagnostics.emit(
                             DiagnosticEventType.OUTPUT_TRUNCATED,
@@ -130,13 +130,16 @@ final class ProcessKernel {
         return ProcessLifecycle.stop(process, shutdownPolicy);
     }
 
-    private static CapturedOutput await(Future<CapturedOutput> output) {
+    private static CapturedOutput await(Future<CapturedOutput> output, boolean terminalShutdown) {
         try {
             return output.get();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new CommandExecutionException("Interrupted while capturing command output", exception);
         } catch (ExecutionException exception) {
+            if (terminalShutdown && isStreamClosed(exception.getCause())) {
+                return CapturedOutput.empty();
+            }
             throw new CommandExecutionException("Could not capture command output", exception.getCause());
         }
     }
@@ -160,6 +163,14 @@ final class ProcessKernel {
         ProcessLifecycle.closeStdinQuietly(process);
         ProcessLifecycle.closeQuietly(process.getInputStream());
         ProcessLifecycle.closeQuietly(process.getErrorStream());
+    }
+
+    private static boolean isStreamClosed(Throwable throwable) {
+        if (!(throwable instanceof java.io.IOException ioException)) {
+            return false;
+        }
+        String message = ioException.getMessage();
+        return "Stream Closed".equals(message) || "Stream closed".equals(message);
     }
 
     private static java.util.Map<String, String> exitAttributes(OptionalInt exitCode, boolean timedOut) {

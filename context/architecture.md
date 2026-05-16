@@ -35,13 +35,14 @@ plan и scenario-specific execution plan. Это описано в [scenario-api
 - Scenario presets как typed builder customizers без отдельного runtime.
 - Optional CLI-backed integrations module без dependency на MCP SDK.
 - Детерминированный fixture/eval набор.
+- Bounded stress suite как часть `check`.
 
 ## Не входит в MVP
 
 - Raw session pooling.
 - Stateful conversation affinity.
 - Реальный MCP SDK adapter.
-- Benchmarks.
+- Machine-dependent benchmarks/JMH.
 - Competitor samples.
 - Централизованная diagnostics bus или logging framework.
 - Отдельный public runner под каждый сценарий.
@@ -163,4 +164,4 @@ com.github.ulviar.icli.integration
 3. Более богатый Kotlin DSL поверх optional Kotlin module.
 4. Stateful affinity и raw session pooling поверх `pooled`.
 5. Реальный MCP SDK adapter отдельным optional module поверх `:icli-integrations`.
-6. Benchmarks.
+6. Machine-dependent benchmarks/JMH после deterministic stress suite.

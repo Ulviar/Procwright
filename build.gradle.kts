@@ -31,6 +31,15 @@ sourceSets {
         runtimeClasspath += output
         runtimeClasspath += compileClasspath
     }
+
+    val stressTest by creating {
+        java.srcDir("src/stressTest/java")
+        resources.srcDir("src/stressTest/resources")
+        compileClasspath += sourceSets.main.get().output
+        compileClasspath += configurations.testRuntimeClasspath.get()
+        runtimeClasspath += output
+        runtimeClasspath += compileClasspath
+    }
 }
 
 configurations.named("integrationTestImplementation") {
@@ -40,6 +49,12 @@ configurations.named("integrationTestImplementation") {
 configurations.named("integrationTestRuntimeOnly") {
     extendsFrom(configurations.testRuntimeOnly.get())
 }
+
+configurations.named("stressTestImplementation") {
+    extendsFrom(configurations.testImplementation.get())
+}
+
+configurations.named("stressTestRuntimeOnly") { extendsFrom(configurations.testRuntimeOnly.get()) }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
@@ -57,7 +72,16 @@ val integrationTest =
         shouldRunAfter(tasks.test)
     }
 
-tasks.check { dependsOn(integrationTest) }
+val stressTest =
+    tasks.register<Test>("stressTest") {
+        description = "Runs bounded stress and deadlock-regression tests."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        testClassesDirs = sourceSets["stressTest"].output.classesDirs
+        classpath = sourceSets["stressTest"].runtimeClasspath
+        shouldRunAfter(integrationTest)
+    }
+
+tasks.check { dependsOn(integrationTest, stressTest) }
 
 spotless {
     java {

@@ -5,8 +5,9 @@ iCLI is being rewritten as a JVM library for safe, scenario-first control of ext
 This branch currently contains the foundation for the rewrite, the first one-shot execution kernel, a raw interactive
 session scenario, the first line-oriented request/response workflow, a small expect automation helper, and initial PTY
 transport support for terminal-required interactive sessions, a listen-only streaming scenario, and pooled line-session
-workers, typed scenario presets for common workflows, and an optional CLI-backed integrations module. The public API and
-runtime are still incomplete: documentation must not promise behavior before tests and implementation prove it.
+workers, typed scenario presets for common workflows, an optional CLI-backed integrations module, and a bounded stress
+suite. The public API and runtime are still incomplete: documentation must not promise behavior before tests and
+implementation prove it.
 
 Project context is maintained in Russian under [context/](context/). Code, public APIs, Javadocs, tests, and commit
 messages are written in English.
@@ -45,5 +46,7 @@ messages are written in English.
 - Optional `:icli-integrations` module with a minimal JSON model/codec, JSON Lines helpers, `JsonLineSession`,
   Content-Length framed JSON helpers for MCP-like stdin/stdout protocols, cancellable call handles, structured adapter
   errors, and command-backed tool result wrappers. CLI output is treated as untrusted data, not instructions.
+- Bounded `stressTest` suite wired into `check`, covering large stdout/stderr retention, timeout churn, rapid session
+  open/close, pooled contention, and conditional PTY stability.
 
 See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.

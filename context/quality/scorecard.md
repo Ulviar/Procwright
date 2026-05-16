@@ -2,7 +2,7 @@
 
 ## Статус
 
-Фаза 13 реализуется в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
+Фаза 14 реализуется в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
 compile-tested API sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для
 `run`, raw interactive session scenario, line-oriented request/response workflow, expect automation helper, первый PTY
 transport, listen-only streaming scenario, первый diagnostics/observability слой, optional Kotlin ergonomics module и
@@ -16,6 +16,8 @@ service-owned сценариям: `run`, `interactive`, `lineSession`, `listen` 
 дает extension/suspend/Flow API без Kotlin dependency в Java core. `CommandService.pooled(...)` переиспользует
 существующий `LineSession` runtime для прогретых workers. `:icli-integrations` добавляет JSON/JSONL, Content-Length
 framing, structured adapter errors, cancellable calls и command-backed tool wrappers поверх существующих сценариев.
+Bounded `stressTest` входит в `check` и проверяет большие потоки, timeout churn, rapid session open/close, pooling
+contention и PTY stability при доступном provider.
 
 ## Release-релевантные критерии
 
@@ -38,8 +40,9 @@ framing, structured adapter errors, cancellable calls и command-backed tool wra
 | Pooling | Начато | `PooledLineSession` использует existing `LineSession` workers, поддерживает max/warmup size, acquire timeout, reset/health hooks, worker retirement, graceful drain и metrics snapshot. |
 | Scenario presets | Начато | `ScenarioPresets` дает typed builder customizers для command automation, env diagnostics, REPL, prompt automation, log following, binary byte snapshots, terminal-required session и warm worker pool без нового runtime. |
 | CLI integrations | Начато | Optional `:icli-integrations` содержит JSON/JSONL codec, Content-Length framed JSON helpers, `JsonLineSession`, cancellation mapping, `ToolCallResult`, `CliAdapterError` и compile-tested command-backed tool examples без MCP dependency в core. |
+| Performance/stress | Начато | `stressTest` входит в `check` и покрывает bounded capture under load, stderr drain, timeout churn, rapid session lifecycle, pooled contention и conditional PTY stability. |
 | Fixture/evals | Начато | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
-| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers, presets и integration module, явно говорит, что runtime пока неполный. |
+| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers, presets, integration module и bounded stress suite, явно говорит, что runtime пока неполный. |
 | Raw/session affinity pooling | Отложено | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
 
 ## Решения, которые нужно принять
@@ -57,6 +60,7 @@ framing, structured adapter errors, cancellable calls и command-backed tool wra
   не должны зависеть от MCP SDK.
 - Нужен ли отдельный optional PTY artifact после расширения platform matrix.
 - Какой Windows ConPTY provider будет добавлен: отдельный artifact или runtime-specific implementation.
+- Нужны ли отдельные JMH benchmarks после стабилизации deterministic stress suite.
 - Нужно ли переименовать `SessionOptions.idleTimeout` перед публичной стабилизацией; текущая семантика зафиксирована
   как caller-visible activity: успешные записи, закрытие stdin и успешные чтения через session streams.
 
