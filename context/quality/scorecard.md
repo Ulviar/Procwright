@@ -2,7 +2,7 @@
 
 ## Статус
 
-Фаза 1 начата. Ветка содержит контекст clean rewrite, Gradle foundation, compile-tested API sketches и
+Фаза 1 начата. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline, compile-tested API sketches и
 детерминированную process fixture. Реального execution kernel еще нет: `CommandService.run(...)` валидирует invocation
 callback и явно падает как не реализованный до фазы 2.
 

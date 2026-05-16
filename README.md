@@ -12,7 +12,8 @@ messages are written in English.
 
 - Clean rewrite branch.
 - Gradle Java project foundation.
-- Java 21 bytecode target.
+- Java 25 bytecode target.
+- JDK 25 or newer is required to build the project.
 - Compile-tested API sketches for the first public surface.
 - Deterministic process fixture for success, stderr, large output, and timeout cases.
 
