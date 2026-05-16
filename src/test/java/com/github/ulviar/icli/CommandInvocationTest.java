@@ -40,6 +40,7 @@ final class CommandInvocationTest {
                 .timeout(Duration.ofSeconds(3))
                 .charset(StandardCharsets.UTF_8)
                 .output(OutputMode.MERGED)
+                .input("payload")
                 .build();
 
         assertEquals("status", invocation.arguments().getFirst());
@@ -50,6 +51,7 @@ final class CommandInvocationTest {
         assertEquals(Duration.ofSeconds(3), invocation.timeout().orElseThrow());
         assertEquals(StandardCharsets.UTF_8, invocation.charset().orElseThrow());
         assertEquals(OutputMode.MERGED, invocation.outputMode().orElseThrow());
+        assertEquals(CommandInput.utf8("payload"), invocation.input().orElseThrow());
     }
 
     @Test
@@ -58,11 +60,13 @@ final class CommandInvocationTest {
                 .args("status")
                 .putEnvironment("LC_ALL", "C")
                 .capture(CapturePolicy.bounded(1024))
+                .input("payload")
                 .build();
         CommandInvocation right = CommandInvocation.builder()
                 .args("status")
                 .putEnvironment("LC_ALL", "C")
                 .capture(CapturePolicy.bounded(1024))
+                .input("payload")
                 .build();
 
         assertEquals(left, right);

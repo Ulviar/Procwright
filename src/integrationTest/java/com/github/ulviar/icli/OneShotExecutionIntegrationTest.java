@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -90,8 +91,47 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
+    void runScenarioClosesStdinByDefault() {
+        CommandResult result = fixtureService().run(call -> call.args("stdin-length"));
+
+        assertTrue(result.succeeded());
+        assertEquals("0\n", result.stdout());
+    }
+
+    @Test
+    void inputOverrideWritesStdinBeforeClosingIt() {
+        CommandResult result =
+                fixtureService().run(call -> call.args("stdin-echo").input("payload\n"));
+
+        assertTrue(result.succeeded());
+        assertEquals("payload\n", result.stdout());
+    }
+
+    @Test
+    void inputCharsetIsIndependentFromOutputCharset() {
+        CommandResult result = fixtureService().run(call -> call.args("stdin-hex")
+                .input("é", Charset.forName("ISO-8859-1"))
+                .charset(StandardCharsets.US_ASCII));
+
+        assertTrue(result.succeeded());
+        assertEquals("e9\n", result.stdout());
+    }
+
+    @Test
     void timeoutStopsProcessAndReturnsDiagnosticResult() {
         CommandResult result = fixtureService().run(call -> call.args("sleep", "5000")
+                .timeout(Duration.ofMillis(100))
+                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+
+        assertTrue(result.timedOut());
+        assertFalse(result.succeeded());
+        assertEquals("started\n", result.stdout());
+    }
+
+    @Test
+    void timeoutIsEnforcedWhileWritingInput() {
+        CommandResult result = fixtureService().run(call -> call.args("ignore-stdin-sleep", "5000")
+                .input("x".repeat(8 * 1024 * 1024))
                 .timeout(Duration.ofMillis(100))
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
 

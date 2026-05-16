@@ -183,18 +183,19 @@ Transport failures переводятся в типизированные оши
 service.run(call -> call
         .args("run")
         .workingDirectory(dir)
-        .environment(env -> env.put("CI", "true"))
-        .capture(CapturePolicy.stdoutStderr(
-                CapturePolicy.bounded(64 * 1024),
-                CapturePolicy.streaming(stderrListener)))
+        .putEnvironment("CI", "true")
+        .input(CommandInput.utf8(payload))
+        .capture(CapturePolicy.bounded(64 * 1024))
         .shutdown(ShutdownPolicy.interruptThenKill(
                 Duration.ofSeconds(2),
-                Duration.ofSeconds(5)))
-        .terminal(TerminalPolicy.auto()));
+                Duration.ofSeconds(5))));
 ```
 
 Это широкий API по возможностям, но не широкий по сущностям. Пользователь комбинирует политики, а не выбирает из
 десятков специализированных runners.
+
+Terminal/PTТY остается частью внутреннего scenario profile до PTY-фазы. Его нельзя закреплять как публичный knob до
+того, как появится transport SPI и проверенная platform matrix.
 
 ## Анти-паттерны
 
@@ -212,7 +213,6 @@ options.mergeError(true).useShell(false).requireTty(true).killTree(true);
 options
         .stderr(StderrPolicy.mergeIntoStdout())
         .commandLine(CommandLine.direct())
-        .terminal(TerminalPolicy.required())
         .shutdown(ShutdownPolicy.killProcessTree());
 ```
 

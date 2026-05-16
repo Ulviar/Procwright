@@ -21,13 +21,16 @@ final class ExecutionPlanResolverTest {
                 .putEnvironment("CALL", "2")
                 .build();
 
-        ExecutionPlan plan = ExecutionPlanResolver.resolve(spec, RunOptions.defaults(), invocation);
+        ExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.run(RunOptions.defaults()), spec, invocation);
 
         assertEquals(LaunchMode.DIRECT, plan.launchMode());
         assertEquals(java.util.List.of("tool", "base", "call"), plan.command());
         assertEquals(Path.of("call-dir"), plan.workingDirectory().orElseThrow());
         assertEquals("1", plan.environment().get("BASE"));
         assertEquals("2", plan.environment().get("CALL"));
+        assertEquals(TerminalPolicy.DISABLED, plan.terminalPolicy());
+        assertEquals(CommandInput.closed(), plan.stdin());
     }
 
     @Test
@@ -38,6 +41,37 @@ final class ExecutionPlanResolverTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> ExecutionPlanResolver.resolve(spec, RunOptions.defaults(), invocation));
+                () -> ExecutionPlanResolver.resolve(ScenarioProfile.run(RunOptions.defaults()), spec, invocation));
+    }
+
+    @Test
+    void perCallInputOverridesRunProfileClosedStdin() {
+        CommandSpec spec = CommandSpec.of("tool");
+        CommandInvocation invocation =
+                CommandInvocation.builder().input("hello").build();
+
+        ExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.run(RunOptions.defaults()), spec, invocation);
+
+        assertEquals(CommandInput.utf8("hello"), plan.stdin());
+    }
+
+    @Test
+    void rejectsTerminalRequiredProfileUntilTerminalTransportExists() {
+        CommandSpec spec = CommandSpec.of("tool");
+        ScenarioProfile terminalProfile = new ScenarioProfile(
+                "terminal-run",
+                CommandInput.closed(),
+                (CapturePolicy.Bounded) RunOptions.defaults().capturePolicy(),
+                RunOptions.defaults().shutdownPolicy(),
+                RunOptions.defaults().timeout(),
+                RunOptions.defaults().charset(),
+                RunOptions.defaults().outputMode(),
+                TerminalPolicy.REQUIRED);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExecutionPlanResolver.resolve(
+                        terminalProfile, spec, CommandInvocation.builder().build()));
     }
 }

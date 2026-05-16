@@ -11,6 +11,14 @@ final class ProcessFixtureProgram {
     public static void main(String[] args) throws Exception {
         switch (args[0]) {
             case "stdout" -> System.out.print(args[1]);
+            case "stdin-length" -> System.out.println(System.in.readAllBytes().length);
+            case "stdin-echo" -> System.out.write(System.in.readAllBytes());
+            case "stdin-hex" -> {
+                for (byte value : System.in.readAllBytes()) {
+                    System.out.printf("%02x", value);
+                }
+                System.out.println();
+            }
             case "stderr-exit" -> {
                 System.out.print(args[2]);
                 System.err.print(args[3]);
@@ -33,6 +41,11 @@ final class ProcessFixtureProgram {
                 System.err.flush();
             }
             case "sleep" -> {
+                System.out.print("started\n");
+                System.out.flush();
+                Thread.sleep(Long.parseLong(args[1]));
+            }
+            case "ignore-stdin-sleep" -> {
                 System.out.print("started\n");
                 System.out.flush();
                 Thread.sleep(Long.parseLong(args[1]));

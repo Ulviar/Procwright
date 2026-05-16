@@ -17,7 +17,9 @@ record ExecutionPlan(
         ShutdownPolicy shutdownPolicy,
         Duration timeout,
         Charset charset,
-        OutputMode outputMode) {
+        OutputMode outputMode,
+        CommandInput stdin,
+        TerminalPolicy terminalPolicy) {
 
     ExecutionPlan {
         Objects.requireNonNull(launchMode, "launchMode");
@@ -35,5 +37,7 @@ record ExecutionPlan(
         }
         Objects.requireNonNull(charset, "charset");
         Objects.requireNonNull(outputMode, "outputMode");
+        Objects.requireNonNull(stdin, "stdin");
+        Objects.requireNonNull(terminalPolicy, "terminalPolicy");
     }
 }

@@ -2,6 +2,7 @@ package com.github.ulviar.icli;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.OptionalInt;
@@ -27,13 +28,18 @@ final class ProcessKernel {
             Future<CapturedOutput> stderr = plan.outputMode() == OutputMode.MERGED
                     ? null
                     : executor.submit(() -> CapturedOutput.capture(process.getErrorStream(), plan.capturePolicy()));
+            Future<?> stdin = executor.submit(() -> writeStdin(process, plan.stdin()));
 
             try {
-                closeStdin(process);
-
                 boolean timedOut = !waitFor(process, plan.timeout());
                 OptionalInt exitCode =
                         timedOut ? stopTimedOut(process, plan.shutdownPolicy()) : OptionalInt.of(process.exitValue());
+
+                if (timedOut) {
+                    stdin.cancel(true);
+                } else {
+                    awaitStdin(stdin);
+                }
 
                 CapturedOutput stdoutOutput = await(stdout);
                 CapturedOutput stderrOutput = stderr == null ? CapturedOutput.empty() : await(stderr);
@@ -70,11 +76,13 @@ final class ProcessKernel {
         }
     }
 
-    private static void closeStdin(Process process) {
-        try {
-            process.getOutputStream().close();
+    private static void writeStdin(Process process, CommandInput stdin) {
+        try (OutputStream output = process.getOutputStream()) {
+            output.write(stdin.copyBytes());
         } catch (IOException exception) {
-            throw new CommandExecutionException("Could not close command stdin", exception);
+            if (process.isAlive()) {
+                throw new CommandExecutionException("Could not write command stdin", exception);
+            }
         }
     }
 
@@ -90,11 +98,13 @@ final class ProcessKernel {
 
     private static OptionalInt stopTimedOut(Process process, ShutdownPolicy shutdownPolicy) {
         process.destroy();
+        closeStdinQuietly(process);
         if (waitFor(process, shutdownPolicy.interruptGrace())) {
             return OptionalInt.of(process.exitValue());
         }
 
         process.destroyForcibly();
+        closeStdinQuietly(process);
         if (waitFor(process, shutdownPolicy.killGrace())) {
             return OptionalInt.of(process.exitValue());
         }
@@ -113,13 +123,33 @@ final class ProcessKernel {
         }
     }
 
+    private static void awaitStdin(Future<?> input) {
+        try {
+            input.get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CommandExecutionException("Interrupted while writing command stdin", exception);
+        } catch (ExecutionException exception) {
+            throw new CommandExecutionException("Could not write command stdin", exception.getCause());
+        }
+    }
+
     private static String decode(CapturedOutput output, ExecutionPlan plan) {
         return new String(output.bytes(), plan.charset());
     }
 
     private static void closeStreams(Process process) {
+        closeStdinQuietly(process);
         closeQuietly(process.getInputStream());
         closeQuietly(process.getErrorStream());
+    }
+
+    private static void closeStdinQuietly(Process process) {
+        try {
+            process.getOutputStream().close();
+        } catch (IOException ignored) {
+            // Process cleanup is already on an exceptional path.
+        }
     }
 
     private static void closeQuietly(InputStream stream) {

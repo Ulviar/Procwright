@@ -17,6 +17,8 @@ messages are written in English.
 - Compile-tested API sketches for the first public surface.
 - Deterministic process fixture for success, stderr, large output, and timeout cases.
 - One-shot `run` scenario with direct argv, explicit shell mode, bounded stdout/stderr capture, timeout supervision,
-  working directory, environment overrides, charset decoding, and merged stderr support.
+  working directory, environment overrides, charset decoding, stdin input, and merged stderr support.
+- Internal scenario profile resolver for turning scenario defaults and per-call overrides into a validated execution
+  plan.
 
 See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.

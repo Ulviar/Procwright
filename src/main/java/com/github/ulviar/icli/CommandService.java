@@ -74,7 +74,7 @@ public final class CommandService {
         configure.accept(builder);
         CommandInvocation invocation = builder.build();
 
-        ExecutionPlan plan = ExecutionPlanResolver.resolve(commandSpec, runOptions, invocation);
+        ExecutionPlan plan = ExecutionPlanResolver.resolve(ScenarioProfile.run(runOptions), commandSpec, invocation);
         return ProcessKernel.run(plan);
     }
 }

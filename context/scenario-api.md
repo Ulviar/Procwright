@@ -22,7 +22,7 @@ service.run(call -> call
         .closeStdin(true)
         .captureStdout(65536)
         .captureStderr(32768)
-        .terminal(false)
+        .bufferBytes(8192)
         .idleTimeout(Duration.ZERO));
 ```
 

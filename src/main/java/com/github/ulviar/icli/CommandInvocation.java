@@ -25,6 +25,7 @@ public final class CommandInvocation {
     private final Duration timeout;
     private final Charset charset;
     private final OutputMode outputMode;
+    private final CommandInput input;
 
     private CommandInvocation(Builder builder) {
         arguments = List.copyOf(builder.arguments);
@@ -35,6 +36,7 @@ public final class CommandInvocation {
         timeout = builder.timeout;
         charset = builder.charset;
         outputMode = builder.outputMode;
+        input = builder.input;
     }
 
     /**
@@ -118,6 +120,15 @@ public final class CommandInvocation {
         return Optional.ofNullable(outputMode);
     }
 
+    /**
+     * Returns the per-call stdin input override.
+     *
+     * @return input text when configured
+     */
+    public Optional<CommandInput> input() {
+        return Optional.ofNullable(input);
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {
@@ -133,13 +144,22 @@ public final class CommandInvocation {
                 && Objects.equals(shutdownPolicy, that.shutdownPolicy)
                 && Objects.equals(timeout, that.timeout)
                 && Objects.equals(charset, that.charset)
-                && Objects.equals(outputMode, that.outputMode);
+                && Objects.equals(outputMode, that.outputMode)
+                && Objects.equals(input, that.input);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
-                arguments, workingDirectory, environment, capturePolicy, shutdownPolicy, timeout, charset, outputMode);
+                arguments,
+                workingDirectory,
+                environment,
+                capturePolicy,
+                shutdownPolicy,
+                timeout,
+                charset,
+                outputMode,
+                input);
     }
 
     /**
@@ -155,6 +175,7 @@ public final class CommandInvocation {
         private Duration timeout;
         private Charset charset;
         private OutputMode outputMode;
+        private CommandInput input;
 
         private Builder() {}
 
@@ -272,6 +293,40 @@ public final class CommandInvocation {
          */
         public Builder output(OutputMode outputMode) {
             this.outputMode = Objects.requireNonNull(outputMode, "outputMode");
+            return this;
+        }
+
+        /**
+         * Sets stdin text that will be written before stdin is closed.
+         *
+         * @param input stdin text
+         * @return this builder
+         */
+        public Builder input(String input) {
+            this.input = CommandInput.utf8(input);
+            return this;
+        }
+
+        /**
+         * Sets stdin text that will be written with the provided charset.
+         *
+         * @param input stdin text
+         * @param charset input charset
+         * @return this builder
+         */
+        public Builder input(String input, Charset charset) {
+            this.input = CommandInput.text(input, charset);
+            return this;
+        }
+
+        /**
+         * Sets explicit stdin bytes.
+         *
+         * @param input command input
+         * @return this builder
+         */
+        public Builder input(CommandInput input) {
+            this.input = Objects.requireNonNull(input, "input");
             return this;
         }
 
