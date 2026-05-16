@@ -11,6 +11,10 @@ Java/Kotlin приложений.
 Главный архитектурный принцип описан в [invariant-architecture.md](invariant-architecture.md): широкие возможности
 должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
 
+Внешний пользовательский слой при этом остается scenario-first. Пользователь выбирает workflow (`run`,
+`lineSession`, `interactive`, `expect`), а библиотека разворачивает его в policies и execution plan. Это описано в
+[scenario-api.md](scenario-api.md).
+
 ## Входит в MVP
 
 - One-shot запуск команды.
@@ -42,6 +46,7 @@ Java/Kotlin приложений.
 ```text
 Пользовательский API
   CommandService / CommandExecutor
+  scenario methods
   CommandSpec
   CommandResult
   RunOptions

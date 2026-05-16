@@ -8,6 +8,7 @@
 Сохраняем:
 
 - сервис вокруг базовой команды;
+- выбор сценария вместо ручного набора параметров запуска;
 - fluent customization per call;
 - безопасные дефолты;
 - typed result вместо "строка или exception";
@@ -32,6 +33,9 @@ var python = CommandService.forCommand("python");
 
 CommandResult result = python.run(call -> call.args("--version"));
 ```
+
+Важно: `run`, `lineSession`, `interactive`, `expect` — это сценарии пользователя. Они должны задавать безопасный
+профиль defaults. Пользователь уточняет детали, но не собирает runtime вручную.
 
 Более явная конфигурация:
 
