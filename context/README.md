@@ -15,6 +15,7 @@
 - [development-model.md](development-model.md) — процесс разработки и работы агентов.
 - [plans/maximal-version-roadmap.md](plans/maximal-version-roadmap.md) — верхнеуровневый план максимальной версии.
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
+- [quality/engineering-charter.md](quality/engineering-charter.md) — обязательные требования к качеству проекта.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и известные разрывы.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 

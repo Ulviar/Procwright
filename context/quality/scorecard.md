@@ -8,6 +8,7 @@
 
 | Область | Статус | Что должно быть верно |
 | --- | --- | --- |
+| Engineering charter | Active | Качество важнее скорости; требования закреплены как проектный стандарт. |
 | Scenario API | Not started | Пользователь выбирает workflow, а не низкоуровневые flags. |
 | Invariant model | Not started | Value objects, policies и resolver изолируют правила API/runtime. |
 | One-shot execution | Not started | Direct argv запуск, параллельный drain stdout/stderr. |

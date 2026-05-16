@@ -24,11 +24,13 @@
 - [context/legacy-lessons.md](context/legacy-lessons.md) — выводы из старой версии.
 - [context/development-model.md](context/development-model.md) — легкий процесс работы.
 - [context/evals/process-behavior.md](context/evals/process-behavior.md) — поведенческие проверки.
+- [context/quality/engineering-charter.md](context/quality/engineering-charter.md) — обязательный стандарт качества.
 - [context/quality/scorecard.md](context/quality/scorecard.md) — статус и разрывы.
 
 ## Принципы
 
 - Сначала маленькое надежное ядро, потом расширения.
+- Качество важнее скорости; нельзя экономить на API, инвариантах, тестах и документации.
 - Пользователь выбирает сценарий API, а не набор низкоуровневых flags.
 - Инварианты должны иметь одного владельца: value object, policy, state machine, validator или test.
 - API-идеи старого проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
