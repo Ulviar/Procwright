@@ -2,9 +2,9 @@
 
 iCLI is being rewritten as a JVM library for safe, scenario-first control of external command-line processes.
 
-This branch currently contains the foundation for the rewrite, the first one-shot execution kernel, and a raw
-interactive session scenario. The public API and runtime are still incomplete: documentation must not promise behavior
-before tests and implementation prove it.
+This branch currently contains the foundation for the rewrite, the first one-shot execution kernel, a raw interactive
+session scenario, and the first line-oriented request/response workflow. The public API and runtime are still
+incomplete: documentation must not promise behavior before tests and implementation prove it.
 
 Project context is maintained in Russian under [context/](context/). Code, public APIs, Javadocs, tests, and commit
 messages are written in English.
@@ -23,5 +23,7 @@ messages are written in English.
   plan.
 - Raw `interactive` session scenario with guarded stdin, raw stdout/stderr streams, `send`, `sendLine`, `closeStdin`,
   `onExit`, idempotent `close`, and caller-visible idle-timeout shutdown.
+- Line-oriented `lineSession` scenario with serialized requests, default and custom response decoders, bounded
+  transcripts, per-request timeouts, EOF distinction, and stderr draining.
 
 See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.

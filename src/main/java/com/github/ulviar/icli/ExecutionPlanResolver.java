@@ -38,6 +38,17 @@ final class ExecutionPlanResolver {
                 invocation.charset().orElse(profile.charset()));
     }
 
+    static SessionExecutionPlan resolve(
+            ScenarioProfile.Interactive profile, CommandSpec spec, LineSessionInvocation invocation) {
+        InvocationShape invocationShape = shape(invocation);
+        LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, OutputMode.SEPARATE);
+        return new SessionExecutionPlan(
+                launchPlan,
+                invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
+                invocation.idleTimeout().orElse(profile.idleTimeout()),
+                profile.charset());
+    }
+
     private static LaunchPlan launchPlan(
             ScenarioProfile profile, CommandSpec spec, InvocationShape invocation, OutputMode outputMode) {
         TerminalPolicy terminalPolicy = profile.terminalPolicy();
@@ -91,6 +102,10 @@ final class ExecutionPlanResolver {
     }
 
     private static InvocationShape shape(SessionInvocation invocation) {
+        return new InvocationShape(invocation.arguments(), invocation.workingDirectory(), invocation.environment());
+    }
+
+    private static InvocationShape shape(LineSessionInvocation invocation) {
         return new InvocationShape(invocation.arguments(), invocation.workingDirectory(), invocation.environment());
     }
 

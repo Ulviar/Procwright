@@ -42,4 +42,14 @@ final class PolicyValueTest {
                         java.nio.charset.StandardCharsets.UTF_8,
                         OutputMode.SEPARATE));
     }
+
+    @Test
+    void lineSessionOptionsRejectInvalidTimeoutAndTranscriptLimit() {
+        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+                .withRequestTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+                .withTranscriptLimit(0));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+                .withStdoutBacklogLimit(0));
+    }
 }

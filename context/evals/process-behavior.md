@@ -48,8 +48,12 @@
 
 - Один input дает один response.
 - Параллельные вызовы не перемешивают stdin/stdout.
-- Response decoder сохраняет значимые переносы строк или явно документирует нормализацию.
+- Response decoder сохраняет значимые переносы строк через `LineResponse.lines()`; `text()` соединяет lines через `\n`.
 - Timeout ожидания response дает bounded transcript.
+- Timeout закрывает `LineSession`, чтобы следующий request не читал хвосты старого ответа.
+- EOF before response отличается от timeout.
+- Stderr дренируется в transcript, чтобы line workflow не зависал на заполненном stderr.
+- Незавершенный partial output попадает в transcript с корректной stream attribution.
 
 ## Expect helper
 

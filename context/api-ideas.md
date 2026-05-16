@@ -56,7 +56,7 @@ CommandResult result = python.run(call -> call.args("--version"));
 CommandResult result = service.run(call -> call.args("status", "--short"));
 
 if (result.succeeded()) {
-    System.out.println(result.stdoutText());
+    System.out.println(result.stdout());
 } else {
     throw result.toException();
 }
@@ -91,27 +91,26 @@ Builder — это draft layer. После `build()` или перед запу�
 ## Interactive session
 
 ```java
-try (Session session = service.openSession(call -> call.args("-i"))) {
+try (Session session = service.interactive(call -> call.args("-i"))) {
     session.sendLine("print(6 * 7)");
-    String output = session.readUntil("42", Duration.ofSeconds(2));
     session.closeStdin();
 }
 ```
 
-Возможная line-oriented обертка:
+Line-oriented обертка:
 
 ```java
-try (LineSession session = service.openLineSession(call -> call.args("-i"))) {
-    CommandResult response = session.process("print(6 * 7)");
+try (LineSession session = service.lineSession(call -> call.args("-i"))) {
+    LineResponse response = session.request("print(6 * 7)");
 }
 ```
 
-Сначала стабилизируем `Session`, затем добавляем `LineSession`.
+`Session` остается raw handle, а `LineSession` владеет сериализацией request/response и decoder policy.
 
 ## Expect helper
 
 ```java
-try (Session session = service.openSession(call -> call.args("-i"));
+try (Session session = service.interactive(call -> call.args("-i"));
         Expect expect = Expect.on(session).withTimeout(Duration.ofSeconds(2))) {
     expect.expectRegex("Python .*");
     expect.sendLine("print(6 * 7)");

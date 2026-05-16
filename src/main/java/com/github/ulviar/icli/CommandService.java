@@ -11,6 +11,7 @@ public final class CommandService {
     private final CommandSpec commandSpec;
     private final RunOptions runOptions;
     private final SessionOptions sessionOptions;
+    private final LineSessionOptions lineSessionOptions;
 
     /**
      * Creates a service from a base command specification and default run options.
@@ -30,9 +31,26 @@ public final class CommandService {
      * @param sessionOptions default interactive session options
      */
     public CommandService(CommandSpec commandSpec, RunOptions runOptions, SessionOptions sessionOptions) {
+        this(commandSpec, runOptions, sessionOptions, LineSessionOptions.defaults());
+    }
+
+    /**
+     * Creates a service from base command, run, session, and line-session defaults.
+     *
+     * @param commandSpec base command specification
+     * @param runOptions default run options
+     * @param sessionOptions default interactive session options
+     * @param lineSessionOptions default line-session options
+     */
+    public CommandService(
+            CommandSpec commandSpec,
+            RunOptions runOptions,
+            SessionOptions sessionOptions,
+            LineSessionOptions lineSessionOptions) {
         this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
         this.runOptions = Objects.requireNonNull(runOptions, "runOptions");
         this.sessionOptions = Objects.requireNonNull(sessionOptions, "sessionOptions");
+        this.lineSessionOptions = Objects.requireNonNull(lineSessionOptions, "lineSessionOptions");
     }
 
     /**
@@ -83,6 +101,15 @@ public final class CommandService {
     }
 
     /**
+     * Returns the default line-session options.
+     *
+     * @return default line-session options
+     */
+    public LineSessionOptions lineSessionOptions() {
+        return lineSessionOptions;
+    }
+
+    /**
      * Defines a one-shot run scenario.
      *
      * @param configure invocation callback
@@ -117,5 +144,30 @@ public final class CommandService {
         SessionExecutionPlan plan =
                 ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
         return SessionRuntime.open(plan);
+    }
+
+    /**
+     * Opens a line-oriented request/response session.
+     *
+     * @param configure invocation callback
+     * @return line-oriented session
+     * @throws CommandExecutionException when the process cannot be started
+     */
+    public LineSession lineSession(Consumer<LineSessionInvocation.Builder> configure) {
+        Objects.requireNonNull(configure, "configure");
+
+        LineSessionInvocation.Builder builder = LineSessionInvocation.builder();
+        configure.accept(builder);
+        LineSessionInvocation invocation = builder.build();
+
+        SessionExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
+        Session session = SessionRuntime.open(plan);
+        try {
+            return new LineSession(session, lineSessionOptions);
+        } catch (RuntimeException exception) {
+            session.close();
+            throw exception;
+        }
     }
 }

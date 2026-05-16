@@ -14,6 +14,7 @@ final class CommandServiceTest {
         assertEquals("git", service.commandSpec().executable());
         assertEquals(RunOptions.defaults(), service.runOptions());
         assertEquals(SessionOptions.defaults(), service.sessionOptions());
+        assertEquals(LineSessionOptions.defaults(), service.lineSessionOptions());
     }
 
     @Test
@@ -28,6 +29,13 @@ final class CommandServiceTest {
         CommandService service = CommandService.forCommand("git");
 
         assertThrows(NullPointerException.class, () -> service.interactive(null));
+    }
+
+    @Test
+    void lineSessionValidatesConfigurationCallback() {
+        CommandService service = CommandService.forCommand("git");
+
+        assertThrows(NullPointerException.class, () -> service.lineSession(null));
     }
 
     @Test

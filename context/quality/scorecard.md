@@ -2,12 +2,12 @@
 
 ## Статус
 
-Фаза 4 реализуется. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline, compile-tested API
-sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для `run` и raw
-interactive session scenario.
-`CommandService.run(...)` и `CommandService.interactive(...)` уже запускают реальные процессы через
-`ScenarioProfile -> LaunchPlan -> ExecutionPlan/SessionExecutionPlan`, но line-oriented workflows, expect, streaming и
-PTY еще не реализованы.
+Фаза 5 реализуется. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline, compile-tested API
+sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для `run`, raw
+interactive session scenario и line-oriented request/response workflow.
+`CommandService.run(...)`, `CommandService.interactive(...)` и `CommandService.lineSession(...)` уже запускают реальные
+процессы через `ScenarioProfile -> LaunchPlan -> ExecutionPlan/SessionExecutionPlan`, но expect, streaming и PTY еще не
+реализованы.
 
 ## Release-relevant критерии
 
@@ -21,10 +21,11 @@ PTY еще не реализованы.
 | Timeout/shutdown | Started | Timeout supervision покрыт integration tests; forceful shutdown branch реализован, но требует отдельной hardening-проверки. |
 | Command model | Started | Immutable command spec и per-call invocation builder компилируются и покрыты базовыми тестами. |
 | Interactive session | Started | Raw `Session` имеет guarded stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout tests. |
+| Line session | Started | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, EOF/timeout distinction и stderr drain. |
 | Expect helper | Deferred | Добавляется только после session. |
 | PTY | Deferred | Узкий transport/provider, без раздувания public API. |
-| Fixture/evals | Started | Process fixture моделирует success, stderr, large output, timeout и session I/O cases. |
-| Documentation | Started | README описывает foundation, `run`, `interactive` и явно говорит, что runtime пока неполный. |
+| Fixture/evals | Started | Process fixture моделирует success, stderr, large output, timeout, session I/O и line workflow cases. |
+| Documentation | Started | README описывает foundation, `run`, `interactive`, `lineSession` и явно говорит, что runtime пока неполный. |
 | Pooling | Deferred | Не входит в MVP. |
 
 ## Решения, которые нужно принять

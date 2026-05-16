@@ -4,6 +4,9 @@ import com.github.ulviar.icli.CapturePolicy;
 import com.github.ulviar.icli.CommandResult;
 import com.github.ulviar.icli.CommandService;
 import com.github.ulviar.icli.CommandSpec;
+import com.github.ulviar.icli.LineResponse;
+import com.github.ulviar.icli.LineSession;
+import com.github.ulviar.icli.LineSessionOptions;
 import com.github.ulviar.icli.RunOptions;
 import com.github.ulviar.icli.Session;
 import com.github.ulviar.icli.SessionOptions;
@@ -50,6 +53,21 @@ final class CommandServiceApiExamples {
 
         try (Session session = python.interactive(call -> call.args("-i"))) {
             session.sendLine("print(6 * 7)");
+        }
+    }
+
+    void lineSessionScenario() {
+        CommandService repl = new CommandService(
+                CommandSpec.of("tool"),
+                RunOptions.defaults(),
+                SessionOptions.defaults(),
+                LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
+
+        try (LineSession session = repl.lineSession(call -> call.args("repl"))) {
+            LineResponse response = session.request("status");
+            if (response.text().isBlank()) {
+                throw new IllegalStateException("empty response");
+            }
         }
     }
 }

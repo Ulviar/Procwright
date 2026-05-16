@@ -72,8 +72,11 @@ Domain layer содержит immutable объекты, которые уже в
 - `CommandSpec`;
 - `CommandInvocation`;
 - `SessionInvocation`;
+- `LineSessionInvocation`;
 - `RunOptions`;
 - `SessionOptions`;
+- `LineSessionOptions`;
+- `ResponseDecoder`;
 - `CapturePolicy`;
 - `ShutdownPolicy`;
 - `TerminalPolicy`;
@@ -103,8 +106,8 @@ CommandSpec + InvocationDraft + RunOptions -> ResolvedCommand
 Runtime не должен заново угадывать эти правила.
 
 Scenario-specific drafts могут быть разными. One-shot `CommandInvocation` содержит input/capture/output policies,
-а raw-session `SessionInvocation` должен оставаться уже и не раскрывать параметры, у которых нет валидной session
-семантики.
+raw-session `SessionInvocation` содержит raw text-send charset, а `LineSessionInvocation` должен оставаться уже и не
+раскрывать параметры, у которых нет валидной line-protocol семантики.
 
 ### Runtime layer
 
@@ -170,6 +173,7 @@ Transport failures переводятся в типизированные оши
 
 - raw `Session` может иметь минимальные guarantees;
 - `LineSession` сериализует request/response cycle;
+- `ResponseDecoder` владеет правилом завершения line response;
 - async API не должен обходить shutdown policy;
 - cancellation должна попадать в тот же lifecycle path, что timeout.
 

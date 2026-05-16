@@ -48,7 +48,7 @@ var python = CommandService.forCommand("python");
 CommandResult version = python.run(call -> call.args("--version"));
 
 try (LineSession repl = python.lineSession(session -> session.args("-i"))) {
-    CommandResult answer = repl.process("print(6 * 7)");
+    LineResponse answer = repl.request("print(6 * 7)");
 }
 
 try (Session shell = python.interactive(session -> session.args("-i"))) {
@@ -87,13 +87,16 @@ Line-oriented request/response workflow для REPL-like процессов.
 - один request не перемешивается с другим;
 - decoder владеет правилом завершения ответа;
 - timeout относится к request/response cycle;
+- timeout/failure закрывает `LineSession`, чтобы не продолжать работу в неизвестном protocol state;
 - transcript bounded и доступен в ошибке.
+- stdout response backlog bounded отдельной line-session policy, а не размером transcript window.
+- EOF, timeout и decoder/read failure различаются.
 
 Пользовательский пример:
 
 ```java
 try (LineSession python = service.lineSession(call -> call.args("-i"))) {
-    CommandResult result = python.process("print(6 * 7)");
+    LineResponse result = python.request("print(6 * 7)");
 }
 ```
 
@@ -152,13 +155,13 @@ run
 lineSession
   stdin: open
   capture: transcript window
-  terminal: auto
+  terminal: disabled until PTY transport exists
   timeout: request timeout + session idle timeout
 
 interactive
   stdin: open
   capture: caller-driven streams
-  terminal: auto/required override
+  terminal: disabled until PTY transport exists
   timeout: idle/lifecycle policy
 ```
 
@@ -195,7 +198,8 @@ ScenarioProfile + CommandSpec + InvocationDraft
 
 `ScenarioProfile` — internal или narrow public concept. Он связывает пользовательский сценарий с наборами policies.
 У каждого сценария может быть свой draft: one-shot использует `CommandInvocation`, raw session — более узкий
-`SessionInvocation`, чтобы не протаскивать неподходящие one-shot options вроде `input` или `capture`.
+`SessionInvocation`, а line workflow — `LineSessionInvocation`, чтобы не протаскивать неподходящие one-shot/raw-session
+options вроде `input`, `capture` или text-send charset.
 
 ## Как не повторить старое разрастание
 

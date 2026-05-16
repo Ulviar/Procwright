@@ -34,6 +34,65 @@ final class ProcessFixtureProgram {
                 System.out.flush();
                 Thread.sleep(Long.parseLong(args[3]));
             }
+            case "line-repl" -> {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    switch (line) {
+                        case "multi" -> {
+                            System.out.println("first:multi");
+                            System.out.println("second:multi");
+                        }
+                        case "slow" -> {
+                            System.out.println("started:slow");
+                            System.out.flush();
+                            Thread.sleep(5000);
+                        }
+                        case "many" -> {
+                            for (int index = 0; index < 20; index++) {
+                                System.out.println("noise-" + index + "-abcdefghijklmnop");
+                            }
+                            System.out.println("done");
+                        }
+                        case "stderr-burst" -> {
+                            System.err.write("e".repeat(256 * 1024).getBytes(StandardCharsets.UTF_8));
+                            System.err.println();
+                            System.err.flush();
+                            System.out.println("response:stderr-burst");
+                        }
+                        default -> System.out.println("response:" + line);
+                    }
+                    System.out.flush();
+                }
+            }
+            case "two-line-delay-repl" -> {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println("start:" + line);
+                    System.out.flush();
+                    Thread.sleep(100);
+                    System.out.println("end:" + line);
+                    System.out.flush();
+                }
+            }
+            case "exit-after-read" -> {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+                reader.readLine();
+            }
+            case "partial-stderr-sleep" -> {
+                System.err.print("partial-error");
+                System.err.flush();
+                Thread.sleep(Long.parseLong(args[1]));
+            }
+            case "mixed-partial-sleep" -> {
+                System.out.print("partial-out");
+                System.out.flush();
+                System.err.print("partial-err");
+                System.err.flush();
+                Thread.sleep(Long.parseLong(args[1]));
+            }
+            case "ignore-stdin" -> Thread.sleep(Long.parseLong(args[1]));
             case "stdin-hex" -> {
                 for (byte value : System.in.readAllBytes()) {
                     System.out.printf("%02x", value);

@@ -81,6 +81,11 @@ com.github.ulviar.icli
   CommandResult
   RunOptions
   SessionInvocation
+  LineSessionInvocation
+  LineSession
+  LineSessionOptions
+  LineResponse
+  ResponseDecoder
   CapturePolicy
   ShutdownPolicy
   Session
@@ -88,7 +93,6 @@ com.github.ulviar.icli
   CommandException
 
 future session helpers, package TBD
-  LineSession
   Expect
   ExpectException
 
