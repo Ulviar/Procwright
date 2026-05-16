@@ -39,6 +39,15 @@ final class ProcessFixtureProgram {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     switch (line) {
+                        case "pid" ->
+                            System.out.println(
+                                    "response:pid:" + ProcessHandle.current().pid());
+                        case "health" -> System.out.println("response:healthy");
+                        case "reset" -> System.out.println("response:reset");
+                        case "hold" -> {
+                            Thread.sleep(500);
+                            System.out.println("response:hold");
+                        }
                         case "multi" -> {
                             System.out.println("first:multi");
                             System.out.println("second:multi");
@@ -47,6 +56,10 @@ final class ProcessFixtureProgram {
                             System.out.println("started:slow");
                             System.out.flush();
                             Thread.sleep(5000);
+                        }
+                        case "slow-response" -> {
+                            Thread.sleep(5000);
+                            System.out.println("response:slow");
                         }
                         case "many" -> {
                             for (int index = 0; index < 20; index++) {

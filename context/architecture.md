@@ -12,8 +12,8 @@ Java/Kotlin приложений.
 должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
 
 Внешний пользовательский слой при этом остается scenario-first. Пользователь выбирает workflow (`run`,
-`lineSession`, `interactive`, `expect`, `listen`), а библиотека разворачивает его в policies, общий launch plan и
-scenario-specific execution plan. Это описано в [scenario-api.md](scenario-api.md).
+`lineSession`, `interactive`, `expect`, `listen`, `pooled`), а библиотека разворачивает его в policies, общий launch
+plan и scenario-specific execution plan. Это описано в [scenario-api.md](scenario-api.md).
 
 ## Входит в MVP
 
@@ -30,11 +30,12 @@ scenario-specific execution plan. Это описано в [scenario-api.md](sce
 - Listen-only streaming helper с bounded diagnostics.
 - Наблюдательная diagnostics layer без влияния на runtime behavior.
 - Optional Kotlin ergonomics module без Kotlin dependency в Java core.
+- Pooled line-session scenario поверх существующих `LineSession` workers.
 - Детерминированный fixture/eval набор.
 
 ## Не входит в MVP
 
-- Process pooling.
+- Raw session pooling.
 - Stateful conversation affinity.
 - MCP adapters.
 - Benchmarks.
@@ -99,6 +100,11 @@ com.github.ulviar.icli
   StreamExit
   StreamTranscript
   StreamException
+  PooledLineSession
+  PooledLineSessionOptions
+  PooledLineSessionInvocation
+  PooledLineSessionMetrics
+  PooledLineSessionException
   DiagnosticsOptions
   DiagnosticEvent
   DiagnosticEventType
@@ -139,6 +145,6 @@ com.github.ulviar.icli.kotlin
 1. PTY hardening и кроссплатформенная матрица.
 2. Более богатый expect DSL.
 3. Более богатый Kotlin DSL поверх optional Kotlin module.
-4. Process pooling отдельным модулем.
+4. Stateful affinity и raw session pooling поверх `pooled`.
 5. MCP adapter templates.
 6. Benchmarks.

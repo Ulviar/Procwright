@@ -15,6 +15,7 @@ final class CommandServiceTest {
         assertEquals(RunOptions.defaults(), service.runOptions());
         assertEquals(SessionOptions.defaults(), service.sessionOptions());
         assertEquals(LineSessionOptions.defaults(), service.lineSessionOptions());
+        assertEquals(PooledLineSessionOptions.defaults(), service.pooledLineSessionOptions());
     }
 
     @Test
@@ -36,6 +37,13 @@ final class CommandServiceTest {
         CommandService service = CommandService.forCommand("git");
 
         assertThrows(NullPointerException.class, () -> service.lineSession(null));
+    }
+
+    @Test
+    void pooledValidatesConfigurationCallback() {
+        CommandService service = CommandService.forCommand("git");
+
+        assertThrows(NullPointerException.class, () -> service.pooled(null));
     }
 
     @Test

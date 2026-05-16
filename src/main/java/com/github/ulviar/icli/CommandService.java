@@ -13,6 +13,7 @@ public final class CommandService {
     private final SessionOptions sessionOptions;
     private final LineSessionOptions lineSessionOptions;
     private final StreamOptions streamOptions;
+    private final PooledLineSessionOptions pooledLineSessionOptions;
     private final DiagnosticsOptions diagnosticsOptions;
 
     /**
@@ -67,7 +68,40 @@ public final class CommandService {
             SessionOptions sessionOptions,
             LineSessionOptions lineSessionOptions,
             StreamOptions streamOptions) {
-        this(commandSpec, runOptions, sessionOptions, lineSessionOptions, streamOptions, DiagnosticsOptions.defaults());
+        this(
+                commandSpec,
+                runOptions,
+                sessionOptions,
+                lineSessionOptions,
+                streamOptions,
+                PooledLineSessionOptions.defaults());
+    }
+
+    /**
+     * Creates a service from base command and all scenario defaults.
+     *
+     * @param commandSpec base command specification
+     * @param runOptions default run options
+     * @param sessionOptions default interactive session options
+     * @param lineSessionOptions default line-session options
+     * @param streamOptions default stream options
+     * @param pooledLineSessionOptions default pooled line-session options
+     */
+    public CommandService(
+            CommandSpec commandSpec,
+            RunOptions runOptions,
+            SessionOptions sessionOptions,
+            LineSessionOptions lineSessionOptions,
+            StreamOptions streamOptions,
+            PooledLineSessionOptions pooledLineSessionOptions) {
+        this(
+                commandSpec,
+                runOptions,
+                sessionOptions,
+                lineSessionOptions,
+                streamOptions,
+                pooledLineSessionOptions,
+                DiagnosticsOptions.defaults());
     }
 
     private CommandService(
@@ -76,12 +110,14 @@ public final class CommandService {
             SessionOptions sessionOptions,
             LineSessionOptions lineSessionOptions,
             StreamOptions streamOptions,
+            PooledLineSessionOptions pooledLineSessionOptions,
             DiagnosticsOptions diagnosticsOptions) {
         this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
         this.runOptions = Objects.requireNonNull(runOptions, "runOptions");
         this.sessionOptions = Objects.requireNonNull(sessionOptions, "sessionOptions");
         this.lineSessionOptions = Objects.requireNonNull(lineSessionOptions, "lineSessionOptions");
         this.streamOptions = Objects.requireNonNull(streamOptions, "streamOptions");
+        this.pooledLineSessionOptions = Objects.requireNonNull(pooledLineSessionOptions, "pooledLineSessionOptions");
         this.diagnosticsOptions = Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
     }
 
@@ -151,6 +187,15 @@ public final class CommandService {
     }
 
     /**
+     * Returns the default pooled line-session options.
+     *
+     * @return default pooled line-session options
+     */
+    public PooledLineSessionOptions pooledLineSessionOptions() {
+        return pooledLineSessionOptions;
+    }
+
+    /**
      * Returns the default diagnostics options.
      *
      * @return diagnostics options
@@ -163,15 +208,21 @@ public final class CommandService {
      * Returns a copy with different diagnostics options.
      *
      * <p>Diagnostics are emitted by command-service scenarios that own process lifecycle: {@code run},
-     * {@code interactive}, {@code lineSession}, and {@code listen}. {@code Expect} is a helper over an already opened
-     * {@link Session} and does not emit separate process lifecycle events.
+     * {@code interactive}, {@code lineSession}, {@code listen}, and worker launches inside {@code pooled}. {@code Expect}
+     * is a helper over an already opened {@link Session} and does not emit separate process lifecycle events.
      *
      * @param diagnosticsOptions diagnostics options
      * @return updated command service
      */
     public CommandService withDiagnostics(DiagnosticsOptions diagnosticsOptions) {
         return new CommandService(
-                commandSpec, runOptions, sessionOptions, lineSessionOptions, streamOptions, diagnosticsOptions);
+                commandSpec,
+                runOptions,
+                sessionOptions,
+                lineSessionOptions,
+                streamOptions,
+                pooledLineSessionOptions,
+                diagnosticsOptions);
     }
 
     /**
@@ -226,15 +277,25 @@ public final class CommandService {
         configure.accept(builder);
         LineSessionInvocation invocation = builder.build();
 
-        SessionExecutionPlan plan =
-                ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
-        Session session = openSession("lineSession", plan);
-        try {
-            return new LineSession(session, lineSessionOptions);
-        } catch (RuntimeException exception) {
-            session.close();
-            throw exception;
-        }
+        return openLineSession("lineSession", invocation);
+    }
+
+    /**
+     * Opens a pooled line-oriented request/response session.
+     *
+     * @param configure invocation callback
+     * @return pooled line-oriented session
+     * @throws CommandExecutionException when a worker process cannot be started
+     */
+    public PooledLineSession pooled(Consumer<PooledLineSessionInvocation.Builder> configure) {
+        Objects.requireNonNull(configure, "configure");
+
+        PooledLineSessionInvocation.Builder builder = PooledLineSessionInvocation.builder(pooledLineSessionOptions);
+        configure.accept(builder);
+        PooledLineSessionInvocation invocation = builder.build();
+
+        return new PooledLineSession(
+                () -> openLineSession("pooled", invocation.lineSessionInvocation()), invocation.options());
     }
 
     /**
@@ -265,6 +326,18 @@ public final class CommandService {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_FAILED,
                     Diagnostics.attributes("error", exception.getClass().getName()));
+            throw exception;
+        }
+    }
+
+    private LineSession openLineSession(String scenario, LineSessionInvocation invocation) {
+        SessionExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
+        Session session = openSession(scenario, plan);
+        try {
+            return new LineSession(session, lineSessionOptions);
+        } catch (RuntimeException exception) {
+            session.close();
             throw exception;
         }
     }

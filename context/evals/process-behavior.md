@@ -66,6 +66,18 @@
   сохраняет backpressure вместо бесконечной очереди.
 - Kotlin tests exercise the public extension API against real commands.
 
+## Pooled line sessions
+
+- `pooled` открывает workers через existing `LineSession`, а не через отдельный process runtime.
+- `warmupSize` заранее создает workers и `maxSize` ограничивает общий live worker count.
+- Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
+- Acquire timeout отличается от request timeout и дает pool-level failure.
+- Request timeout/failure retire worker, а не возвращает его в idle set.
+- `resetHook` выполняется после успешного user request перед возвратом worker в idle set.
+- `healthCheck` выполняется перед lease; unhealthy worker закрывается и заменяется.
+- `close()` запрещает новые requests, закрывает idle workers сразу и дает leased workers завершить текущий request.
+- `metrics()` возвращает snapshot counters для size, idle, leased, created, retired и request counts.
+
 ## Interactive session
 
 - Session открывается и закрывается без утечки процесса.

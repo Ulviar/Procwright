@@ -21,7 +21,7 @@
 
 - разрастание `runner`, `client`, `processor`, `conversation`, `delegate`;
 - отдельный public facade под каждый сценарий;
-- pooled API в MVP;
+- raw/session pooling, affinity и lease scope в MVP;
 - `Essential` / `Advanced` как публичный маркетинговый слой.
 
 ## Базовый стиль
@@ -125,16 +125,21 @@ try (Session session = service.interactive(call -> call.args("-i"));
 - понятная timeout exception;
 - никакой большой DSL до реальной потребности.
 
-## Будущий pooling
+## Pooled line sessions
 
-Идея `service.pooled()` хорошая как направление, но не для MVP.
+Идея `service.pooled()` возвращается только как узкий line-oriented scenario поверх `LineSession`, без отдельного
+runtime и без lease objects.
 
-Когда pooling вернется, он должен выглядеть как естественное расширение сервиса:
+Первый вариант должен выглядеть как естественное расширение сервиса:
 
 ```java
-try (PooledCommandService pool = service.pooled(pool -> pool.maxSize(4))) {
-    CommandResult result = pool.run("version");
+try (PooledLineSession pool = service.pooled(pool -> pool
+        .args("repl")
+        .maxSize(4)
+        .warmupSize(1))) {
+    LineResponse result = pool.request("status");
 }
 ```
 
-До этого момента public API не должен включать affinity, retirement, lease scope и conversation classes.
+Public API не должен включать affinity, lease scope и conversation classes. Retirement остается policy внутри
+`PooledLineSessionOptions`: `maxRequestsPerWorker`, `maxWorkerAge`, health check и reset hook.

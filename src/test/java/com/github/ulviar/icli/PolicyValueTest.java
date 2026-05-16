@@ -89,4 +89,20 @@ final class PolicyValueTest {
         assertThrows(
                 IllegalArgumentException.class, () -> StreamOptions.defaults().withTimeout(Duration.ofMillis(-1)));
     }
+
+    @Test
+    void pooledLineSessionOptionsRejectInvalidPoolPolicies() {
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withMaxSize(0));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withWarmupSize(-1));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withWarmupSize(2));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withAcquireTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withMaxRequestsPerWorker(0));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withMaxWorkerAge(Duration.ofMillis(-1)));
+    }
 }

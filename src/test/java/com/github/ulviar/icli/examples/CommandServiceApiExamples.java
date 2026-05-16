@@ -10,6 +10,8 @@ import com.github.ulviar.icli.ExpectOptions;
 import com.github.ulviar.icli.LineResponse;
 import com.github.ulviar.icli.LineSession;
 import com.github.ulviar.icli.LineSessionOptions;
+import com.github.ulviar.icli.PooledLineSession;
+import com.github.ulviar.icli.PooledLineSessionMetrics;
 import com.github.ulviar.icli.RunOptions;
 import com.github.ulviar.icli.Session;
 import com.github.ulviar.icli.SessionOptions;
@@ -120,5 +122,21 @@ final class CommandServiceApiExamples {
                 }));
 
         tool.run(call -> call.args("--version"));
+    }
+
+    void pooledLineSessionScenario() {
+        CommandService tool = CommandService.forCommand("tool");
+
+        try (PooledLineSession pool = tool.pooled(call -> call.args("repl")
+                .maxSize(4)
+                .warmupSize(1)
+                .maxRequestsPerWorker(100)
+                .reset(worker -> worker.request("reset")))) {
+            LineResponse response = pool.request("status", Duration.ofSeconds(2));
+            PooledLineSessionMetrics metrics = pool.metrics();
+            if (response.text().isBlank() || metrics.size() > 4) {
+                throw new IllegalStateException("unexpected pooled response");
+            }
+        }
     }
 }

@@ -181,6 +181,24 @@ final class DiagnosticsIntegrationTest {
         assertTrue(lineRecorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
     }
 
+    @Test
+    void pooledWorkersEmitLifecycleEvents() throws Exception {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        CommandService service =
+                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+
+        try (PooledLineSession pool =
+                service.pooled(call -> call.args("line-repl").maxSize(1).warmupSize(1))) {
+            assertEquals("response:hello", pool.request("hello").text());
+        }
+
+        assertEquals(
+                "pooled", recorder.first(DiagnosticEventType.COMMAND_PREPARED).scenario());
+        assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_STARTED));
+        assertTrue(recorder.awaitContains(DiagnosticEventType.SHUTDOWN_REQUESTED));
+        assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+    }
+
     private static CommandService fixtureService() {
         return fixtureService(StreamOptions.defaults());
     }

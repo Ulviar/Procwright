@@ -32,7 +32,7 @@ service.run(call -> call
 - "открой REPL и обменивайся строками";
 - "открой raw interactive session";
 - "слушай вывод процесса";
-- позже: "используй прогретые workers".
+- "используй прогретые line workers".
 
 ## Внешняя форма
 
@@ -187,6 +187,31 @@ try (StreamSession logs = service.listen(call -> call
 }
 ```
 
+### `pooled`
+
+Pooled line-oriented workers для CLI/REPL с дорогим startup.
+
+Инварианты сценария:
+
+- pool использует existing `LineSession` runtime, а не собственный process launcher;
+- worker lease скрыт от пользователя: `request(...)` сам берет worker, выполняет line request и возвращает/retire worker;
+- `maxSize` ограничивает live workers, `warmupSize` открывает часть workers заранее;
+- acquire timeout — pool-level failure, отдельно от request timeout;
+- reset hook и health check работают через `LineSession` primitive;
+- close запрещает новые requests и graceful-drain текущих leased workers.
+
+Пользовательский пример:
+
+```java
+try (PooledLineSession pool = service.pooled(call -> call
+        .args("repl")
+        .maxSize(4)
+        .warmupSize(1)
+        .reset(worker -> worker.request("reset")))) {
+    LineResponse result = pool.request("status");
+}
+```
+
 ## Сценарий как preset, не как мешок flags
 
 Каждый сценарий должен иметь свой default profile:
@@ -215,6 +240,13 @@ listen
   capture: bounded diagnostics window, not full output
   listener: synchronous chunks with process backpressure
   timeout: optional absolute stream timeout
+
+pooled
+  worker: existing lineSession
+  size: bounded max workers
+  acquisition: bounded acquire timeout
+  reset/health: explicit hooks through line-session primitive
+  shutdown: idle close immediately, leased close after current request
 ```
 
 Пользователь может переопределить части профиля:
@@ -237,6 +269,7 @@ CommandService.run(...)
 CommandService.lineSession(...)
 CommandService.interactive(...)
 CommandService.listen(...)
+CommandService.pooled(...)
 Session.expect()
 ```
 
@@ -265,7 +298,7 @@ Scenario-first не означает "класс на каждый use case".
 - `interactive`;
 - `expect`;
 - `listen`;
-- позже `pooled`.
+- `pooled`.
 
 Плохо на раннем этапе:
 
@@ -288,8 +321,8 @@ Invariant-first runtime отвечает на вопрос библиотеки:
 Diagnostics не являются отдельным пользовательским workflow. Это наблюдательный слой поверх сценариев:
 
 - `DiagnosticsOptions` подключаются к `CommandService`;
-- lifecycle events испускают `run`, `interactive`, `lineSession` и `listen`; `Expect` не испускает отдельные process
-  lifecycle events, потому что работает поверх уже открытой `Session`;
+- lifecycle events испускают `run`, `interactive`, `lineSession`, `listen` и worker launches внутри `pooled`; `Expect`
+  не испускает отдельные process lifecycle events, потому что работает поверх уже открытой `Session`;
 - listener и transcript sink получают structured events асинхронно best-effort;
 - failures listener/sink игнорируются runtime и не меняют результат процесса;
 - `CommandEcho` не содержит environment values и argument values; он публикует executable, argument count,

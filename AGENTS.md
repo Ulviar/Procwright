@@ -35,8 +35,8 @@
 - Инварианты должны иметь одного владельца: value object, policy, state machine, validator или test.
 - API-идеи старого проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
 - Старую реализацию не копировать механически.
-- Pooling, MCP, samples и benchmarks не входят в первый MVP; optional Kotlin module входит как тонкий adapter без
-  зависимости Java core от Kotlin runtime/coroutines.
+- Raw session pooling, stateful affinity, MCP, samples и benchmarks не входят в первый MVP; optional Kotlin module и
+  pooled line-session scenario входят как тонкие layers без отдельного runtime.
 - Документация описывает только то, что код доказывает тестами.
 - Повторяющиеся правила лучше переносить в тесты, валидаторы или ADR.
 

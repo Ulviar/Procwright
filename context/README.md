@@ -23,6 +23,7 @@
 - [decisions/ADR-0003-pty-packaging.md](decisions/ADR-0003-pty-packaging.md) — PTY не входит в core foundation.
 - [decisions/ADR-0005-pty-transport.md](decisions/ADR-0005-pty-transport.md) — PTY transport через узкий provider.
 - [decisions/ADR-0006-kotlin-module.md](decisions/ADR-0006-kotlin-module.md) — optional Kotlin ergonomics module.
+- [decisions/ADR-0007-pooled-line-session.md](decisions/ADR-0007-pooled-line-session.md) — pooled line-session scenario.
 
 ## Правило навигации
 

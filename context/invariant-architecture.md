@@ -5,8 +5,9 @@
 Широкие возможности не должны появляться через широкий public API. Они должны появляться через небольшое число
 компонуемых объектов, каждый из которых удерживает свой инвариант.
 
-Внешний API при этом должен оставаться scenario-first: пользователь выбирает `run`, `lineSession`, `interactive` или
-`expect`, а не ручной набор runtime flags. Scenario layer разворачивается во внутренние policies и execution plan.
+Внешний API при этом должен оставаться scenario-first: пользователь выбирает `run`, `lineSession`, `interactive`,
+`expect`, `listen` или `pooled`, а не ручной набор runtime flags. Scenario layer разворачивается во внутренние policies
+и execution plan.
 
 Пользовательский API должен выглядеть простым:
 
@@ -237,7 +238,8 @@ resolution/domain layer пропустил инвариант.
 ### Public classes for every scenario
 
 Не надо создавать `GitRunner`, `TailRunner`, `PooledLineConversation`, `ListenOnlySessionRunner` на раннем этапе.
-Сначала нужны primitives, policies и examples.
+Если появляется новый scenario facade вроде `PooledLineSession`, он должен быть тонким слоем над уже существующим
+primitive (`LineSession`) и иметь отдельный ADR/eval, а не собственный runtime.
 
 ### Half-valid objects
 
