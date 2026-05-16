@@ -8,6 +8,9 @@ Java/Kotlin приложений.
 Первая версия должна доказать надежное process execution ядро. Она не должна сразу повторять всю ширину старого
 проекта.
 
+Главный архитектурный принцип описан в [invariant-architecture.md](invariant-architecture.md): широкие возможности
+должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
+
 ## Входит в MVP
 
 - One-shot запуск команды.
@@ -46,6 +49,7 @@ Java/Kotlin приложений.
   Expect
 
 Runtime
+  resolved execution plan
   process launch
   stdout/stderr pumps
   capture policies

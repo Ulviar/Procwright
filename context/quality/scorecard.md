@@ -8,6 +8,7 @@
 
 | Область | Статус | Что должно быть верно |
 | --- | --- | --- |
+| Invariant model | Not started | Value objects, policies и resolver изолируют правила API/runtime. |
 | One-shot execution | Not started | Direct argv запуск, параллельный drain stdout/stderr. |
 | Capture policy | Not started | Bounded, streaming и discard policies имеют тесты. |
 | Timeout/shutdown | Not started | Есть soft-then-hard shutdown и понятная диагностика. |

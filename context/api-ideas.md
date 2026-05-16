@@ -14,6 +14,7 @@
 - похожую модель для one-shot и session workflows;
 - Java-first API, удобный из Kotlin;
 - низкоуровневые настройки через options objects.
+- широкие возможности через композицию policy/value objects, а не через множество runners.
 
 Не переносим автоматически:
 
@@ -79,6 +80,9 @@ CommandResult result = service.run(call -> call
 ```
 
 Builder должен быть коротким. Редкие настройки должны жить в options object, а не в отдельном facade.
+
+Builder — это draft layer. После `build()` или перед запуском данные должны пройти resolver и превратиться в
+валидированный execution plan.
 
 ## Interactive session
 

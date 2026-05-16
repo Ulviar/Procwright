@@ -8,6 +8,7 @@
 ## Документы
 
 - [architecture.md](architecture.md) — целевая архитектура первого MVP.
+- [invariant-architecture.md](invariant-architecture.md) — изоляция инвариантов в API и runtime.
 - [api-ideas.md](api-ideas.md) — пользовательский API, который нужно сохранить.
 - [legacy-lessons.md](legacy-lessons.md) — что берем и что не берем из старой версии.
 - [development-model.md](development-model.md) — процесс разработки и работы агентов.

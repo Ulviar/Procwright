@@ -18,6 +18,7 @@
 
 - [context/README.md](context/README.md) — навигация.
 - [context/architecture.md](context/architecture.md) — границы MVP и архитектура.
+- [context/invariant-architecture.md](context/invariant-architecture.md) — инварианты API и runtime.
 - [context/api-ideas.md](context/api-ideas.md) — API-идеи, которые нужно сохранить.
 - [context/legacy-lessons.md](context/legacy-lessons.md) — выводы из старой версии.
 - [context/development-model.md](context/development-model.md) — легкий процесс работы.
@@ -27,6 +28,7 @@
 ## Принципы
 
 - Сначала маленькое надежное ядро, потом расширения.
+- Инварианты должны иметь одного владельца: value object, policy, state machine, validator или test.
 - API-идеи старого проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
 - Старую реализацию не копировать механически.
 - Pooling, MCP, samples, benchmarks и Kotlin Flow не входят в первый MVP.
