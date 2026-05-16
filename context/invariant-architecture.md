@@ -71,7 +71,9 @@ Domain layer содержит immutable объекты, которые уже в
 
 - `CommandSpec`;
 - `CommandInvocation`;
+- `SessionInvocation`;
 - `RunOptions`;
+- `SessionOptions`;
 - `CapturePolicy`;
 - `ShutdownPolicy`;
 - `TerminalPolicy`;
@@ -99,6 +101,10 @@ CommandSpec + InvocationDraft + RunOptions -> ResolvedCommand
 - какой capture/shutdown/terminal policy действует.
 
 Runtime не должен заново угадывать эти правила.
+
+Scenario-specific drafts могут быть разными. One-shot `CommandInvocation` содержит input/capture/output policies,
+а raw-session `SessionInvocation` должен оставаться уже и не раскрывать параметры, у которых нет валидной session
+семантики.
 
 ### Runtime layer
 

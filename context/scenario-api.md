@@ -189,11 +189,13 @@ Session.expect()
 ```text
 ScenarioProfile + CommandSpec + InvocationDraft
   -> ResolvedCommand
-  -> ExecutionPlan
+  -> LaunchPlan + scenario-specific execution plan
   -> Runtime
 ```
 
 `ScenarioProfile` — internal или narrow public concept. Он связывает пользовательский сценарий с наборами policies.
+У каждого сценария может быть свой draft: one-shot использует `CommandInvocation`, raw session — более узкий
+`SessionInvocation`, чтобы не протаскивать неподходящие one-shot options вроде `input` или `capture`.
 
 ## Как не повторить старое разрастание
 

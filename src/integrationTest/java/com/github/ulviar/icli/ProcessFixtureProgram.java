@@ -1,5 +1,7 @@
 package com.github.ulviar.icli;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -13,6 +15,25 @@ final class ProcessFixtureProgram {
             case "stdout" -> System.out.print(args[1]);
             case "stdin-length" -> System.out.println(System.in.readAllBytes().length);
             case "stdin-echo" -> System.out.write(System.in.readAllBytes());
+            case "line-echo" -> {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println("echo:" + line);
+                    System.out.flush();
+                }
+            }
+            case "wait-eof" -> System.out.println("eof:" + System.in.readAllBytes().length);
+            case "stderr-line" -> {
+                System.err.println("error-line");
+                System.err.flush();
+            }
+            case "delayed-stdout-sleep" -> {
+                Thread.sleep(Long.parseLong(args[1]));
+                System.out.println(args[2]);
+                System.out.flush();
+                Thread.sleep(Long.parseLong(args[3]));
+            }
             case "stdin-hex" -> {
                 for (byte value : System.in.readAllBytes()) {
                     System.out.printf("%02x", value);

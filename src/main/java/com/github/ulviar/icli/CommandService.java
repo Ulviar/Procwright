@@ -10,6 +10,7 @@ public final class CommandService {
 
     private final CommandSpec commandSpec;
     private final RunOptions runOptions;
+    private final SessionOptions sessionOptions;
 
     /**
      * Creates a service from a base command specification and default run options.
@@ -18,8 +19,20 @@ public final class CommandService {
      * @param runOptions default run options
      */
     public CommandService(CommandSpec commandSpec, RunOptions runOptions) {
+        this(commandSpec, runOptions, SessionOptions.defaults());
+    }
+
+    /**
+     * Creates a service from a base command specification, default run options, and default session options.
+     *
+     * @param commandSpec base command specification
+     * @param runOptions default run options
+     * @param sessionOptions default interactive session options
+     */
+    public CommandService(CommandSpec commandSpec, RunOptions runOptions, SessionOptions sessionOptions) {
         this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
         this.runOptions = Objects.requireNonNull(runOptions, "runOptions");
+        this.sessionOptions = Objects.requireNonNull(sessionOptions, "sessionOptions");
     }
 
     /**
@@ -61,6 +74,15 @@ public final class CommandService {
     }
 
     /**
+     * Returns the default interactive session options.
+     *
+     * @return default session options
+     */
+    public SessionOptions sessionOptions() {
+        return sessionOptions;
+    }
+
+    /**
      * Defines a one-shot run scenario.
      *
      * @param configure invocation callback
@@ -76,5 +98,24 @@ public final class CommandService {
 
         ExecutionPlan plan = ExecutionPlanResolver.resolve(ScenarioProfile.run(runOptions), commandSpec, invocation);
         return ProcessKernel.run(plan);
+    }
+
+    /**
+     * Opens a raw interactive session.
+     *
+     * @param configure invocation callback
+     * @return interactive session
+     * @throws CommandExecutionException when the process cannot be started
+     */
+    public Session interactive(Consumer<SessionInvocation.Builder> configure) {
+        Objects.requireNonNull(configure, "configure");
+
+        SessionInvocation.Builder builder = SessionInvocation.builder();
+        configure.accept(builder);
+        SessionInvocation invocation = builder.build();
+
+        SessionExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
+        return SessionRuntime.open(plan);
     }
 }

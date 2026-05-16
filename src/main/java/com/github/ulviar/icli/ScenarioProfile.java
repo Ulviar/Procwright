@@ -4,35 +4,16 @@ import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.Objects;
 
-record ScenarioProfile(
-        String name,
-        CommandInput stdin,
-        CapturePolicy.Bounded capturePolicy,
-        ShutdownPolicy shutdownPolicy,
-        Duration timeout,
-        Charset charset,
-        OutputMode outputMode,
-        TerminalPolicy terminalPolicy) {
+sealed interface ScenarioProfile permits ScenarioProfile.Interactive, ScenarioProfile.Run {
 
-    ScenarioProfile {
-        CommandSpec.requireText(name, "name");
-        Objects.requireNonNull(stdin, "stdin");
-        Objects.requireNonNull(capturePolicy, "capturePolicy");
-        Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
-        Objects.requireNonNull(timeout, "timeout");
-        if (timeout.isNegative()) {
-            throw new IllegalArgumentException("timeout must not be negative");
-        }
-        Objects.requireNonNull(charset, "charset");
-        Objects.requireNonNull(outputMode, "outputMode");
-        Objects.requireNonNull(terminalPolicy, "terminalPolicy");
-    }
+    String name();
 
-    static ScenarioProfile run(RunOptions options) {
+    TerminalPolicy terminalPolicy();
+
+    static Run run(RunOptions options) {
         Objects.requireNonNull(options, "options");
-        return new ScenarioProfile(
-                "run",
-                CommandInput.closed(),
+        return new Run(
+                StdinPolicy.closed(),
                 bounded(options.capturePolicy()),
                 options.shutdownPolicy(),
                 options.timeout(),
@@ -41,10 +22,65 @@ record ScenarioProfile(
                 TerminalPolicy.DISABLED);
     }
 
+    static Interactive interactive(SessionOptions options) {
+        Objects.requireNonNull(options, "options");
+        return new Interactive(
+                options.shutdownPolicy(), options.idleTimeout(), options.charset(), TerminalPolicy.DISABLED);
+    }
+
     private static CapturePolicy.Bounded bounded(CapturePolicy capturePolicy) {
         if (capturePolicy instanceof CapturePolicy.Bounded bounded) {
             return bounded;
         }
         throw new IllegalArgumentException("run scenario currently requires bounded capture");
+    }
+
+    record Run(
+            StdinPolicy stdin,
+            CapturePolicy.Bounded capturePolicy,
+            ShutdownPolicy shutdownPolicy,
+            Duration timeout,
+            Charset charset,
+            OutputMode outputMode,
+            TerminalPolicy terminalPolicy)
+            implements ScenarioProfile {
+
+        public Run {
+            Objects.requireNonNull(stdin, "stdin");
+            Objects.requireNonNull(capturePolicy, "capturePolicy");
+            Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
+            Objects.requireNonNull(timeout, "timeout");
+            if (timeout.isNegative()) {
+                throw new IllegalArgumentException("timeout must not be negative");
+            }
+            Objects.requireNonNull(charset, "charset");
+            Objects.requireNonNull(outputMode, "outputMode");
+            Objects.requireNonNull(terminalPolicy, "terminalPolicy");
+        }
+
+        @Override
+        public String name() {
+            return "run";
+        }
+    }
+
+    record Interactive(
+            ShutdownPolicy shutdownPolicy, Duration idleTimeout, Charset charset, TerminalPolicy terminalPolicy)
+            implements ScenarioProfile {
+
+        public Interactive {
+            Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
+            Objects.requireNonNull(idleTimeout, "idleTimeout");
+            if (idleTimeout.isNegative()) {
+                throw new IllegalArgumentException("idleTimeout must not be negative");
+            }
+            Objects.requireNonNull(charset, "charset");
+            Objects.requireNonNull(terminalPolicy, "terminalPolicy");
+        }
+
+        @Override
+        public String name() {
+            return "interactive";
+        }
     }
 }

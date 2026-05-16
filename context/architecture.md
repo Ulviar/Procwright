@@ -12,8 +12,8 @@ Java/Kotlin приложений.
 должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
 
 Внешний пользовательский слой при этом остается scenario-first. Пользователь выбирает workflow (`run`,
-`lineSession`, `interactive`, `expect`), а библиотека разворачивает его в policies и execution plan. Это описано в
-[scenario-api.md](scenario-api.md).
+`lineSession`, `interactive`, `expect`), а библиотека разворачивает его в policies, общий launch plan и
+scenario-specific execution plan. Это описано в [scenario-api.md](scenario-api.md).
 
 ## Входит в MVP
 
@@ -54,9 +54,11 @@ Java/Kotlin приложений.
   Expect
 
 Runtime
+  launch plan
   resolved execution plan
   process launch
   stdout/stderr pumps
+  session lifecycle state machine
   capture policies
   timeout supervision
   shutdown policy
@@ -78,13 +80,15 @@ com.github.ulviar.icli
   CommandSpec
   CommandResult
   RunOptions
+  SessionInvocation
   CapturePolicy
   ShutdownPolicy
-  CommandException
-
-com.github.ulviar.icli.session
   Session
   SessionOptions
+  CommandException
+
+future session helpers, package TBD
+  LineSession
   Expect
   ExpectException
 

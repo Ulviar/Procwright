@@ -3,6 +3,8 @@ package com.github.ulviar.icli;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 final class ExecutionPlanResolver {
@@ -13,58 +15,83 @@ final class ExecutionPlanResolver {
         return resolve(ScenarioProfile.run(options), spec, invocation);
     }
 
-    static ExecutionPlan resolve(ScenarioProfile profile, CommandSpec spec, CommandInvocation invocation) {
-        if (spec.usesShell()) {
-            return resolveShell(profile, spec, invocation);
-        }
-        return resolveDirect(profile, spec, invocation);
+    static ExecutionPlan resolve(ScenarioProfile.Run profile, CommandSpec spec, CommandInvocation invocation) {
+        InvocationShape invocationShape = shape(invocation);
+        LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, outputMode(profile, invocation));
+        return new ExecutionPlan(
+                launchPlan,
+                bounded(invocation.capturePolicy().orElse(profile.capturePolicy())),
+                invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
+                invocation.timeout().orElse(profile.timeout()),
+                invocation.charset().orElse(profile.charset()),
+                invocation.input().map(StdinPolicy::input).orElse(profile.stdin()));
     }
 
-    private static ExecutionPlan resolveDirect(
-            ScenarioProfile profile, CommandSpec spec, CommandInvocation invocation) {
+    static SessionExecutionPlan resolve(
+            ScenarioProfile.Interactive profile, CommandSpec spec, SessionInvocation invocation) {
+        InvocationShape invocationShape = shape(invocation);
+        LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, OutputMode.SEPARATE);
+        return new SessionExecutionPlan(
+                launchPlan,
+                invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
+                invocation.idleTimeout().orElse(profile.idleTimeout()),
+                invocation.charset().orElse(profile.charset()));
+    }
+
+    private static LaunchPlan launchPlan(
+            ScenarioProfile profile, CommandSpec spec, InvocationShape invocation, OutputMode outputMode) {
+        TerminalPolicy terminalPolicy = profile.terminalPolicy();
+        if (terminalPolicy == TerminalPolicy.REQUIRED) {
+            throw new IllegalArgumentException(
+                    profile.name() + " scenario does not have a terminal-capable transport yet");
+        }
+
+        if (spec.usesShell()) {
+            if (!spec.arguments().isEmpty() || !invocation.arguments().isEmpty()) {
+                throw new IllegalArgumentException("shell commands do not accept argv arguments");
+            }
+            return plan(
+                    LaunchMode.SHELL,
+                    SystemShell.command(spec.executable()),
+                    terminalPolicy,
+                    outputMode,
+                    spec,
+                    invocation);
+        }
+
         ArrayList<String> command = new ArrayList<>();
         command.add(spec.executable());
         command.addAll(spec.arguments());
         command.addAll(invocation.arguments());
-
-        return plan(LaunchMode.DIRECT, command, profile, spec, invocation);
+        return plan(LaunchMode.DIRECT, command, terminalPolicy, outputMode, spec, invocation);
     }
 
-    private static ExecutionPlan resolveShell(ScenarioProfile profile, CommandSpec spec, CommandInvocation invocation) {
-        if (!spec.arguments().isEmpty() || !invocation.arguments().isEmpty()) {
-            throw new IllegalArgumentException("shell commands do not accept argv arguments");
-        }
-        return plan(LaunchMode.SHELL, SystemShell.command(spec.executable()), profile, spec, invocation);
-    }
-
-    private static ExecutionPlan plan(
+    private static LaunchPlan plan(
             LaunchMode launchMode,
-            java.util.List<String> command,
-            ScenarioProfile profile,
+            List<String> command,
+            TerminalPolicy terminalPolicy,
+            OutputMode outputMode,
             CommandSpec spec,
-            CommandInvocation invocation) {
+            InvocationShape invocation) {
         LinkedHashMap<String, String> environment = new LinkedHashMap<>();
         environment.putAll(spec.environment());
         environment.putAll(invocation.environment());
 
         Optional<Path> workingDirectory = invocation.workingDirectory().or(spec::workingDirectory);
-        TerminalPolicy terminalPolicy = profile.terminalPolicy();
-        if (profile.terminalPolicy() == TerminalPolicy.REQUIRED) {
-            throw new IllegalArgumentException("run scenario does not have a terminal-capable transport yet");
-        }
 
-        return new ExecutionPlan(
-                launchMode,
-                command,
-                workingDirectory,
-                environment,
-                bounded(invocation.capturePolicy().orElse(profile.capturePolicy())),
-                invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
-                invocation.timeout().orElse(profile.timeout()),
-                invocation.charset().orElse(profile.charset()),
-                invocation.outputMode().orElse(profile.outputMode()),
-                invocation.input().orElse(profile.stdin()),
-                terminalPolicy);
+        return new LaunchPlan(launchMode, command, workingDirectory, environment, outputMode, terminalPolicy);
+    }
+
+    private static OutputMode outputMode(ScenarioProfile.Run profile, CommandInvocation invocation) {
+        return invocation.outputMode().orElse(profile.outputMode());
+    }
+
+    private static InvocationShape shape(CommandInvocation invocation) {
+        return new InvocationShape(invocation.arguments(), invocation.workingDirectory(), invocation.environment());
+    }
+
+    private static InvocationShape shape(SessionInvocation invocation) {
+        return new InvocationShape(invocation.arguments(), invocation.workingDirectory(), invocation.environment());
     }
 
     private static CapturePolicy.Bounded bounded(CapturePolicy capturePolicy) {
@@ -72,5 +99,15 @@ final class ExecutionPlanResolver {
             return bounded;
         }
         throw new IllegalArgumentException("only bounded capture is supported by the one-shot kernel");
+    }
+
+    private record InvocationShape(
+            List<String> arguments, Optional<Path> workingDirectory, Map<String, String> environment) {
+
+        private InvocationShape {
+            arguments = List.copyOf(arguments);
+            workingDirectory = java.util.Objects.requireNonNull(workingDirectory, "workingDirectory");
+            environment = Map.copyOf(environment);
+        }
     }
 }

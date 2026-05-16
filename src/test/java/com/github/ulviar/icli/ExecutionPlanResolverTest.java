@@ -3,7 +3,9 @@ package com.github.ulviar.icli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 final class ExecutionPlanResolverTest {
@@ -30,7 +32,7 @@ final class ExecutionPlanResolverTest {
         assertEquals("1", plan.environment().get("BASE"));
         assertEquals("2", plan.environment().get("CALL"));
         assertEquals(TerminalPolicy.DISABLED, plan.terminalPolicy());
-        assertEquals(CommandInput.closed(), plan.stdin());
+        assertEquals(StdinPolicy.closed(), plan.stdin());
     }
 
     @Test
@@ -53,15 +55,47 @@ final class ExecutionPlanResolverTest {
         ExecutionPlan plan =
                 ExecutionPlanResolver.resolve(ScenarioProfile.run(RunOptions.defaults()), spec, invocation);
 
-        assertEquals(CommandInput.utf8("hello"), plan.stdin());
+        assertEquals(StdinPolicy.input(CommandInput.utf8("hello")), plan.stdin());
+    }
+
+    @Test
+    void resolvesInteractiveSessionFromSessionSpecificOverrides() {
+        CommandSpec spec = CommandSpec.builder("tool")
+                .args("base")
+                .workingDirectory(Path.of("base-dir"))
+                .putEnvironment("BASE", "1")
+                .build();
+        ShutdownPolicy shutdownPolicy = ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ofSeconds(1));
+        SessionInvocation invocation = SessionInvocation.builder()
+                .args("call")
+                .workingDirectory(Path.of("call-dir"))
+                .putEnvironment("CALL", "2")
+                .shutdown(shutdownPolicy)
+                .idleTimeout(Duration.ofSeconds(3))
+                .charset(StandardCharsets.UTF_8)
+                .build();
+
+        SessionExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.interactive(SessionOptions.defaults()), spec, invocation);
+
+        assertEquals(LaunchMode.DIRECT, plan.launchPlan().launchMode());
+        assertEquals(
+                java.util.List.of("tool", "base", "call"), plan.launchPlan().command());
+        assertEquals(Path.of("call-dir"), plan.launchPlan().workingDirectory().orElseThrow());
+        assertEquals("1", plan.launchPlan().environment().get("BASE"));
+        assertEquals("2", plan.launchPlan().environment().get("CALL"));
+        assertEquals(OutputMode.SEPARATE, plan.launchPlan().outputMode());
+        assertEquals(TerminalPolicy.DISABLED, plan.launchPlan().terminalPolicy());
+        assertEquals(shutdownPolicy, plan.shutdownPolicy());
+        assertEquals(Duration.ofSeconds(3), plan.idleTimeout());
+        assertEquals(StandardCharsets.UTF_8, plan.charset());
     }
 
     @Test
     void rejectsTerminalRequiredProfileUntilTerminalTransportExists() {
         CommandSpec spec = CommandSpec.of("tool");
-        ScenarioProfile terminalProfile = new ScenarioProfile(
-                "terminal-run",
-                CommandInput.closed(),
+        ScenarioProfile.Run terminalProfile = new ScenarioProfile.Run(
+                StdinPolicy.closed(),
                 (CapturePolicy.Bounded) RunOptions.defaults().capturePolicy(),
                 RunOptions.defaults().shutdownPolicy(),
                 RunOptions.defaults().timeout(),

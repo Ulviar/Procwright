@@ -13,6 +13,7 @@ final class CommandServiceTest {
 
         assertEquals("git", service.commandSpec().executable());
         assertEquals(RunOptions.defaults(), service.runOptions());
+        assertEquals(SessionOptions.defaults(), service.sessionOptions());
     }
 
     @Test
@@ -20,6 +21,13 @@ final class CommandServiceTest {
         CommandService service = CommandService.forCommand("git");
 
         assertThrows(NullPointerException.class, () -> service.run(null));
+    }
+
+    @Test
+    void interactiveValidatesConfigurationCallback() {
+        CommandService service = CommandService.forCommand("git");
+
+        assertThrows(NullPointerException.class, () -> service.interactive(null));
     }
 
     @Test

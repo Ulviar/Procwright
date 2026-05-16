@@ -7,7 +7,8 @@ one-shot запуска до интерактивных REPL, prompt automation,
 интеграций.
 
 Публичный API должен позволять пользователю выбрать сценарий, а не собирать вручную низкоуровневые flags. Внутри все
-сценарии должны разворачиваться в одну invariant-first модель: `ScenarioProfile -> ResolvedCommand -> ExecutionPlan`.
+сценарии должны разворачиваться в одну invariant-first модель:
+`ScenarioProfile -> ResolvedCommand/LaunchPlan -> scenario-specific execution plan`.
 
 ## Архитектурные принципы
 
@@ -273,7 +274,7 @@ one-shot запуска до интерактивных REPL, prompt automation,
 
 Ключевой инвариант:
 
-- pool не владеет новым runtime, а использует тот же `Session` и `ExecutionPlan`.
+- pool не владеет новым runtime, а использует те же session primitives и валидированные launch/execution plans.
 
 Выход фазы:
 
@@ -389,10 +390,10 @@ Session
 ```text
 ScenarioProfile
   + CommandSpec
-  + InvocationDraft
+  + scenario-specific invocation draft
   + Policy overrides
-  -> ResolvedCommand
-  -> ExecutionPlan
+  -> ResolvedCommand/LaunchPlan
+  -> scenario-specific execution plan
   -> Runtime
   -> Transport
 ```

@@ -1,7 +1,5 @@
 package com.github.ulviar.icli;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
 import java.time.Instant;
@@ -10,7 +8,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 final class ProcessKernel {
 
@@ -18,7 +15,7 @@ final class ProcessKernel {
 
     static CommandResult run(ExecutionPlan plan) {
         Instant started = Instant.now();
-        Process process = start(plan);
+        Process process = ProcessLifecycle.start(plan.launchPlan());
 
         ExecutorService executor = Executors.newThreadPerTaskExecutor(
                 Thread.ofVirtual().name("icli-output-pump-", 0).factory());
@@ -62,24 +59,16 @@ final class ProcessKernel {
         }
     }
 
-    private static Process start(ExecutionPlan plan) {
-        ProcessBuilder builder = new ProcessBuilder(plan.command());
-        plan.workingDirectory().ifPresent(path -> builder.directory(path.toFile()));
-        builder.environment().putAll(plan.environment());
-        builder.redirectErrorStream(plan.outputMode() == OutputMode.MERGED);
-
-        try {
-            return builder.start();
-        } catch (IOException exception) {
-            throw new CommandExecutionException(
-                    "Could not start command: " + String.join(" ", plan.command()), exception);
+    private static void writeStdin(Process process, StdinPolicy stdin) {
+        if (stdin.mode() == StdinPolicy.Mode.OPEN) {
+            throw new CommandExecutionException("One-shot execution cannot keep stdin open");
         }
-    }
 
-    private static void writeStdin(Process process, CommandInput stdin) {
         try (OutputStream output = process.getOutputStream()) {
-            output.write(stdin.copyBytes());
-        } catch (IOException exception) {
+            if (stdin.mode() == StdinPolicy.Mode.INPUT) {
+                output.write(stdin.input().copyBytes());
+            }
+        } catch (java.io.IOException exception) {
             if (process.isAlive()) {
                 throw new CommandExecutionException("Could not write command stdin", exception);
             }
@@ -87,29 +76,11 @@ final class ProcessKernel {
     }
 
     private static boolean waitFor(Process process, Duration timeout) {
-        try {
-            return process.waitFor(timeout.toNanos(), TimeUnit.NANOSECONDS);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-            throw new CommandExecutionException("Interrupted while waiting for command completion", exception);
-        }
+        return ProcessLifecycle.waitFor(process, timeout);
     }
 
     private static OptionalInt stopTimedOut(Process process, ShutdownPolicy shutdownPolicy) {
-        process.destroy();
-        closeStdinQuietly(process);
-        if (waitFor(process, shutdownPolicy.interruptGrace())) {
-            return OptionalInt.of(process.exitValue());
-        }
-
-        process.destroyForcibly();
-        closeStdinQuietly(process);
-        if (waitFor(process, shutdownPolicy.killGrace())) {
-            return OptionalInt.of(process.exitValue());
-        }
-
-        throw new CommandExecutionException("Command did not exit after forceful termination");
+        return ProcessLifecycle.stop(process, shutdownPolicy);
     }
 
     private static CapturedOutput await(Future<CapturedOutput> output) {
@@ -139,24 +110,8 @@ final class ProcessKernel {
     }
 
     private static void closeStreams(Process process) {
-        closeStdinQuietly(process);
-        closeQuietly(process.getInputStream());
-        closeQuietly(process.getErrorStream());
-    }
-
-    private static void closeStdinQuietly(Process process) {
-        try {
-            process.getOutputStream().close();
-        } catch (IOException ignored) {
-            // Process cleanup is already on an exceptional path.
-        }
-    }
-
-    private static void closeQuietly(InputStream stream) {
-        try {
-            stream.close();
-        } catch (IOException ignored) {
-            // Process cleanup is already on an exceptional path.
-        }
+        ProcessLifecycle.closeStdinQuietly(process);
+        ProcessLifecycle.closeQuietly(process.getInputStream());
+        ProcessLifecycle.closeQuietly(process.getErrorStream());
     }
 }

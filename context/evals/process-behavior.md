@@ -38,8 +38,11 @@
 - `sendLine` отправляет строку и flush.
 - `closeStdin` корректно сигнализирует EOF.
 - `onExit` завершается после выхода процесса.
-- Idle timeout закрывает зависшую session.
-- Ctrl+C/interrupt поведение проверено хотя бы для pipe-compatible fixture.
+- Caller-visible idle timeout закрывает зависшую session; активность — успешные записи, закрытие stdin и успешные
+  чтения через session streams.
+- `close()` и idle timeout проходят через общий shutdown helper; отдельная hardening-проверка escalation path остается
+  открытой.
+- Ctrl+C/interrupt поведение будет проверяться после появления signal/PTY transport.
 
 ## Line-oriented workflow
 
