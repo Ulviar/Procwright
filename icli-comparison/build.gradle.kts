@@ -3,6 +3,19 @@ plugins {
     application
 }
 
+val jmhVersion = "1.37"
+
+sourceSets {
+    val jmh by creating {
+        java.srcDir("src/jmh/java")
+        resources.srcDir("src/jmh/resources")
+        compileClasspath += sourceSets.main.get().output
+        compileClasspath += configurations.runtimeClasspath.get()
+        runtimeClasspath += output
+        runtimeClasspath += compileClasspath
+    }
+}
+
 dependencies {
     implementation(project(":"))
     implementation(project(":icli-integrations"))
@@ -15,6 +28,9 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    "jmhImplementation"("org.openjdk.jmh:jmh-core:$jmhVersion")
+    "jmhAnnotationProcessor"("org.openjdk.jmh:jmh-generator-annprocess:$jmhVersion")
 }
 
 java {
@@ -24,12 +40,22 @@ java {
 
 application { mainClass.set("com.github.ulviar.icli.comparison.ComparisonRunner") }
 
+configurations.named("jmhImplementation") { extendsFrom(configurations.implementation.get()) }
+
+configurations.named("jmhRuntimeOnly") { extendsFrom(configurations.runtimeOnly.get()) }
+
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     options.release.set(25)
 }
 
 tasks.withType<Test>().configureEach { useJUnitPlatform() }
+
+tasks.register("jmhCompileCheck") {
+    description = "Compiles JMH benchmark sources and generated benchmark metadata."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(tasks.named("jmhClasses"))
+}
 
 tasks.register<JavaExec>("comparisonReport") {
     description = "Runs library comparison scenarios and writes a Markdown report."
@@ -64,4 +90,70 @@ tasks.register<JavaExec>("comparisonCheck") {
     )
 }
 
+tasks.register<JavaExec>("jmhBenchmark") {
+    description = "Runs the full non-PTY JMH benchmark suite for comparison scenarios."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(tasks.named("jmhClasses"))
+    classpath = sourceSets["jmh"].runtimeClasspath
+    mainClass.set("org.openjdk.jmh.Main")
+
+    val resultFile = layout.buildDirectory.file("reports/jmh/results.json")
+    doFirst { resultFile.get().asFile.parentFile.mkdirs() }
+    args(
+        "-rf",
+        "json",
+        "-rff",
+        resultFile.get().asFile.absolutePath,
+        "com.github.ulviar.icli.comparison.(OneShot|Streaming|LineSession|Expect|Pooled|ToolObservation).*",
+    )
+}
+
+tasks.register<JavaExec>("jmhBenchmarkSmoke") {
+    description = "Runs a short JMH smoke benchmark to verify benchmark wiring."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(tasks.named("jmhClasses"))
+    classpath = sourceSets["jmh"].runtimeClasspath
+    mainClass.set("org.openjdk.jmh.Main")
+
+    val resultFile = layout.buildDirectory.file("reports/jmh/smoke-results.json")
+    doFirst { resultFile.get().asFile.parentFile.mkdirs() }
+    args(
+        "-wi",
+        "1",
+        "-i",
+        "1",
+        "-f",
+        "1",
+        "-w",
+        "200ms",
+        "-r",
+        "200ms",
+        "-rf",
+        "json",
+        "-rff",
+        resultFile.get().asFile.absolutePath,
+        "com.github.ulviar.icli.comparison.OneShotProcessBenchmark.success",
+    )
+}
+
+tasks.register<JavaExec>("jmhPtyBenchmark") {
+    description = "Runs optional PTY JMH benchmarks on platforms with PTY capability."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(tasks.named("jmhClasses"))
+    classpath = sourceSets["jmh"].runtimeClasspath
+    mainClass.set("org.openjdk.jmh.Main")
+
+    val resultFile = layout.buildDirectory.file("reports/jmh/pty-results.json")
+    doFirst { resultFile.get().asFile.parentFile.mkdirs() }
+    args(
+        "-rf",
+        "json",
+        "-rff",
+        resultFile.get().asFile.absolutePath,
+        "com.github.ulviar.icli.comparison.PtyProcessBenchmark",
+    )
+}
+
 tasks.check { dependsOn("comparisonCheck") }
+
+tasks.check { dependsOn("jmhCompileCheck") }

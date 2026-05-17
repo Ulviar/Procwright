@@ -95,6 +95,8 @@ val comparisonDependencyCoordinates =
         "com.zaxxer:nuprocess",
         "org.jetbrains.pty4j:pty4j",
         "net.sf.expectit:expectit-core",
+        "org.openjdk.jmh:jmh-core",
+        "org.openjdk.jmh:jmh-generator-annprocess",
     )
 
 val externalLibraryBoundaryCheck =
@@ -132,6 +134,12 @@ val externalLibraryBoundaryCheck =
                             ) {
                                 throw GradleException(
                                     "Public project ${checkedProject.path} must not depend on :icli-comparison"
+                                )
+                            }
+                            val coordinate = "${dependency.group}:${dependency.name}"
+                            if (coordinate in comparisonDependencyCoordinates) {
+                                throw GradleException(
+                                    "Comparison dependency $coordinate leaked into ${checkedProject.path}:${configuration.name}"
                                 )
                             }
                         }

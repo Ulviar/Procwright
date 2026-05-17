@@ -43,13 +43,17 @@ integration layer.
 - Pty4J;
 - ExpectIt.
 
+JMH dependencies (`org.openjdk.jmh:jmh-core` и annotation processor) допустимы только внутри comparison module и только
+для benchmark source set.
+
 Эти зависимости допустимы только внутри comparison module. Они не должны протекать в `:`, `:icli-kotlin` или
 `:icli-integrations`.
 
-Регрессионный gate: `ExternalLibraryBoundaryTest` проверяет, что эти dependencies объявлены только в
+Регрессионный gate: `ExternalLibraryBoundaryTest` проверяет, что process-library и JMH dependencies объявлены только в
 `icli-comparison/build.gradle.kts`, source files публичных артефактов не импортируют и не используют packages comparison
-libraries, а публичные build files не зависят от `:icli-comparison`. `externalLibraryBoundaryCheck` дополнительно
-проверяет resolved runtime classpath публичных модулей.
+libraries, а публичные build files не зависят от `:icli-comparison` и не объявляют comparison/JMH dependencies.
+`externalLibraryBoundaryCheck` дополнительно проверяет resolved runtime classpath публичных модулей и прямые dependency
+declarations публичных modules.
 
 ## Зависимости CI
 

@@ -28,8 +28,9 @@ git diff --check
 git diff --exit-code
 ```
 
-`check` включает unit, integration, module tests, Kotlin public API KDoc check, bounded stress suite и non-mutating
-comparison regression gate.
+`check` включает unit, integration, module tests, Kotlin public API KDoc check, bounded stress suite, non-mutating
+comparison regression gate и JMH benchmark compilation/metadata generation. `jmhBenchmarkSmoke`, `jmhBenchmark` и
+`jmhPtyBenchmark` остаются исследовательскими/manual задачами и не являются performance pass/fail gate.
 
 Назначение уровней описано в [../evals/test-tiers.md](../evals/test-tiers.md). `releaseCandidateCheck` является
 локальным составным gate и требует clean worktree, включая untracked files.

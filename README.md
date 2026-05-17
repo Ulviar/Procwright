@@ -79,7 +79,8 @@ See [context/quality/engineering-charter.md](context/quality/engineering-charter
 
 `quickCheck`, `scenarioCheck`, and `regressionCheck` expose the local verification tiers described in
 [context/evals/test-tiers.md](context/evals/test-tiers.md). `check` runs unit tests, integration tests, module tests, the
-bounded stress suite, and the non-mutating comparison regression gate.
+bounded stress suite, the non-mutating comparison regression gate, and JMH benchmark compilation/metadata generation.
+It does not run JMH benchmark measurements.
 
 Release-candidate validation is stricter; use `./gradlew releaseCandidateCheck` and the checklist in
 [context/release/release-checklist.md](context/release/release-checklist.md).
@@ -88,6 +89,13 @@ To refresh the tracked research report intentionally:
 
 ```bash
 ./gradlew :icli-comparison:comparisonReport
+```
+
+JMH performance research lives in `:icli-comparison` and is run separately from release gates:
+
+```bash
+./gradlew :icli-comparison:jmhBenchmarkSmoke
+./gradlew :icli-comparison:jmhBenchmark
 ```
 
 ## Release status

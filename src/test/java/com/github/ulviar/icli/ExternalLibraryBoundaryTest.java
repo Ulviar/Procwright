@@ -22,6 +22,9 @@ final class ExternalLibraryBoundaryTest {
             "org.jetbrains.pty4j:pty4j",
             "net.sf.expectit:expectit-core");
 
+    private static final List<String> JMH_DEPENDENCIES =
+            List.of("org.openjdk.jmh:jmh-core", "org.openjdk.jmh:jmh-generator-annprocess");
+
     private static final Map<String, String> FORBIDDEN_IMPORTS = Map.of(
             "org.apache.commons.exec", "Apache Commons Exec",
             "org.zeroturnaround.exec", "ZeroTurnaround zt-exec",
@@ -53,6 +56,23 @@ final class ExternalLibraryBoundaryTest {
                                     + root.relativize(buildFile));
                 }
             }
+            for (String dependency : JMH_DEPENDENCIES) {
+                if (comparisonBuild) {
+                    assertTrue(
+                            containsJmhDependencyDeclaration(text, dependency),
+                            () -> "Comparison module must declare JMH dependency in JMH-only configuration "
+                                    + dependency);
+                    assertTrue(
+                            !containsDependencyDeclaration(text, dependency),
+                            () -> "JMH dependency must not enter comparison main source set: " + dependency);
+                } else {
+                    assertTrue(
+                            !containsDependencyDeclaration(text, dependency)
+                                    && !containsJmhDependencyDeclaration(text, dependency),
+                            () -> "JMH dependency leaked outside comparison benchmark source set: "
+                                    + root.relativize(buildFile));
+                }
+            }
         }
     }
 
@@ -63,6 +83,11 @@ final class ExternalLibraryBoundaryTest {
                 || text.contains("compileOnly(\"" + dependency)
                 || text.contains("testImplementation(\"" + dependency)
                 || text.contains("testRuntimeOnly(\"" + dependency);
+    }
+
+    private static boolean containsJmhDependencyDeclaration(String text, String dependency) {
+        return text.contains("\"jmhImplementation\"(\"" + dependency)
+                || text.contains("\"jmhAnnotationProcessor\"(\"" + dependency);
     }
 
     private static boolean containsProjectDependencyDeclaration(String text) {
