@@ -8,7 +8,7 @@ final class StreamRuntime {
         Diagnostics diagnostics = Diagnostics.of(
                 plan.diagnosticsOptions(),
                 "listen",
-                CommandEcho.from(plan.sessionPlan().launchPlan()));
+                () -> CommandEcho.from(plan.sessionPlan().launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
         Session session;
         try {

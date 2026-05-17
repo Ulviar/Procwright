@@ -61,6 +61,18 @@ public final class DiagnosticsOptions {
         return transcriptSink;
     }
 
+    boolean listenerEnabled() {
+        return listener != NoopDiagnosticListener.INSTANCE;
+    }
+
+    boolean transcriptSinkEnabled() {
+        return transcriptSink != NoopDiagnosticTranscriptSink.INSTANCE;
+    }
+
+    boolean enabled() {
+        return listenerEnabled() || transcriptSinkEnabled();
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {

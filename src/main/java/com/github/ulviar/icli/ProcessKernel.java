@@ -34,7 +34,8 @@ final class ProcessKernel {
 
     CommandResult run(ExecutionPlan plan) {
         Instant started = Instant.now();
-        Diagnostics diagnostics = Diagnostics.of(plan.diagnosticsOptions(), "run", CommandEcho.from(plan.launchPlan()));
+        Diagnostics diagnostics =
+                Diagnostics.of(plan.diagnosticsOptions(), "run", () -> CommandEcho.from(plan.launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
         Process process;
         try {
@@ -60,7 +61,7 @@ final class ProcessKernel {
             Future<CapturedOutput> stderr = plan.outputMode() == OutputMode.MERGED
                     ? null
                     : executor.submit(() -> CapturedOutput.capture(process.getErrorStream(), plan.capturePolicy()));
-            Future<?> stdin = executor.submit(() -> writeStdin(process, plan.stdin()));
+            Future<?> stdin = startStdinWriter(process, plan.stdin(), executor);
 
             boolean timedOut = !waitFor(process, plan.timeout());
             OptionalInt exitCode;
@@ -72,9 +73,9 @@ final class ProcessKernel {
                 exitCode = OptionalInt.of(process.exitValue());
             }
 
-            if (timedOut) {
+            if (timedOut && stdin != null) {
                 stdin.cancel(true);
-            } else {
+            } else if (stdin != null) {
                 awaitStdin(stdin);
             }
 
@@ -141,15 +142,30 @@ final class ProcessKernel {
         return pendingResult.toCommandResult(Duration.between(started, Instant.now()));
     }
 
-    private static void writeStdin(Process process, StdinPolicy stdin) {
+    private static Future<?> startStdinWriter(Process process, StdinPolicy stdin, ExecutorService executor) {
         if (stdin.mode() == StdinPolicy.Mode.OPEN) {
             throw new CommandExecutionException("One-shot execution cannot keep stdin open");
         }
+        if (stdin.mode() == StdinPolicy.Mode.CLOSED) {
+            closeStdin(process);
+            return null;
+        }
+        return executor.submit(() -> writeStdin(process, stdin));
+    }
 
-        try (OutputStream output = process.getOutputStream()) {
-            if (stdin.mode() == StdinPolicy.Mode.INPUT) {
-                output.write(stdin.input().copyBytes());
+    private static void closeStdin(Process process) {
+        try {
+            process.getOutputStream().close();
+        } catch (java.io.IOException exception) {
+            if (process.isAlive()) {
+                throw new CommandExecutionException("Could not close command stdin", exception);
             }
+        }
+    }
+
+    private static void writeStdin(Process process, StdinPolicy stdin) {
+        try (OutputStream output = process.getOutputStream()) {
+            output.write(stdin.input().copyBytes());
         } catch (java.io.IOException exception) {
             if (process.isAlive()) {
                 throw new CommandExecutionException("Could not write command stdin", exception);

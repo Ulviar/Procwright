@@ -341,7 +341,8 @@ public final class CommandService {
     }
 
     private Session openSession(String scenario, SessionExecutionPlan plan) {
-        Diagnostics diagnostics = Diagnostics.of(diagnosticsOptions, scenario, CommandEcho.from(plan.launchPlan()));
+        Diagnostics diagnostics =
+                Diagnostics.of(diagnosticsOptions, scenario, () -> CommandEcho.from(plan.launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
         try {
             return SessionRuntime.open(plan, diagnostics);

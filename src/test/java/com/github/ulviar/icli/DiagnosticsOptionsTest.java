@@ -84,6 +84,42 @@ final class DiagnosticsOptionsTest {
     }
 
     @Test
+    void defaultDiagnosticsUseDisabledFastPath() {
+        Diagnostics diagnostics = Diagnostics.of(DiagnosticsOptions.defaults(), "run", CommandEcho.empty());
+
+        assertFalse(diagnostics.enabled());
+    }
+
+    @Test
+    void disabledDiagnosticsDoNotBuildLazyCommandEcho() {
+        AtomicInteger echoBuilds = new AtomicInteger();
+        Diagnostics diagnostics = Diagnostics.of(DiagnosticsOptions.defaults(), "run", () -> {
+            echoBuilds.incrementAndGet();
+            return CommandEcho.empty();
+        });
+
+        diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
+
+        assertEquals(0, echoBuilds.get());
+    }
+
+    @Test
+    void disabledDiagnosticsStillValidateScenario() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> Diagnostics.of(DiagnosticsOptions.defaults(), " ", () -> CommandEcho.empty()));
+    }
+
+    @Test
+    void customDiagnosticsRequireEventDelivery() {
+        assertTrue(Diagnostics.of(DiagnosticsOptions.defaults().withListener(event -> {}), "run", CommandEcho.empty())
+                .enabled());
+        assertTrue(Diagnostics.of(
+                        DiagnosticsOptions.defaults().withTranscriptSink(event -> {}), "run", CommandEcho.empty())
+                .enabled());
+    }
+
+    @Test
     void diagnosticsCallbackThrowablesAreContained() {
         AtomicInteger uncaught = new AtomicInteger();
         CountDownLatch delivered = new CountDownLatch(2);

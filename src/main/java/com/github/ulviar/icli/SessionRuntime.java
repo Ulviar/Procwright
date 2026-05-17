@@ -6,7 +6,8 @@ final class SessionRuntime {
 
     static Session open(SessionExecutionPlan plan) {
         return open(
-                plan, Diagnostics.of(DiagnosticsOptions.defaults(), "session", CommandEcho.from(plan.launchPlan())));
+                plan,
+                Diagnostics.of(DiagnosticsOptions.defaults(), "session", () -> CommandEcho.from(plan.launchPlan())));
     }
 
     static Session open(SessionExecutionPlan plan, Diagnostics diagnostics) {
