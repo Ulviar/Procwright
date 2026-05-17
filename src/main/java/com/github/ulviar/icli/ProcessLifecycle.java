@@ -54,6 +54,17 @@ final class ProcessLifecycle {
         throw new CommandExecutionException("Command did not exit after forceful termination");
     }
 
+    static void forceStop(Process process, Duration timeout) {
+        if (!process.isAlive()) {
+            return;
+        }
+        process.destroyForcibly();
+        closeStdinQuietly(process);
+        if (!waitFor(process, timeout)) {
+            throw new CommandExecutionException("Command did not exit during forceful cleanup");
+        }
+    }
+
     static void closeStdinQuietly(Process process) {
         try {
             process.getOutputStream().close();

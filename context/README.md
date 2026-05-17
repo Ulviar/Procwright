@@ -10,11 +10,17 @@
 - [architecture.md](architecture.md) — целевая архитектура первого MVP.
 - [invariant-architecture.md](invariant-architecture.md) — изоляция инвариантов в API и runtime.
 - [scenario-api.md](scenario-api.md) — сценарный API: пользователь выбирает workflow, а не flags.
+- [scenario-contracts.md](scenario-contracts.md) — публичные контракты канонических сценариев.
+- [scenario-cookbook.md](scenario-cookbook.md) — практические рецепты выбора сценария, привязанные к compile-tested examples.
+- [pty-capability-boundary.md](pty-capability-boundary.md) — PTY как capability внутри session-family сценариев.
+- [external-library-boundary.md](external-library-boundary.md) — внешние process-библиотеки только как research boundary.
+- [diagnostics.md](diagnostics.md) — наблюдательный diagnostics contract и event schema.
 - [api-ideas.md](api-ideas.md) — пользовательский API, который нужно сохранить.
 - [legacy-lessons.md](legacy-lessons.md) — что берем и что не берем из старой версии.
 - [development-model.md](development-model.md) — процесс разработки и работы агентов.
 - [plans/maximal-version-roadmap.md](plans/maximal-version-roadmap.md) — верхнеуровневый план максимальной версии.
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
+- [evals/test-tiers.md](evals/test-tiers.md) — уровни локальных проверок и eval gate.
 - [quality/engineering-charter.md](quality/engineering-charter.md) — обязательные требования к качеству проекта.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и известные разрывы.
 - [release/versioning-policy.md](release/versioning-policy.md) — политика версий.
@@ -23,6 +29,9 @@
 - [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release candidate.
 - [release/migration-notes.md](release/migration-notes.md) — migration notes из старой iCLI.
 - [comparison/README.md](comparison/README.md) — исследовательское сравнение process-библиотек по сценариям iCLI.
+- [audits/standing-auditor-instructions.md](audits/standing-auditor-instructions.md) — постоянные роли независимого
+  аудита.
+- [audits/step-audit-protocol.md](audits/step-audit-protocol.md) — протокол пошагового аудита изменений.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
 - [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.
@@ -34,6 +43,8 @@
 - [decisions/ADR-0009-cli-backed-integrations.md](decisions/ADR-0009-cli-backed-integrations.md) — optional CLI-backed integrations module.
 - [decisions/ADR-0010-stress-suite.md](decisions/ADR-0010-stress-suite.md) — bounded stress suite как release gate.
 - [decisions/ADR-0011-release-hardening.md](decisions/ADR-0011-release-hardening.md) — release hardening перед первым OSS-кандидатом.
+- [decisions/ADR-0012-scenario-first-after-library-comparison.md](decisions/ADR-0012-scenario-first-after-library-comparison.md)
+  — сохранение scenario-first API после сравнения process-библиотек.
 
 ## Правило навигации
 

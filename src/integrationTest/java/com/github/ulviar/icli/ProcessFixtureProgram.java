@@ -173,6 +173,15 @@ final class ProcessFixtureProgram {
                 System.err.flush();
                 Thread.sleep(Long.parseLong(args[1]));
             }
+            case "paired-streams-sleep" -> {
+                while (true) {
+                    System.out.println("out-pulse");
+                    System.out.flush();
+                    System.err.println("err-pulse");
+                    System.err.flush();
+                    Thread.sleep(Long.parseLong(args[1]));
+                }
+            }
             default -> throw new IllegalArgumentException("Unknown fixture command: " + args[0]);
         }
     }

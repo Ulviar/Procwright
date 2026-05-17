@@ -54,6 +54,29 @@ dossier.
 - описание области действия;
 - план восстановления или честное указание, что восстановления нет.
 
+### Runtime/API-wide изменение
+
+Примеры: изменить lifecycle процесса, добавить новый public scenario, поменять result contract, расширить diagnostics
+или затронуть общий execution kernel.
+
+Требования:
+
+- явная граница инварианта;
+- тест или eval для happy path, failure path и edge case;
+- аудит Integrity and Philosophy и Architecture and Code Quality;
+- аудит Documentation and Release Maturity, если меняются контракты, README или context docs.
+
+### Release-релевантное изменение
+
+Примеры: изменить dependency policy, release checklist, compatibility/versioning policy, public API surface или набор
+публикуемых модулей.
+
+Требования:
+
+- обновить релевантные документы в `context/release/`;
+- запустить все три постоянные роли аудита;
+- выполнить финальные release gates для затронутой области.
+
 ## Контекстная гигиена
 
 - Не читать весь репозиторий по привычке.
@@ -75,7 +98,8 @@ dossier.
 
 ## Проверки
 
-Пока кода нет, обязательна ручная проверка структуры и Markdown. Когда появится код, минимальная проверка:
+Для docs-only шагов обязательны ручная проверка структуры Markdown, consistency с `context/README.md` и релевантный
+документационный аудит. Для кодовых шагов минимальная проверка:
 
 - compile;
 - unit tests;

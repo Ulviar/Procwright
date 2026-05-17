@@ -10,6 +10,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -174,14 +175,57 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void timeoutIsEnforcedWhileWritingInput() {
+        java.time.Instant started = java.time.Instant.now();
         CommandResult result = fixtureService().run(call -> call.args("ignore-stdin-sleep", "5000")
                 .input("x".repeat(8 * 1024 * 1024))
                 .timeout(Duration.ofMillis(100))
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+        Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
         assertEquals("started\n", result.stdout());
+        assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
+        assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
+    }
+
+    @Test
+    void timeoutCleanupIsBoundedWhileStdoutAndStderrPumpsAreActive() {
+        java.time.Instant started = java.time.Instant.now();
+        CommandResult result = fixtureService().run(call -> call.args("paired-streams-sleep", "20")
+                .timeout(Duration.ofMillis(120))
+                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250))));
+        Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
+
+        assertTrue(result.timedOut());
+        assertFalse(result.succeeded());
+        assertTrue(result.stdout().contains("out-pulse"));
+        assertTrue(result.stderr().contains("err-pulse"));
+        assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
+        assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
+    }
+
+    @Test
+    void postStartFailureStopsStartedProcessAndPreservesPrimaryException() throws Exception {
+        AtomicLong childPid = new AtomicLong(-1);
+        IllegalStateException failure = new IllegalStateException("synthetic post-start failure");
+
+        java.time.Instant started = java.time.Instant.now();
+        IllegalStateException exception;
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> {
+            childPid.set(process.pid());
+            throw failure;
+        }));
+        exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.run(call -> call.args("sleep", "5000")
+                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))));
+        Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
+
+        assertEquals(failure, exception);
+        assertTrue(childPid.get() > 0);
+        assertFalse(ProcessHandle.of(childPid.get()).map(ProcessHandle::isAlive).orElse(false));
+        assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
     }
 
     @Test
@@ -206,10 +250,22 @@ final class OneShotExecutionIntegrationTest {
     }
 
     private static CommandService fixtureService() {
+        return fixtureService(ProcessKernel.standard());
+    }
+
+    private static CommandService fixtureService(ProcessKernel processKernel) {
         CommandSpec command = CommandSpec.builder(javaExecutable())
                 .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
                 .build();
-        return new CommandService(command, RunOptions.defaults());
+        return new CommandService(
+                command,
+                RunOptions.defaults(),
+                SessionOptions.defaults(),
+                LineSessionOptions.defaults(),
+                StreamOptions.defaults(),
+                PooledLineSessionOptions.defaults(),
+                DiagnosticsOptions.defaults(),
+                processKernel);
     }
 
     private static String javaExecutable() {

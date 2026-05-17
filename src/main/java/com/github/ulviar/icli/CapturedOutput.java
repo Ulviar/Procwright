@@ -16,17 +16,35 @@ record CapturedOutput(byte[] bytes, boolean truncated) {
         byte[] buffer = new byte[8192];
         boolean truncated = false;
 
-        int read;
-        while ((read = input.read(buffer)) != -1) {
-            int remaining = limit - retained.size();
-            if (remaining > 0) {
-                retained.write(buffer, 0, Math.min(read, remaining));
+        try {
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                int remaining = limit - retained.size();
+                if (remaining > 0) {
+                    retained.write(buffer, 0, Math.min(read, remaining));
+                }
+                if (read > remaining) {
+                    truncated = true;
+                }
             }
-            if (read > remaining) {
-                truncated = true;
-            }
+        } catch (IOException exception) {
+            throw new PartialCaptureException(new CapturedOutput(retained.toByteArray(), truncated), exception);
         }
 
         return new CapturedOutput(retained.toByteArray(), truncated);
+    }
+
+    static final class PartialCaptureException extends IOException {
+
+        private final CapturedOutput output;
+
+        private PartialCaptureException(CapturedOutput output, IOException cause) {
+            super(cause);
+            this.output = output;
+        }
+
+        CapturedOutput output() {
+            return output;
+        }
     }
 }

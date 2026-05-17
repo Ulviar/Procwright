@@ -1,6 +1,6 @@
 # План масштабных проверок
 
-## Harness
+## Проверочный harness
 
 Модуль `:icli-comparison` содержит deterministic fixture program и adapter layer для кандидатов. Harness запускается
 командой:
@@ -10,6 +10,15 @@
 ```
 
 Результат записывается в `context/comparison/results.md`.
+
+Немутационный release gate:
+
+```bash
+./gradlew :icli-comparison:comparisonCheck
+```
+
+`comparisonCheck` пишет отчет в `icli-comparison/build/reports/comparison/results.md` и падает, если iCLI теряет
+scenario coverage или harness возвращает `FAIL`.
 
 ## Масштабирование
 

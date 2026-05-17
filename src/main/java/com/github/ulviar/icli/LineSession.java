@@ -25,6 +25,8 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class LineSession implements AutoCloseable {
 
+    private static final String OUTPUT_OWNER = "LineSession";
+
     private final Session session;
     private final LineSessionOptions options;
     private final TranscriptBuffer transcript;
@@ -37,7 +39,7 @@ public final class LineSession implements AutoCloseable {
         this.options = Objects.requireNonNull(options, "options");
         this.transcript = new TranscriptBuffer(options.transcriptLimit());
         this.stdoutEvents = new ArrayBlockingQueue<>(options.stdoutBacklogLimit());
-        this.session.claimOutputOwner("LineSession");
+        this.session.claimOutputOwner(OUTPUT_OWNER);
         startPumps();
     }
 
@@ -118,8 +120,8 @@ public final class LineSession implements AutoCloseable {
     }
 
     private void startPumps() {
-        startPump("stdout", session.stdout(), true);
-        startPump("stderr", session.stderr(), false);
+        startPump("stdout", session.ownedStdout(OUTPUT_OWNER), true);
+        startPump("stderr", session.ownedStderr(OUTPUT_OWNER), false);
     }
 
     private void startPump(String streamName, InputStream stream, boolean responseStream) {

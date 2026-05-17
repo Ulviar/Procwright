@@ -46,3 +46,22 @@ tasks.register<JavaExec>("comparisonReport") {
             .filterKeys { it.startsWith("icli.comparison.") }
     )
 }
+
+tasks.register<JavaExec>("comparisonCheck") {
+    description = "Runs non-mutating comparison regression checks."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set(application.mainClass)
+    args(
+        "--verify",
+        layout.buildDirectory.file("reports/comparison/results.md").get().asFile.absolutePath,
+    )
+    systemProperties(
+        System.getProperties()
+            .entries
+            .associate { it.key.toString() to it.value.toString() }
+            .filterKeys { it.startsWith("icli.comparison.") }
+    )
+}
+
+tasks.check { dependsOn("comparisonCheck") }

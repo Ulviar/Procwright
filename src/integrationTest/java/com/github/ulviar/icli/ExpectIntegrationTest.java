@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.regex.Pattern;
@@ -57,6 +58,32 @@ final class ExpectIntegrationTest {
         try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             assertThrows(IllegalStateException.class, () -> session.expect());
+        }
+    }
+
+    @Test
+    void rawOutputStreamsCannotBeReadAfterExpectClaimsOutputOwnership() throws Exception {
+        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"))) {
+            InputStream stdout = session.stdout();
+            InputStream stderr = session.stderr();
+
+            try (Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                assertThrows(IllegalStateException.class, stdout::read);
+                assertThrows(IllegalStateException.class, stderr::read);
+                assertThrows(IllegalStateException.class, stdout::close);
+                assertThrows(IllegalStateException.class, stderr::close);
+                expect.expectText("ready> ");
+            }
+        }
+    }
+
+    @Test
+    void newRawOutputStreamsCannotBeReadAfterExpectClaimsOutputOwnership() throws Exception {
+        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+            assertThrows(IllegalStateException.class, session.stdout()::read);
+            assertThrows(IllegalStateException.class, session.stderr()::read);
+            expect.expectText("ready> ");
         }
     }
 

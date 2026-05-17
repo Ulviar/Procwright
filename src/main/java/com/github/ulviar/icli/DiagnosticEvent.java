@@ -58,6 +58,7 @@ public record DiagnosticEvent(
         Objects.requireNonNull(timestamp, "timestamp");
         CommandSpec.requireText(scenario, "scenario");
         Objects.requireNonNull(command, "command");
-        attributes = Map.copyOf(new LinkedHashMap<>(Objects.requireNonNull(attributes, "attributes")));
+        attributes = DiagnosticAttributeSchema.validate(
+                type, new LinkedHashMap<>(Objects.requireNonNull(attributes, "attributes")));
     }
 }

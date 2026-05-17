@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
  */
 public final class Expect implements AutoCloseable {
 
+    private static final String OUTPUT_OWNER = "Expect";
+
     private final Session session;
     private final ExpectOptions options;
     private final TranscriptBuffer transcript;
@@ -32,7 +34,7 @@ public final class Expect implements AutoCloseable {
         this.options = Objects.requireNonNull(options, "options");
         this.transcript = new TranscriptBuffer(options.transcriptLimit());
         this.matchBufferLimit = options.matchBufferLimit();
-        this.session.claimOutputOwner("Expect");
+        this.session.claimOutputOwner(OUTPUT_OWNER);
         startPumps();
     }
 
@@ -183,8 +185,8 @@ public final class Expect implements AutoCloseable {
     }
 
     private void startPumps() {
-        startPump("stdout", session.stdout(), true);
-        startPump("stderr", session.stderr(), false);
+        startPump("stdout", session.ownedStdout(OUTPUT_OWNER), true);
+        startPump("stderr", session.ownedStderr(OUTPUT_OWNER), false);
     }
 
     private void startPump(String streamName, InputStream stream, boolean matchable) {

@@ -4,9 +4,10 @@ iCLI is being rewritten as a JVM library for safe, scenario-first control of ext
 
 This branch currently contains the foundation for the rewrite, a one-shot execution kernel, a raw interactive session
 scenario, a line-oriented request/response workflow, a small expect automation helper, initial PTY transport support for
-terminal-required interactive sessions, a listen-only streaming scenario, pooled line-session workers, typed scenario
-presets for common workflows, an optional CLI-backed integrations module, and a bounded stress suite. The public API and
-runtime are still incomplete: documentation must not promise behavior before tests and implementation prove it.
+session-family workflows that request terminal capability, a listen-only streaming scenario, pooled line-session
+workers, typed scenario presets for common workflows, an optional CLI-backed integrations module, and a bounded stress
+suite. The public API and runtime are still incomplete: documentation must not promise behavior before tests and
+implementation prove it.
 
 Project context is maintained in Russian under [context/](context/). Code, public APIs, Javadocs, tests, and commit
 messages are written in English.
@@ -25,7 +26,8 @@ messages are written in English.
 - Internal scenario profile resolver for turning scenario defaults and per-call overrides into a validated execution
   plan.
 - Raw `interactive` session scenario with guarded stdin, raw stdout/stderr streams, `send`, `sendLine`, `closeStdin`,
-  `onExit`, idempotent `close`, and caller-visible idle-timeout shutdown.
+  guarded output ownership handoff to higher-level helpers, `onExit`, idempotent `close`, and caller-visible
+  idle-timeout shutdown.
 - Line-oriented `lineSession` scenario with serialized requests, default and custom response decoders, bounded
   transcripts, per-request timeouts, EOF distinction, and stderr draining.
 - `Expect` helper over `Session` with literal and regex matching, send/sendLine, bounded transcripts, timeout/EOF
@@ -52,7 +54,8 @@ messages are written in English.
   coordinates, Javadoc artifacts for Java modules, Kotlin API KDoc checks, and GitHub Actions CI for Linux, macOS, and
   Windows.
 
-See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard.
+See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard and
+[context/scenario-cookbook.md](context/scenario-cookbook.md) for scenario-oriented usage recipes.
 
 ## Modules
 
@@ -66,12 +69,26 @@ See [context/quality/engineering-charter.md](context/quality/engineering-charter
 ## Verification
 
 ```bash
+./gradlew quickCheck
+./gradlew scenarioCheck
+./gradlew regressionCheck
 ./gradlew check
 ./gradlew javadoc
-./gradlew :icli-comparison:comparisonReport
+./gradlew :icli-comparison:comparisonCheck
 ```
 
-`check` runs unit tests, integration tests, module tests, and the bounded stress suite.
+`quickCheck`, `scenarioCheck`, and `regressionCheck` expose the local verification tiers described in
+[context/evals/test-tiers.md](context/evals/test-tiers.md). `check` runs unit tests, integration tests, module tests, the
+bounded stress suite, and the non-mutating comparison regression gate.
+
+Release-candidate validation is stricter; use `./gradlew releaseCandidateCheck` and the checklist in
+[context/release/release-checklist.md](context/release/release-checklist.md).
+
+To refresh the tracked research report intentionally:
+
+```bash
+./gradlew :icli-comparison:comparisonReport
+```
 
 ## Release status
 

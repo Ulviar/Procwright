@@ -40,14 +40,18 @@ public final class ComparisonRunner {
     /**
      * Runs all comparison scenarios and writes a Markdown report.
      *
-     * @param args optional single output path for the generated report
+     * @param args optional output path, or {@code --verify <output>} for the non-mutating regression gate
      * @throws Exception when a scenario or report write fails unexpectedly
      */
     public static void main(String[] args) throws Exception {
+        boolean verify = args.length > 0 && "--verify".equals(args[0]);
         ComparisonRunner runner = new ComparisonRunner(ComparisonOptions.fromSystemProperties());
-        Path output = args.length == 0 ? Path.of("context/comparison/results.md") : Path.of(args[0]);
+        Path output = outputPath(args, verify);
         List<ScenarioResult> results = runner.runAll();
         runner.writeReport(output, results);
+        if (verify) {
+            verifyRegressionGate(results);
+        }
         System.out.println("Wrote comparison report: " + output.toAbsolutePath());
     }
 
@@ -481,6 +485,85 @@ public final class ComparisonRunner {
 
     private static long count(List<ScenarioResult> results, OutcomeStatus status) {
         return results.stream().filter(result -> result.status() == status).count();
+    }
+
+    private static Path outputPath(String[] args, boolean verify) {
+        if (verify) {
+            return args.length > 1 ? Path.of(args[1]) : Path.of("build/reports/comparison/results.md");
+        }
+        return args.length == 0 ? Path.of("context/comparison/results.md") : Path.of(args[0]);
+    }
+
+    private static void verifyRegressionGate(List<ScenarioResult> results) {
+        ArrayList<String> failures = new ArrayList<>();
+        results.stream()
+                .filter(result -> result.status() == OutcomeStatus.FAIL)
+                .forEach(result -> failures.add(result.candidate() + " " + result.scenarioId() + " returned FAIL"));
+        for (String scenario :
+                new String[] {"S01", "S02", "S03", "S04", "S05a", "S05b", "S06", "S07", "S08", "S09", "S11", "S12"}) {
+            requireStatus(results, failures, "iCLI rewrite", scenario, OutcomeStatus.PASS);
+        }
+        requireAnyStatus(results, failures, "iCLI rewrite", "S10", OutcomeStatus.PASS, OutcomeStatus.SKIPPED);
+
+        requirePassSet(results, failures, "JDK ProcessBuilder", "S01", "S02", "S03", "S04", "S05a", "S05b", "S06");
+        requireStatus(results, failures, "JDK ProcessBuilder", "S07", OutcomeStatus.MANUAL);
+        requireStatus(results, failures, "JDK ProcessBuilder", "S08", OutcomeStatus.MANUAL);
+        requireStatus(results, failures, "JDK ProcessBuilder", "S09", OutcomeStatus.MANUAL);
+        requirePassSet(
+                results, failures, "Apache Commons Exec", "S01", "S02", "S03", "S04", "S05a", "S05b", "S06", "S07");
+        requirePassSet(
+                results, failures, "ZeroTurnaround zt-exec", "S01", "S02", "S03", "S04", "S05a", "S05b", "S06", "S07");
+        requirePassSet(results, failures, "NuProcess", "S01", "S02", "S03", "S04", "S05a", "S05b", "S06", "S07");
+        requireStatus(results, failures, "ExpectIt", "S09", OutcomeStatus.PASS);
+        requireAnyStatus(results, failures, "Pty4J", "S10", OutcomeStatus.PASS, OutcomeStatus.SKIPPED);
+        if (!failures.isEmpty()) {
+            throw new IllegalStateException("Comparison regression:\n- " + String.join("\n- ", failures));
+        }
+    }
+
+    private static void requirePassSet(
+            List<ScenarioResult> results, List<String> failures, String candidate, String... scenarios) {
+        for (String scenario : scenarios) {
+            requireStatus(results, failures, candidate, scenario, OutcomeStatus.PASS);
+        }
+    }
+
+    private static void requireStatus(
+            List<ScenarioResult> results,
+            List<String> failures,
+            String candidate,
+            String scenarioId,
+            OutcomeStatus expected) {
+        ScenarioResult result = results.stream()
+                .filter(candidateResult -> candidateResult.candidate().equals(candidate))
+                .filter(candidateResult -> candidateResult.scenarioId().equals(scenarioId))
+                .findFirst()
+                .orElse(null);
+        if (result == null) {
+            failures.add(candidate + " " + scenarioId + " is missing");
+        } else if (result.status() != expected) {
+            failures.add(candidate + " " + scenarioId + " expected " + expected + " but was " + result.status());
+        }
+    }
+
+    private static void requireAnyStatus(
+            List<ScenarioResult> results,
+            List<String> failures,
+            String candidate,
+            String scenarioId,
+            OutcomeStatus firstExpected,
+            OutcomeStatus secondExpected) {
+        ScenarioResult result = results.stream()
+                .filter(candidateResult -> candidateResult.candidate().equals(candidate))
+                .filter(candidateResult -> candidateResult.scenarioId().equals(scenarioId))
+                .findFirst()
+                .orElse(null);
+        if (result == null) {
+            failures.add(candidate + " " + scenarioId + " is missing");
+        } else if (result.status() != firstExpected && result.status() != secondExpected) {
+            failures.add(candidate + " " + scenarioId + " expected " + firstExpected + " or " + secondExpected
+                    + " but was " + result.status());
+        }
     }
 
     private static Duration median(List<Duration> elapsed) {

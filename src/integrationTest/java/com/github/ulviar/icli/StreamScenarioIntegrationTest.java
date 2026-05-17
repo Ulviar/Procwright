@@ -168,6 +168,20 @@ final class StreamScenarioIntegrationTest {
     }
 
     @Test
+    void rawOutputStreamsCannotBeReadAfterStreamSessionClaimsOutputOwnership() throws Exception {
+        CommandService service = fixtureService(StreamOptions.defaults());
+
+        try (StreamSession session = service.listen(call -> call.args("sleep", "5000"))) {
+            java.lang.reflect.Field field = StreamSession.class.getDeclaredField("session");
+            field.setAccessible(true);
+            Session rawSession = (Session) field.get(session);
+
+            assertThrows(IllegalStateException.class, rawSession.stdout()::read);
+            assertThrows(IllegalStateException.class, rawSession.stderr()::read);
+        }
+    }
+
+    @Test
     void boundedDiagnosticsDoNotStoreEntireOutput() throws Exception {
         CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(64));
 

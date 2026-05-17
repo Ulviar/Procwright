@@ -45,7 +45,9 @@ CommandSpec + InvocationOverrides + RunOptions
 - policy object;
 - state machine;
 - validator;
-- test/eval case.
+- runtime component.
+
+Test/eval case доказывает инвариант, но не является его владельцем.
 
 Пример: "timeout не может быть отрицательным" — инвариант `TimeoutPolicy`, а не проверка в каждом методе запуска.
 
@@ -232,8 +234,10 @@ service.run(call -> call
 Это широкий API по возможностям, но не широкий по сущностям. Пользователь комбинирует политики, а не выбирает из
 десятков специализированных runners.
 
-Terminal/PTТY остается частью внутреннего scenario profile до PTY-фазы. Его нельзя закреплять как публичный knob до
-того, как появится transport SPI и проверенная platform matrix.
+TerminalPolicy допустим только как scenario-level capability для сценариев, где терминал имеет смысл: `interactive`,
+`lineSession` и `pooled` только как наследованный capability worker-ов `LineSession`. Отдельного pool-level PTY runtime
+нет. PTY provider details, signal quirks и platform-specific transport поведение остаются за transport/SPI границей и
+не становятся public knobs.
 
 ## Анти-паттерны
 

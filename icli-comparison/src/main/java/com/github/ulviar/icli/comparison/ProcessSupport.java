@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -147,8 +148,11 @@ final class ProcessSupport {
     private static boolean isStreamClosed(Throwable throwable) {
         Throwable cursor = throwable;
         while (cursor != null) {
+            String message = String.valueOf(cursor.getMessage()).toLowerCase(Locale.ROOT);
             if (cursor instanceof IOException
-                    && String.valueOf(cursor.getMessage()).toLowerCase().contains("stream")) {
+                    && (message.equals("stream closed")
+                            || message.equals("stream is closed")
+                            || message.equals("bad file descriptor"))) {
                 return true;
             }
             cursor = cursor.getCause();

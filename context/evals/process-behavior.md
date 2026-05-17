@@ -16,6 +16,7 @@
 - Команда получает переопределения окружения.
 - Unicode-вывод декодируется заданным charset.
 - Timeout приводит к shutdown-политике и понятному результату или исключению.
+- Timeout при заблокированной записи stdin завершается bounded cleanup, а не оставляет lifecycle task без ожидания.
 - Очень большие значения `Duration` насыщаются во внутреннем runtime и не превращаются в сырой `ArithmeticException`.
 - Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
 - Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.
@@ -46,7 +47,7 @@
 - `run` испускает структурированные lifecycle events: command prepared, process started, process exited.
 - `run` испускает метаданные обрезки вывода с источником потока и byte limit.
 - `run` испускает timeout и shutdown-request events при timeout.
-- `listen` испускает lifecycle, timeout, shutdown и listener-failure events.
+- `listen` испускает lifecycle, timeout, shutdown, listener-failure и `PROCESS_FAILED` events на failure path.
 - Command echo безопасен для диагностики: сырые значения аргументов и окружения не испускаются; видны executable,
   число аргументов и имена переменных окружения.
 - Events одного process lifecycle имеют общий `runId`; разные lifecycles получают разные ids, поэтому параллельные
@@ -55,6 +56,14 @@
 - Доставка diagnostic listener и transcript sink асинхронная best-effort, поэтому медленные diagnostic callbacks не
   блокируют runtime path процесса.
 - Test fixtures предоставляют thread-safe diagnostic recorder для assertions.
+
+## Cookbook и examples
+
+- `context/scenario-cookbook.md` описывает выбор сценария через пользовательские workflows, а не низкоуровневые knobs.
+- Каждый core compile-tested example из `CommandServiceApiExamples` упомянут в cookbook.
+- Compile-tested integration examples для command-backed tool, JSON Lines, cancellation и Content-Length framing упомянуты
+  в cookbook.
+- Новый cookbook recipe добавляется только вместе с compile-tested example или явным release limitation.
 
 ## Kotlin-эргономика
 
@@ -117,6 +126,7 @@
 - Большой stdout не удерживается целиком при bounded capture и выставляет truncation flag.
 - Большой stderr не блокирует завершение процесса и ограничивается независимо от stdout.
 - Timeout churn из нескольких параллельных процессов завершается без deadlock и возвращает timeout results.
+- One-shot cleanup после timeout имеет bounded wait для stdin/stdout/stderr lifecycle tasks.
 - Быстрый open/close interactive sessions не оставляет lifecycle futures незавершенными.
 - Pooling contention завершает все requests, не превышает `maxSize` и сохраняет metrics accounting.
 - PTY stress проверяет несколько terminal-required sessions, если system PTY provider доступен; иначе case skip-ается.
@@ -130,6 +140,10 @@
 - `onExit` завершается после выхода процесса.
 - Caller-visible idle timeout закрывает зависшую session; активность — успешные записи, закрытие stdin и успешные
   чтения через session streams.
+- После передачи output ownership higher-level helper публичные stdout/stderr wrappers не читают и не закрывают process
+  output streams.
+- Первая публичная operation над stdout/stderr выбирает raw stream mode; поздний helper claim fail fast, включая
+  in-flight raw read.
 - `close()` и idle timeout проходят через общий shutdown helper; отдельная hardening-проверка escalation path остается
   открытой.
 - Ctrl+C/interrupt поведение проверяется через PTY `TerminalSignal.INTERRUPT`.
@@ -144,6 +158,8 @@
 - EOF до response отличается от timeout.
 - Stderr дренируется в transcript, чтобы line workflow не зависал на заполненном stderr.
 - Незавершенный partial output попадает в transcript с корректной привязкой к потоку.
+- `LineSession` claims output ownership, и публичные raw stdout/stderr operations underlying session fail fast.
+- `LineSession` не создается после уже начатой или завершенной raw stdout/stderr operation.
 
 ## Expect helper
 
@@ -155,6 +171,8 @@
 - Порядок send/sendLine виден в transcript.
 - ANSI/control-sequence filter может нормализовать вывод перед matching.
 - Один `Expect` владеет output streams сессии.
+- Raw stdout/stderr wrappers, полученные до или после создания `Expect`, fail fast после output ownership claim.
+- `Expect` не создается после уже начатой или завершенной raw stdout/stderr operation.
 - Match buffer ограничен и не растет бесконечно.
 
 ## PTY
@@ -181,11 +199,15 @@
 Первый release candidate не готов, пока выполнены не все условия:
 
 - one-shot, streaming, timeout и базовая session группа покрыты тестами;
+- scenario cookbook сверяется с compile-tested examples;
 - Kotlin и integrations modules проходят свои tests;
 - bounded `stressTest` входит в `check` и проходит локально;
+- `quickCheck`, `scenarioCheck`, `regressionCheck` и `releaseCandidateCheck` соответствуют
+  [test-tiers.md](test-tiers.md);
 - `javadoc` проходит для Java modules;
 - Kotlin public API проходит KDoc source check через `:icli-kotlin:kotlinApiDocsCheck`;
 - public package boundaries покрыты tests;
 - LICENSE присутствует в корне репозитория;
 - versioning policy, compatibility policy, dependency review, release checklist и migration notes актуальны;
+- session shutdown escalation hardening либо закрыт тестом, либо явно принят как release limitation;
 - CI запускает `check` и `javadoc` на Linux, macOS и Windows.

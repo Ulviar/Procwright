@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /**
  * Raw handle for an interactive command process.
@@ -22,6 +23,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * handle.
  */
 public final class Session implements AutoCloseable {
+
+    private static final String PUBLIC_OUTPUT_OWNER = "public output streams";
 
     private final Process process;
     private final ShutdownPolicy shutdownPolicy;
@@ -33,10 +36,12 @@ public final class Session implements AutoCloseable {
     private final InputStream stderr;
     private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private final AtomicBoolean resourcesClosed = new AtomicBoolean();
-    private final AtomicBoolean outputOwned = new AtomicBoolean();
     private final AtomicReference<State> state = new AtomicReference<>(State.RUNNING);
     private final AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
     private final Object stdinLock = new Object();
+    private final Object outputOwnershipLock = new Object();
+    private String outputOwner;
+    private int activePublicOutputOperations;
 
     Session(Process process, Duration idleTimeout, ShutdownPolicy shutdownPolicy, Charset charset) {
         this(
@@ -69,19 +74,29 @@ public final class Session implements AutoCloseable {
     /**
      * Returns raw process stdout.
      *
+     * <p>The returned stream is usable only while no higher-level iCLI helper owns this session output. The first
+     * consuming or lifecycle operation on a public stdout or stderr stream selects raw public-stream mode for this
+     * session. After {@link Expect}, {@link LineSession}, or {@link StreamSession} claims output ownership, public stream
+     * consuming and lifecycle operations fail with {@link IllegalStateException}.
+     *
      * @return stdout stream
      */
     public InputStream stdout() {
-        return stdout;
+        return new OutputGuardInputStream(stdout, this::beginPublicOutputOperation);
     }
 
     /**
      * Returns raw process stderr.
      *
+     * <p>The returned stream is usable only while no higher-level iCLI helper owns this session output. The first
+     * consuming or lifecycle operation on a public stdout or stderr stream selects raw public-stream mode for this
+     * session. After {@link Expect}, {@link LineSession}, or {@link StreamSession} claims output ownership, public stream
+     * consuming and lifecycle operations fail with {@link IllegalStateException}.
+     *
      * @return stderr stream
      */
     public InputStream stderr() {
-        return stderr;
+        return new OutputGuardInputStream(stderr, this::beginPublicOutputOperation);
     }
 
     /**
@@ -307,9 +322,25 @@ public final class Session implements AutoCloseable {
         if (current == State.CLOSING || current == State.CLOSED) {
             throw new IllegalStateException("Session is closed");
         }
-        if (!outputOwned.compareAndSet(false, true)) {
-            throw new IllegalStateException("Session output is already owned");
+        synchronized (outputOwnershipLock) {
+            if (activePublicOutputOperations > 0) {
+                throw new IllegalStateException("Session output is in use by " + PUBLIC_OUTPUT_OWNER);
+            }
+            if (outputOwner != null) {
+                throw new IllegalStateException("Session output is already owned by " + outputOwner);
+            }
+            outputOwner = owner;
         }
+    }
+
+    InputStream ownedStdout(String owner) {
+        ensureOutputOwnedBy(owner);
+        return stdout;
+    }
+
+    InputStream ownedStderr(String owner) {
+        ensureOutputOwnedBy(owner);
+        return stderr;
     }
 
     long pid() {
@@ -333,6 +364,37 @@ public final class Session implements AutoCloseable {
     private void ensureStdinOpen() {
         if (state.get() != State.RUNNING) {
             throw new IllegalStateException("Session stdin is closed");
+        }
+    }
+
+    private void ensureOutputOwnedBy(String owner) {
+        CommandSpec.requireText(owner, "owner");
+        synchronized (outputOwnershipLock) {
+            if (owner.equals(outputOwner)) {
+                return;
+            }
+            if (outputOwner == null) {
+                throw new IllegalStateException("Session output is not owned by " + owner);
+            }
+            throw new IllegalStateException("Session output is already owned by " + outputOwner);
+        }
+    }
+
+    private OutputAccess beginPublicOutputOperation() {
+        synchronized (outputOwnershipLock) {
+            if (outputOwner == null) {
+                outputOwner = PUBLIC_OUTPUT_OWNER;
+            } else if (!PUBLIC_OUTPUT_OWNER.equals(outputOwner)) {
+                throw new IllegalStateException("Session output is owned by " + outputOwner);
+            }
+            activePublicOutputOperations++;
+        }
+        return this::endPublicOutputOperation;
+    }
+
+    private void endPublicOutputOperation() {
+        synchronized (outputOwnershipLock) {
+            activePublicOutputOperations--;
         }
     }
 
@@ -481,6 +543,105 @@ public final class Session implements AutoCloseable {
                 activity.run();
             }
             return count;
+        }
+    }
+
+    private interface OutputAccess extends AutoCloseable {
+
+        @Override
+        void close();
+    }
+
+    private static final class OutputGuardInputStream extends FilterInputStream {
+
+        private final Supplier<OutputAccess> accessSupplier;
+
+        private OutputGuardInputStream(InputStream delegate, Supplier<OutputAccess> accessSupplier) {
+            super(Objects.requireNonNull(delegate, "delegate"));
+            this.accessSupplier = Objects.requireNonNull(accessSupplier, "accessSupplier");
+        }
+
+        @Override
+        public int read() throws IOException {
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.read();
+            }
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            Objects.requireNonNull(bytes, "bytes");
+            Objects.checkFromIndexSize(offset, length, bytes.length);
+            if (length == 0) {
+                return 0;
+            }
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.read(bytes, offset, length);
+            }
+        }
+
+        @Override
+        public byte[] readAllBytes() throws IOException {
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.readAllBytes();
+            }
+        }
+
+        @Override
+        public byte[] readNBytes(int length) throws IOException {
+            if (length < 0) {
+                throw new IllegalArgumentException("len < 0");
+            }
+            if (length == 0) {
+                return new byte[0];
+            }
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.readNBytes(length);
+            }
+        }
+
+        @Override
+        public int readNBytes(byte[] bytes, int offset, int length) throws IOException {
+            Objects.requireNonNull(bytes, "bytes");
+            Objects.checkFromIndexSize(offset, length, bytes.length);
+            if (length == 0) {
+                return 0;
+            }
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.readNBytes(bytes, offset, length);
+            }
+        }
+
+        @Override
+        public long skip(long count) throws IOException {
+            if (count <= 0) {
+                return 0;
+            }
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.skip(count);
+            }
+        }
+
+        @Override
+        public int available() throws IOException {
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.available();
+            }
+        }
+
+        @Override
+        public long transferTo(OutputStream output) throws IOException {
+            Objects.requireNonNull(output, "output");
+            try (OutputAccess ignored = accessSupplier.get()) {
+                return super.transferTo(output);
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            try (OutputAccess ignored = accessSupplier.get()) {
+                super.close();
+            }
         }
     }
 }

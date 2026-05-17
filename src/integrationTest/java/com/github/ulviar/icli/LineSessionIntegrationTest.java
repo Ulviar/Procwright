@@ -196,6 +196,19 @@ final class LineSessionIntegrationTest {
         }
     }
 
+    @Test
+    void rawOutputStreamsCannotBeReadAfterLineSessionClaimsOutputOwnership() throws Exception {
+        try (LineSession session = fixtureService().lineSession(call -> call.args("line-repl"))) {
+            java.lang.reflect.Field field = LineSession.class.getDeclaredField("session");
+            field.setAccessible(true);
+            Session rawSession = (Session) field.get(session);
+
+            assertThrows(IllegalStateException.class, rawSession.stdout()::read);
+            assertThrows(IllegalStateException.class, rawSession.stderr()::read);
+            assertEquals("response:hello", session.request("hello").text());
+        }
+    }
+
     private static CommandService fixtureService() {
         return fixtureService(LineSessionOptions.defaults());
     }

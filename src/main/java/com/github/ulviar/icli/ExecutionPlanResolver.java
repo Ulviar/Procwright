@@ -25,9 +25,7 @@ final class ExecutionPlanResolver {
             CommandSpec spec,
             CommandInvocation invocation,
             DiagnosticsOptions diagnosticsOptions) {
-        if (profile.terminalPolicy() == TerminalPolicy.REQUIRED) {
-            throw new IllegalArgumentException("run scenario does not have a terminal-capable transport yet");
-        }
+        rejectTerminalPolicy(profile.terminalPolicy(), "run");
         InvocationShape invocationShape = shape(invocation);
         LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, outputMode(profile, invocation));
         return new ExecutionPlan(
@@ -85,6 +83,7 @@ final class ExecutionPlanResolver {
             CommandSpec spec,
             StreamInvocation invocation,
             DiagnosticsOptions diagnosticsOptions) {
+        rejectTerminalPolicy(profile.terminalPolicy(), "listen");
         InvocationShape invocationShape = shape(invocation);
         LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, OutputMode.SEPARATE);
         SessionExecutionPlan sessionPlan = new SessionExecutionPlan(
@@ -152,6 +151,12 @@ final class ExecutionPlanResolver {
 
     private static OutputMode outputMode(ScenarioProfile.Run profile, CommandInvocation invocation) {
         return invocation.outputMode().orElse(profile.outputMode());
+    }
+
+    private static void rejectTerminalPolicy(TerminalPolicy terminalPolicy, String scenario) {
+        if (terminalPolicy != TerminalPolicy.DISABLED) {
+            throw new IllegalArgumentException(scenario + " scenario does not request terminal capability");
+        }
     }
 
     private static InvocationShape shape(CommandInvocation invocation) {

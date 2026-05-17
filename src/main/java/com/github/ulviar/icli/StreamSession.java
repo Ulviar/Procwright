@@ -23,6 +23,8 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class StreamSession implements AutoCloseable {
 
+    private static final String OUTPUT_OWNER = "StreamSession";
+
     private final Session session;
     private final Duration timeout;
     private final Charset charset;
@@ -50,10 +52,10 @@ public final class StreamSession implements AutoCloseable {
         this.listener = plan.listener();
         this.eventDiagnostics = Objects.requireNonNull(eventDiagnostics, "eventDiagnostics");
         this.diagnostics = new TranscriptBuffer(plan.diagnosticLimit());
-        this.session.claimOutputOwner("StreamSession");
+        this.session.claimOutputOwner(OUTPUT_OWNER);
 
-        startPump(StreamSource.STDOUT, session.stdout());
-        startPump(StreamSource.STDERR, session.stderr());
+        startPump(StreamSource.STDOUT, session.ownedStdout(OUTPUT_OWNER));
+        startPump(StreamSource.STDERR, session.ownedStderr(OUTPUT_OWNER));
         startExitWatcher();
         if (plan.stdinPolicy() == StreamStdinPolicy.CLOSE_ON_START) {
             session.closeStdin();
@@ -202,6 +204,9 @@ public final class StreamSession implements AutoCloseable {
         StreamException exception = new StreamException(message, diagnostics.snapshot(), cause);
         if (failure.compareAndSet(null, exception)) {
             stopping.set(true);
+            eventDiagnostics.emit(
+                    DiagnosticEventType.PROCESS_FAILED,
+                    Diagnostics.attributes("error", cause.getClass().getName()));
             eventDiagnostics.emit(DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "failure"));
             session.close();
         }

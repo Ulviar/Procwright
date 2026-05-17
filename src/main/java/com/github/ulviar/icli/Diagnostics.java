@@ -29,17 +29,21 @@ final class Diagnostics {
     }
 
     void emit(DiagnosticEventType type, Map<String, String> attributes) {
-        DiagnosticEvent event =
-                new DiagnosticEvent(type, runId, Instant.now(), scenario, command, new LinkedHashMap<>(attributes));
-        Thread.ofVirtual().name("icli-diagnostics-", 0).start(() -> deliver(event));
+        DiagnosticEvent event = new DiagnosticEvent(
+                type, runId, Instant.now(), scenario, command, DiagnosticAttributeSchema.validate(type, attributes));
+        Thread.ofVirtual().name("icli-diagnostics-listener-", 0).start(() -> deliverListener(event));
+        Thread.ofVirtual().name("icli-diagnostics-transcript-", 0).start(() -> deliverTranscript(event));
     }
 
-    private void deliver(DiagnosticEvent event) {
+    private void deliverListener(DiagnosticEvent event) {
         try {
             options.listener().onEvent(event);
         } catch (Throwable ignored) {
             // Diagnostics are observational and must not change command behavior.
         }
+    }
+
+    private void deliverTranscript(DiagnosticEvent event) {
         try {
             options.transcriptSink().record(event);
         } catch (Throwable ignored) {

@@ -24,6 +24,9 @@
 - [context/legacy-lessons.md](context/legacy-lessons.md) — выводы из старой версии.
 - [context/development-model.md](context/development-model.md) — легкий процесс работы.
 - [context/evals/process-behavior.md](context/evals/process-behavior.md) — поведенческие проверки.
+- [context/audits/standing-auditor-instructions.md](context/audits/standing-auditor-instructions.md) — постоянные
+  роли независимого аудита.
+- [context/audits/step-audit-protocol.md](context/audits/step-audit-protocol.md) — протокол пошагового аудита.
 - [context/quality/engineering-charter.md](context/quality/engineering-charter.md) — обязательный стандарт качества.
 - [context/quality/scorecard.md](context/quality/scorecard.md) — статус и разрывы.
 
@@ -32,7 +35,8 @@
 - Сначала маленькое надежное ядро, потом расширения.
 - Качество важнее скорости; нельзя экономить на API, инвариантах, тестах и документации.
 - Пользователь выбирает сценарий API, а не набор низкоуровневых flags.
-- Инварианты должны иметь одного владельца: value object, policy, state machine, validator или test.
+- Инварианты должны иметь одного владельца: value object, policy, state machine, validator или runtime component.
+  Test/eval доказывает инвариант, но не владеет им.
 - API-идеи старого проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
 - Старую реализацию не копировать механически.
 - Raw session pooling, stateful affinity, real MCP SDK adapter, samples и machine-dependent benchmarks не входят в
@@ -40,6 +44,7 @@
   входят как тонкие layers без отдельного process runtime.
 - Документация описывает только то, что код доказывает тестами.
 - Повторяющиеся правила лучше переносить в тесты, валидаторы или ADR.
+- Существенный шаг разработки проходит аудит по постоянным ролям из `context/audits/`.
 - Release-релевантные изменения должны обновлять `context/release/`, README и release gate checks.
 
 ## Рабочий процесс

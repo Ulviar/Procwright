@@ -1,0 +1,103 @@
+# Уровни проверок и проверочный gate
+
+## Назначение
+
+Test/eval tiers фиксируют, какие инварианты защищает каждый уровень проверки. Это не заменяет сценарный API и не
+добавляет новый runtime abstraction: уровни существуют только для разработки, аудита и релиза.
+
+## Принципы
+
+- Быстрый feedback проверяет контракты и public API без запуска тяжелых сценариев.
+- Сценарные проверки используют реальные процессы и подтверждают пользовательские workflows.
+- Stress и comparison остаются bounded: они ловят регрессии, но не превращаются в нестабильные benchmark suites.
+- Release gate собирает уже определенные уровни, документацию и чистоту worktree; он не скрывает отдельные команды.
+- Machine-specific capabilities, включая PTY, проверяются через assumptions/skip, а не через flaky failures.
+
+## Уровни
+
+### Tier 0: проверка контрактов
+
+Команда:
+
+```bash
+./gradlew quickCheck
+```
+
+Назначение:
+
+- value objects, options и builders fail fast;
+- public API surface не получает случайные entry points;
+- production-owned schemas совпадают с context mirror;
+- helper ownership и boundary tests проверяют изоляцию инвариантов без долгих процессов.
+
+Этот уровень должен оставаться самым дешевым default для TDD.
+
+### Tier 1: сценарная проверка
+
+Команда:
+
+```bash
+./gradlew scenarioCheck
+```
+
+Назначение:
+
+- core scenarios запускаются на реальных процессах;
+- `run`, `interactive`, `lineSession`, `expect`, `listen` и module adapters проверяются как workflows;
+- Kotlin и integrations modules подтверждают, что optional ergonomics не ломают core философию.
+
+Этот уровень отвечает за вопрос: "пользовательский сценарий действительно работает?"
+
+### Tier 2: регрессионная проверка
+
+Команда:
+
+```bash
+./gradlew regressionCheck
+```
+
+Назначение:
+
+- bounded `stressTest` проверяет backpressure, timeout churn, large output и session lifecycle;
+- external-library boundary не допускает утечки comparison dependencies в public artifacts;
+- comparison gate подтверждает, что iCLI не теряет ключевые преимущества на сценариях из исследования.
+
+Этот уровень не является benchmark. Производительность оценивается через надежность поведения под нагрузкой и
+ограниченность ресурсов.
+
+### Tier 3: проверка документации и артефактов
+
+Команды:
+
+```bash
+./gradlew javadoc
+./gradlew :icli-kotlin:kotlinApiDocsCheck
+```
+
+Назначение:
+
+- Java public modules собирают Javadoc;
+- Kotlin public API имеет KDoc;
+- documentation maturity проверяется отдельно от runtime behavior.
+
+Javadoc warnings review остается отдельной ручной обязанностью до появления warning-as-error gate.
+
+### Tier 4: проверка release candidate
+
+Команда:
+
+```bash
+./gradlew releaseCandidateCheck
+```
+
+Назначение:
+
+- запускает formatting, scenario, regression, module, comparison и documentation gates;
+- требует clean Git worktree, включая untracked files;
+- предназначен для состояния после фиксации всех исходников и перед публикацией release candidate.
+
+## Правило развития
+
+Новая возможность должна попасть минимум в один быстрый contract test и один scenario или integration test. Если
+изменение касается shutdown, streaming, PTY, pooling, diagnostics или external-library boundary, оно дополнительно
+требует regression/stress или explicit release checklist entry.

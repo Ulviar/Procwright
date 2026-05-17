@@ -15,6 +15,7 @@ public final class CommandService {
     private final StreamOptions streamOptions;
     private final PooledLineSessionOptions pooledLineSessionOptions;
     private final DiagnosticsOptions diagnosticsOptions;
+    private final ProcessKernel processKernel;
 
     /**
      * Creates a service from a base command specification and default run options.
@@ -112,6 +113,26 @@ public final class CommandService {
             StreamOptions streamOptions,
             PooledLineSessionOptions pooledLineSessionOptions,
             DiagnosticsOptions diagnosticsOptions) {
+        this(
+                commandSpec,
+                runOptions,
+                sessionOptions,
+                lineSessionOptions,
+                streamOptions,
+                pooledLineSessionOptions,
+                diagnosticsOptions,
+                ProcessKernel.standard());
+    }
+
+    CommandService(
+            CommandSpec commandSpec,
+            RunOptions runOptions,
+            SessionOptions sessionOptions,
+            LineSessionOptions lineSessionOptions,
+            StreamOptions streamOptions,
+            PooledLineSessionOptions pooledLineSessionOptions,
+            DiagnosticsOptions diagnosticsOptions,
+            ProcessKernel processKernel) {
         this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
         this.runOptions = Objects.requireNonNull(runOptions, "runOptions");
         this.sessionOptions = Objects.requireNonNull(sessionOptions, "sessionOptions");
@@ -119,6 +140,7 @@ public final class CommandService {
         this.streamOptions = Objects.requireNonNull(streamOptions, "streamOptions");
         this.pooledLineSessionOptions = Objects.requireNonNull(pooledLineSessionOptions, "pooledLineSessionOptions");
         this.diagnosticsOptions = Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
+        this.processKernel = Objects.requireNonNull(processKernel, "processKernel");
     }
 
     /**
@@ -222,7 +244,8 @@ public final class CommandService {
                 lineSessionOptions,
                 streamOptions,
                 pooledLineSessionOptions,
-                diagnosticsOptions);
+                diagnosticsOptions,
+                processKernel);
     }
 
     /**
@@ -241,7 +264,7 @@ public final class CommandService {
 
         ExecutionPlan plan = ExecutionPlanResolver.resolve(
                 ScenarioProfile.run(runOptions), commandSpec, invocation, diagnosticsOptions);
-        return ProcessKernel.run(plan);
+        return processKernel.run(plan);
     }
 
     /**

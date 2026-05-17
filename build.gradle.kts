@@ -1,3 +1,5 @@
+import org.gradle.api.artifacts.ProjectDependency
+
 plugins {
     `java-library`
     `java-test-fixtures`
@@ -84,6 +86,140 @@ val stressTest =
     }
 
 tasks.check { dependsOn(integrationTest, stressTest) }
+
+val publicRuntimeProjects = setOf(project.path, ":icli-kotlin", ":icli-integrations")
+val comparisonDependencyCoordinates =
+    setOf(
+        "org.apache.commons:commons-exec",
+        "org.zeroturnaround:zt-exec",
+        "com.zaxxer:nuprocess",
+        "org.jetbrains.pty4j:pty4j",
+        "net.sf.expectit:expectit-core",
+    )
+
+val externalLibraryBoundaryCheck =
+    tasks.register("externalLibraryBoundaryCheck") {
+        description =
+            "Verifies comparison process libraries do not leak into public module classpaths."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+
+        doLast {
+            publicRuntimeProjects
+                .map { project(it) }
+                .forEach { checkedProject ->
+                    val runtimeClasspath =
+                        checkedProject.configurations.findByName("runtimeClasspath")
+                    if (runtimeClasspath != null && runtimeClasspath.isCanBeResolved) {
+                        runtimeClasspath.incoming.resolutionResult.allComponents.forEach { component
+                            ->
+                            val id = component.moduleVersion
+                            if (id != null) {
+                                val coordinate = "${id.group}:${id.name}"
+                                if (coordinate in comparisonDependencyCoordinates) {
+                                    throw GradleException(
+                                        "Comparison dependency $coordinate leaked into ${checkedProject.path}:runtimeClasspath"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    checkedProject.configurations.forEach { configuration ->
+                        configuration.dependencies.forEach { dependency ->
+                            if (
+                                dependency is ProjectDependency &&
+                                    dependency.path == ":icli-comparison"
+                            ) {
+                                throw GradleException(
+                                    "Public project ${checkedProject.path} must not depend on :icli-comparison"
+                                )
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
+tasks.check { dependsOn(externalLibraryBoundaryCheck) }
+
+val quickCheck =
+    tasks.register("quickCheck") {
+        description = "Runs the fast contract/unit verification tier."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(tasks.named("test"))
+    }
+
+val scenarioCheck =
+    tasks.register("scenarioCheck") {
+        description = "Runs scenario-level verification across core, Kotlin, and integrations."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(quickCheck, integrationTest, ":icli-kotlin:test", ":icli-integrations:test")
+    }
+
+val regressionCheck =
+    tasks.register("regressionCheck") {
+        description = "Runs bounded stress, boundary, and comparison regression checks."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(
+            scenarioCheck,
+            stressTest,
+            externalLibraryBoundaryCheck,
+            ":icli-comparison:comparisonCheck",
+        )
+    }
+
+val publicJavaJavadocCheck =
+    tasks.register("publicJavaJavadocCheck") {
+        description = "Builds Javadoc for public Java modules."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(tasks.named("javadoc"), ":icli-integrations:javadoc")
+    }
+
+val cleanWorkingTreeCheck =
+    tasks.register("cleanWorkingTreeCheck") {
+        description = "Verifies the Git worktree is clean, including untracked files."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        mustRunAfter(
+            tasks.named("spotlessCheck"),
+            regressionCheck,
+            publicJavaJavadocCheck,
+            ":icli-kotlin:check",
+            ":icli-integrations:check",
+            ":icli-comparison:check",
+        )
+
+        doLast {
+            val process =
+                ProcessBuilder("git", "status", "--porcelain=v1", "--untracked-files=all")
+                    .directory(rootDir)
+                    .redirectErrorStream(true)
+                    .start()
+            val status = process.inputStream.bufferedReader(Charsets.UTF_8).readText().trim()
+            val exitCode = process.waitFor()
+            if (exitCode != 0) {
+                throw GradleException("Could not inspect Git working tree:\n$status")
+            }
+            if (status.isNotEmpty()) {
+                throw GradleException(
+                    "Working tree must be clean for releaseCandidateCheck:\n$status"
+                )
+            }
+        }
+    }
+
+tasks.register("releaseCandidateCheck") {
+    description = "Runs the complete local release-candidate verification gate."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(
+        tasks.named("spotlessCheck"),
+        regressionCheck,
+        publicJavaJavadocCheck,
+        ":icli-kotlin:check",
+        ":icli-integrations:check",
+        ":icli-comparison:check",
+        cleanWorkingTreeCheck,
+    )
+}
 
 spotless {
     java {

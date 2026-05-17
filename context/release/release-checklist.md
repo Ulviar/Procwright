@@ -16,17 +16,48 @@
 Обязательный набор:
 
 ```bash
-./gradlew spotlessApply
+./gradlew spotlessCheck
+./gradlew quickCheck
+./gradlew scenarioCheck
+./gradlew regressionCheck
 ./gradlew check --rerun-tasks
 ./gradlew javadoc --rerun-tasks
+./gradlew :icli-comparison:comparisonCheck
+./gradlew releaseCandidateCheck
 git diff --check
+git diff --exit-code
 ```
 
-`check` включает unit, integration, module tests, Kotlin public API KDoc check и bounded stress suite.
+`check` включает unit, integration, module tests, Kotlin public API KDoc check, bounded stress suite и non-mutating
+comparison regression gate.
+
+Назначение уровней описано в [../evals/test-tiers.md](../evals/test-tiers.md). `releaseCandidateCheck` является
+локальным составным gate и требует clean worktree, включая untracked files.
+
+Если `releaseCandidateCheck` недоступен в окружении, clean worktree проверяется эквивалентом
+`git status --porcelain=v1 --untracked-files=all`: вывод должен быть пустым.
+
+`spotlessApply` допустим как repair-команда до release gate, но не как сама проверка.
+
+Сценарный release gate:
+
+- новое API расширяет один из канонических сценариев (`run`, `lineSession`, `interactive`, `expect`, `listen`,
+  `pooled`) или optional integration layer;
+- новые/измененные public entry points, examples и tests сверены с
+  [../scenario-contracts.md](../scenario-contracts.md);
+- новые/измененные cookbook recipes сверены с [../scenario-cookbook.md](../scenario-cookbook.md) и compile-tested
+  examples;
+- dependency-specific types не протекают в core public API;
+- external process-library dependencies из comparison не протекают в публичные artifacts;
+- terminal/PTY возможности остаются capability/transport boundary;
+- terminal methods остаются только в session-family API, а `run`/`listen` не получают PTY knobs без нового ADR;
+- diagnostics event schema и redaction contract остаются согласованными с [../diagnostics.md](../diagnostics.md);
+- comparison qualitative assessment и ADR остаются согласованными с публичной моделью.
+- session shutdown escalation hardening закрыт тестом или явно перенесен в known limitations release notes.
 
 ## CI
 
-GitHub Actions workflow должен пройти на:
+GitHub Actions workflow должен запускать `./gradlew check` и `./gradlew javadoc` и пройти на:
 
 - Linux;
 - macOS;

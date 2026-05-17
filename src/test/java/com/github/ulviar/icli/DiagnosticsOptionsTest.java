@@ -3,14 +3,21 @@ package com.github.ulviar.icli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -38,6 +45,7 @@ final class DiagnosticsOptionsTest {
     @Test
     void diagnosticEventSnapshotsAttributes() {
         java.util.LinkedHashMap<String, String> attributes = new java.util.LinkedHashMap<>();
+        attributes.put("timedOut", "false");
         attributes.put("exitCode", "0");
 
         DiagnosticEvent event = new DiagnosticEvent(
@@ -46,7 +54,7 @@ final class DiagnosticsOptionsTest {
         attributes.put("exitCode", "99");
 
         assertEquals("0", event.attributes().get("exitCode"));
-        assertEquals(Map.of("exitCode", "0"), event.attributes());
+        assertEquals(Map.of("timedOut", "false", "exitCode", "0"), event.attributes());
     }
 
     @Test
@@ -108,6 +116,31 @@ final class DiagnosticsOptionsTest {
     }
 
     @Test
+    void transcriptSinkReceivesEventWhenListenerBlocks() throws Exception {
+        CountDownLatch listenerStarted = new CountDownLatch(1);
+        CountDownLatch releaseListener = new CountDownLatch(1);
+        CountDownLatch sinkDelivered = new CountDownLatch(1);
+        Diagnostics diagnostics = Diagnostics.of(
+                new DiagnosticsOptions(
+                        event -> {
+                            listenerStarted.countDown();
+                            await(releaseListener);
+                        },
+                        event -> sinkDelivered.countDown()),
+                "run",
+                CommandEcho.empty());
+
+        diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
+
+        assertTrue(listenerStarted.await(1, TimeUnit.SECONDS));
+        try {
+            assertTrue(sinkDelivered.await(200, TimeUnit.MILLISECONDS));
+        } finally {
+            releaseListener.countDown();
+        }
+    }
+
+    @Test
     void eventsFromOneDiagnosticsEmitterShareCorrelationId() throws Exception {
         List<DiagnosticEvent> events = java.util.Collections.synchronizedList(new ArrayList<>());
         CountDownLatch delivered = new CountDownLatch(2);
@@ -120,7 +153,7 @@ final class DiagnosticsOptionsTest {
                 CommandEcho.empty());
 
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
-        diagnostics.emit(DiagnosticEventType.PROCESS_EXITED);
+        diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, Diagnostics.attributes("timedOut", "false"));
 
         assertTrue(delivered.await(1, TimeUnit.SECONDS));
         assertEquals(1, events.stream().map(DiagnosticEvent::runId).distinct().count());
@@ -141,6 +174,76 @@ final class DiagnosticsOptionsTest {
 
         assertTrue(delivered.await(1, TimeUnit.SECONDS));
         assertNotEquals(events.get(0).runId(), events.get(1).runId());
+    }
+
+    @Test
+    void diagnosticsMarkdownSchemaMatchesProductionSchema() throws Exception {
+        assertEquals(
+                DiagnosticAttributeSchema.allowedAttributesByType(),
+                parseDiagnosticsMarkdownSchema(Path.of("context/diagnostics.md")));
+    }
+
+    @Test
+    void diagnosticAttributeSchemaRejectsInvalidShapes() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DiagnosticAttributeSchema.validate(
+                        DiagnosticEventType.PROCESS_EXITED, Diagnostics.attributes("exitCode", "0")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DiagnosticAttributeSchema.validate(
+                        DiagnosticEventType.PROCESS_STARTED, Diagnostics.attributes("pid", "not-a-number")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DiagnosticAttributeSchema.validate(
+                        DiagnosticEventType.OUTPUT_TRUNCATED,
+                        Map.of("source", "stdout", "limitBytes", "8", "limitChars", "8")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DiagnosticAttributeSchema.validate(
+                        DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "user")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DiagnosticAttributeSchema.validate(
+                        DiagnosticEventType.PROCESS_FAILED, Diagnostics.attributes("error", "secret failure text")));
+    }
+
+    private static Map<DiagnosticEventType, Set<String>> parseDiagnosticsMarkdownSchema(Path path) throws Exception {
+        EnumMap<DiagnosticEventType, Set<String>> schema = new EnumMap<>(DiagnosticEventType.class);
+        for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+            if (!line.startsWith("| `")) {
+                continue;
+            }
+            String[] columns = line.split("\\|");
+            if (columns.length < 4) {
+                continue;
+            }
+            DiagnosticEventType type =
+                    DiagnosticEventType.valueOf(columns[1].trim().replace("`", ""));
+            schema.put(type, attributes(columns[2].trim()));
+        }
+        return Map.copyOf(schema);
+    }
+
+    private static Set<String> attributes(String markdownCell) {
+        if (markdownCell.equals("none")) {
+            return Set.of();
+        }
+        LinkedHashSet<String> attributes = new LinkedHashSet<>();
+        Arrays.stream(markdownCell.split(",| or "))
+                .map(value -> value.trim().replace("optional ", "").replace("`", ""))
+                .filter(value -> !value.isBlank())
+                .forEach(attributes::add);
+        return Set.copyOf(attributes);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(1, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted", exception);
+        }
     }
 
     private static void sleep(Duration duration) {

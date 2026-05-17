@@ -149,18 +149,66 @@ final class ExecutionPlanResolverTest {
     @Test
     void rejectsTerminalRequiredForOneShotRunUntilRunPtyTransportExists() {
         CommandSpec spec = CommandSpec.of("tool");
-        ScenarioProfile.Run terminalProfile = new ScenarioProfile.Run(
+        ScenarioProfile.Run terminalProfile = runProfile(TerminalPolicy.REQUIRED);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExecutionPlanResolver.resolve(
+                        terminalProfile, spec, CommandInvocation.builder().build()));
+    }
+
+    @Test
+    void rejectsTerminalAutoForOneShotRunUntilRunPtyTransportExists() {
+        CommandSpec spec = CommandSpec.of("tool");
+        ScenarioProfile.Run terminalProfile = runProfile(TerminalPolicy.AUTO);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExecutionPlanResolver.resolve(
+                        terminalProfile, spec, CommandInvocation.builder().build()));
+    }
+
+    @Test
+    void rejectsTerminalRequiredForListenScenario() {
+        CommandSpec spec = CommandSpec.of("tool");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExecutionPlanResolver.resolve(
+                        streamProfile(TerminalPolicy.REQUIRED),
+                        spec,
+                        StreamInvocation.builder().build()));
+    }
+
+    @Test
+    void rejectsTerminalAutoForListenScenario() {
+        CommandSpec spec = CommandSpec.of("tool");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExecutionPlanResolver.resolve(
+                        streamProfile(TerminalPolicy.AUTO),
+                        spec,
+                        StreamInvocation.builder().build()));
+    }
+
+    private static ScenarioProfile.Run runProfile(TerminalPolicy terminalPolicy) {
+        return new ScenarioProfile.Run(
                 StdinPolicy.closed(),
                 (CapturePolicy.Bounded) RunOptions.defaults().capturePolicy(),
                 RunOptions.defaults().shutdownPolicy(),
                 RunOptions.defaults().timeout(),
                 RunOptions.defaults().charset(),
                 RunOptions.defaults().outputMode(),
-                TerminalPolicy.REQUIRED);
+                terminalPolicy);
+    }
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> ExecutionPlanResolver.resolve(
-                        terminalProfile, spec, CommandInvocation.builder().build()));
+    private static ScenarioProfile.Stream streamProfile(TerminalPolicy terminalPolicy) {
+        return new ScenarioProfile.Stream(
+                StreamOptions.defaults().shutdownPolicy(),
+                StreamOptions.defaults().timeout(),
+                StreamOptions.defaults().charset(),
+                StreamOptions.defaults().diagnosticLimit(),
+                terminalPolicy);
     }
 }

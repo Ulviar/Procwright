@@ -2,11 +2,14 @@ package com.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.testing.diagnostics.DiagnosticRecorder;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +36,91 @@ final class DiagnosticsIntegrationTest {
         assertFalse(prepared.toString().contains("hidden-value"));
         assertFalse(prepared.toString().contains("secret-argument"));
         assertEquals("run", prepared.scenario());
+    }
+
+    @Test
+    void runDiagnosticEventsUseSchemaAndDoNotExposeRawValues() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        CommandService service =
+                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+
+        CommandResult result = service.run(call -> call.args("large-stdout", "32", "secret-output")
+                .putEnvironment("SECRET_VALUE", "secret-env-value")
+                .capture(CapturePolicy.bounded(8)));
+
+        assertTrue(result.stdoutTruncated());
+        assertEventsSafe(
+                recorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.OUTPUT_TRUNCATED,
+                        DiagnosticEventType.PROCESS_EXITED),
+                "secret-output",
+                "secret-env-value");
+    }
+
+    @Test
+    void timeoutAndLaunchFailureDiagnosticEventsUseSchemaAndDoNotExposeRawValues() {
+        DiagnosticRecorder timeoutRecorder = new DiagnosticRecorder();
+        CommandService timeoutService =
+                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(timeoutRecorder));
+
+        CommandResult timeout = timeoutService.run(
+                call -> call.args("sleep", "5000", "secret-timeout-arg").timeout(Duration.ofMillis(100)));
+
+        assertTrue(timeout.timedOut());
+        assertEventsSafe(
+                timeoutRecorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.TIMEOUT_REACHED,
+                        DiagnosticEventType.SHUTDOWN_REQUESTED,
+                        DiagnosticEventType.PROCESS_EXITED),
+                "secret-timeout-arg");
+
+        DiagnosticRecorder failureRecorder = new DiagnosticRecorder();
+        CommandService missingCommand = CommandService.forCommand("__icli_missing_command_for_diagnostics__")
+                .withDiagnostics(DiagnosticsOptions.defaults().withListener(failureRecorder));
+
+        assertThrows(CommandExecutionException.class, () -> missingCommand.run(call -> call.args("secret-launch-arg")));
+        assertEventsSafe(
+                failureRecorder,
+                Set.of(DiagnosticEventType.COMMAND_PREPARED, DiagnosticEventType.PROCESS_FAILED),
+                "secret-launch-arg");
+    }
+
+    @Test
+    void streamFailureDiagnosticEventsUseSchemaAndDoNotExposeRawOutput() throws Exception {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        CommandService service =
+                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+
+        try (StreamSession session = service.listen(
+                call -> call.args("stdout", "secret-stream-output").onOutput(chunk -> {
+                    throw new IllegalStateException("listener failed");
+                }))) {
+            assertThrows(java.util.concurrent.ExecutionException.class, () -> session.onExit()
+                    .get(2, TimeUnit.SECONDS));
+        }
+
+        assertEventsSafe(
+                recorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.LISTENER_FAILED,
+                        DiagnosticEventType.PROCESS_FAILED,
+                        DiagnosticEventType.SHUTDOWN_REQUESTED),
+                "secret-stream-output");
+    }
+
+    @Test
+    void diagnosticAttributeContractCoversEveryEventType() {
+        assertEquals(
+                Set.of(DiagnosticEventType.values()),
+                DiagnosticAttributeSchema.allowedAttributesByType().keySet());
     }
 
     @Test
@@ -164,6 +252,12 @@ final class DiagnosticsIntegrationTest {
                 interactiveRecorder.first(DiagnosticEventType.COMMAND_PREPARED).scenario());
         assertTrue(interactiveRecorder.awaitContains(DiagnosticEventType.PROCESS_STARTED));
         assertTrue(interactiveRecorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+        assertEventsSafe(
+                interactiveRecorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.PROCESS_EXITED));
 
         DiagnosticRecorder lineRecorder = new DiagnosticRecorder();
         CommandService lineService =
@@ -179,6 +273,13 @@ final class DiagnosticsIntegrationTest {
         assertTrue(lineRecorder.awaitContains(DiagnosticEventType.PROCESS_STARTED));
         assertTrue(lineRecorder.awaitContains(DiagnosticEventType.SHUTDOWN_REQUESTED));
         assertTrue(lineRecorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+        assertEventsSafe(
+                lineRecorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.SHUTDOWN_REQUESTED,
+                        DiagnosticEventType.PROCESS_EXITED));
     }
 
     @Test
@@ -197,6 +298,33 @@ final class DiagnosticsIntegrationTest {
         assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_STARTED));
         assertTrue(recorder.awaitContains(DiagnosticEventType.SHUTDOWN_REQUESTED));
         assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+        assertEventsSafe(
+                recorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.SHUTDOWN_REQUESTED,
+                        DiagnosticEventType.PROCESS_EXITED));
+    }
+
+    private static void assertEventsSafe(
+            DiagnosticRecorder recorder, Set<DiagnosticEventType> expectedTypes, String... forbiddenFragments) {
+        for (DiagnosticEventType type : expectedTypes) {
+            assertTrue(recorder.awaitContains(type), () -> "missing diagnostic event: " + type);
+        }
+
+        List<DiagnosticEvent> events = recorder.events();
+        assertFalse(events.isEmpty());
+        Set<DiagnosticEventType> observedTypes =
+                events.stream().map(DiagnosticEvent::type).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        assertEquals(expectedTypes, observedTypes);
+        for (DiagnosticEvent event : events) {
+            DiagnosticAttributeSchema.validate(event.type(), event.attributes());
+            String rendered = event.toString();
+            for (String forbidden : forbiddenFragments) {
+                assertFalse(rendered.contains(forbidden), () -> "diagnostic event leaked " + forbidden + ": " + event);
+            }
+        }
     }
 
     private static CommandService fixtureService() {
