@@ -22,6 +22,7 @@
 - [release/dependency-review.md](release/dependency-review.md) — обзор runtime/build dependencies.
 - [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release candidate.
 - [release/migration-notes.md](release/migration-notes.md) — migration notes из старой iCLI.
+- [comparison/README.md](comparison/README.md) — исследовательское сравнение process-библиотек по сценариям iCLI.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
 - [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.

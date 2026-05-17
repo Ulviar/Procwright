@@ -60,12 +60,15 @@ See [context/quality/engineering-charter.md](context/quality/engineering-charter
 - `:icli-kotlin` is an optional Kotlin ergonomics module with receiver-style extensions, suspending wrappers, and Flow
   adapters.
 - `:icli-integrations` is an optional Java module for CLI-backed integration helpers. It does not depend on an MCP SDK.
+- `:icli-comparison` is a research/evaluation module for comparing external process libraries against iCLI scenarios.
+  It is not a runtime dependency of the core artifact.
 
 ## Verification
 
 ```bash
 ./gradlew check
 ./gradlew javadoc
+./gradlew :icli-comparison:comparisonReport
 ```
 
 `check` runs unit tests, integration tests, module tests, and the bounded stress suite.

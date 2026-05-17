@@ -15,3 +15,5 @@ rootProject.name = "icli"
 include("icli-kotlin")
 
 include("icli-integrations")
+
+include("icli-comparison")
