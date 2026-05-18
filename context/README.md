@@ -22,6 +22,8 @@
 - [plans/active/documentation-writing-plan.md](plans/active/documentation-writing-plan.md) — план написания публичной
   документации.
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
+- [evals/test-cli-simulator.md](evals/test-cli-simulator.md) — отдельный test CLI для моделирования проблем реальных
+  дочерних процессов.
 - [evals/test-tiers.md](evals/test-tiers.md) — уровни локальных проверок и eval gate.
 - [quality/engineering-charter.md](quality/engineering-charter.md) — обязательные требования к качеству проекта.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и известные разрывы.

@@ -17,3 +17,5 @@ include("icli-kotlin")
 include("icli-integrations")
 
 include("icli-comparison")
+
+include("icli-test-cli")

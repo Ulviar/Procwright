@@ -160,6 +160,8 @@ val externalLibraryBoundaryCheck =
 
 tasks.check { dependsOn(externalLibraryBoundaryCheck) }
 
+tasks.check { dependsOn(":icli-test-cli:check") }
+
 val quickCheck =
     tasks.register("quickCheck") {
         description = "Runs the fast contract/unit verification tier."
@@ -183,6 +185,7 @@ val regressionCheck =
             stressTest,
             externalLibraryBoundaryCheck,
             ":icli-comparison:comparisonCheck",
+            ":icli-test-cli:check",
         )
     }
 
@@ -253,6 +256,7 @@ val cleanWorkingTreeCheck =
             ":icli-kotlin:check",
             ":icli-integrations:check",
             ":icli-comparison:check",
+            ":icli-test-cli:check",
         )
 
         doLast {
@@ -285,6 +289,7 @@ tasks.register("releaseCandidateCheck") {
         ":icli-kotlin:check",
         ":icli-integrations:check",
         ":icli-comparison:check",
+        ":icli-test-cli:check",
         cleanWorkingTreeCheck,
     )
 }
