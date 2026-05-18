@@ -30,6 +30,22 @@ final class OutputScenarios {
         return options.integer("exit-code", 0);
     }
 
+    static int longRun(ScenarioContext context) throws Exception {
+        CliOptions options = context.options();
+        int ticks = options.integer("ticks", 10);
+        long intervalMillis = options.longValue("interval-millis", 100);
+        int stderrEvery = Math.max(0, options.integer("stderr-every", 0));
+        String payload = options.string("payload", "");
+        for (int index = 0; index < ticks; index++) {
+            context.stdoutLine("tick:" + index + payload);
+            if (stderrEvery > 0 && index % stderrEvery == 0) {
+                context.stderrLine("err-tick:" + index);
+            }
+            context.sleepMillis(intervalMillis);
+        }
+        return options.integer("exit-code", 0);
+    }
+
     static int burst(ScenarioContext context) throws IOException {
         CliOptions options = context.options();
         int stdoutBytes = options.byteSize("stdout-bytes", 1024);

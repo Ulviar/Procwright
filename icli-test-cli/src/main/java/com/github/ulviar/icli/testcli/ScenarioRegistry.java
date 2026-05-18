@@ -36,10 +36,25 @@ final class ScenarioRegistry {
                     "Starts a child test-cli process and optionally waits for it.",
                     LifecycleScenarios::spawnChild),
             scenario(
+                    "spawn-tree",
+                    "lifecycle",
+                    "Starts a child test-cli process that starts its own leaf process.",
+                    LifecycleScenarios::spawnTree),
+            scenario(
+                    "repeat-spawn",
+                    "lifecycle",
+                    "Runs a child test-cli scenario repeatedly and reports each exit code.",
+                    LifecycleScenarios::repeatSpawn),
+            scenario(
                     "stream",
                     "output",
                     "Emits interleaved stdout/stderr chunks with optional delay.",
                     OutputScenarios::stream),
+            scenario(
+                    "long-run",
+                    "output",
+                    "Emits bounded heartbeat output over a configurable long-running interval.",
+                    OutputScenarios::longRun),
             scenario("burst", "output", "Writes large bounded bursts to stdout and stderr.", OutputScenarios::burst),
             scenario(
                     "partial",
@@ -61,6 +76,16 @@ final class ScenarioRegistry {
                     "terminal",
                     "Succeeds only when a console-like terminal is visible.",
                     LaunchScenarios::terminalCheck),
+            scenario(
+                    "platform-newlines",
+                    "platform",
+                    "Writes platform-sensitive newline patterns to stdout and stderr.",
+                    PlatformScenarios::platformNewlines),
+            scenario(
+                    "platform-probe",
+                    "platform",
+                    "Prints OS, separator, and newline metadata visible to the child process.",
+                    PlatformScenarios::platformProbe),
             scenario(
                     "stdin-echo",
                     "stdin",
@@ -91,6 +116,11 @@ final class ScenarioRegistry {
                     "launch",
                     "Prints selected argv, environment, and working-directory state.",
                     LaunchScenarios::argvEnvCwd),
+            scenario(
+                    "mixed-load",
+                    "load",
+                    "Combines bounded CPU work, memory allocation, and output ticks.",
+                    LoadScenarios::mixedLoad),
             scenario(
                     "flaky",
                     "nondeterminism",

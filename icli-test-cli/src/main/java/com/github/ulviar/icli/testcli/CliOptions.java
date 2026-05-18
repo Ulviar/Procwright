@@ -12,8 +12,8 @@ import java.util.Set;
 
 record CliOptions(String scenario, Map<String, List<String>> options, List<String> positionals) {
 
-    private static final Set<String> BOOLEAN_FLAGS =
-            Set.of("flush", "newline", "stdout-first", "wait", "started", "finished", "malformed-response");
+    private static final Set<String> BOOLEAN_FLAGS = Set.of(
+            "flush", "newline", "stdout-first", "wait", "fail-fast", "started", "finished", "malformed-response");
 
     CliOptions {
         Objects.requireNonNull(scenario, "scenario");

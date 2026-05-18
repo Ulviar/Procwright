@@ -37,10 +37,13 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 - `never-exit` — процесс, который не завершится без внешнего shutdown.
 - `shutdown-hook` — JVM shutdown hook с задержкой, полезен для timeout/escalation cleanup.
 - `spawn-child` — parent process порождает child process, чтобы проверять process-tree cleanup.
+- `spawn-tree` — parent запускает child, который запускает leaf process; проверяет cleanup настоящего дерева процессов.
+- `repeat-spawn` — многократный запуск child-сценария для repeated loop и resource-leak harness.
 
 ### Output
 
 - `stream` — interleaved stdout/stderr chunks, задержки, flush boundaries, optional newline.
+- `long-run` — bounded heartbeat output для long-running/slow-consumer проверок.
 - `burst` — большие независимые burst-потоки stdout/stderr для deadlock и bounded capture проверок.
 - `partial` — незавершенные stdout/stderr без newline.
 - `binary` — raw bytes, включая NUL, `0xff`, диапазоны и hex-patterns.
@@ -62,6 +65,15 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 - `argv-env-cwd` — проверка argv, выбранных env-переменных и cwd.
 - `terminal-check` — моделирование CLI, которому нужен terminal/console.
 
+### Platform
+
+- `platform-newlines` — явные `lf`, `crlf`, `cr` и system newline patterns для Windows/POSIX различий.
+- `platform-probe` — OS/separator/newline metadata, видимые дочернему процессу.
+
+### Load
+
+- `mixed-load` — bounded CPU work, memory allocation и output ticks для конкуренции с системной нагрузкой.
+
 ### Nondeterminism
 
 - `flaky` — deterministic-by-seed failure/delay/hang модель для retry и diagnostics проверок.
@@ -81,4 +93,8 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 - deterministic flaky outcomes без timeout при фиксированных seed;
 - timeout churn для зависающих flaky-процессов;
 - остановку parent process вместе с spawned child process;
+- остановку parent/child/grandchild process tree;
+- long-running stream с медленным listener и backpressure;
+- repeated child-spawn loop;
+- параллельные mixed CPU/memory/output load-процессы;
 - pooled line-session под смешанной нагрузкой успешных requests и request timeouts.

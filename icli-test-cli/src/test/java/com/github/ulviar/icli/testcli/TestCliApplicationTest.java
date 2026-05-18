@@ -23,6 +23,10 @@ final class TestCliApplicationTest {
         assertTrue(run.stdoutText().contains("stdin-echo"));
         assertTrue(run.stdoutText().contains("content-length"));
         assertTrue(run.stdoutText().contains("shutdown-hook"));
+        assertTrue(run.stdoutText().contains("spawn-tree"));
+        assertTrue(run.stdoutText().contains("long-run"));
+        assertTrue(run.stdoutText().contains("platform-newlines"));
+        assertTrue(run.stdoutText().contains("mixed-load"));
         assertEquals("", run.stderrText());
     }
 
@@ -70,6 +74,15 @@ final class TestCliApplicationTest {
         assertEquals("half-out", partial.stdoutText());
         assertEquals("half-err", partial.stderrText());
         assertEquals("\u001B[31mREADY\u001B[0m> ", ansi.stdoutText());
+    }
+
+    @Test
+    void longRunScenarioModelsBoundedHeartbeatOutput() throws Exception {
+        Run run = run("", "long-run", "--ticks=3", "--interval-millis=0", "--stderr-every=2", "--payload=:payload");
+
+        assertEquals(0, run.exitCode());
+        assertEquals("tick:0:payload\ntick:1:payload\ntick:2:payload\n", run.stdoutText());
+        assertEquals("err-tick:0\nerr-tick:2\n", run.stderrText());
     }
 
     @Test
@@ -131,6 +144,43 @@ final class TestCliApplicationTest {
         assertTrue(run.stdoutText().contains("cwd:/tmp"));
         assertTrue(run.stdoutText().contains("env:ICLI_TEST_VALUE=visible"));
         assertTrue(run.stdoutText().contains("argv:one|two words"));
+    }
+
+    @Test
+    void platformNewlinesCanEmitExplicitCrLfFrames() throws Exception {
+        Run run = run("", "platform-newlines", "--style=crlf", "--stdout-lines=2", "--stderr-lines=1");
+
+        assertEquals(0, run.exitCode());
+        assertEquals("out:0\r\nout:1\r\n", run.stdoutText());
+        assertEquals("err:0\r\n", run.stderrText());
+    }
+
+    @Test
+    void platformProbeReportsRuntimeSeparators() throws Exception {
+        Run run = run("", "platform-probe");
+
+        assertEquals(0, run.exitCode());
+        assertTrue(run.stdoutText().contains("os.name:"));
+        assertTrue(run.stdoutText().contains("file.separator:"));
+        assertTrue(run.stdoutText().contains("path.separator:"));
+        assertTrue(run.stdoutText().contains("line.separator.hex:"));
+    }
+
+    @Test
+    void mixedLoadCombinesBoundedMemoryCpuAndOutput() throws Exception {
+        Run run = run(
+                "",
+                "mixed-load",
+                "--ticks=2",
+                "--cpu-millis=1",
+                "--interval-millis=0",
+                "--memory-bytes=1k",
+                "--stderr-every=1");
+
+        assertEquals(0, run.exitCode());
+        assertTrue(run.stdoutText().contains("load:0:ops:"));
+        assertTrue(run.stdoutText().contains(":memory:1024"));
+        assertEquals("load-err:0\nload-err:1\n", run.stderrText());
     }
 
     @Test

@@ -32,6 +32,25 @@ final class TestCliProcessTest {
     }
 
     @Test
+    void spawnTreeScenarioExposesChildAndGrandchildPids() throws Exception {
+        ProcessRun run = runProcess("", "spawn-tree", "--leaf-scenario=sleep", "--leaf-millis=20", "--wait=true");
+
+        assertEquals(0, run.exitCode());
+        assertTrue(run.stdout().matches("child:\\d+\\ngrandchild:\\d+\\nchild-exit:0\\n"));
+        assertEquals("", run.stderr());
+    }
+
+    @Test
+    void repeatSpawnScenarioModelsRepeatedShortLivedChildProcesses() throws Exception {
+        ProcessRun run =
+                runProcess("", "repeat-spawn", "--count=3", "--child-scenario=exit", "--child-arg=--exit-code=0");
+
+        assertEquals(0, run.exitCode());
+        assertEquals("iteration:0:exit:0\niteration:1:exit:0\niteration:2:exit:0\n", run.stdout());
+        assertEquals("", run.stderr());
+    }
+
+    @Test
     void terminalCheckCanModelTerminalRequiredFailuresUnderPipes() throws Exception {
         ProcessRun run = runProcess("", "terminal-check", "--failure-exit-code=41");
 

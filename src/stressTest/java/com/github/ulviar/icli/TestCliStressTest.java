@@ -15,6 +15,7 @@ import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
 import com.github.ulviar.icli.session.SessionOptions;
+import com.github.ulviar.icli.session.StreamSession;
 import com.github.ulviar.icli.testcli.TestCli;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -146,6 +147,79 @@ final class TestCliStressTest {
     }
 
     @Test
+    void timeoutStopsWaitingTreeWithGrandchildProcess() throws Exception {
+        CommandResult result = testCliService()
+                .run(call -> call.args("spawn-tree", "--leaf-scenario=never-exit", "--wait=true")
+                        .capture(CapturePolicy.bounded(4 * 1024))
+                        .timeout(Duration.ofSeconds(1))
+                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(20), Duration.ofMillis(500))));
+
+        assertTrue(result.timedOut());
+        long childPid = parsePid(result.stdout(), "child:");
+        long grandchildPid = parsePid(result.stdout(), "grandchild:");
+        assertProcessEventuallyStops(childPid);
+        assertProcessEventuallyStops(grandchildPid);
+    }
+
+    @Test
+    void longRunningStreamCompletesWithSlowListenerBackpressure() throws Exception {
+        AtomicInteger chunks = new AtomicInteger();
+
+        try (StreamSession stream = testCliService()
+                .listen(call -> call.args("long-run", "--ticks=8", "--interval-millis=1", "--stderr-every=2")
+                        .timeout(Duration.ofSeconds(5))
+                        .onOutput(chunk -> {
+                            chunks.incrementAndGet();
+                            try {
+                                TimeUnit.MILLISECONDS.sleep(5);
+                            } catch (InterruptedException exception) {
+                                Thread.currentThread().interrupt();
+                                throw new AssertionError("listener interrupted", exception);
+                            }
+                        }))) {
+            assertEquals(0, stream.onExit().get(10, TimeUnit.SECONDS).exitCode().orElseThrow());
+        }
+
+        assertTrue(chunks.get() > 0);
+    }
+
+    @Test
+    void mixedLoadProcessesCompleteUnderParallelChurn() throws Exception {
+        CommandService service = testCliService();
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            ArrayList<Future<CommandResult>> futures = new ArrayList<>();
+            for (int index = 0; index < 8; index++) {
+                futures.add(executor.submit(() -> service.run(call -> call.args(
+                                "mixed-load", "--ticks=3", "--cpu-millis=5", "--interval-millis=0", "--memory-bytes=1m")
+                        .capture(CapturePolicy.bounded(8 * 1024))
+                        .timeout(Duration.ofSeconds(5)))));
+            }
+
+            for (Future<CommandResult> future : futures) {
+                CommandResult result = future.get(8, TimeUnit.SECONDS);
+                assertTrue(result.succeeded());
+                assertTrue(result.stdout().contains("load:0:ops:"));
+                assertTrue(result.stdout().contains(":memory:1048576"));
+            }
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void repeatedSpawnLoopCompletesWithoutSupervisorTimeout() {
+        CommandResult result = testCliService().run(call -> call.args(
+                        "repeat-spawn", "--count=8", "--child-scenario=exit", "--child-arg=--exit-code=0")
+                .capture(CapturePolicy.bounded(4 * 1024))
+                .timeout(Duration.ofSeconds(5)));
+
+        assertTrue(result.succeeded());
+        assertTrue(result.stdout().contains("iteration:7:exit:0"));
+    }
+
+    @Test
     void pooledLineSessionRetiresTimedOutWorkersAndKeepsServingRequests() throws Exception {
         try (PooledLineSession pool = testCliLineService()
                 .pooled(call ->
@@ -219,12 +293,16 @@ final class TestCliStressTest {
     }
 
     private static long parseChildPid(String stdout) {
+        return parsePid(stdout, "child:");
+    }
+
+    private static long parsePid(String stdout, String prefix) {
         for (String line : stdout.lines().toList()) {
-            if (line.startsWith("child:")) {
-                return Long.parseLong(line.substring("child:".length()));
+            if (line.startsWith(prefix)) {
+                return Long.parseLong(line.substring(prefix.length()));
             }
         }
-        throw new AssertionError("missing child pid in stdout: " + stdout);
+        throw new AssertionError("missing pid with prefix " + prefix + " in stdout: " + stdout);
     }
 
     private static void assertProcessEventuallyStops(long pid) throws Exception {
