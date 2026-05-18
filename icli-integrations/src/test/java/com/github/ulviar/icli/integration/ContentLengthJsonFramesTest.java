@@ -59,6 +59,16 @@ final class ContentLengthJsonFramesTest {
     }
 
     @Test
+    void rejectsHeadersBeyondFixedByteLimit() {
+        String oversizedHeader = "X-Filler: " + "a".repeat(9000) + "\r\n\r\n{}";
+
+        IntegrationProtocolException exception =
+                assertThrows(IntegrationProtocolException.class, () -> read(oversizedHeader));
+
+        assertEquals(BAD_HEADER, exception.reason());
+    }
+
+    @Test
     void rejectsOversizedBodyBeforeReadingIt() {
         IntegrationProtocolException exception = assertThrows(
                 IntegrationProtocolException.class,

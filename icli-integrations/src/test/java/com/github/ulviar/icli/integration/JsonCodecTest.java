@@ -47,6 +47,22 @@ final class JsonCodecTest {
     }
 
     @Test
+    void rejectsInvalidAndIncompleteStringEscapes() {
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("\"\\x\""));
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("\"\\"));
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("\"\\u12\""));
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("\"\\u12xz\""));
+    }
+
+    @Test
+    void rejectsInvalidNumberEdges() {
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("-"));
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("1."));
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("1e"));
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("1e+"));
+    }
+
+    @Test
     void rejectsJsonNestingBeyondConfiguredDepth() {
         assertThrows(JsonParseException.class, () -> JsonCodec.parse("[[0]]", 1));
         assertEquals(
