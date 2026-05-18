@@ -60,6 +60,8 @@ configurations.named("stressTestImplementation") {
 
 configurations.named("stressTestRuntimeOnly") { extendsFrom(configurations.testRuntimeOnly.get()) }
 
+dependencies { "stressTestImplementation"(project(":icli-test-cli")) }
+
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     options.release.set(25)

@@ -71,3 +71,14 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 Новый scenario добавляется только вместе с тестом в `:icli-test-cli:test`. Если scenario нужен для release-relevant
 поведения iCLI, соответствующая проверка должна появиться в `integrationTest`, `stressTest`, `comparisonCheck` или
 другом release gate, а не оставаться только в каталоге симулятора.
+
+## Stress-проверки iCLI
+
+`src/stressTest/java/com/github/ulviar/icli/TestCliStressTest.java` использует симулятор как реальный child process и
+проверяет:
+
+- параллельные burst-процессы с большими независимыми stdout/stderr и bounded capture;
+- deterministic flaky outcomes без timeout при фиксированных seed;
+- timeout churn для зависающих flaky-процессов;
+- остановку parent process вместе с spawned child process;
+- pooled line-session под смешанной нагрузкой успешных requests и request timeouts.
