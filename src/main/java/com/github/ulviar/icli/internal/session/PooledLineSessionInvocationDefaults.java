@@ -1,0 +1,22 @@
+package com.github.ulviar.icli.internal.session;
+
+import com.github.ulviar.icli.session.PooledLineSessionInvocation;
+import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import java.util.Objects;
+
+public final class PooledLineSessionInvocationDefaults {
+
+    private PooledLineSessionInvocationDefaults() {}
+
+    public static PooledLineSessionInvocation.Builder builder(PooledLineSessionOptions defaults) {
+        PooledLineSessionOptions options = Objects.requireNonNull(defaults, "defaults");
+        return PooledLineSessionInvocation.builder()
+                .maxSize(options.maxSize())
+                .warmupSize(options.warmupSize())
+                .acquireTimeout(options.acquireTimeout())
+                .maxRequestsPerWorker(options.maxRequestsPerWorker())
+                .maxWorkerAge(options.maxWorkerAge())
+                .reset(options.resetHook())
+                .healthCheck(options.healthCheck());
+    }
+}

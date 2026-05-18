@@ -15,6 +15,7 @@ import com.github.ulviar.icli.internal.ProcessKernel;
 import com.github.ulviar.icli.internal.ScenarioProfile;
 import com.github.ulviar.icli.internal.SessionExecutionPlan;
 import com.github.ulviar.icli.internal.StreamExecutionPlan;
+import com.github.ulviar.icli.internal.session.PooledLineSessionInvocationDefaults;
 import com.github.ulviar.icli.internal.session.SessionRuntime;
 import com.github.ulviar.icli.internal.session.SessionScenarioSupport;
 import com.github.ulviar.icli.internal.session.StreamRuntime;
@@ -400,13 +401,6 @@ public final class CommandService {
     }
 
     private PooledLineSessionInvocation.Builder pooledInvocationBuilder() {
-        return PooledLineSessionInvocation.builder()
-                .maxSize(pooledLineSessionOptions.maxSize())
-                .warmupSize(pooledLineSessionOptions.warmupSize())
-                .acquireTimeout(pooledLineSessionOptions.acquireTimeout())
-                .maxRequestsPerWorker(pooledLineSessionOptions.maxRequestsPerWorker())
-                .maxWorkerAge(pooledLineSessionOptions.maxWorkerAge())
-                .reset(pooledLineSessionOptions.resetHook())
-                .healthCheck(pooledLineSessionOptions.healthCheck());
+        return PooledLineSessionInvocationDefaults.builder(pooledLineSessionOptions);
     }
 }

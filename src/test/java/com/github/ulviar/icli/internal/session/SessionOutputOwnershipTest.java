@@ -3,7 +3,6 @@ package com.github.ulviar.icli.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.github.ulviar.icli.command.CommandInput;
 import com.github.ulviar.icli.command.EnvironmentPolicy;
 import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.ShutdownPolicy;
@@ -16,12 +15,10 @@ import com.github.ulviar.icli.internal.SessionExecutionPlan;
 import com.github.ulviar.icli.internal.StreamExecutionPlan;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.Session;
-import com.github.ulviar.icli.session.SessionExit;
 import com.github.ulviar.icli.session.StreamExit;
 import com.github.ulviar.icli.session.StreamStdinPolicy;
 import com.github.ulviar.icli.terminal.PtyProvider;
 import com.github.ulviar.icli.terminal.TerminalPolicy;
-import com.github.ulviar.icli.terminal.TerminalSignal;
 import com.github.ulviar.icli.terminal.TerminalSize;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -32,7 +29,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -80,15 +76,6 @@ final class SessionOutputOwnershipTest {
             stdout.release();
             assertEquals(-1, read.get(2, TimeUnit.SECONDS));
         }
-    }
-
-    @Test
-    void expectFactoryRejectsCustomSessionImplementations() {
-        Session session = new CustomSession();
-
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, session::expect);
-
-        assertEquals("Session must be an iCLI-created handle", exception.getMessage());
     }
 
     @Test
@@ -167,47 +154,6 @@ final class SessionOutputOwnershipTest {
 
     private static DiagnosticEmitter diagnostics() {
         return DiagnosticEmitter.of(DiagnosticsOptions.defaults(), "session-test", CommandEcho.empty());
-    }
-
-    private static final class CustomSession implements Session {
-
-        @Override
-        public InputStream stdout() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public InputStream stderr() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public OutputStream stdin() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public void send(String text) {}
-
-        @Override
-        public void sendLine(String line) {}
-
-        @Override
-        public void send(CommandInput input) {}
-
-        @Override
-        public void sendSignal(TerminalSignal signal) {}
-
-        @Override
-        public void closeStdin() {}
-
-        @Override
-        public CompletableFuture<SessionExit> onExit() {
-            return CompletableFuture.completedFuture(new SessionExit(OptionalInt.of(0), false));
-        }
-
-        @Override
-        public void close() {}
     }
 
     private static final class BlockingInputStream extends InputStream {

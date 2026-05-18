@@ -44,7 +44,7 @@ public final class DefaultStreamSession implements StreamSession {
     private final Charset charset;
     private final StreamListener listener;
     private final DiagnosticEmitter eventDiagnostics;
-    private final TranscriptBuffer diagnostics;
+    private final BoundedTranscriptBuffer diagnostics;
     private final Instant started = Instant.now();
     private final CompletableFuture<StreamExit> exit = new CompletableFuture<>();
     private final AtomicInteger pumpsRemaining = new AtomicInteger(2);
@@ -65,7 +65,7 @@ public final class DefaultStreamSession implements StreamSession {
         this.charset = plan.sessionPlan().charset();
         this.listener = plan.listener();
         this.eventDiagnostics = Objects.requireNonNull(eventDiagnostics, "eventDiagnostics");
-        this.diagnostics = new TranscriptBuffer(plan.diagnosticLimit());
+        this.diagnostics = new BoundedTranscriptBuffer(plan.diagnosticLimit());
         this.session.claimOutputOwner(OUTPUT_OWNER);
 
         startPump(StreamSource.STDOUT, session.ownedStdout(OUTPUT_OWNER));
@@ -92,7 +92,7 @@ public final class DefaultStreamSession implements StreamSession {
      * @return diagnostic transcript
      */
     public StreamTranscript diagnostics() {
-        return diagnostics.snapshot();
+        return streamTranscript();
     }
 
     CompletableFuture<Void> timeoutWatcherStopped() {
@@ -137,7 +137,7 @@ public final class DefaultStreamSession implements StreamSession {
                     continue;
                 }
                 String text = new String(buffer, 0, count);
-                boolean truncated = diagnostics.append(source, text);
+                boolean truncated = diagnostics.appendStream(source.label(), text);
                 if (truncated && truncationEmitted.compareAndSet(false, true)) {
                     eventDiagnostics.emit(
                             DiagnosticEventType.OUTPUT_TRUNCATED,
@@ -215,7 +215,7 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private void recordFailure(String message, Throwable cause) {
-        StreamException exception = new StreamException(message, diagnostics.snapshot(), cause);
+        StreamException exception = new StreamException(message, streamTranscript(), cause);
         if (failure.compareAndSet(null, exception)) {
             stopping.set(true);
             eventDiagnostics.emit(
@@ -248,7 +248,7 @@ public final class DefaultStreamSession implements StreamSession {
                 processExit.exitCode(),
                 timedOut.get() || processExit.timedOut(),
                 closed.get(),
-                diagnostics.snapshot(),
+                streamTranscript(),
                 Duration.between(started, Instant.now())))) {
             stopTimeoutWatcher();
         }
@@ -278,53 +278,8 @@ public final class DefaultStreamSession implements StreamSession {
         return attributes;
     }
 
-    private static final class TranscriptBuffer {
-
-        private final int limit;
-        private final StringBuilder text = new StringBuilder();
-        private String currentSource;
-        private boolean atLineStart = true;
-        private boolean truncated;
-
-        private TranscriptBuffer(int limit) {
-            if (limit <= 0) {
-                throw new IllegalArgumentException("limit must be positive");
-            }
-            this.limit = limit;
-        }
-
-        private int limit() {
-            return limit;
-        }
-
-        private synchronized boolean append(StreamSource source, String chunk) {
-            boolean alreadyTruncated = truncated;
-            for (int index = 0; index < chunk.length(); index++) {
-                String label = source.label();
-                if (atLineStart || !label.equals(currentSource)) {
-                    if (!atLineStart) {
-                        text.append('\n');
-                    }
-                    text.append(label).append(": ");
-                    atLineStart = false;
-                    currentSource = label;
-                }
-                char value = chunk.charAt(index);
-                text.append(value);
-                if (value == '\n') {
-                    atLineStart = true;
-                    currentSource = null;
-                }
-            }
-            if (text.length() > limit) {
-                text.delete(0, text.length() - limit);
-                truncated = true;
-            }
-            return truncated && !alreadyTruncated;
-        }
-
-        private synchronized StreamTranscript snapshot() {
-            return new StreamTranscript(text.toString(), truncated);
-        }
+    private StreamTranscript streamTranscript() {
+        BoundedTranscriptBuffer.Snapshot snapshot = diagnostics.snapshot();
+        return new StreamTranscript(snapshot.text(), snapshot.truncated());
     }
 }

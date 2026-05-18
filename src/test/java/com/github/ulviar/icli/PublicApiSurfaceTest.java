@@ -55,7 +55,7 @@ final class PublicApiSurfaceTest {
             Class<?>[] permittedSubclasses = type.getPermittedSubclasses();
             if (permittedSubclasses != null) {
                 for (Class<?> permittedSubclass : permittedSubclasses) {
-                    assertAllowedClass(permittedSubclass, type.getName() + " permitted subclasses");
+                    assertAllowedPermittedSubclass(permittedSubclass, type.getName() + " permitted subclasses");
                 }
             }
             for (Constructor<?> constructor : type.getConstructors()) {
@@ -217,6 +217,14 @@ final class PublicApiSurfaceTest {
         assertTrue(
                 packageName.startsWith("java.") || (PUBLIC_API_PACKAGES.contains(packageName) && isPublicApiType(type)),
                 () -> "Public core API leaks " + type.getName() + " at " + location);
+    }
+
+    private static void assertAllowedPermittedSubclass(Class<?> type, String location) {
+        String packageName = type.getPackageName();
+        if (packageName.startsWith("com.github.ulviar.icli.internal.")) {
+            return;
+        }
+        assertAllowedClass(type, location);
     }
 
     private static boolean isPublicApiType(Class<?> type) {

@@ -10,10 +10,10 @@ import java.util.regex.Pattern;
  *
  * <p>Matching is performed against filtered stdout. Stderr is drained into the transcript for diagnostics.
  *
- * <p>This is an iCLI-owned handle contract, not a service-provider interface. Expect helpers rely on iCLI's internal
- * output-ownership invariant and therefore support only sessions created by iCLI.
+ * <p>This sealed interface is an iCLI-owned handle contract, not a service-provider interface. Expect helpers rely on
+ * iCLI's internal output-ownership invariant and therefore support only sessions created by iCLI.
  */
-public interface Expect extends AutoCloseable {
+public sealed interface Expect extends AutoCloseable permits DefaultExpect {
 
     /**
      * Creates an expect helper using default options.

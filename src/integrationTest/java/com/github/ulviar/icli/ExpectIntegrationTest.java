@@ -1,6 +1,7 @@
 package com.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -129,15 +130,48 @@ final class ExpectIntegrationTest {
     }
 
     @Test
-    void timeoutIncludesTranscriptAndExpectedText() {
+    void timeoutRedactsExpectedTextInTranscriptAndMessageByDefault() {
         try (Session session = fixtureService().interactive(call -> call.args("partial-stderr-sleep", "5000"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofMillis(100)))) {
-            ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("done"));
+            ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("secret-done"));
 
             assertEquals(ExpectException.Reason.TIMEOUT, exception.reason());
+            assertTrue(exception.getMessage().contains("<redacted>"));
+            assertFalse(exception.getMessage().contains("secret-done"));
             assertTrue(exception.transcript().text().contains("expect text: <redacted>"));
-            assertTrue(!exception.transcript().text().contains("expect text: done"));
+            assertFalse(exception.transcript().text().contains("expect text: secret-done"));
             assertTrue(exception.transcript().text().contains("stderr: partial-error"));
+        }
+    }
+
+    @Test
+    void eofRedactsExpectedRegexInMessageByDefault() {
+        Pattern secretPattern = Pattern.compile("secret-never");
+
+        try (Session session = fixtureService().interactive(call -> call.args("exit-now"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+            ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectRegex(secretPattern));
+
+            assertEquals(ExpectException.Reason.EOF, exception.reason());
+            assertTrue(exception.getMessage().contains("<redacted>"));
+            assertFalse(exception.getMessage().contains("secret-never"));
+            assertFalse(exception.transcript().text().contains("secret-never"));
+        }
+    }
+
+    @Test
+    void verbatimTranscriptValuesAllowExpectedTextInFailureMessage() {
+        ExpectOptions options = ExpectOptions.defaults()
+                .withTimeout(Duration.ofMillis(100))
+                .withTranscriptValues(ExpectTranscriptValues.VERBATIM);
+
+        try (Session session = fixtureService().interactive(call -> call.args("partial-stderr-sleep", "5000"));
+                Expect expect = session.expect(options)) {
+            ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("visible-done"));
+
+            assertEquals(ExpectException.Reason.TIMEOUT, exception.reason());
+            assertTrue(exception.getMessage().contains("visible-done"));
+            assertTrue(exception.transcript().text().contains("expect text: visible-done"));
         }
     }
 
@@ -174,7 +208,7 @@ final class ExpectIntegrationTest {
 
             assertEquals(ExpectException.Reason.FAILURE, exception.reason());
             assertTrue(exception.transcript().text().contains("expect text: <redacted>"));
-            assertTrue(!exception.transcript().text().contains("expect text: ready"));
+            assertFalse(exception.transcript().text().contains("expect text: ready"));
         }
     }
 

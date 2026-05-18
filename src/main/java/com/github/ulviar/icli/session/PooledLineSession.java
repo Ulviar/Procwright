@@ -1,5 +1,6 @@
 package com.github.ulviar.icli.session;
 
+import com.github.ulviar.icli.internal.session.DefaultPooledLineSession;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
@@ -9,10 +10,10 @@ import java.util.concurrent.CompletableFuture;
  * <p>The pool reuses {@link LineSession} workers. It does not launch processes directly and does not expose worker
  * leases; returning a worker to the pool is owned by the pooled request lifecycle.
  *
- * <p>This is an iCLI-owned handle contract, not a service-provider interface. Applications receive pooled line sessions
- * from {@code CommandService}.
+ * <p>This sealed interface is an iCLI-owned handle contract, not a service-provider interface. Applications receive
+ * pooled line sessions from {@code CommandService}.
  */
-public interface PooledLineSession extends AutoCloseable {
+public sealed interface PooledLineSession extends AutoCloseable permits DefaultPooledLineSession {
 
     /**
      * Sends one pooled request using the worker line-session default timeout.

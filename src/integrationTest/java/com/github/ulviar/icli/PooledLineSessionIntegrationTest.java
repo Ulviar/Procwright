@@ -14,7 +14,9 @@ import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionException;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
+import com.github.ulviar.icli.session.PooledLineSessionOptions;
 import com.github.ulviar.icli.session.SessionOptions;
+import com.github.ulviar.icli.session.StreamOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -249,6 +251,26 @@ final class PooledLineSessionIntegrationTest {
     }
 
     @Test
+    void serviceLevelPooledDefaultsAreAppliedToScenarioInvocations() {
+        CommandService service = new CommandService(
+                fixtureCommand(),
+                RunOptions.defaults(),
+                SessionOptions.defaults(),
+                LineSessionOptions.defaults(),
+                StreamOptions.defaults(),
+                PooledLineSessionOptions.defaults().withMaxSize(2).withWarmupSize(2));
+
+        try (PooledLineSession pool = service.pooled(call -> call.args("line-repl"))) {
+            PooledLineSessionMetrics metrics = pool.metrics();
+
+            assertEquals(2, metrics.size());
+            assertEquals(2, metrics.idle());
+            assertEquals(0, metrics.leased());
+            assertEquals(2, metrics.created());
+        }
+    }
+
+    @Test
     void awaitDrainedSaturatesHugeTimeout() {
         try (PooledLineSession pool =
                 fixtureService().pooled(call -> call.args("line-repl").maxSize(1))) {
@@ -259,11 +281,14 @@ final class PooledLineSessionIntegrationTest {
     }
 
     private static CommandService fixtureService() {
-        CommandSpec command = CommandSpec.builder(javaExecutable())
+        return new CommandService(
+                fixtureCommand(), RunOptions.defaults(), SessionOptions.defaults(), LineSessionOptions.defaults());
+    }
+
+    private static CommandSpec fixtureCommand() {
+        return CommandSpec.builder(javaExecutable())
                 .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
                 .build();
-        return new CommandService(
-                command, RunOptions.defaults(), SessionOptions.defaults(), LineSessionOptions.defaults());
     }
 
     private static String javaExecutable() {

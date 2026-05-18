@@ -1,5 +1,6 @@
 package com.github.ulviar.icli.session;
 
+import com.github.ulviar.icli.internal.session.DefaultLineSession;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
@@ -9,10 +10,10 @@ import java.util.concurrent.CompletableFuture;
  * <p>Only one request is decoded at a time. Custom response decoders consume stdout lines through a deadline-aware
  * reader, while stderr is drained into the bounded transcript for diagnostics.
  *
- * <p>This is an iCLI-owned handle contract, not a service-provider interface. Applications receive line sessions from
- * {@code CommandService}.
+ * <p>This sealed interface is an iCLI-owned handle contract, not a service-provider interface. Applications receive line
+ * sessions from {@code CommandService}.
  */
-public interface LineSession extends AutoCloseable {
+public sealed interface LineSession extends AutoCloseable permits DefaultLineSession {
 
     /**
      * Sends one line and decodes one response with the default request timeout.

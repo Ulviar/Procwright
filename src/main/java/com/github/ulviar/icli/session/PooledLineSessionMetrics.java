@@ -25,6 +25,18 @@ public record PooledLineSessionMetrics(
         requireNonNegative(retired, "retired");
         requireNonNegative(completedRequests, "completedRequests");
         requireNonNegative(failedRequests, "failedRequests");
+        if (idle > size) {
+            throw new IllegalArgumentException("idle must not exceed size");
+        }
+        if (leased > size) {
+            throw new IllegalArgumentException("leased must not exceed size");
+        }
+        if ((long) idle + leased > size) {
+            throw new IllegalArgumentException("idle plus leased must not exceed size");
+        }
+        if (retired > created) {
+            throw new IllegalArgumentException("retired must not exceed created");
+        }
     }
 
     private static void requireNonNegative(long value, String name) {

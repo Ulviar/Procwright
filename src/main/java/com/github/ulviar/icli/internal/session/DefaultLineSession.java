@@ -38,7 +38,7 @@ public final class DefaultLineSession implements LineSession {
 
     private final DefaultSession session;
     private final LineSessionOptions options;
-    private final TranscriptBuffer transcript;
+    private final BoundedTranscriptBuffer transcript;
     private final BlockingQueue<StdoutEvent> stdoutEvents;
     private final ReentrantLock requestLock = new ReentrantLock();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -46,7 +46,7 @@ public final class DefaultLineSession implements LineSession {
     public DefaultLineSession(DefaultSession session, LineSessionOptions options) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
-        this.transcript = new TranscriptBuffer(options.transcriptLimit());
+        this.transcript = new BoundedTranscriptBuffer(options.transcriptLimit());
         this.stdoutEvents = new ArrayBlockingQueue<>(options.stdoutBacklogLimit());
         this.session.claimOutputOwner(OUTPUT_OWNER);
         startPumps();
@@ -81,7 +81,7 @@ public final class DefaultLineSession implements LineSession {
 
             ResponseReader reader = new ResponseReader(deadlineNanos);
             List<String> lines = decode(reader);
-            return new LineResponse(lines, transcript.snapshot(), Duration.between(started, Instant.now()));
+            return new LineResponse(lines, lineTranscript(), Duration.between(started, Instant.now()));
         } catch (LineSessionException exception) {
             if (exception.reason() != LineSessionException.Reason.CLOSED) {
                 closePreserving(exception);
@@ -98,7 +98,7 @@ public final class DefaultLineSession implements LineSession {
      * @return transcript snapshot
      */
     public LineTranscript transcript() {
-        return transcript.snapshot();
+        return lineTranscript();
     }
 
     /**
@@ -145,7 +145,7 @@ public final class DefaultLineSession implements LineSession {
             StringBuilder line = new StringBuilder();
             int count;
             while ((count = reader.read(buffer)) >= 0) {
-                transcript.append(streamName, buffer, count);
+                transcript.appendStream(streamName, buffer, count);
                 if (responseStream && !publishLines(line, buffer, count)) {
                     return;
                 }
@@ -266,25 +266,29 @@ public final class DefaultLineSession implements LineSession {
 
     private LineSessionException timeout() {
         return new LineSessionException(
-                LineSessionException.Reason.TIMEOUT, transcript.snapshot(), "Line request timed out");
+                LineSessionException.Reason.TIMEOUT, lineTranscript(), "Line request timed out");
     }
 
     private LineSessionException eof() {
-        return new LineSessionException(
-                LineSessionException.Reason.EOF, transcript.snapshot(), "Line session reached EOF");
+        return new LineSessionException(LineSessionException.Reason.EOF, lineTranscript(), "Line session reached EOF");
     }
 
     private LineSessionException closed(Throwable cause) {
         if (cause == null) {
             return new LineSessionException(
-                    LineSessionException.Reason.CLOSED, transcript.snapshot(), "Line session is closed");
+                    LineSessionException.Reason.CLOSED, lineTranscript(), "Line session is closed");
         }
         return new LineSessionException(
-                LineSessionException.Reason.CLOSED, transcript.snapshot(), "Line session is closed", cause);
+                LineSessionException.Reason.CLOSED, lineTranscript(), "Line session is closed", cause);
     }
 
     private LineSessionException failure(String message, Throwable cause) {
-        return new LineSessionException(LineSessionException.Reason.FAILURE, transcript.snapshot(), message, cause);
+        return new LineSessionException(LineSessionException.Reason.FAILURE, lineTranscript(), message, cause);
+    }
+
+    private LineTranscript lineTranscript() {
+        BoundedTranscriptBuffer.Snapshot snapshot = transcript.snapshot();
+        return new LineTranscript(snapshot.text(), snapshot.truncated());
     }
 
     private static Duration requirePositive(Duration duration, String name) {
@@ -376,48 +380,5 @@ public final class DefaultLineSession implements LineSession {
         EOF,
         CLOSED,
         FAILURE
-    }
-
-    private static final class TranscriptBuffer {
-
-        private final int limit;
-        private final StringBuilder text = new StringBuilder();
-        private String currentStream;
-        private boolean atLineStart = true;
-        private boolean truncated;
-
-        private TranscriptBuffer(int limit) {
-            if (limit <= 0) {
-                throw new IllegalArgumentException("limit must be positive");
-            }
-            this.limit = limit;
-        }
-
-        private synchronized void append(String streamName, char[] chars, int count) {
-            for (int index = 0; index < count; index++) {
-                if (atLineStart || !streamName.equals(currentStream)) {
-                    if (!atLineStart) {
-                        text.append('\n');
-                    }
-                    text.append(streamName).append(": ");
-                    atLineStart = false;
-                    currentStream = streamName;
-                }
-                char value = chars[index];
-                text.append(value);
-                if (value == '\n') {
-                    atLineStart = true;
-                    currentStream = null;
-                }
-            }
-            if (text.length() > limit) {
-                text.delete(0, text.length() - limit);
-                truncated = true;
-            }
-        }
-
-        private synchronized LineTranscript snapshot() {
-            return new LineTranscript(text.toString(), truncated);
-        }
     }
 }

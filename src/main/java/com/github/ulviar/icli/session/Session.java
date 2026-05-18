@@ -1,6 +1,7 @@
 package com.github.ulviar.icli.session;
 
 import com.github.ulviar.icli.command.CommandInput;
+import com.github.ulviar.icli.internal.session.DefaultSession;
 import com.github.ulviar.icli.terminal.TerminalSignal;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,11 +14,11 @@ import java.util.concurrent.CompletableFuture;
  * line-oriented request/response workflows; higher-level scenarios should build those guarantees on top of this raw
  * handle.
  *
- * <p>This is an iCLI-owned handle contract, not a service-provider interface. Applications receive session instances
- * from {@code CommandService}; custom implementations are not supported by higher-level helpers such as {@link Expect}
- * because those helpers rely on iCLI's internal output-ownership invariant.
+ * <p>This sealed interface is an iCLI-owned handle contract, not a service-provider interface. Applications receive
+ * session instances from {@code CommandService}; custom implementations are not supported because higher-level helpers
+ * rely on iCLI's internal output-ownership invariant.
  */
-public interface Session extends AutoCloseable {
+public sealed interface Session extends AutoCloseable permits DefaultSession {
 
     /**
      * Returns raw process stdout.

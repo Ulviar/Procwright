@@ -225,6 +225,15 @@ final class DiagnosticsOptionsTest {
     }
 
     @Test
+    void diagnosticsContractsDocumentBestEffortUnorderedDelivery() throws Exception {
+        String context = Files.readString(Path.of("context/diagnostics.md"), StandardCharsets.UTF_8);
+        String publicDocs = Files.readString(Path.of("docs/reference/diagnostics.md"), StandardCharsets.UTF_8);
+
+        assertTrue(context.contains("не гарантирует ordering"));
+        assertTrue(publicDocs.contains("ordering between callback deliveries is not a cross-thread contract"));
+    }
+
+    @Test
     void diagnosticAttributeSchemaRejectsInvalidShapes() {
         assertThrows(
                 IllegalArgumentException.class,

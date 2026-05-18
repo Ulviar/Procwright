@@ -26,7 +26,7 @@ public final class DefaultExpect implements Expect {
 
     private final DefaultSession session;
     private final ExpectOptions options;
-    private final TranscriptBuffer transcript;
+    private final BoundedTranscriptBuffer transcript;
     private final int matchBufferLimit;
     private final StringBuilder output = new StringBuilder();
     private final Object monitor = new Object();
@@ -38,7 +38,7 @@ public final class DefaultExpect implements Expect {
     public DefaultExpect(DefaultSession session, ExpectOptions options) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
-        this.transcript = new TranscriptBuffer(options.transcriptLimit());
+        this.transcript = new BoundedTranscriptBuffer(options.transcriptLimit());
         this.matchBufferLimit = options.matchBufferLimit();
         this.session.claimOutputOwner(OUTPUT_OWNER);
         startPumps();
@@ -107,7 +107,7 @@ public final class DefaultExpect implements Expect {
                     cursor = index + text.length();
                     return this;
                 }
-                waitForMore(deadlineNanos, "Expected text not found: " + text);
+                waitForMore(deadlineNanos, expectedMessage("Expected text not found", text));
             }
         }
     }
@@ -142,7 +142,7 @@ public final class DefaultExpect implements Expect {
                     cursor = matcher.end();
                     return this;
                 }
-                waitForMore(deadlineNanos, "Expected regex not found: " + pattern.pattern());
+                waitForMore(deadlineNanos, expectedMessage("Expected regex not found", pattern.pattern()));
             }
         }
     }
@@ -153,7 +153,7 @@ public final class DefaultExpect implements Expect {
      * @return transcript snapshot
      */
     public LineTranscript transcript() {
-        return transcript.snapshot();
+        return lineTranscript();
     }
 
     /**
@@ -234,19 +234,24 @@ public final class DefaultExpect implements Expect {
     }
 
     private ExpectException timeout(String message) {
-        return new ExpectException(ExpectException.Reason.TIMEOUT, transcript.snapshot(), message);
+        return new ExpectException(ExpectException.Reason.TIMEOUT, lineTranscript(), message);
     }
 
     private ExpectException eof(String message) {
-        return new ExpectException(ExpectException.Reason.EOF, transcript.snapshot(), message);
+        return new ExpectException(ExpectException.Reason.EOF, lineTranscript(), message);
     }
 
     private ExpectException closed() {
-        return new ExpectException(ExpectException.Reason.CLOSED, transcript.snapshot(), "Expect helper is closed");
+        return new ExpectException(ExpectException.Reason.CLOSED, lineTranscript(), "Expect helper is closed");
     }
 
     private ExpectException failure(String message, Throwable cause) {
-        return new ExpectException(ExpectException.Reason.FAILURE, transcript.snapshot(), message, cause);
+        return new ExpectException(ExpectException.Reason.FAILURE, lineTranscript(), message, cause);
+    }
+
+    private LineTranscript lineTranscript() {
+        BoundedTranscriptBuffer.Snapshot snapshot = transcript.snapshot();
+        return new LineTranscript(snapshot.text(), snapshot.truncated());
     }
 
     private void appendOutput(String chunk) {
@@ -295,60 +300,7 @@ public final class DefaultExpect implements Expect {
         return "<redacted>";
     }
 
-    private static final class TranscriptBuffer {
-
-        private final int limit;
-        private final StringBuilder text = new StringBuilder();
-        private String currentStream;
-        private boolean atLineStart = true;
-        private boolean truncated;
-
-        private TranscriptBuffer(int limit) {
-            if (limit <= 0) {
-                throw new IllegalArgumentException("limit must be positive");
-            }
-            this.limit = limit;
-        }
-
-        private synchronized void appendAction(String action) {
-            if (!atLineStart) {
-                text.append('\n');
-            }
-            text.append(action).append('\n');
-            atLineStart = true;
-            currentStream = null;
-            trim();
-        }
-
-        private synchronized void appendStream(String streamName, String chunk) {
-            for (int index = 0; index < chunk.length(); index++) {
-                if (atLineStart || !streamName.equals(currentStream)) {
-                    if (!atLineStart) {
-                        text.append('\n');
-                    }
-                    text.append(streamName).append(": ");
-                    atLineStart = false;
-                    currentStream = streamName;
-                }
-                char value = chunk.charAt(index);
-                text.append(value);
-                if (value == '\n') {
-                    atLineStart = true;
-                    currentStream = null;
-                }
-            }
-            trim();
-        }
-
-        private synchronized LineTranscript snapshot() {
-            return new LineTranscript(text.toString(), truncated);
-        }
-
-        private void trim() {
-            if (text.length() > limit) {
-                text.delete(0, text.length() - limit);
-                truncated = true;
-            }
-        }
+    private String expectedMessage(String prefix, String expected) {
+        return prefix + ": " + transcriptValue(expected);
     }
 }

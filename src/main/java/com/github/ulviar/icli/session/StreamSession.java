@@ -1,5 +1,6 @@
 package com.github.ulviar.icli.session;
 
+import com.github.ulviar.icli.internal.session.DefaultStreamSession;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -8,10 +9,10 @@ import java.util.concurrent.CompletableFuture;
  * <p>A stream session owns stdout/stderr pumps and dispatches chunks to the configured listener. It does not retain all
  * output; only a bounded diagnostic window is kept for exit and failure signals.
  *
- * <p>This is an iCLI-owned handle contract, not a service-provider interface. Applications receive stream sessions from
- * {@code CommandService}.
+ * <p>This sealed interface is an iCLI-owned handle contract, not a service-provider interface. Applications receive
+ * stream sessions from {@code CommandService}.
  */
-public interface StreamSession extends AutoCloseable {
+public sealed interface StreamSession extends AutoCloseable permits DefaultStreamSession {
 
     /**
      * Returns a process exit future view. The future completes after the process exits and output pumps drain.

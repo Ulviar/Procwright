@@ -52,6 +52,10 @@ public record CommandResult(
 
     /**
      * Creates a completed command result.
+     *
+     * <p>This advanced constructor accepts already decoded text alongside the captured bytes. Results produced by iCLI
+     * keep those values aligned through the execution charset. Manually created snapshots are responsible for providing
+     * consistent text and byte views.
      */
     public CommandResult {
         Objects.requireNonNull(exitCode, "exitCode");

@@ -9,6 +9,7 @@ import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.session.ExpectOptions;
 import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.PooledLineSessionMetrics;
 import com.github.ulviar.icli.session.PooledLineSessionOptions;
 import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamOptions;
@@ -118,5 +119,13 @@ final class PolicyValueTest {
                 .withMaxRequestsPerWorker(0));
         assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
                 .withMaxWorkerAge(Duration.ofMillis(-1)));
+    }
+
+    @Test
+    void pooledLineSessionMetricsRejectImpossibleSnapshots() {
+        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 1, 1, 1, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 2, 0, 2, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 0, 2, 2, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(0, 0, 0, 0, 1, 0, 0));
     }
 }
