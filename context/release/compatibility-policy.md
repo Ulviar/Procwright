@@ -23,12 +23,14 @@ system PTY provider, skip-аются через JUnit assumptions, если пл
   `com.github.ulviar.icli.session`, `com.github.ulviar.icli.diagnostics`, `com.github.ulviar.icli.terminal` и
   `com.github.ulviar.icli.preset`.
 - Kotlin ergonomics живет в `com.github.ulviar.icli.kotlin`.
-- CLI-backed integration helpers живут в `com.github.ulviar.icli.integration`.
+- CLI-backed integration helpers живут в `com.github.ulviar.icli.integration`; artifact `:icli-integrations` является
+  именованным Java module `com.github.ulviar.icli.integrations`.
 - Новые public packages требуют отдельного ADR.
 - Public top-level package surface покрывается tests, которые сканируют весь production artifact, чтобы случайная утечка
   внутреннего пакета была видна до релиза.
 - Core artifact является именованным Java module `com.github.ulviar.icli` и экспортирует только public API packages.
-  `com.github.ulviar.icli.internal` и вложенные runtime-пакеты не экспортируются.
+  `com.github.ulviar.icli.internal` и вложенные runtime-пакеты не экспортируются. Integrations module экспортирует только
+  `com.github.ulviar.icli.integration` и требует core module.
 
 ## Поведенческая совместимость
 

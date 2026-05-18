@@ -30,8 +30,9 @@ Compile-tested source: `CommandServiceApiExamples.expectScenario`.
 
 ## Transcript values
 
-`Expect` records action entries such as send and expect operations, but caller-provided values are redacted by default.
-Use verbatim transcript values only for non-secret automation where diagnostics require exact prompt or input text.
+`Expect` records action entries such as send and expect operations, but caller-provided values are redacted by default in
+transcripts and failure messages. Use verbatim transcript values only for non-secret automation where diagnostics require
+exact prompt or input text.
 
 ## User responsibilities
 

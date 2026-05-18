@@ -33,9 +33,9 @@
 
 ## Миграция session-family handles после JPMS split
 
-- `Session`, `Expect`, `LineSession`, `StreamSession` и `PooledLineSession` теперь являются публичными handle
+- `Session`, `Expect`, `LineSession`, `StreamSession` и `PooledLineSession` теперь являются публичными sealed handle
   interfaces, а не concrete implementation classes.
-- Эти interfaces не являются пользовательским SPI: пользователь получает handles через `CommandService` и не должен
+- Эти sealed interfaces не являются пользовательским SPI: пользователь получает handles через `CommandService` и не должен
   реализовывать или инстанцировать их самостоятельно.
 - Stateful реализации скрыты в неэкспортируемом `com.github.ulviar.icli.internal.session`.
 - Prompt automation строится через `Session.expect(...)` или `Expect.on(session)` только для sessions, созданных iCLI.

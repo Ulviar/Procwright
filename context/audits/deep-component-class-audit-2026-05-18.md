@@ -9,6 +9,9 @@ GRASP.
 Аудит не вносит исправления. Он фиксирует, где текущая реализация уже достаточно зрелая, а где качество держится на
 сценарных тестах или договоренности, но owner инварианта в коде еще недостаточно минимален.
 
+Статус исправлений зафиксирован в
+[audit-finding-remediation-2026-05-18.md](audit-finding-remediation-2026-05-18.md).
+
 ## Методика
 
 Проверены production classes core, `:icli-integrations` и `:icli-kotlin`, а также unit, integration и stress tests.

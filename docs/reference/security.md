@@ -34,8 +34,8 @@ only when the calling application has a concrete need.
 
 ## Prompt transcripts
 
-`Expect` redacts caller-provided send and expect values by default. Verbatim transcript values are an explicit opt-in
-and should not be used for secrets.
+`Expect` redacts caller-provided send and expect values in transcripts and failure messages by default. Verbatim
+transcript values are an explicit opt-in and should not be used for secrets.
 
 ## CLI-backed integrations
 

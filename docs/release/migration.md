@@ -16,7 +16,7 @@ iCLI is a clean rewrite, not an incremental refactor of the earlier implementati
 - Runtime invariants belong to value objects, policies, resolvers, and scenario runtimes.
 - Backend-specific process libraries do not leak into core public signatures.
 - Documentation describes only implemented and tested behavior.
-- Session-family handles (`Session`, `Expect`, `LineSession`, `StreamSession`, and `PooledLineSession`) are public
+- Session-family handles (`Session`, `Expect`, `LineSession`, `StreamSession`, and `PooledLineSession`) are sealed public
   interfaces backed by hidden iCLI implementations. Treat them as iCLI-owned handles, not user implementation SPIs.
 - The Java core artifact is the named module `com.github.ulviar.icli` and exports only public API packages. Runtime
   implementations live in non-exported internal packages.

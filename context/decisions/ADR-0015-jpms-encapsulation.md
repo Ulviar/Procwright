@@ -22,7 +22,7 @@ JPMS должен быть настоящей границей между public
 
 Разделить session-family handles на public contracts и internal implementations:
 
-- `com.github.ulviar.icli.session` содержит публичные interfaces и immutable value/option/exception types;
+- `com.github.ulviar.icli.session` содержит публичные sealed handle interfaces и immutable value/option/exception types;
 - `com.github.ulviar.icli.internal.session` содержит stateful implementations и runtime factories:
   `DefaultSession`, `DefaultExpect`, `DefaultLineSession`, `DefaultStreamSession`, `DefaultPooledLineSession`,
   `SessionRuntime`, `StreamRuntime`, `SessionScenarioSupport`;
@@ -42,7 +42,8 @@ diagnostics package описывает только пользовательск
 - JPMS теперь действительно скрывает runtime implementation packages;
 - публичная session surface описывает сценарные контракты, а не concrete lifecycle owners;
 - future implementation changes внутри session runtime не становятся public API по имени класса;
-- package boundary tests проверяют не только список пакетов, но и направление production-зависимостей.
+- package boundary tests проверяют не только список пакетов, но и направление production-зависимостей;
+- sealed session-family interfaces делают non-SPI nature compile-time свойством, а не только Javadoc предупреждением.
 
 Минусы:
 

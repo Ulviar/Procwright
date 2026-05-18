@@ -46,7 +46,7 @@ Diagnostics runtime dispatcher и schema validator относятся к `intern
 - Публичные сигнатуры не должны ссылаться на `com.github.ulviar.icli.internal`.
 - Runtime-only классы исключаются из пользовательской документации и не рассматриваются как пользовательский API.
 - Направления production-зависимостей между core packages закреплены тестом, а не только описаны в ADR.
-- Public session-family handles являются interfaces; lifecycle state, output ownership и runtime factories живут в
+- Public session-family handles являются sealed interfaces; lifecycle state, output ownership и runtime factories живут в
   неэкспортируемом `internal.session`.
 - Если класс владеет инвариантом, зависимые сценарии должны находиться рядом с ним или обращаться через явно
   выделенный runtime boundary.
@@ -83,8 +83,7 @@ stateful реализации и runtime factories живут в `internal.sessi
 Минусы:
 
 - это breaking change для импортов до первого релиза;
-- public session-family handles не являются SPI, хотя выглядят как обычные Java interfaces; это должно быть явно
-  описано в Javadoc и migration notes;
+- public session-family handles не являются SPI; sealed contracts делают это compile-time свойством;
 - tests, Kotlin facade, integrations и comparison module должны обновить imports.
 
 ## Проверка
