@@ -21,6 +21,7 @@ sourceSets {
 dependencies {
     implementation(project(":"))
     implementation(project(":icli-integrations"))
+    implementation(project(":icli-test-cli"))
     implementation("org.apache.commons:commons-exec:1.6.0")
     implementation("org.zeroturnaround:zt-exec:1.12")
     implementation("com.zaxxer:nuprocess:3.0.0")
@@ -86,6 +87,28 @@ tasks.register<JavaExec>("comparisonCheck") {
     args(
         "--verify",
         layout.buildDirectory.file("reports/comparison/results.md").get().asFile.absolutePath,
+    )
+    systemProperties(
+        System.getProperties()
+            .entries
+            .associate { it.key.toString() to it.value.toString() }
+            .filterKeys { it.startsWith("icli.comparison.") }
+    )
+}
+
+tasks.register<JavaExec>("stressComparisonReport") {
+    description =
+        "Runs stress comparison scenarios on the reusable test CLI and writes a Markdown report."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.github.ulviar.icli.comparison.StressComparisonRunner")
+    jvmArgs(comparisonNativeAccessArg)
+    args(
+        layout.projectDirectory
+            .dir("../context/comparison")
+            .file("stress-results.md")
+            .asFile
+            .absolutePath
     )
     systemProperties(
         System.getProperties()
