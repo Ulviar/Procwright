@@ -1,6 +1,9 @@
-package com.github.ulviar.icli.diagnostics;
+package com.github.ulviar.icli.internal;
 
-import com.github.ulviar.icli.internal.CommandValidation;
+import com.github.ulviar.icli.diagnostics.CommandEcho;
+import com.github.ulviar.icli.diagnostics.DiagnosticEvent;
+import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
+import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -8,10 +11,10 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-public final class Diagnostics {
+public final class DiagnosticEmitter {
 
-    private static final Diagnostics DISABLED =
-            new Diagnostics(DiagnosticsOptions.defaults(), "disabled", "disabled", CommandEcho.empty(), false);
+    private static final DiagnosticEmitter DISABLED =
+            new DiagnosticEmitter(DiagnosticsOptions.defaults(), "disabled", "disabled", CommandEcho.empty(), false);
 
     private final DiagnosticsOptions options;
     private final String runId;
@@ -19,7 +22,7 @@ public final class Diagnostics {
     private final CommandEcho command;
     private final boolean enabled;
 
-    private Diagnostics(
+    private DiagnosticEmitter(
             DiagnosticsOptions options, String runId, String scenario, CommandEcho command, boolean enabled) {
         this.options = Objects.requireNonNull(options, "options");
         this.runId = CommandValidation.requireText(runId, "runId");
@@ -28,24 +31,24 @@ public final class Diagnostics {
         this.enabled = enabled;
     }
 
-    public static Diagnostics of(DiagnosticsOptions options, String scenario, CommandEcho command) {
+    public static DiagnosticEmitter of(DiagnosticsOptions options, String scenario, CommandEcho command) {
         Objects.requireNonNull(options, "options");
         scenario = CommandValidation.requireText(scenario, "scenario");
         Objects.requireNonNull(command, "command");
         if (!options.enabled()) {
             return DISABLED;
         }
-        return new Diagnostics(options, UUID.randomUUID().toString(), scenario, command, true);
+        return new DiagnosticEmitter(options, UUID.randomUUID().toString(), scenario, command, true);
     }
 
-    public static Diagnostics of(DiagnosticsOptions options, String scenario, Supplier<CommandEcho> command) {
+    public static DiagnosticEmitter of(DiagnosticsOptions options, String scenario, Supplier<CommandEcho> command) {
         Objects.requireNonNull(options, "options");
         scenario = CommandValidation.requireText(scenario, "scenario");
         Objects.requireNonNull(command, "command");
         if (!options.enabled()) {
             return DISABLED;
         }
-        return new Diagnostics(options, UUID.randomUUID().toString(), scenario, command.get(), true);
+        return new DiagnosticEmitter(options, UUID.randomUUID().toString(), scenario, command.get(), true);
     }
 
     public boolean enabled() {

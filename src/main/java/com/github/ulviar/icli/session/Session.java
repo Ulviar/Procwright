@@ -5,9 +5,9 @@ import com.github.ulviar.icli.command.CommandInput;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.diagnostics.CommandEcho;
 import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
-import com.github.ulviar.icli.diagnostics.Diagnostics;
 import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
 import com.github.ulviar.icli.internal.CommandValidation;
+import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import com.github.ulviar.icli.internal.DurationSupport;
 import com.github.ulviar.icli.internal.ProcessLifecycle;
 import com.github.ulviar.icli.terminal.TerminalSignal;
@@ -41,7 +41,7 @@ public final class Session implements AutoCloseable {
     private final ShutdownPolicy shutdownPolicy;
     private final Charset charset;
     private final Duration idleTimeout;
-    private final Diagnostics diagnostics;
+    private final DiagnosticEmitter diagnostics;
     private final SessionStdin stdin;
     private final InputStream stdout;
     private final InputStream stderr;
@@ -60,7 +60,7 @@ public final class Session implements AutoCloseable {
                 idleTimeout,
                 shutdownPolicy,
                 charset,
-                Diagnostics.of(DiagnosticsOptions.defaults(), "session", CommandEcho.empty()));
+                DiagnosticEmitter.of(DiagnosticsOptions.defaults(), "session", CommandEcho.empty()));
     }
 
     Session(
@@ -68,7 +68,7 @@ public final class Session implements AutoCloseable {
             Duration idleTimeout,
             ShutdownPolicy shutdownPolicy,
             Charset charset,
-            Diagnostics diagnostics) {
+            DiagnosticEmitter diagnostics) {
         this.process = Objects.requireNonNull(process, "process");
         this.idleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
         this.shutdownPolicy = Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
@@ -268,7 +268,7 @@ public final class Session implements AutoCloseable {
         try {
             diagnostics.emit(
                     DiagnosticEventType.SHUTDOWN_REQUESTED,
-                    Diagnostics.attributes("reason", timedOut ? "idleTimeout" : "close"));
+                    DiagnosticEmitter.attributes("reason", timedOut ? "idleTimeout" : "close"));
             OptionalInt exitCode = process.isAlive()
                     ? ProcessLifecycle.stop(process, shutdownPolicy)
                     : OptionalInt.of(process.exitValue());
@@ -277,7 +277,7 @@ public final class Session implements AutoCloseable {
         } catch (RuntimeException exception) {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_FAILED,
-                    Diagnostics.attributes("error", exception.getClass().getName()));
+                    DiagnosticEmitter.attributes("error", exception.getClass().getName()));
             completeExceptionally(exception);
             if (!timedOut) {
                 throw exception;

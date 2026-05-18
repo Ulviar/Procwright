@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.diagnostics.CommandEcho;
-import com.github.ulviar.icli.diagnostics.Diagnostics;
 import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
+import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -68,7 +68,7 @@ final class SessionOutputOwnershipTest {
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 StandardCharsets.UTF_8,
-                Diagnostics.of(DiagnosticsOptions.defaults(), "session-test", CommandEcho.empty()));
+                DiagnosticEmitter.of(DiagnosticsOptions.defaults(), "session-test", CommandEcho.empty()));
     }
 
     private static final class BlockingInputStream extends InputStream {

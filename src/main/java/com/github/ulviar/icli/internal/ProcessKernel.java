@@ -5,7 +5,6 @@ import com.github.ulviar.icli.command.CommandResult;
 import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
-import com.github.ulviar.icli.diagnostics.Diagnostics;
 import java.io.OutputStream;
 import java.time.Duration;
 import java.time.Instant;
@@ -40,8 +39,8 @@ public final class ProcessKernel {
 
     public CommandResult run(ExecutionPlan plan) {
         Instant started = Instant.now();
-        Diagnostics diagnostics =
-                Diagnostics.of(plan.diagnosticsOptions(), "run", () -> CommandEchoSupport.from(plan.launchPlan()));
+        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
+                plan.diagnosticsOptions(), "run", () -> CommandEchoSupport.from(plan.launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
         Process process;
         try {
@@ -49,7 +48,7 @@ public final class ProcessKernel {
         } catch (RuntimeException exception) {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_FAILED,
-                    Diagnostics.attributes("error", exception.getClass().getName()));
+                    DiagnosticEmitter.attributes("error", exception.getClass().getName()));
             throw exception;
         }
 
@@ -59,7 +58,8 @@ public final class ProcessKernel {
         try {
             postStartHook.accept(process);
             diagnostics.emit(
-                    DiagnosticEventType.PROCESS_STARTED, Diagnostics.attributes("pid", Long.toString(process.pid())));
+                    DiagnosticEventType.PROCESS_STARTED,
+                    DiagnosticEmitter.attributes("pid", Long.toString(process.pid())));
             executor = Executors.newThreadPerTaskExecutor(
                     Thread.ofVirtual().name("icli-output-pump-", 0).factory());
             Future<CapturedOutput> stdout =
@@ -73,7 +73,8 @@ public final class ProcessKernel {
             OptionalInt exitCode;
             if (timedOut) {
                 diagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
-                diagnostics.emit(DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "timeout"));
+                diagnostics.emit(
+                        DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "timeout"));
                 exitCode = stopTimedOut(process, plan.shutdownPolicy());
             } else {
                 exitCode = OptionalInt.of(process.exitValue());
@@ -90,7 +91,7 @@ public final class ProcessKernel {
             if (stdoutOutput.truncated()) {
                 diagnostics.emit(
                         DiagnosticEventType.OUTPUT_TRUNCATED,
-                        Diagnostics.attributes(
+                        DiagnosticEmitter.attributes(
                                 "source",
                                 "stdout",
                                 "limitBytes",
@@ -99,7 +100,7 @@ public final class ProcessKernel {
             if (stderrOutput.truncated()) {
                 diagnostics.emit(
                         DiagnosticEventType.OUTPUT_TRUNCATED,
-                        Diagnostics.attributes(
+                        DiagnosticEmitter.attributes(
                                 "source",
                                 "stderr",
                                 "limitBytes",
@@ -121,13 +122,13 @@ public final class ProcessKernel {
             emitSuppressed(
                     diagnostics,
                     DiagnosticEventType.PROCESS_FAILED,
-                    Diagnostics.attributes("error", exception.getClass().getName()),
+                    DiagnosticEmitter.attributes("error", exception.getClass().getName()),
                     exception);
             if (process.isAlive()) {
                 emitSuppressed(
                         diagnostics,
                         DiagnosticEventType.SHUTDOWN_REQUESTED,
-                        Diagnostics.attributes("reason", "failure"),
+                        DiagnosticEmitter.attributes("reason", "failure"),
                         exception);
             }
             forceStopAfterFailure(process, exception);
@@ -272,7 +273,7 @@ public final class ProcessKernel {
     }
 
     private static void emitSuppressed(
-            Diagnostics diagnostics,
+            DiagnosticEmitter diagnostics,
             DiagnosticEventType type,
             java.util.Map<String, String> attributes,
             RuntimeException primaryFailure) {

@@ -1,19 +1,19 @@
-package com.github.ulviar.icli.diagnostics;
+package com.github.ulviar.icli.internal;
 
-import com.github.ulviar.icli.internal.CommandValidation;
+import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-final class DiagnosticAttributeSchema {
+public final class DiagnosticAttributeSchema {
 
     private static final Map<DiagnosticEventType, Set<String>> ALLOWED_ATTRIBUTES = allowedAttributes();
 
     private DiagnosticAttributeSchema() {}
 
-    static Map<String, String> validate(DiagnosticEventType type, Map<String, String> attributes) {
+    public static Map<String, String> validate(DiagnosticEventType type, Map<String, String> attributes) {
         Objects.requireNonNull(type, "type");
         LinkedHashMap<String, String> snapshot = new LinkedHashMap<>(Objects.requireNonNull(attributes, "attributes"));
         Set<String> allowed = ALLOWED_ATTRIBUTES.get(type);
@@ -32,7 +32,7 @@ final class DiagnosticAttributeSchema {
         return Map.copyOf(snapshot);
     }
 
-    static Map<DiagnosticEventType, Set<String>> allowedAttributesByType() {
+    public static Map<DiagnosticEventType, Set<String>> allowedAttributesByType() {
         return ALLOWED_ATTRIBUTES;
     }
 

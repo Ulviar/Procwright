@@ -68,7 +68,6 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.named<Javadoc>("javadoc") {
     exclude(
         "**/internal/**",
-        "**/diagnostics/Diagnostics.java",
         "**/session/SessionScenarioSupport.java",
         "**/session/SessionRuntime.java",
         "**/session/StreamRuntime.java",

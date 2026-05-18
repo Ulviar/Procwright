@@ -1,6 +1,7 @@
 package com.github.ulviar.icli.diagnostics;
 
 import com.github.ulviar.icli.internal.CommandValidation;
+import com.github.ulviar.icli.internal.DiagnosticAttributeSchema;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;

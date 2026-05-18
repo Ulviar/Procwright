@@ -53,23 +53,48 @@ public final class DiagnosticsOptions {
         return new DiagnosticsOptions(listener, transcriptSink);
     }
 
-    DiagnosticListener listener() {
+    /**
+     * Returns the configured diagnostic listener.
+     *
+     * @return diagnostic listener
+     */
+    public DiagnosticListener listener() {
         return listener;
     }
 
-    DiagnosticTranscriptSink transcriptSink() {
+    /**
+     * Returns the configured transcript sink.
+     *
+     * @return transcript sink
+     */
+    public DiagnosticTranscriptSink transcriptSink() {
         return transcriptSink;
     }
 
-    boolean listenerEnabled() {
+    /**
+     * Returns whether diagnostics listener delivery is enabled.
+     *
+     * @return {@code true} when the listener is not the default no-op listener
+     */
+    public boolean listenerEnabled() {
         return listener != NoopDiagnosticListener.INSTANCE;
     }
 
-    boolean transcriptSinkEnabled() {
+    /**
+     * Returns whether transcript sink delivery is enabled.
+     *
+     * @return {@code true} when the sink is not the default no-op sink
+     */
+    public boolean transcriptSinkEnabled() {
         return transcriptSink != NoopDiagnosticTranscriptSink.INSTANCE;
     }
 
-    boolean enabled() {
+    /**
+     * Returns whether at least one diagnostics delivery hook is enabled.
+     *
+     * @return {@code true} when listener or transcript sink delivery is enabled
+     */
+    public boolean enabled() {
         return listenerEnabled() || transcriptSinkEnabled();
     }
 

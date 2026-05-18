@@ -1,7 +1,7 @@
 package com.github.ulviar.icli.session;
 
 import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
-import com.github.ulviar.icli.diagnostics.Diagnostics;
+import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import com.github.ulviar.icli.internal.DurationSupport;
 import com.github.ulviar.icli.internal.StreamExecutionPlan;
 import java.io.IOException;
@@ -33,7 +33,7 @@ public final class StreamSession implements AutoCloseable {
     private final Duration timeout;
     private final Charset charset;
     private final StreamListener listener;
-    private final Diagnostics eventDiagnostics;
+    private final DiagnosticEmitter eventDiagnostics;
     private final TranscriptBuffer diagnostics;
     private final Instant started = Instant.now();
     private final CompletableFuture<StreamExit> exit = new CompletableFuture<>();
@@ -48,7 +48,7 @@ public final class StreamSession implements AutoCloseable {
     private final AtomicReference<Thread> timeoutWatcher = new AtomicReference<>();
     private final CompletableFuture<Void> timeoutWatcherStopped = new CompletableFuture<>();
 
-    StreamSession(Session session, StreamExecutionPlan plan, Diagnostics eventDiagnostics) {
+    StreamSession(Session session, StreamExecutionPlan plan, DiagnosticEmitter eventDiagnostics) {
         this.session = Objects.requireNonNull(session, "session");
         Objects.requireNonNull(plan, "plan");
         this.timeout = plan.timeout();
@@ -107,7 +107,7 @@ public final class StreamSession implements AutoCloseable {
             boolean alreadyStopping = stopping.getAndSet(true);
             if (!alreadyStopping && !session.onExit().isDone()) {
                 eventDiagnostics.emit(
-                        DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "close"));
+                        DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "close"));
             }
             stopTimeoutWatcher();
             session.close();
@@ -131,7 +131,7 @@ public final class StreamSession implements AutoCloseable {
                 if (truncated && truncationEmitted.compareAndSet(false, true)) {
                     eventDiagnostics.emit(
                             DiagnosticEventType.OUTPUT_TRUNCATED,
-                            Diagnostics.attributes(
+                            DiagnosticEmitter.attributes(
                                     "source", "diagnostics", "limitChars", Integer.toString(diagnostics.limit())));
                 }
                 if (!deliver(new StreamChunk(source, text))) {
@@ -189,7 +189,7 @@ public final class StreamSession implements AutoCloseable {
                     stopping.set(true);
                     eventDiagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
                     eventDiagnostics.emit(
-                            DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "timeout"));
+                            DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "timeout"));
                     session.close();
                 }
             } finally {
@@ -210,8 +210,9 @@ public final class StreamSession implements AutoCloseable {
             stopping.set(true);
             eventDiagnostics.emit(
                     DiagnosticEventType.PROCESS_FAILED,
-                    Diagnostics.attributes("error", cause.getClass().getName()));
-            eventDiagnostics.emit(DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "failure"));
+                    DiagnosticEmitter.attributes("error", cause.getClass().getName()));
+            eventDiagnostics.emit(
+                    DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "failure"));
             session.close();
         }
     }

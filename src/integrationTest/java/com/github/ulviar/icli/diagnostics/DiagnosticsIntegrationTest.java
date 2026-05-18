@@ -13,6 +13,7 @@ import com.github.ulviar.icli.command.CommandResult;
 import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
+import com.github.ulviar.icli.internal.DiagnosticAttributeSchema;
 import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;

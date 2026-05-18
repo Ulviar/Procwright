@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.command.OutputMode;
+import com.github.ulviar.icli.internal.DiagnosticAttributeSchema;
+import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import com.github.ulviar.icli.terminal.TerminalPolicy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -61,7 +63,7 @@ final class DiagnosticsOptionsTest {
 
     @Test
     void listenerFailureDoesNotEscapeEmitter() {
-        Diagnostics diagnostics = Diagnostics.of(
+        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
                 DiagnosticsOptions.defaults().withListener(event -> {
                     throw new IllegalStateException("ignored");
                 }),
@@ -73,7 +75,7 @@ final class DiagnosticsOptionsTest {
 
     @Test
     void diagnosticsCallbacksAreBestEffortAsync() {
-        Diagnostics diagnostics = Diagnostics.of(
+        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
                 DiagnosticsOptions.defaults().withListener(event -> sleep(Duration.ofMillis(300))),
                 "run",
                 CommandEcho.empty());
@@ -87,7 +89,7 @@ final class DiagnosticsOptionsTest {
 
     @Test
     void defaultDiagnosticsUseDisabledFastPath() {
-        Diagnostics diagnostics = Diagnostics.of(DiagnosticsOptions.defaults(), "run", CommandEcho.empty());
+        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(DiagnosticsOptions.defaults(), "run", CommandEcho.empty());
 
         assertFalse(diagnostics.enabled());
     }
@@ -95,7 +97,7 @@ final class DiagnosticsOptionsTest {
     @Test
     void disabledDiagnosticsDoNotBuildLazyCommandEcho() {
         AtomicInteger echoBuilds = new AtomicInteger();
-        Diagnostics diagnostics = Diagnostics.of(DiagnosticsOptions.defaults(), "run", () -> {
+        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(DiagnosticsOptions.defaults(), "run", () -> {
             echoBuilds.incrementAndGet();
             return CommandEcho.empty();
         });
@@ -109,14 +111,15 @@ final class DiagnosticsOptionsTest {
     void disabledDiagnosticsStillValidateScenario() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> Diagnostics.of(DiagnosticsOptions.defaults(), " ", () -> CommandEcho.empty()));
+                () -> DiagnosticEmitter.of(DiagnosticsOptions.defaults(), " ", () -> CommandEcho.empty()));
     }
 
     @Test
     void customDiagnosticsRequireEventDelivery() {
-        assertTrue(Diagnostics.of(DiagnosticsOptions.defaults().withListener(event -> {}), "run", CommandEcho.empty())
+        assertTrue(DiagnosticEmitter.of(
+                        DiagnosticsOptions.defaults().withListener(event -> {}), "run", CommandEcho.empty())
                 .enabled());
-        assertTrue(Diagnostics.of(
+        assertTrue(DiagnosticEmitter.of(
                         DiagnosticsOptions.defaults().withTranscriptSink(event -> {}), "run", CommandEcho.empty())
                 .enabled());
     }
@@ -128,7 +131,7 @@ final class DiagnosticsOptionsTest {
         Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> uncaught.incrementAndGet());
         try {
-            Diagnostics diagnostics = Diagnostics.of(
+            DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
                     new DiagnosticsOptions(
                             event -> {
                                 delivered.countDown();
@@ -158,7 +161,7 @@ final class DiagnosticsOptionsTest {
         CountDownLatch listenerStarted = new CountDownLatch(1);
         CountDownLatch releaseListener = new CountDownLatch(1);
         CountDownLatch sinkDelivered = new CountDownLatch(1);
-        Diagnostics diagnostics = Diagnostics.of(
+        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
                 new DiagnosticsOptions(
                         event -> {
                             listenerStarted.countDown();
@@ -182,7 +185,7 @@ final class DiagnosticsOptionsTest {
     void eventsFromOneDiagnosticsEmitterShareCorrelationId() throws Exception {
         List<DiagnosticEvent> events = java.util.Collections.synchronizedList(new ArrayList<>());
         CountDownLatch delivered = new CountDownLatch(2);
-        Diagnostics diagnostics = Diagnostics.of(
+        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
                 DiagnosticsOptions.defaults().withListener(event -> {
                     events.add(event);
                     delivered.countDown();
@@ -191,7 +194,7 @@ final class DiagnosticsOptionsTest {
                 CommandEcho.empty());
 
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
-        diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, Diagnostics.attributes("timedOut", "false"));
+        diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, DiagnosticEmitter.attributes("timedOut", "false"));
 
         assertTrue(delivered.await(1, TimeUnit.SECONDS));
         assertEquals(1, events.stream().map(DiagnosticEvent::runId).distinct().count());
@@ -207,8 +210,8 @@ final class DiagnosticsOptionsTest {
             delivered.countDown();
         });
 
-        Diagnostics.of(options, "run", CommandEcho.empty()).emit(DiagnosticEventType.COMMAND_PREPARED);
-        Diagnostics.of(options, "run", CommandEcho.empty()).emit(DiagnosticEventType.COMMAND_PREPARED);
+        DiagnosticEmitter.of(options, "run", CommandEcho.empty()).emit(DiagnosticEventType.COMMAND_PREPARED);
+        DiagnosticEmitter.of(options, "run", CommandEcho.empty()).emit(DiagnosticEventType.COMMAND_PREPARED);
 
         assertTrue(delivered.await(1, TimeUnit.SECONDS));
         assertNotEquals(events.get(0).runId(), events.get(1).runId());
@@ -226,11 +229,11 @@ final class DiagnosticsOptionsTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DiagnosticAttributeSchema.validate(
-                        DiagnosticEventType.PROCESS_EXITED, Diagnostics.attributes("exitCode", "0")));
+                        DiagnosticEventType.PROCESS_EXITED, DiagnosticEmitter.attributes("exitCode", "0")));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DiagnosticAttributeSchema.validate(
-                        DiagnosticEventType.PROCESS_STARTED, Diagnostics.attributes("pid", "not-a-number")));
+                        DiagnosticEventType.PROCESS_STARTED, DiagnosticEmitter.attributes("pid", "not-a-number")));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DiagnosticAttributeSchema.validate(
@@ -239,11 +242,12 @@ final class DiagnosticsOptionsTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DiagnosticAttributeSchema.validate(
-                        DiagnosticEventType.SHUTDOWN_REQUESTED, Diagnostics.attributes("reason", "user")));
+                        DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "user")));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DiagnosticAttributeSchema.validate(
-                        DiagnosticEventType.PROCESS_FAILED, Diagnostics.attributes("error", "secret failure text")));
+                        DiagnosticEventType.PROCESS_FAILED,
+                        DiagnosticEmitter.attributes("error", "secret failure text")));
     }
 
     private static Map<DiagnosticEventType, Set<String>> parseDiagnosticsMarkdownSchema(Path path) throws Exception {

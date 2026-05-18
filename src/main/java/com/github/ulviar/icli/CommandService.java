@@ -6,9 +6,9 @@ import com.github.ulviar.icli.command.CommandResult;
 import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
-import com.github.ulviar.icli.diagnostics.Diagnostics;
 import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
 import com.github.ulviar.icli.internal.CommandEchoSupport;
+import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import com.github.ulviar.icli.internal.ExecutionPlan;
 import com.github.ulviar.icli.internal.ExecutionPlanResolver;
 import com.github.ulviar.icli.internal.ProcessKernel;
@@ -375,15 +375,15 @@ public final class CommandService {
     }
 
     private Session openSession(String scenario, SessionExecutionPlan plan) {
-        Diagnostics diagnostics =
-                Diagnostics.of(diagnosticsOptions, scenario, () -> CommandEchoSupport.from(plan.launchPlan()));
+        DiagnosticEmitter diagnostics =
+                DiagnosticEmitter.of(diagnosticsOptions, scenario, () -> CommandEchoSupport.from(plan.launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
         try {
             return SessionRuntime.open(plan, diagnostics);
         } catch (RuntimeException exception) {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_FAILED,
-                    Diagnostics.attributes("error", exception.getClass().getName()));
+                    DiagnosticEmitter.attributes("error", exception.getClass().getName()));
             throw exception;
         }
     }

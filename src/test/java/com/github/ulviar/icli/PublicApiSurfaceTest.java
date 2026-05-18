@@ -35,6 +35,11 @@ final class PublicApiSurfaceTest {
             "com.github.ulviar.icli.session",
             "com.github.ulviar.icli.terminal");
 
+    private static final Set<String> HIDDEN_PUBLIC_RUNTIME_TYPES = Set.of(
+            "com.github.ulviar.icli.session.SessionScenarioSupport",
+            "com.github.ulviar.icli.session.SessionRuntime",
+            "com.github.ulviar.icli.session.StreamRuntime");
+
     @Test
     void corePublicTopLevelTypesStayInApprovedPackages() throws Exception {
         assertEquals(PUBLIC_API_PACKAGES, publicTopLevelPackages(CommandService.class));
@@ -75,6 +80,21 @@ final class PublicApiSurfaceTest {
             for (Field field : type.getFields()) {
                 assertAllowedType(field.getGenericType(), type.getName() + "#" + field.getName(), seenTypes());
             }
+        }
+    }
+
+    @Test
+    void moduleDescriptorIsBlockedUntilHiddenRuntimeTypesMoveOutOfExportedPackages() throws Exception {
+        Set<String> publicHiddenTypes = publicHiddenRuntimeTypeNames();
+        if (Files.exists(Path.of("src/main/java/module-info.java"))) {
+            assertEquals(
+                    Set.of(),
+                    publicHiddenTypes,
+                    "module-info.java must not export runtime-only public support classes");
+        } else {
+            assertTrue(
+                    !publicHiddenTypes.isEmpty(),
+                    "Hidden runtime support is gone; add module-info.java to export only public API packages");
         }
     }
 
@@ -171,6 +191,21 @@ final class PublicApiSurfaceTest {
         return Collections.newSetFromMap(new IdentityHashMap<>());
     }
 
+    private static Set<String> publicHiddenRuntimeTypeNames() throws Exception {
+        TreeSet<String> names = new TreeSet<>();
+        for (String typeName : HIDDEN_PUBLIC_RUNTIME_TYPES) {
+            try {
+                Class<?> type = Class.forName(typeName, false, CommandService.class.getClassLoader());
+                if (Modifier.isPublic(type.getModifiers())) {
+                    names.add(typeName);
+                }
+            } catch (ClassNotFoundException ignored) {
+                // Hidden support may be moved or removed before module-info.java is introduced.
+            }
+        }
+        return names;
+    }
+
     private static void assertAllowedClass(Class<?> type, String location) {
         if (type.isPrimitive() || type == Void.TYPE) {
             return;
@@ -190,10 +225,7 @@ final class PublicApiSurfaceTest {
         if (name.startsWith("com.github.ulviar.icli.internal.")) {
             return false;
         }
-        return !name.equals("com.github.ulviar.icli.diagnostics.Diagnostics")
-                && !name.equals("com.github.ulviar.icli.session.SessionScenarioSupport")
-                && !name.equals("com.github.ulviar.icli.session.SessionRuntime")
-                && !name.equals("com.github.ulviar.icli.session.StreamRuntime");
+        return !HIDDEN_PUBLIC_RUNTIME_TYPES.contains(name);
     }
 
     private static boolean isTopLevelClass(Path path) {
