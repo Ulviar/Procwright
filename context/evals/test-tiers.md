@@ -72,12 +72,14 @@ Test/eval tiers фиксируют, какие инварианты защища
 ```bash
 ./gradlew javadoc
 ./gradlew :icli-kotlin:kotlinApiDocsCheck
+./gradlew publicDocsCheck
 ```
 
 Назначение:
 
 - Java public modules собирают Javadoc;
 - Kotlin public API имеет KDoc;
+- public MkDocs site собирается в strict mode;
 - documentation maturity проверяется отдельно от runtime behavior.
 
 Javadoc warnings review остается отдельной ручной обязанностью до появления warning-as-error gate.

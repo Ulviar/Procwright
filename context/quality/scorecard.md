@@ -32,22 +32,22 @@ release gate до тестового закрытия или явного releas
 | Invariant model | Начато | `ScenarioProfile + CommandSpec + CommandInvocation/SessionInvocation` разворачиваются в валидированные scenario-specific plans. |
 | One-shot execution | Начато | Direct argv, explicit shell, stdin, working directory, env, charset, timeout и drain покрыты integration tests. |
 | Capture policy | Начато | Bounded stdout/stderr capture и truncation flags покрыты; streaming/discard еще не добавлены. |
-| Timeout/shutdown | Начато | Timeout supervision покрыт integration tests; forceful shutdown branch реализован, но требует отдельной hardening-проверки. |
-| Command model | Начато | Immutable command spec и per-call invocation builder компилируются и покрыты базовыми тестами. |
+| Timeout/shutdown | Начато | Timeout supervision, forceful shutdown и process-tree cleanup покрыты integration tests. |
+| Command model | Начато | Immutable command spec, per-call invocation builder и explicit environment policy компилируются и покрыты базовыми тестами. |
 | Interactive session | Начато | Raw `Session` имеет защищенный stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout tests. |
-| Line session | Начато | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, различение EOF/timeout и stderr drain. |
-| Expect helper | Начато | Literal/regex matching, send/sendLine, bounded transcript, различение timeout/EOF и ANSI filter покрыты tests. |
-| PTY | Начато | `TerminalPolicy`, `PtyProvider`, Unix `script(1)` provider, explicit unsupported behavior, terminal size request и Ctrl+C-style signal mapping покрыты tests. |
+| Line session | Начато | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, bounded line length, различение EOF/timeout и stderr drain. |
+| Expect helper | Начато | Literal/regex matching, send/sendLine, bounded transcript, redacted action values, различение timeout/EOF и ANSI filter покрыты tests. |
+| PTY | Начато | `TerminalPolicy`, `PtyProvider`, Unix `script(1)` provider из trusted system paths, explicit unsupported behavior, terminal size request и Ctrl+C-style signal mapping покрыты tests. |
 | Streaming/listen | Начато | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, timeout/listener failure покрыты tests. |
 | Diagnostics | Начато | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo и launch failures без raw argv/env values, async listener SPI, transcript sink и diagnostic test recorder покрыты tests для service scenarios, включая pooled worker launches. |
 | Kotlin ergonomics | Начато | Optional `:icli-kotlin` module компилируется отдельно, содержит receiver extensions, suspend wrappers, узкий `ListenFlowInvocation` без listener override и Flow adapter tests без silent drops. |
 | Pooling | Начато | `PooledLineSession` использует existing `LineSession` workers, поддерживает max/warmup size, acquire timeout, reset/health hooks, worker retirement, graceful drain и metrics snapshot. |
 | Scenario presets | Начато | `ScenarioPresets` дает typed builder customizers для command automation, env diagnostics, REPL, prompt automation, log following, binary byte snapshots, terminal-required session и warm worker pool без нового runtime. |
-| CLI integrations | Начато | Optional `:icli-integrations` содержит JSON/JSONL codec, Content-Length framed JSON helpers, `JsonLineSession`, cancellation mapping, `ToolCallResult`, `CliAdapterError` и compile-tested command-backed tool examples без MCP dependency в core. |
+| CLI integrations | Начато | Optional `:icli-integrations` содержит depth-limited JSON/JSONL codec, Content-Length framed JSON helpers, `JsonLineSession`, cancellation mapping, `ToolCallResult`, `CliAdapterError` и compile-tested command-backed tool examples без MCP dependency в core. |
 | Performance/stress | Начато | `stressTest` входит в `check` и покрывает bounded capture under load, stderr drain, timeout churn, rapid session lifecycle, pooled contention и conditional PTY stability. |
-| Release hardening | Начато | License, cross-platform CI, versioning/compatibility/dependency policies, release checklist, migration notes, unified module coordinates, Javadoc artifacts, Kotlin KDoc check и public package boundary tests добавлены; session shutdown escalation hardening остается release gate перед первым OSS-кандидатом. |
+| Release hardening | Начато | License, cross-platform CI, pinned workflow actions, Gradle wrapper checksum, dependency verification metadata, versioning/compatibility/dependency policies, release checklist, migration notes, unified module coordinates, Javadoc artifacts, Kotlin KDoc check и public package boundary tests добавлены. |
 | Fixture/evals | Начато | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
-| Documentation | Начато | README описывает foundation, `run`, `interactive`, `lineSession`, `Expect`, PTY, `listen`, diagnostics, Kotlin module, pooled workers, presets, integration module, bounded stress suite и release status, явно говорит, что runtime пока неполный. |
+| Documentation | Базово закрыто | README описывает release status и verification tiers; `docs/` содержит public MkDocs Material site с overview, getting started, scenario docs, how-to guides, reference, API и release разделами; `publicDocsCheck` собирает site в strict mode и подкладывает generated Java API docs; public docs отделены от внутреннего русского `context/` и связаны с compile-tested examples через tests. |
 | Raw/session affinity pooling | Отложено | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
 
 ## Решения, которые нужно принять

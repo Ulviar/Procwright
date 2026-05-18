@@ -19,6 +19,8 @@
 - [legacy-lessons.md](legacy-lessons.md) — что берем и что не берем из старой версии.
 - [development-model.md](development-model.md) — процесс разработки и работы агентов.
 - [plans/maximal-version-roadmap.md](plans/maximal-version-roadmap.md) — верхнеуровневый план максимальной версии.
+- [plans/active/documentation-writing-plan.md](plans/active/documentation-writing-plan.md) — план написания публичной
+  документации.
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
 - [evals/test-tiers.md](evals/test-tiers.md) — уровни локальных проверок и eval gate.
 - [quality/engineering-charter.md](quality/engineering-charter.md) — обязательные требования к качеству проекта.
@@ -28,6 +30,7 @@
 - [release/dependency-review.md](release/dependency-review.md) — обзор runtime/build dependencies.
 - [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release candidate.
 - [release/migration-notes.md](release/migration-notes.md) — migration notes из старой iCLI.
+- [release/release-notes-template.md](release/release-notes-template.md) — template публичных release notes.
 - [comparison/README.md](comparison/README.md) — исследовательское сравнение process-библиотек по сценариям iCLI.
 - [audits/standing-auditor-instructions.md](audits/standing-auditor-instructions.md) — постоянные роли независимого
   аудита.
@@ -45,6 +48,8 @@
 - [decisions/ADR-0011-release-hardening.md](decisions/ADR-0011-release-hardening.md) — release hardening перед первым OSS-кандидатом.
 - [decisions/ADR-0012-scenario-first-after-library-comparison.md](decisions/ADR-0012-scenario-first-after-library-comparison.md)
   — сохранение scenario-first API после сравнения process-библиотек.
+- [decisions/ADR-0013-documentation-toolchain.md](decisions/ADR-0013-documentation-toolchain.md) — публичная
+  документация, MkDocs Material и граница между `docs/` и `context/`.
 
 ## Правило навигации
 

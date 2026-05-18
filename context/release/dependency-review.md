@@ -12,8 +12,32 @@ core classpath.
 Build/test dependencies:
 
 - Gradle wrapper;
+- Gradle wrapper distribution закреплен `distributionSha256Sum`; wrapper files обновляются только через Gradle wrapper
+  task и проходят review как build tooling change;
+- Gradle dependency verification metadata (`gradle/verification-metadata.xml`) фиксирует SHA-256 для build/test
+  dependencies;
+- dependency resolution централизован в `settings.gradle.kts`: `FAIL_ON_PROJECT_REPOS` и Maven Central как единственный
+  repository;
 - JUnit 6 для тестов;
 - Spotless + palantir-java-format для форматирования.
+
+## Documentation toolchain
+
+Публичная документация собирается отдельно от runtime artifacts через `./gradlew publicDocsCheck`. Эта задача также
+собирает Java Javadocs и подкладывает их в итоговый public site output.
+
+Docs-only top-level dependencies закреплены по версиям в `docs/requirements.txt` и устанавливаются через `uv` в
+isolated environment:
+
+- MkDocs;
+- Material for MkDocs.
+
+Эти зависимости не попадают в Gradle runtime/test classpath, не являются частью published artifacts и не должны
+рассматриваться как process-runtime dependency. Их назначение — strict build публичного сайта из `docs/`.
+
+Transitive Python dependencies пока не закреплены `uv.lock`, constraints file или hash-pinned requirements. Это
+остаточный supply-chain риск documentation toolchain; перед публичным release нужно либо добавить lock/hashes workflow,
+либо явно принять этот риск в release checklist.
 
 ## Kotlin module
 
@@ -59,8 +83,9 @@ declarations публичных modules.
 
 GitHub Actions workflow использует:
 
-- `actions/checkout`;
-- `actions/setup-java` с Temurin JDK 25.
+- `actions/checkout`, pinned to commit SHA;
+- `actions/setup-java` с Temurin JDK 25, pinned to commit SHA;
+- минимальные workflow permissions: `contents: read`.
 
 ## Правило добавления dependency
 

@@ -1,0 +1,48 @@
+# Policies
+
+Policies are value objects or enums that own domain decisions. They keep public API calls from becoming a long list of
+loosely related flags.
+
+## EnvironmentPolicy
+
+- `INHERIT` starts from the current process environment and applies configured overrides.
+- `CLEAN` starts from an empty environment and applies only configured overrides.
+
+Use `cleanEnvironment()` for less trusted CLIs or for reproducible command environments.
+
+## CapturePolicy
+
+`CapturePolicy.bounded(byteLimit)` retains at most the configured number of bytes per stream for `run` results.
+
+Truncation is reported on `CommandResult` through stdout/stderr truncation flags.
+
+## ShutdownPolicy
+
+`ShutdownPolicy.interruptThenKill(interruptGrace, killGrace)` defines the shutdown escalation path used by timeout,
+failure, explicit close, and idle-timeout paths where applicable.
+
+The current runtime applies shutdown to the process tree through JDK `ProcessHandle` where the platform permits it.
+
+## OutputMode
+
+- `SEPARATE` captures stdout and stderr independently.
+- `MERGED` redirects stderr into stdout and leaves `stderr()` empty.
+
+## TerminalPolicy
+
+- `DISABLED` never requests terminal capability.
+- `AUTO` allows terminal transport when available.
+- `REQUIRED` fails when terminal transport is unavailable.
+
+Terminal policy is valid only for session-family workflows.
+
+## Default option families
+
+- `RunOptions` defines capture, shutdown, timeout, charset, and output mode defaults for `run`.
+- `SessionOptions` defines idle timeout, shutdown, charset, terminal policy, PTY provider, and terminal size defaults.
+- `LineSessionOptions` defines request timeout, transcript limit, backlog limit, maximum line length, charset, and
+  response decoder.
+- `ExpectOptions` defines match timeout, transcript limit, match buffer limit, charset, output filter, and transcript
+  value policy.
+- `StreamOptions` defines stream timeout, shutdown, charset, and diagnostic limit.
+- `PooledLineSessionOptions` defines size, warmup, acquire timeout, worker retirement, reset, and health policies.

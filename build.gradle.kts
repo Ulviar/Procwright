@@ -3,7 +3,7 @@ import org.gradle.api.artifacts.ProjectDependency
 plugins {
     `java-library`
     `java-test-fixtures`
-    id("com.diffplug.spotless") version "8.0.0"
+    id("com.diffplug.spotless") version "8.5.1"
     id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
 }
 
@@ -183,6 +183,54 @@ val publicJavaJavadocCheck =
         dependsOn(tasks.named("javadoc"), ":icli-integrations:javadoc")
     }
 
+val publicDocsCheck =
+    tasks.register<Exec>("publicDocsCheck") {
+        description =
+            "Builds the public MkDocs documentation site in strict mode and attaches generated API docs."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(publicJavaJavadocCheck)
+
+        val requirements = layout.projectDirectory.file("docs/requirements.txt")
+        val config = layout.projectDirectory.file("mkdocs.yml")
+        val output = layout.buildDirectory.dir("public-docs")
+        val coreJavadocs = layout.buildDirectory.dir("docs/javadoc")
+        val integrationJavadocs =
+            project(":icli-integrations").layout.buildDirectory.dir("docs/javadoc")
+
+        inputs.file(requirements)
+        inputs.file(config)
+        inputs.dir(layout.projectDirectory.dir("docs"))
+        inputs.dir(coreJavadocs)
+        inputs.dir(integrationJavadocs)
+        outputs.dir(output)
+
+        commandLine(
+            "uv",
+            "run",
+            "--isolated",
+            "--with-requirements",
+            requirements.asFile.absolutePath,
+            "python",
+            "-m",
+            "mkdocs",
+            "build",
+            "--strict",
+            "--site-dir",
+            output.get().asFile.absolutePath,
+        )
+
+        doLast {
+            copy {
+                from(coreJavadocs)
+                into(output.get().asFile.resolve("api/java/core"))
+            }
+            copy {
+                from(integrationJavadocs)
+                into(output.get().asFile.resolve("api/java/integrations"))
+            }
+        }
+    }
+
 val cleanWorkingTreeCheck =
     tasks.register("cleanWorkingTreeCheck") {
         description = "Verifies the Git worktree is clean, including untracked files."
@@ -191,6 +239,7 @@ val cleanWorkingTreeCheck =
             tasks.named("spotlessCheck"),
             regressionCheck,
             publicJavaJavadocCheck,
+            publicDocsCheck,
             ":icli-kotlin:check",
             ":icli-integrations:check",
             ":icli-comparison:check",
@@ -222,6 +271,7 @@ tasks.register("releaseCandidateCheck") {
         tasks.named("spotlessCheck"),
         regressionCheck,
         publicJavaJavadocCheck,
+        publicDocsCheck,
         ":icli-kotlin:check",
         ":icli-integrations:check",
         ":icli-comparison:check",

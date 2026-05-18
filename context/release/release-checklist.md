@@ -10,6 +10,10 @@
 - Migration notes отражают переносимые идеи старой версии и то, что намеренно не переносится.
 - Versioning и compatibility policies актуальны для текущего Java/Kotlin baseline.
 - Dependency review не содержит неизвестных runtime dependencies.
+- Gradle wrapper distribution checksum и dependency verification metadata актуальны после каждого изменения
+  build/test dependencies.
+- Если documentation toolchain остается без lock/hash-pinned transitive dependencies, этот residual supply-chain risk
+  явно принят в release notes; предпочтительный вариант перед release — добавить lock/hashes workflow.
 
 ## Локальные проверки
 
@@ -22,6 +26,7 @@
 ./gradlew regressionCheck
 ./gradlew check --rerun-tasks
 ./gradlew javadoc --rerun-tasks
+./gradlew publicDocsCheck
 ./gradlew :icli-comparison:comparisonCheck
 ./gradlew releaseCandidateCheck
 git diff --check
@@ -48,13 +53,15 @@ comparison regression gate и JMH benchmark compilation/metadata generation. `jm
   [../scenario-contracts.md](../scenario-contracts.md);
 - новые/измененные cookbook recipes сверены с [../scenario-cookbook.md](../scenario-cookbook.md) и compile-tested
   examples;
+- публичные docs в `docs/` собираются через `publicDocsCheck` и не обещают behavior без tests/examples;
 - dependency-specific types не протекают в core public API;
 - external process-library dependencies из comparison не протекают в публичные artifacts;
 - terminal/PTY возможности остаются capability/transport boundary;
 - terminal methods остаются только в session-family API, а `run`/`listen` не получают PTY knobs без нового ADR;
 - diagnostics event schema и redaction contract остаются согласованными с [../diagnostics.md](../diagnostics.md);
-- comparison qualitative assessment и ADR остаются согласованными с публичной моделью.
-- session shutdown escalation hardening закрыт тестом или явно перенесен в known limitations release notes.
+- comparison qualitative assessment и ADR остаются согласованными с публичной моделью;
+- security-sensitive invariants имеют regression tests: process-tree shutdown, clean environment, bounded line length,
+  expect transcript redaction, JSON depth limit.
 
 ## CI
 
@@ -67,11 +74,14 @@ GitHub Actions workflow должен запускать `./gradlew check` и `./
 POSIX-only и PTY-only tests должны skip-аться через assumptions, а не падать из-за недоступной платформенной
 возможности.
 
+Workflow permissions должны оставаться минимальными, а external actions должны быть pinned to commit SHA.
+
 ## Перед публикацией
 
 - Версия больше не `0.0.0-SNAPSHOT`.
 - Release notes перечисляют shipped behavior, breaking changes и known limitations.
 - Source и Javadoc artifacts собираются для Java modules.
+- Public MkDocs site собирается в strict mode и включает generated Java API docs.
 - Kotlin public API задокументирован через KDoc в sources artifact и проверяется `:icli-kotlin:kotlinApiDocsCheck`.
 - License file присутствует в корне репозитория.
 - Если добавляется Maven Central publishing, signing и metadata оформляются отдельным ADR.

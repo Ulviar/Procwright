@@ -1,0 +1,28 @@
+# Run a Finite Command
+
+Use `run` for tools such as linters, validators, code generators, `git status`, and package manager commands that
+should finish and return a result.
+
+## Steps
+
+1. Create a `CommandService` for the executable.
+2. Add per-call arguments in the scenario callback.
+3. Inspect `CommandResult`.
+4. Convert unsuccessful results with `toException()` only when fail-fast flow is useful.
+
+```java
+CommandService git = CommandService.forCommand("git");
+
+CommandResult result = git.run(call -> call.args("status", "--short"));
+
+if (!result.succeeded()) {
+    throw result.toException();
+}
+```
+
+Compile-tested source: `CommandServiceApiExamples.oneShotScenario`.
+
+## Use this scenario because
+
+`run` owns process completion, bounded capture, timeout supervision, stderr draining, and typed results. A streaming or
+interactive scenario would make the caller own more lifecycle state than this task needs.

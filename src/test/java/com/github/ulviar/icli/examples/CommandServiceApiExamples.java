@@ -51,6 +51,7 @@ final class CommandServiceApiExamples {
         CommandService logs = CommandService.forCommand("tool");
 
         logs.run(call -> call.args("logs")
+                .timeout(Duration.ofSeconds(30))
                 .capture(CapturePolicy.bounded(128 * 1024))
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5))));
     }

@@ -1,0 +1,30 @@
+# Known Limitations
+
+This page tracks release-relevant limitations for the current rewrite state.
+
+## Pre-release API
+
+The API is not stable yet. Names, package structure, and option shapes may change before the first release candidate.
+
+## Terminal support
+
+Terminal capability is behind `TerminalPolicy` and `PtyProvider`. The current system provider is platform-dependent.
+Windows ConPTY support is not documented as a shipped provider in this release state.
+
+## Kotlin API docs
+
+The optional Kotlin module has KDoc coverage checks, but generated Dokka publication is not part of the current public
+site yet.
+
+## Not in the current MVP
+
+- Raw session pooling.
+- Stateful affinity pools.
+- A real MCP SDK adapter.
+- Backend-specific process library APIs in core.
+- Machine-dependent performance promises.
+
+## Documentation scope
+
+Public docs describe implemented and tested behavior only. Internal `context/` documents may discuss future plans that
+are not public guarantees.

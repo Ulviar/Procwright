@@ -1,107 +1,103 @@
 # iCLI
 
-iCLI is being rewritten as a JVM library for safe, scenario-first control of external command-line processes.
+iCLI is a JVM library for safe, scenario-first control of external command-line processes.
 
-This branch currently contains the foundation for the rewrite, a one-shot execution kernel, a raw interactive session
-scenario, a line-oriented request/response workflow, a small expect automation helper, initial PTY transport support for
-session-family workflows that request terminal capability, a listen-only streaming scenario, pooled line-session
-workers, typed scenario presets for common workflows, an optional CLI-backed integrations module, and a bounded stress
-suite. The public API and runtime are still incomplete: documentation must not promise behavior before tests and
-implementation prove it.
+The project is a clean rewrite and is not published as a stable release yet. The current version is
+`0.0.0-SNAPSHOT`, the build requires JDK 25 or newer, and public API names may still change before the first release
+candidate.
 
-Project context is maintained in Russian under [context/](context/). Code, public APIs, Javadocs, tests, and commit
-messages are written in English.
+## Why iCLI exists
 
-## Current status
+Most process APIs expose low-level pieces: argv, environment, streams, timeouts, and process handles. Real CLI
+automation usually needs a workflow instead:
 
-- Clean rewrite branch.
-- Gradle Java project foundation.
-- Project version: `0.0.0-SNAPSHOT`.
-- Java 25 bytecode target.
-- JDK 25 or newer is required to build the project.
-- Compile-tested API sketches for the first public surface.
-- Deterministic process fixture for success, stderr, large output, and timeout cases.
-- One-shot `run` scenario with direct argv, explicit shell mode, bounded stdout/stderr capture, timeout supervision,
-  working directory, environment overrides, charset decoding, stdin input, and merged stderr support.
-- Internal scenario profile resolver for turning scenario defaults and per-call overrides into a validated execution
-  plan.
-- Raw `interactive` session scenario with guarded stdin, raw stdout/stderr streams, `send`, `sendLine`, `closeStdin`,
-  guarded output ownership handoff to higher-level helpers, `onExit`, idempotent `close`, and caller-visible
-  idle-timeout shutdown.
-- Line-oriented `lineSession` scenario with serialized requests, default and custom response decoders, bounded
-  transcripts, per-request timeouts, EOF distinction, and stderr draining.
-- `Expect` helper over `Session` with literal and regex matching, send/sendLine, bounded transcripts, timeout/EOF
-  distinction, and optional ANSI/control-sequence filtering.
-- Terminal policy for session scenarios: `DISABLED`, `AUTO`, and `REQUIRED`.
-- PTY provider SPI with an initial Unix `script(1)` system provider, explicit unavailable behavior, terminal size
-  request handling, and terminal control signal helpers.
-- Listen-only `listen` scenario with synchronous output listeners, bounded diagnostics, default stdin close, optional
-  deferred stdin close, timeout, listener-failure propagation, and stdout/stderr draining.
-- Diagnostics hooks with structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command
-  echo, and optional transcript sinks. Diagnostic failures do not change command behavior.
-- Optional `:icli-kotlin` module with Kotlin receiver-style extensions, suspending wrappers, and Flow adapters. The Java
-  core artifact remains Kotlin-free.
-- Pooled `lineSession` workers through `CommandService.pooled(...)`, with max/warmup sizing, acquire timeout,
-  reset/health hooks, worker retirement, graceful drain, and metrics snapshots.
-- `ScenarioPresets` typed builder customizers for command automation, environment diagnostics, REPL line mode, prompt
-  automation sessions, log following, binary byte snapshots, terminal-required sessions, and warm worker pools.
-- Optional `:icli-integrations` module with a minimal JSON model/codec, JSON Lines helpers, `JsonLineSession`,
-  Content-Length framed JSON helpers for MCP-like stdin/stdout protocols, cancellable call handles, structured adapter
-  errors, and command-backed tool result wrappers. CLI output is treated as untrusted data, not instructions.
-- Bounded `stressTest` suite wired into `check`, covering large stdout/stderr retention, timeout churn, rapid session
-  open/close, pooled contention, and conditional PTY stability.
-- Apache-2.0 license, release policies, dependency review, migration notes, release checklist, unified module
-  coordinates, Javadoc artifacts for Java modules, Kotlin API KDoc checks, and GitHub Actions CI for Linux, macOS, and
-  Windows.
+- run a finite command and inspect a typed result;
+- automate a prompt-oriented session;
+- exchange requests with a line-oriented worker;
+- follow streaming output without retaining everything in memory;
+- reuse warm workers safely;
+- wrap an external CLI as a structured integration boundary.
 
-See [context/quality/engineering-charter.md](context/quality/engineering-charter.md) for the quality standard and
-[context/scenario-cookbook.md](context/scenario-cookbook.md) for scenario-oriented usage recipes.
+iCLI keeps those workflows explicit. The user chooses a scenario, and the library owns the scenario invariants:
+bounded output, timeout and shutdown handling, stream draining, process-tree cleanup, output ownership, diagnostics, and
+redaction-friendly observation.
+
+## Quick Start From Source
+
+There is no stable Maven artifact yet. For now, evaluate the rewrite from source:
+
+```bash
+git clone https://github.com/Ulviar/iCLI.git
+cd iCLI
+./gradlew quickCheck
+./gradlew publicDocsCheck
+```
+
+The smallest workflow is a one-shot command:
+
+```java
+CommandService git = CommandService.forCommand("git");
+
+CommandResult result = git.run(call -> call.args("status", "--short"));
+
+if (!result.succeeded()) {
+    throw result.toException();
+}
+```
+
+The example above is compile-tested as `CommandServiceApiExamples.oneShotScenario`.
+
+## Choose a Scenario
+
+| Need | Use |
+| --- | --- |
+| Run a finite command and get a result. | `run` |
+| Configure reusable command defaults. | `CommandSpec` + `CommandService` |
+| Control a live process directly. | `interactive` |
+| Automate prompts. | `interactive` + `Expect` |
+| Talk to a line request/response worker. | `lineSession` |
+| Follow logs or streaming output. | `listen` |
+| Reuse expensive line workers. | `pooled` |
+| Require terminal capability. | session API + `TerminalPolicy.REQUIRED` |
+| Wrap a CLI as a structured adapter. | `:icli-integrations` |
+
+Start with the public docs:
+
+- [Getting Started](docs/getting-started.md)
+- [Scenarios](docs/scenarios/index.md)
+- [How-to Guides](docs/how-to/index.md)
+- [Examples](docs/examples.md)
+- [Reference](docs/reference/index.md)
+- [Release status](docs/release/index.md)
 
 ## Modules
 
 - `:` is the Java core module with no runtime dependencies outside the JDK.
-- `:icli-kotlin` is an optional Kotlin ergonomics module with receiver-style extensions, suspending wrappers, and Flow
-  adapters.
-- `:icli-integrations` is an optional Java module for CLI-backed integration helpers. It does not depend on an MCP SDK.
-- `:icli-comparison` is a research/evaluation module for comparing external process libraries against iCLI scenarios.
-  It is not a runtime dependency of the core artifact.
+- `:icli-kotlin` is an optional Kotlin ergonomics module.
+- `:icli-integrations` is an optional Java module for structured CLI-backed integration helpers.
+- `:icli-comparison` is a research module for library comparison and benchmarks. It is not a runtime dependency of the
+  public artifacts.
 
 ## Verification
+
+Common checks:
 
 ```bash
 ./gradlew quickCheck
 ./gradlew scenarioCheck
 ./gradlew regressionCheck
 ./gradlew check
-./gradlew javadoc
-./gradlew :icli-comparison:comparisonCheck
+./gradlew publicDocsCheck
 ```
 
-`quickCheck`, `scenarioCheck`, and `regressionCheck` expose the local verification tiers described in
-[context/evals/test-tiers.md](context/evals/test-tiers.md). `check` runs unit tests, integration tests, module tests, the
-bounded stress suite, the non-mutating comparison regression gate, and JMH benchmark compilation/metadata generation.
-It does not run JMH benchmark measurements.
-
-Release-candidate validation is stricter; use `./gradlew releaseCandidateCheck` and the checklist in
-[context/release/release-checklist.md](context/release/release-checklist.md).
-
-To refresh the tracked research report intentionally:
+Release-candidate validation is stricter and intentionally requires a clean worktree:
 
 ```bash
-./gradlew :icli-comparison:comparisonReport
+./gradlew releaseCandidateCheck
 ```
 
-JMH performance research lives in `:icli-comparison` and is run separately from release gates:
-
-```bash
-./gradlew :icli-comparison:jmhBenchmarkSmoke
-./gradlew :icli-comparison:jmhBenchmark
-```
-
-## Release status
-
-This rewrite is not published as a public release yet. Release policies and checklists live in
-[context/release/](context/release/), and the current version remains `0.0.0-SNAPSHOT`.
+Contributor context, ADRs, audits, and release policies live under [context/](context/). They are project memory, not a
+replacement for the public documentation under [docs/](docs/).
 
 ## License
 

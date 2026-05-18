@@ -1,0 +1,25 @@
+# Require a Terminal
+
+Use `interactive` with `TerminalPolicy.REQUIRED` when a command must run with terminal capability.
+
+## Steps
+
+1. Keep the workflow in the session family.
+2. Request terminal capability through `TerminalPolicy.REQUIRED`.
+3. Handle terminal unavailability as a real launch/runtime failure.
+4. Avoid depending on backend-specific PTY types in application code.
+
+```java
+CommandService shell = CommandService.forCommand("sh");
+
+try (Session session = shell.interactive(call -> call.terminal(TerminalPolicy.REQUIRED))) {
+    session.sendSignal(TerminalSignal.INTERRUPT);
+}
+```
+
+Compile-tested source: `CommandServiceApiExamples.terminalRequiredSessionScenario`.
+
+## Use this scenario because
+
+Terminal capability is part of session-family lifecycle. `run` and `listen` do not expose PTY controls in the current
+public API.
