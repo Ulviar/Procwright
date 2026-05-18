@@ -5,6 +5,21 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.ulviar.icli.command.CapturePolicy;
+import com.github.ulviar.icli.command.CommandExecutionException;
+import com.github.ulviar.icli.command.CommandInvocation;
+import com.github.ulviar.icli.command.CommandResult;
+import com.github.ulviar.icli.command.CommandSpec;
+import com.github.ulviar.icli.command.OutputMode;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.command.ShutdownPolicy;
+import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
+import com.github.ulviar.icli.internal.ProcessKernel;
+import com.github.ulviar.icli.preset.ScenarioPresets;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.SessionOptions;
+import com.github.ulviar.icli.session.StreamOptions;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -50,6 +65,23 @@ final class OneShotExecutionIntegrationTest {
                 .putEnvironment("ICLI_TEST_VALUE", "configured"));
 
         assertEquals(workingDirectory.toRealPath() + "\nconfigured\n", result.stdout());
+    }
+
+    @Test
+    void cleanEnvironmentDoesNotExposeInheritedValues() {
+        String inheritedName = System.getenv().keySet().stream()
+                .filter(name -> !"ICLI_TEST_VALUE".equals(name))
+                .filter(name -> !"SystemRoot".equalsIgnoreCase(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("test requires one inherited environment variable"));
+
+        CommandResult result = fixtureService().run(call -> {
+            call.args("env-present", inheritedName).cleanEnvironment().putEnvironment("ICLI_TEST_VALUE", "configured");
+            putWindowsSystemRootIfNeeded(call);
+        });
+
+        assertTrue(result.succeeded());
+        assertEquals("false\n", result.stdout());
     }
 
     @Test
@@ -206,6 +238,23 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
+    void timeoutStopsDescendantProcesses() {
+        CommandResult result = fixtureService().run(call -> call.args("spawn-child-sleep", "5000")
+                .timeout(Duration.ofMillis(120))
+                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(500))));
+        long childPid = result.stdout()
+                .lines()
+                .filter(line -> line.startsWith("child:"))
+                .map(line -> line.substring("child:".length()))
+                .mapToLong(Long::parseLong)
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(result.timedOut());
+        assertFalse(isAliveEventually(childPid));
+    }
+
+    @Test
     void postStartFailureStopsStartedProcessAndPreservesPrimaryException() throws Exception {
         AtomicLong childPid = new AtomicLong(-1);
         IllegalStateException failure = new IllegalStateException("synthetic post-start failure");
@@ -282,6 +331,33 @@ final class OneShotExecutionIntegrationTest {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    private static void putWindowsSystemRootIfNeeded(CommandInvocation.Builder call) {
+        if (!isWindows()) {
+            return;
+        }
+        String systemRoot = System.getenv("SystemRoot");
+        if (systemRoot != null && !systemRoot.isBlank()) {
+            call.putEnvironment("SystemRoot", systemRoot);
+        }
+    }
+
+    private static boolean isAliveEventually(long pid) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) {
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("interrupted", exception);
+                }
+                continue;
+            }
+            return false;
+        }
+        return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
     }
 
     private static java.util.List<Byte> boxed(byte[] bytes) {

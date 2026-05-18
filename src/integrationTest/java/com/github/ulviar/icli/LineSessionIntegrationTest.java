@@ -4,6 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.ulviar.icli.command.CommandSpec;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.session.LineResponse;
+import com.github.ulviar.icli.session.LineSession;
+import com.github.ulviar.icli.session.LineSessionException;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.ResponseDecoder;
+import com.github.ulviar.icli.session.Session;
+import com.github.ulviar.icli.session.SessionOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -144,6 +153,19 @@ final class LineSessionIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("many", Duration.ofSeconds(2)));
 
             assertEquals(LineSessionException.Reason.FAILURE, exception.reason());
+        }
+    }
+
+    @Test
+    void unterminatedStdoutLineIsBounded() {
+        CommandService service = fixtureService(LineSessionOptions.defaults().withMaxLineChars(32));
+
+        try (LineSession session = service.lineSession(call -> call.args("large-line-stdout", "x", "128", "5000"))) {
+            LineSessionException exception =
+                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
+
+            assertEquals(LineSessionException.Reason.FAILURE, exception.reason());
+            assertTrue(exception.getCause().getMessage().contains("maxLineChars"));
         }
     }
 

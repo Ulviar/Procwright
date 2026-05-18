@@ -1,13 +1,13 @@
 package com.github.ulviar.icli.integration.examples;
 
-import com.github.ulviar.icli.CommandResult;
 import com.github.ulviar.icli.CommandService;
-import com.github.ulviar.icli.LineSession;
+import com.github.ulviar.icli.command.CommandResult;
 import com.github.ulviar.icli.integration.CommandBackedTool;
 import com.github.ulviar.icli.integration.ContentLengthJsonFrames;
 import com.github.ulviar.icli.integration.JsonLineSession;
 import com.github.ulviar.icli.integration.JsonValue;
 import com.github.ulviar.icli.integration.ToolCallResult;
+import com.github.ulviar.icli.session.LineSession;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;

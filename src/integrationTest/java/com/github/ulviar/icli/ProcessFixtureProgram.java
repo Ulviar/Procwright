@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
 
-final class ProcessFixtureProgram {
+public final class ProcessFixtureProgram {
 
     private ProcessFixtureProgram() {}
 
@@ -140,7 +140,13 @@ final class ProcessFixtureProgram {
                 System.out.println(Path.of("").toAbsolutePath().normalize());
                 System.out.println(System.getenv(args[1]));
             }
+            case "env-present" -> System.out.println(System.getenv().containsKey(args[1]));
             case "large-stdout" -> System.out.print(args[2].repeat(Integer.parseInt(args[1])));
+            case "large-line-stdout" -> {
+                System.out.print(args[1].repeat(Integer.parseInt(args[2])));
+                System.out.flush();
+                Thread.sleep(Long.parseLong(args[3]));
+            }
             case "large-stderr" -> {
                 System.err.print(args[2].repeat(Integer.parseInt(args[1])));
                 System.out.print("done\n");
@@ -153,6 +159,19 @@ final class ProcessFixtureProgram {
             }
             case "sleep" -> {
                 System.out.print("started\n");
+                System.out.flush();
+                Thread.sleep(Long.parseLong(args[1]));
+            }
+            case "spawn-child-sleep" -> {
+                Process child = new ProcessBuilder(
+                                javaExecutable(),
+                                "-cp",
+                                System.getProperty("java.class.path"),
+                                ProcessFixtureProgram.class.getName(),
+                                "sleep",
+                                args[1])
+                        .start();
+                System.out.println("child:" + child.pid());
                 System.out.flush();
                 Thread.sleep(Long.parseLong(args[1]));
             }
@@ -184,5 +203,10 @@ final class ProcessFixtureProgram {
             }
             default -> throw new IllegalArgumentException("Unknown fixture command: " + args[0]);
         }
+    }
+
+    private static String javaExecutable() {
+        String executableName = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
     }
 }

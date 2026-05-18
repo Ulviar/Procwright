@@ -1,8 +1,8 @@
 package com.github.ulviar.icli.kotlin
 
 import com.github.ulviar.icli.CommandService
-import com.github.ulviar.icli.StreamInvocation
-import com.github.ulviar.icli.StreamSource
+import com.github.ulviar.icli.session.StreamInvocation
+import com.github.ulviar.icli.session.StreamSource
 import java.lang.reflect.Modifier
 import java.nio.file.Path
 import java.time.Duration

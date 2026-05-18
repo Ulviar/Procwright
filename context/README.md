@@ -50,6 +50,8 @@
   — сохранение scenario-first API после сравнения process-библиотек.
 - [decisions/ADR-0013-documentation-toolchain.md](decisions/ADR-0013-documentation-toolchain.md) — публичная
   документация, MkDocs Material и граница между `docs/` и `context/`.
+- [decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md) — пакетная архитектура
+  ядра и границы public/internal API.
 
 ## Правило навигации
 

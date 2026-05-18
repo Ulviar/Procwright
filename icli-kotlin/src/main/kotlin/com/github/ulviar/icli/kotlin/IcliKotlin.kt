@@ -1,16 +1,16 @@
 package com.github.ulviar.icli.kotlin
 
-import com.github.ulviar.icli.CommandInvocation
-import com.github.ulviar.icli.CommandResult
 import com.github.ulviar.icli.CommandService
-import com.github.ulviar.icli.LineResponse
-import com.github.ulviar.icli.LineSession
-import com.github.ulviar.icli.Session
-import com.github.ulviar.icli.SessionExit
-import com.github.ulviar.icli.ShutdownPolicy
-import com.github.ulviar.icli.StreamChunk
-import com.github.ulviar.icli.StreamExit
-import com.github.ulviar.icli.StreamSession
+import com.github.ulviar.icli.command.CommandInvocation
+import com.github.ulviar.icli.command.CommandResult
+import com.github.ulviar.icli.command.ShutdownPolicy
+import com.github.ulviar.icli.session.LineResponse
+import com.github.ulviar.icli.session.LineSession
+import com.github.ulviar.icli.session.Session
+import com.github.ulviar.icli.session.SessionExit
+import com.github.ulviar.icli.session.StreamChunk
+import com.github.ulviar.icli.session.StreamExit
+import com.github.ulviar.icli.session.StreamSession
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
@@ -38,7 +38,7 @@ suspend fun CommandService.runCommandAwait(
 
 /** Opens an interactive session using a Kotlin receiver-style invocation builder. */
 fun CommandService.openSession(
-    configure: com.github.ulviar.icli.SessionInvocation.Builder.() -> Unit = {}
+    configure: com.github.ulviar.icli.session.SessionInvocation.Builder.() -> Unit = {}
 ): Session = interactive { builder -> builder.configure() }
 
 /** Waits for a raw session to exit without blocking the caller coroutine. */
@@ -112,7 +112,7 @@ fun CommandService.listenFlow(configure: ListenFlowInvocation.() -> Unit = {}): 
         .buffer(capacity = 0)
 
 private class DefaultListenFlowInvocation(
-    private val builder: com.github.ulviar.icli.StreamInvocation.Builder
+    private val builder: com.github.ulviar.icli.session.StreamInvocation.Builder
 ) : ListenFlowInvocation {
 
     override fun arg(argument: String): ListenFlowInvocation = apply { builder.arg(argument) }

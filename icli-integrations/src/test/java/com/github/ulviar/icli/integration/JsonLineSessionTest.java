@@ -6,11 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.CommandService;
-import com.github.ulviar.icli.CommandSpec;
-import com.github.ulviar.icli.LineSession;
-import com.github.ulviar.icli.LineSessionOptions;
-import com.github.ulviar.icli.RunOptions;
-import com.github.ulviar.icli.SessionOptions;
+import com.github.ulviar.icli.command.CommandSpec;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.session.LineSession;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.SessionOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;

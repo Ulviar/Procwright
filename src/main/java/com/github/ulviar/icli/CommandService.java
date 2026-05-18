@@ -1,5 +1,35 @@
 package com.github.ulviar.icli;
 
+import com.github.ulviar.icli.command.CommandExecutionException;
+import com.github.ulviar.icli.command.CommandInvocation;
+import com.github.ulviar.icli.command.CommandResult;
+import com.github.ulviar.icli.command.CommandSpec;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
+import com.github.ulviar.icli.diagnostics.Diagnostics;
+import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
+import com.github.ulviar.icli.internal.CommandEchoSupport;
+import com.github.ulviar.icli.internal.ExecutionPlan;
+import com.github.ulviar.icli.internal.ExecutionPlanResolver;
+import com.github.ulviar.icli.internal.ProcessKernel;
+import com.github.ulviar.icli.internal.ScenarioProfile;
+import com.github.ulviar.icli.internal.SessionExecutionPlan;
+import com.github.ulviar.icli.internal.StreamExecutionPlan;
+import com.github.ulviar.icli.session.LineSession;
+import com.github.ulviar.icli.session.LineSessionInvocation;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.PooledLineSession;
+import com.github.ulviar.icli.session.PooledLineSessionInvocation;
+import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.Session;
+import com.github.ulviar.icli.session.SessionInvocation;
+import com.github.ulviar.icli.session.SessionOptions;
+import com.github.ulviar.icli.session.SessionRuntime;
+import com.github.ulviar.icli.session.SessionScenarioSupport;
+import com.github.ulviar.icli.session.StreamInvocation;
+import com.github.ulviar.icli.session.StreamOptions;
+import com.github.ulviar.icli.session.StreamRuntime;
+import com.github.ulviar.icli.session.StreamSession;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -155,6 +185,9 @@ public final class CommandService {
 
     /**
      * Creates a service for an explicit shell command using default run options.
+     *
+     * <p>The command line is interpreted by the operating-system shell. Do not build this value by concatenating
+     * untrusted input; prefer {@link #forCommand(String)} plus argv arguments unless shell syntax is required.
      *
      * @param commandLine command line interpreted by the system shell
      * @return command service
@@ -313,11 +346,12 @@ public final class CommandService {
     public PooledLineSession pooled(Consumer<PooledLineSessionInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
 
-        PooledLineSessionInvocation.Builder builder = PooledLineSessionInvocation.builder(pooledLineSessionOptions);
+        PooledLineSessionInvocation.Builder builder =
+                SessionScenarioSupport.pooledInvocationBuilder(pooledLineSessionOptions);
         configure.accept(builder);
         PooledLineSessionInvocation invocation = builder.build();
 
-        return new PooledLineSession(
+        return SessionScenarioSupport.openPooledLineSession(
                 () -> openLineSession("pooled", invocation.lineSessionInvocation()), invocation.options());
     }
 
@@ -342,7 +376,7 @@ public final class CommandService {
 
     private Session openSession(String scenario, SessionExecutionPlan plan) {
         Diagnostics diagnostics =
-                Diagnostics.of(diagnosticsOptions, scenario, () -> CommandEcho.from(plan.launchPlan()));
+                Diagnostics.of(diagnosticsOptions, scenario, () -> CommandEchoSupport.from(plan.launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
         try {
             return SessionRuntime.open(plan, diagnostics);
@@ -359,7 +393,7 @@ public final class CommandService {
                 ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
         Session session = openSession(scenario, plan);
         try {
-            return new LineSession(session, lineSessionOptions);
+            return SessionScenarioSupport.openLineSession(session, lineSessionOptions);
         } catch (RuntimeException exception) {
             session.close();
             throw exception;

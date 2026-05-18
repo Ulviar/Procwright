@@ -65,6 +65,16 @@ tasks.withType<JavaCompile>().configureEach {
     options.release.set(25)
 }
 
+tasks.named<Javadoc>("javadoc") {
+    exclude(
+        "**/internal/**",
+        "**/diagnostics/Diagnostics.java",
+        "**/session/SessionScenarioSupport.java",
+        "**/session/SessionRuntime.java",
+        "**/session/StreamRuntime.java",
+    )
+}
+
 tasks.withType<Test>().configureEach { useJUnitPlatform() }
 
 val integrationTest =

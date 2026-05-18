@@ -3,6 +3,18 @@ package com.github.ulviar.icli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.github.ulviar.icli.command.CapturePolicy;
+import com.github.ulviar.icli.command.OutputMode;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.command.ShutdownPolicy;
+import com.github.ulviar.icli.session.ExpectOptions;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.SessionOptions;
+import com.github.ulviar.icli.session.StreamOptions;
+import com.github.ulviar.icli.terminal.PtyProvider;
+import com.github.ulviar.icli.terminal.TerminalPolicy;
+import com.github.ulviar.icli.terminal.TerminalSize;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
@@ -51,6 +63,8 @@ final class PolicyValueTest {
                 .withTranscriptLimit(0));
         assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
                 .withStdoutBacklogLimit(0));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+                .withMaxLineChars(0));
     }
 
     @Test

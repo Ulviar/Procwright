@@ -3,7 +3,7 @@ package com.github.ulviar.icli.integration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-import com.github.ulviar.icli.CommandResult;
+import com.github.ulviar.icli.command.CommandResult;
 import java.time.Duration;
 import java.util.OptionalInt;
 import java.util.concurrent.CancellationException;

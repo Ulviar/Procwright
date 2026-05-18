@@ -3,6 +3,10 @@ package com.github.ulviar.icli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.SessionOptions;
 import org.junit.jupiter.api.Test;
 
 final class CommandServiceTest {

@@ -1,9 +1,9 @@
 package com.github.ulviar.icli.testing.diagnostics;
 
-import com.github.ulviar.icli.DiagnosticEvent;
-import com.github.ulviar.icli.DiagnosticEventType;
-import com.github.ulviar.icli.DiagnosticListener;
-import com.github.ulviar.icli.DiagnosticTranscriptSink;
+import com.github.ulviar.icli.diagnostics.DiagnosticEvent;
+import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
+import com.github.ulviar.icli.diagnostics.DiagnosticListener;
+import com.github.ulviar.icli.diagnostics.DiagnosticTranscriptSink;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;

@@ -4,6 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.ulviar.icli.command.CommandSpec;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.session.Expect;
+import com.github.ulviar.icli.session.ExpectException;
+import com.github.ulviar.icli.session.ExpectOptions;
+import com.github.ulviar.icli.session.ExpectOutputFilter;
+import com.github.ulviar.icli.session.ExpectTranscriptValues;
+import com.github.ulviar.icli.session.Session;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -21,8 +29,28 @@ final class ExpectIntegrationTest {
             expect.expectText("echo:hello");
 
             String transcript = expect.transcript().text();
-            assertTrue(transcript.indexOf("expect text: ready> ") < transcript.indexOf("send line: hello"));
+            assertTrue(transcript.indexOf("expect text: <redacted>") < transcript.indexOf("send line: <redacted>"));
+            assertTrue(transcript.contains("send line: <redacted>"));
+            assertTrue(!transcript.contains("send line: hello"));
             assertTrue(transcript.contains("stdout: echo:hello"));
+        }
+    }
+
+    @Test
+    void transcriptValuesAreOptIn() {
+        ExpectOptions options = ExpectOptions.defaults()
+                .withTimeout(Duration.ofSeconds(1))
+                .withTranscriptValues(ExpectTranscriptValues.VERBATIM);
+
+        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+                Expect expect = session.expect(options)) {
+            expect.expectText("ready> ");
+            expect.sendLine("hello");
+            expect.expectText("echo:hello");
+
+            String transcript = expect.transcript().text();
+            assertTrue(transcript.contains("expect text: ready> "));
+            assertTrue(transcript.contains("send line: hello"));
         }
     }
 
@@ -107,7 +135,8 @@ final class ExpectIntegrationTest {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("done"));
 
             assertEquals(ExpectException.Reason.TIMEOUT, exception.reason());
-            assertTrue(exception.transcript().text().contains("expect text: done"));
+            assertTrue(exception.transcript().text().contains("expect text: <redacted>"));
+            assertTrue(!exception.transcript().text().contains("expect text: done"));
             assertTrue(exception.transcript().text().contains("stderr: partial-error"));
         }
     }
@@ -144,7 +173,8 @@ final class ExpectIntegrationTest {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("ready"));
 
             assertEquals(ExpectException.Reason.FAILURE, exception.reason());
-            assertTrue(exception.transcript().text().contains("expect text: ready"));
+            assertTrue(exception.transcript().text().contains("expect text: <redacted>"));
+            assertTrue(!exception.transcript().text().contains("expect text: ready"));
         }
     }
 

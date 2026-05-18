@@ -1,9 +1,9 @@
 package com.github.ulviar.icli.integration;
 
-import com.github.ulviar.icli.CommandException;
-import com.github.ulviar.icli.CommandExecutionException;
-import com.github.ulviar.icli.CommandResult;
-import com.github.ulviar.icli.LineSessionException;
+import com.github.ulviar.icli.command.CommandException;
+import com.github.ulviar.icli.command.CommandExecutionException;
+import com.github.ulviar.icli.command.CommandResult;
+import com.github.ulviar.icli.session.LineSessionException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;

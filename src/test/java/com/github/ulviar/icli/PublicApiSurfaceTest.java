@@ -27,13 +27,21 @@ import org.junit.jupiter.api.Test;
 
 final class PublicApiSurfaceTest {
 
+    private static final Set<String> PUBLIC_API_PACKAGES = Set.of(
+            "com.github.ulviar.icli",
+            "com.github.ulviar.icli.command",
+            "com.github.ulviar.icli.diagnostics",
+            "com.github.ulviar.icli.preset",
+            "com.github.ulviar.icli.session",
+            "com.github.ulviar.icli.terminal");
+
     @Test
-    void corePublicTopLevelTypesStayInRootPackage() throws Exception {
-        assertEquals(Set.of("com.github.ulviar.icli"), publicTopLevelPackages(CommandService.class));
+    void corePublicTopLevelTypesStayInApprovedPackages() throws Exception {
+        assertEquals(PUBLIC_API_PACKAGES, publicTopLevelPackages(CommandService.class));
     }
 
     @Test
-    void corePublicSignaturesExposeOnlyJdkAndCoreTypes() throws Exception {
+    void corePublicSignaturesExposeOnlyJdkAndPublicApiTypes() throws Exception {
         for (Class<?> type : publicTopLevelTypes(CommandService.class)) {
             Type genericSuperclass = type.getGenericSuperclass();
             if (genericSuperclass != null) {
@@ -89,7 +97,7 @@ final class PublicApiSurfaceTest {
                 for (Path classFile :
                         files.filter(PublicApiSurfaceTest::isTopLevelClass).toList()) {
                     Class<?> type = Class.forName(className(classesRoot, classFile), false, anchor.getClassLoader());
-                    if (Modifier.isPublic(type.getModifiers())) {
+                    if (Modifier.isPublic(type.getModifiers()) && isPublicApiType(type)) {
                         types.add(type);
                     }
                 }
@@ -113,7 +121,7 @@ final class PublicApiSurfaceTest {
             for (JarEntry entry :
                     jar.stream().filter(PublicApiSurfaceTest::isTopLevelClass).toList()) {
                 Class<?> type = Class.forName(className(entry), false, anchor.getClassLoader());
-                if (Modifier.isPublic(type.getModifiers())) {
+                if (Modifier.isPublic(type.getModifiers()) && isPublicApiType(type)) {
                     types.add(type);
                 }
             }
@@ -173,8 +181,19 @@ final class PublicApiSurfaceTest {
         }
         String packageName = type.getPackageName();
         assertTrue(
-                packageName.equals("com.github.ulviar.icli") || packageName.startsWith("java."),
+                packageName.startsWith("java.") || (PUBLIC_API_PACKAGES.contains(packageName) && isPublicApiType(type)),
                 () -> "Public core API leaks " + type.getName() + " at " + location);
+    }
+
+    private static boolean isPublicApiType(Class<?> type) {
+        String name = type.getName();
+        if (name.startsWith("com.github.ulviar.icli.internal.")) {
+            return false;
+        }
+        return !name.equals("com.github.ulviar.icli.diagnostics.Diagnostics")
+                && !name.equals("com.github.ulviar.icli.session.SessionScenarioSupport")
+                && !name.equals("com.github.ulviar.icli.session.SessionRuntime")
+                && !name.equals("com.github.ulviar.icli.session.StreamRuntime");
     }
 
     private static boolean isTopLevelClass(Path path) {

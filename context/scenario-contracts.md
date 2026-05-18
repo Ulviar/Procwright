@@ -28,6 +28,10 @@ Pooled workers наследуют terminal capability только через `L
 - Runtime получает только валидированный plan.
 - Timeout, explicit close, bounded retention, stream draining, cleanup, diagnostics и lifecycle не перекладываются на
   пользователя; integration-level cancellable calls описываются в optional integration layer.
+- Timeout, explicit close и failure shutdown завершают process tree в пределах возможностей JDK `ProcessHandle`, а не
+  только direct child process.
+- Environment inheritance является явной policy: default совместимости — inherit, для недоверенных CLI доступен
+  `cleanEnvironment()` с allowlist-style overrides через `putEnvironment(...)`.
 - Public results и exceptions должны сохранять диагностически важный контекст.
 - Backend-specific и dependency-specific types не попадают в core public API.
 - Output ownership у интерактивных сценариев единственный: первая операция над публичным stdout/stderr выбирает raw
@@ -69,6 +73,7 @@ Line-oriented request/response workflow для REPL-like процессов.
 - response decoder владеет правилом завершения ответа;
 - request timeout относится к одному циклу;
 - stdout backlog bounded отдельно от transcript window;
+- одна незавершенная stdout line bounded отдельной `maxLineChars` policy;
 - stderr дренируется в transcript для diagnostics;
 - timeout, EOF и decoder/read failure различаются;
 - failure закрывает session, чтобы не продолжать работу в неизвестном protocol state.
@@ -123,6 +128,7 @@ Prompt automation helper поверх уже открытого `Session`.
   ownership;
 - literal/regex matching имеет bounded timeout;
 - transcript bounded и попадает в `ExpectException`;
+- caller-provided send/expect values в transcript redacted by default; verbatim transcript values требуют явного opt-in;
 - EOF, timeout, closed и read failure различаются;
 - optional output filters применяются перед matching и transcript retention;
 - closing `Expect` closes underlying `Session`;
@@ -205,6 +211,7 @@ Pooled line-oriented workers для CLI/REPL с дорогим startup.
 - integration layer не добавляет второй process runtime;
 - CLI output считается недоверенным observation data, а не инструкциями;
 - structured adapter errors не должны раскрывать raw argv/env или unbounded output;
+- JSON parser/writer имеют depth limit, чтобы bounded frame size не превращался в stack-exhaustion risk;
 - cancellation мапится в явный outcome и lifecycle close.
 
 ## `ScenarioPresets`

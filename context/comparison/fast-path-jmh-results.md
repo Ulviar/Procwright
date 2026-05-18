@@ -26,8 +26,8 @@
 
 ## Проверки и аудит
 
-- `./gradlew :test --tests com.github.ulviar.icli.DiagnosticsOptionsTest`
-- `./gradlew integrationTest --tests com.github.ulviar.icli.OneShotExecutionIntegrationTest --tests com.github.ulviar.icli.DiagnosticsIntegrationTest`
+- `./gradlew :test --tests com.github.ulviar.icli.diagnostics.DiagnosticsOptionsTest`
+- `./gradlew integrationTest --tests com.github.ulviar.icli.OneShotExecutionIntegrationTest --tests com.github.ulviar.icli.diagnostics.DiagnosticsIntegrationTest`
 - `./gradlew check`
 - Два независимых аудита проверили scenario-first/API целостность и concurrency/lifecycle path. Первичное замечание про
   validation fast path исправлено; повторный аудит не нашел blockers/P2/P3.

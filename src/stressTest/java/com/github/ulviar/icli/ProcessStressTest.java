@@ -5,6 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.github.ulviar.icli.command.CapturePolicy;
+import com.github.ulviar.icli.command.CommandResult;
+import com.github.ulviar.icli.command.CommandSpec;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.command.ShutdownPolicy;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.PooledLineSession;
+import com.github.ulviar.icli.session.PooledLineSessionMetrics;
+import com.github.ulviar.icli.session.Session;
+import com.github.ulviar.icli.session.SessionOptions;
+import com.github.ulviar.icli.terminal.PtyProvider;
+import com.github.ulviar.icli.terminal.TerminalPolicy;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;

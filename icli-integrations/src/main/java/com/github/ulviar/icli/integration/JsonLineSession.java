@@ -1,9 +1,9 @@
 package com.github.ulviar.icli.integration;
 
-import com.github.ulviar.icli.LineResponse;
-import com.github.ulviar.icli.LineSession;
-import com.github.ulviar.icli.LineTranscript;
-import com.github.ulviar.icli.SessionExit;
+import com.github.ulviar.icli.session.LineResponse;
+import com.github.ulviar.icli.session.LineSession;
+import com.github.ulviar.icli.session.LineTranscript;
+import com.github.ulviar.icli.session.SessionExit;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;

@@ -108,6 +108,7 @@ Line-oriented request/response workflow для REPL-like процессов.
 - timeout/failure закрывает `LineSession`, чтобы не продолжать работу в неизвестном protocol state;
 - transcript bounded и доступен в ошибке.
 - stdout response backlog bounded отдельной line-session policy, а не размером transcript window.
+- одна незавершенная stdout line bounded отдельной line-length policy.
 - EOF, timeout и decoder/read failure различаются.
 
 Пользовательский пример:
@@ -146,6 +147,7 @@ try (Session session = service.interactive(call -> call.args("-i"))) {
 - ожидание совпадения владеет timeout;
 - transcript ограничен;
 - match buffer ограничен отдельной policy;
+- send/expect values redacted в transcript по умолчанию; verbatim режим — explicit opt-in.
 - EOF и timeout различаются;
 - порядок send/expect виден в ошибке.
 - optional output filters нормализуют вывод перед matching и записью в transcript.

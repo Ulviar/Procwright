@@ -83,15 +83,35 @@ Testing/evals
   behavior scenarios
 ```
 
-## Предварительная пакетная форма
+## Пакетная форма ядра
 
 ```text
 com.github.ulviar.icli
   CommandService
+
+com.github.ulviar.icli.command
   CommandSpec
   CommandResult
   RunOptions
+  CommandInvocation
+  CommandInput
+  CapturePolicy
+  OutputMode
+  EnvironmentPolicy
+  ShutdownPolicy
+  CommandException
+  CommandExecutionException
+
+com.github.ulviar.icli.session
+  Session
   SessionInvocation
+  SessionOptions
+  SessionExit
+  Expect
+  ExpectOptions
+  ExpectOutputFilter
+  ExpectTranscriptValues
+  ExpectException
   LineSessionInvocation
   LineSession
   LineSessionOptions
@@ -112,27 +132,27 @@ com.github.ulviar.icli
   PooledLineSessionInvocation
   PooledLineSessionMetrics
   PooledLineSessionException
-  ScenarioPresets
+
+com.github.ulviar.icli.diagnostics
   DiagnosticsOptions
   DiagnosticEvent
   DiagnosticEventType
   DiagnosticListener
   DiagnosticTranscriptSink
   CommandEcho
-  Expect
-  ExpectOptions
-  ExpectOutputFilter
-  ExpectException
+
+com.github.ulviar.icli.terminal
   TerminalPolicy
   TerminalSize
   TerminalSignal
   PtyProvider
   PtyRequest
-  CapturePolicy
-  ShutdownPolicy
-  Session
-  SessionOptions
-  CommandException
+
+com.github.ulviar.icli.preset
+  ScenarioPresets
+
+com.github.ulviar.icli.internal
+  runtime, plans, validation and process helpers that must not appear in public signatures
 
 com.github.ulviar.icli.kotlin
   runCommand(...)
@@ -155,9 +175,10 @@ com.github.ulviar.icli.integration
   CommandBackedTool
 ```
 
-Публичных пакетов должно быть мало. Поэтому первый `PtyProvider` SPI находится в корневом пакете рядом с остальным
-узким API, а не открывает отдельную иерархию `spi` до появления нескольких независимых ports. Внутренняя реализация
-может быть разложена подробно, но это не должно протекать в public API.
+Публичных core-пакетов должно быть мало, но они больше не должны превращать корень в плоский каталог всех типов.
+`Session`, `Expect`, `LineSession`, `StreamSession` и `PooledLineSession` остаются в одном `session` package, потому
+что разделяют инвариант единоличного владения stdout/stderr. Подробности зафиксированы в
+[decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md).
 
 ## Расширения после MVP
 

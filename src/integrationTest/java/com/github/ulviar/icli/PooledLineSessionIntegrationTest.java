@@ -6,6 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.ulviar.icli.command.CommandSpec;
+import com.github.ulviar.icli.command.RunOptions;
+import com.github.ulviar.icli.session.LineResponse;
+import com.github.ulviar.icli.session.LineSessionException;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.PooledLineSession;
+import com.github.ulviar.icli.session.PooledLineSessionException;
+import com.github.ulviar.icli.session.PooledLineSessionMetrics;
+import com.github.ulviar.icli.session.SessionOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;

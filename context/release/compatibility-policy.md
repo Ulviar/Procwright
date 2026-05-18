@@ -19,7 +19,9 @@ system PTY provider, skip-аются через JUnit assumptions, если пл
 
 ## Стабильность публичного API
 
-- Core public API живет в `com.github.ulviar.icli`.
+- Core public API живет в пакетах `com.github.ulviar.icli`, `com.github.ulviar.icli.command`,
+  `com.github.ulviar.icli.session`, `com.github.ulviar.icli.diagnostics`, `com.github.ulviar.icli.terminal` и
+  `com.github.ulviar.icli.preset`.
 - Kotlin ergonomics живет в `com.github.ulviar.icli.kotlin`.
 - CLI-backed integration helpers живут в `com.github.ulviar.icli.integration`.
 - Новые public packages требуют отдельного ADR.
