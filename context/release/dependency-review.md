@@ -69,6 +69,11 @@ integration layer.
 
 JMH dependencies (`org.openjdk.jmh:jmh-core` и annotation processor) допустимы только внутри comparison module и только
 для benchmark source set.
+`org.slf4j:slf4j-api` также допустим только внутри comparison module: он нужен локальному no-op provider, который
+подавляет logging noise внешних comparison-библиотек без добавления полноценного logging backend.
+
+Comparison `JavaExec`/JMH tasks явно задают JVM flags для native/Unsafe access, чтобы предупреждения JNA/JMH не
+засоряли regression output. Эти flags не применяются к core runtime tasks.
 
 Эти зависимости допустимы только внутри comparison module. Они не должны протекать в `:`, `:icli-kotlin` или
 `:icli-integrations`.

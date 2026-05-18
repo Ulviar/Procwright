@@ -36,9 +36,9 @@ JMH iteration timeout `15 s` ограничивает зависший benchmark
   профильными библиотеками. Наблюдаемая разница обычно мала относительно природы macro-сценария.
 - Timeout path выглядит главным кандидатом на дальнейшее исследование: iCLI показал `74.654 ms/op`, тогда как JDK,
   zt-exec и NuProcess лежат в диапазоне `66.246-68.147 ms/op`. Commons Exec находится рядом с iCLI.
-- NuProcess быстрее в нескольких one-shot сценариях, но в JDK 26 прогон показывает native-access warning через JNA. Это
-  делает его полезным performance reference, но не отменяет архитектурную ставку iCLI на сценарный API и изоляцию
-  инвариантов.
+- NuProcess быстрее в нескольких one-shot сценариях. Первичный JDK 26 прогон показывал native-access warning через JNA;
+  после отчета comparison/JMH tasks получили explicit JVM flags для native/Unsafe access, чтобы research harness не
+  шумел предупреждениями внешних библиотек.
 - PTY probe у raw Pty4J быстрее (`11.501 ms/op`) iCLI provider path (`15.605 ms/op`). Это ожидаемый сигнал к проверке
   adapter/lifecycle overhead, но оптимизация не должна ломать сценарный API и cleanup guarantees.
 - `PooledProcessBenchmark` и `ToolObservationBenchmark` являются iCLI-only baselines. Их нельзя ранжировать против
@@ -105,14 +105,15 @@ JMH iteration timeout `15 s` ограничивает зависший benchmark
 
 ## Наблюдения по предупреждениям
 
-Эти предупреждения были видны в console output Gradle/JMH run. JSON-артефакты JMH сохраняют численные результаты, но не
-сохраняют stdout/stderr предупреждений runner и native dependencies.
+Эти предупреждения были видны в console output первичного Gradle/JMH run. JSON-артефакты JMH сохраняют численные
+результаты, но не сохраняют stdout/stderr предупреждений runner и native dependencies.
 
-- JMH 1.37 на JDK 26 печатает предупреждение о terminally deprecated `sun.misc.Unsafe::objectFieldOffset`.
-- NuProcess и Pty4J через JNA печатают restricted native-access warning. Для будущих JDK это может потребовать явного
-  `--enable-native-access=ALL-UNNAMED` в benchmark task или обновления native dependency policy.
-- zt-exec и Pty4J печатают SLF4J no-provider warning. Для performance research это не блокер, но dependency hygiene
-  стоит проверить отдельно, если эти библиотеки останутся в долгосрочном comparison set.
+- JMH 1.37 на JDK 26 печатал предупреждение о terminally deprecated `sun.misc.Unsafe::objectFieldOffset`; JMH tasks
+  теперь запускаются с `--sun-misc-unsafe-memory-access=allow`.
+- NuProcess и Pty4J через JNA печатали restricted native-access warning; comparison/JMH tasks теперь запускаются с
+  `--enable-native-access=ALL-UNNAMED`.
+- zt-exec и Pty4J печатали SLF4J no-provider warning; comparison module теперь содержит локальный no-op SLF4J provider,
+  чтобы не тянуть отдельный logging backend в research harness.
 - JMH сообщает, что на текущей JVM используются experimental compiler blackholes. Поэтому абсолютные значения стоит
   подтверждать повторными прогонами перед архитектурными решениями, чувствительными к нескольким миллисекундам.
 

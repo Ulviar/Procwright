@@ -4,6 +4,8 @@ plugins {
 }
 
 val jmhVersion = "1.37"
+val comparisonNativeAccessArg = "--enable-native-access=ALL-UNNAMED"
+val jmhUnsafeAccessArg = "--sun-misc-unsafe-memory-access=allow"
 
 sourceSets {
     val jmh by creating {
@@ -24,6 +26,7 @@ dependencies {
     implementation("com.zaxxer:nuprocess:3.0.0")
     implementation("org.jetbrains.pty4j:pty4j:0.13.12")
     implementation("net.sf.expectit:expectit-core:0.9.0")
+    implementation("org.slf4j:slf4j-api:2.0.17")
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
@@ -62,6 +65,7 @@ tasks.register<JavaExec>("comparisonReport") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set(application.mainClass)
+    jvmArgs(comparisonNativeAccessArg)
     args(
         layout.projectDirectory.dir("../context/comparison").file("results.md").asFile.absolutePath
     )
@@ -78,6 +82,7 @@ tasks.register<JavaExec>("comparisonCheck") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set(application.mainClass)
+    jvmArgs(comparisonNativeAccessArg)
     args(
         "--verify",
         layout.buildDirectory.file("reports/comparison/results.md").get().asFile.absolutePath,
@@ -96,6 +101,7 @@ tasks.register<JavaExec>("jmhBenchmark") {
     dependsOn(tasks.named("jmhClasses"))
     classpath = sourceSets["jmh"].runtimeClasspath
     mainClass.set("org.openjdk.jmh.Main")
+    jvmArgs(comparisonNativeAccessArg, jmhUnsafeAccessArg)
 
     val resultFile = layout.buildDirectory.file("reports/jmh/results.json")
     doFirst { resultFile.get().asFile.parentFile.mkdirs() }
@@ -114,6 +120,7 @@ tasks.register<JavaExec>("jmhBenchmarkSmoke") {
     dependsOn(tasks.named("jmhClasses"))
     classpath = sourceSets["jmh"].runtimeClasspath
     mainClass.set("org.openjdk.jmh.Main")
+    jvmArgs(comparisonNativeAccessArg, jmhUnsafeAccessArg)
 
     val resultFile = layout.buildDirectory.file("reports/jmh/smoke-results.json")
     doFirst { resultFile.get().asFile.parentFile.mkdirs() }
@@ -142,6 +149,7 @@ tasks.register<JavaExec>("jmhPtyBenchmark") {
     dependsOn(tasks.named("jmhClasses"))
     classpath = sourceSets["jmh"].runtimeClasspath
     mainClass.set("org.openjdk.jmh.Main")
+    jvmArgs(comparisonNativeAccessArg, jmhUnsafeAccessArg)
 
     val resultFile = layout.buildDirectory.file("reports/jmh/pty-results.json")
     doFirst { resultFile.get().asFile.parentFile.mkdirs() }
