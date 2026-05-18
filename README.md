@@ -72,7 +72,7 @@ Start with the public docs:
 
 ## Modules
 
-- `:` is the Java core module with no runtime dependencies outside the JDK.
+- `:` is the Java core module `com.github.ulviar.icli` with no runtime dependencies outside the JDK.
 - `:icli-kotlin` is an optional Kotlin ergonomics module.
 - `:icli-integrations` is an optional Java module for structured CLI-backed integration helpers.
 - `:icli-comparison` is a research module for library comparison and benchmarks. It is not a runtime dependency of the

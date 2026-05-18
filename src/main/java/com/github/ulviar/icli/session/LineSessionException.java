@@ -13,13 +13,28 @@ public final class LineSessionException extends RuntimeException {
     /** Bounded transcript snapshot. */
     private final LineTranscript transcript;
 
-    LineSessionException(Reason reason, LineTranscript transcript, String message) {
+    /**
+     * Creates a line-session exception.
+     *
+     * @param reason failure reason
+     * @param transcript bounded transcript snapshot
+     * @param message failure message
+     */
+    public LineSessionException(Reason reason, LineTranscript transcript, String message) {
         super(message);
         this.reason = Objects.requireNonNull(reason, "reason");
         this.transcript = Objects.requireNonNull(transcript, "transcript");
     }
 
-    LineSessionException(Reason reason, LineTranscript transcript, String message, Throwable cause) {
+    /**
+     * Creates a line-session exception with a cause.
+     *
+     * @param reason failure reason
+     * @param transcript bounded transcript snapshot
+     * @param message failure message
+     * @param cause failure cause
+     */
+    public LineSessionException(Reason reason, LineTranscript transcript, String message, Throwable cause) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
         this.transcript = Objects.requireNonNull(transcript, "transcript");

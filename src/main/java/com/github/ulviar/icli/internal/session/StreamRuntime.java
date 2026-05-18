@@ -1,9 +1,10 @@
-package com.github.ulviar.icli.session;
+package com.github.ulviar.icli.internal.session;
 
 import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
 import com.github.ulviar.icli.internal.CommandEchoSupport;
 import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import com.github.ulviar.icli.internal.StreamExecutionPlan;
+import com.github.ulviar.icli.session.StreamSession;
 
 public final class StreamRuntime {
 
@@ -15,7 +16,7 @@ public final class StreamRuntime {
                 "listen",
                 () -> CommandEchoSupport.from(plan.sessionPlan().launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
-        Session session;
+        DefaultSession session;
         try {
             session = SessionRuntime.open(plan.sessionPlan());
             diagnostics.emit(
@@ -28,7 +29,7 @@ public final class StreamRuntime {
             throw exception;
         }
         try {
-            return new StreamSession(session, plan, diagnostics);
+            return new DefaultStreamSession(session, plan, diagnostics);
         } catch (RuntimeException exception) {
             session.close();
             throw exception;

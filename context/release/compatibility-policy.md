@@ -27,6 +27,8 @@ system PTY provider, skip-аются через JUnit assumptions, если пл
 - Новые public packages требуют отдельного ADR.
 - Public top-level package surface покрывается tests, которые сканируют весь production artifact, чтобы случайная утечка
   внутреннего пакета была видна до релиза.
+- Core artifact является именованным Java module `com.github.ulviar.icli` и экспортирует только public API packages.
+  `com.github.ulviar.icli.internal` и вложенные runtime-пакеты не экспортируются.
 
 ## Поведенческая совместимость
 

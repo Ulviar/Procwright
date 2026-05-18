@@ -15,6 +15,9 @@ import com.github.ulviar.icli.internal.ProcessKernel;
 import com.github.ulviar.icli.internal.ScenarioProfile;
 import com.github.ulviar.icli.internal.SessionExecutionPlan;
 import com.github.ulviar.icli.internal.StreamExecutionPlan;
+import com.github.ulviar.icli.internal.session.SessionRuntime;
+import com.github.ulviar.icli.internal.session.SessionScenarioSupport;
+import com.github.ulviar.icli.internal.session.StreamRuntime;
 import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.LineSessionInvocation;
 import com.github.ulviar.icli.session.LineSessionOptions;
@@ -24,11 +27,8 @@ import com.github.ulviar.icli.session.PooledLineSessionOptions;
 import com.github.ulviar.icli.session.Session;
 import com.github.ulviar.icli.session.SessionInvocation;
 import com.github.ulviar.icli.session.SessionOptions;
-import com.github.ulviar.icli.session.SessionRuntime;
-import com.github.ulviar.icli.session.SessionScenarioSupport;
 import com.github.ulviar.icli.session.StreamInvocation;
 import com.github.ulviar.icli.session.StreamOptions;
-import com.github.ulviar.icli.session.StreamRuntime;
 import com.github.ulviar.icli.session.StreamSession;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -346,8 +346,7 @@ public final class CommandService {
     public PooledLineSession pooled(Consumer<PooledLineSessionInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
 
-        PooledLineSessionInvocation.Builder builder =
-                SessionScenarioSupport.pooledInvocationBuilder(pooledLineSessionOptions);
+        PooledLineSessionInvocation.Builder builder = pooledInvocationBuilder();
         configure.accept(builder);
         PooledLineSessionInvocation invocation = builder.build();
 
@@ -398,5 +397,16 @@ public final class CommandService {
             session.close();
             throw exception;
         }
+    }
+
+    private PooledLineSessionInvocation.Builder pooledInvocationBuilder() {
+        return PooledLineSessionInvocation.builder()
+                .maxSize(pooledLineSessionOptions.maxSize())
+                .warmupSize(pooledLineSessionOptions.warmupSize())
+                .acquireTimeout(pooledLineSessionOptions.acquireTimeout())
+                .maxRequestsPerWorker(pooledLineSessionOptions.maxRequestsPerWorker())
+                .maxWorkerAge(pooledLineSessionOptions.maxWorkerAge())
+                .reset(pooledLineSessionOptions.resetHook())
+                .healthCheck(pooledLineSessionOptions.healthCheck());
     }
 }

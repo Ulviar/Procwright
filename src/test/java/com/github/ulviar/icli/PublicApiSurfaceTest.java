@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.lang.module.ModuleDescriptor;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.GenericArrayType;
@@ -35,10 +36,7 @@ final class PublicApiSurfaceTest {
             "com.github.ulviar.icli.session",
             "com.github.ulviar.icli.terminal");
 
-    private static final Set<String> HIDDEN_PUBLIC_RUNTIME_TYPES = Set.of(
-            "com.github.ulviar.icli.session.SessionScenarioSupport",
-            "com.github.ulviar.icli.session.SessionRuntime",
-            "com.github.ulviar.icli.session.StreamRuntime");
+    private static final String MODULE_NAME = "com.github.ulviar.icli";
 
     @Test
     void corePublicTopLevelTypesStayInApprovedPackages() throws Exception {
@@ -84,18 +82,15 @@ final class PublicApiSurfaceTest {
     }
 
     @Test
-    void moduleDescriptorIsBlockedUntilHiddenRuntimeTypesMoveOutOfExportedPackages() throws Exception {
-        Set<String> publicHiddenTypes = publicHiddenRuntimeTypeNames();
-        if (Files.exists(Path.of("src/main/java/module-info.java"))) {
-            assertEquals(
-                    Set.of(),
-                    publicHiddenTypes,
-                    "module-info.java must not export runtime-only public support classes");
-        } else {
-            assertTrue(
-                    !publicHiddenTypes.isEmpty(),
-                    "Hidden runtime support is gone; add module-info.java to export only public API packages");
-        }
+    void moduleDescriptorExportsOnlyPublicApiPackages() throws Exception {
+        ModuleDescriptor descriptor = moduleDescriptor(CommandService.class);
+
+        assertEquals(MODULE_NAME, descriptor.name());
+        assertEquals(
+                PUBLIC_API_PACKAGES,
+                descriptor.exports().stream()
+                        .map(export -> export.source())
+                        .collect(java.util.stream.Collectors.toCollection(TreeSet::new)));
     }
 
     private static Set<String> publicTopLevelPackages(Class<?> anchor) throws Exception {
@@ -149,6 +144,25 @@ final class PublicApiSurfaceTest {
         return types;
     }
 
+    private static ModuleDescriptor moduleDescriptor(Class<?> anchor) throws Exception {
+        Path classesRoot = Path.of(
+                anchor.getProtectionDomain().getCodeSource().getLocation().toURI());
+        if (Files.isRegularFile(classesRoot)) {
+            try (JarFile jar = new JarFile(classesRoot.toFile())) {
+                JarEntry entry = jar.getJarEntry("module-info.class");
+                assertTrue(entry != null, "Core artifact must contain module-info.class");
+                try (var input = jar.getInputStream(entry)) {
+                    return ModuleDescriptor.read(input);
+                }
+            }
+        }
+        Path moduleInfo = classesRoot.resolve("module-info.class");
+        assertTrue(Files.isRegularFile(moduleInfo), "Core classes must contain module-info.class");
+        try (var input = Files.newInputStream(moduleInfo)) {
+            return ModuleDescriptor.read(input);
+        }
+    }
+
     private static void assertAllowedTypes(Type[] types, String location) {
         Set<Type> seen = seenTypes();
         for (Type type : types) {
@@ -191,21 +205,6 @@ final class PublicApiSurfaceTest {
         return Collections.newSetFromMap(new IdentityHashMap<>());
     }
 
-    private static Set<String> publicHiddenRuntimeTypeNames() throws Exception {
-        TreeSet<String> names = new TreeSet<>();
-        for (String typeName : HIDDEN_PUBLIC_RUNTIME_TYPES) {
-            try {
-                Class<?> type = Class.forName(typeName, false, CommandService.class.getClassLoader());
-                if (Modifier.isPublic(type.getModifiers())) {
-                    names.add(typeName);
-                }
-            } catch (ClassNotFoundException ignored) {
-                // Hidden support may be moved or removed before module-info.java is introduced.
-            }
-        }
-        return names;
-    }
-
     private static void assertAllowedClass(Class<?> type, String location) {
         if (type.isPrimitive() || type == Void.TYPE) {
             return;
@@ -225,7 +224,7 @@ final class PublicApiSurfaceTest {
         if (name.startsWith("com.github.ulviar.icli.internal.")) {
             return false;
         }
-        return !HIDDEN_PUBLIC_RUNTIME_TYPES.contains(name);
+        return true;
     }
 
     private static boolean isTopLevelClass(Path path) {

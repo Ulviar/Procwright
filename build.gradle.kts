@@ -66,12 +66,13 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.named<Javadoc>("javadoc") {
-    exclude(
-        "**/internal/**",
-        "**/session/SessionScenarioSupport.java",
-        "**/session/SessionRuntime.java",
-        "**/session/StreamRuntime.java",
-    )
+    modularity.inferModulePath.set(false)
+    source =
+        sourceSets.main.get().allJava.matching {
+            exclude("module-info.java")
+            exclude("**/internal/**")
+        }
+    classpath += sourceSets.main.get().output
 }
 
 tasks.withType<Test>().configureEach { useJUnitPlatform() }

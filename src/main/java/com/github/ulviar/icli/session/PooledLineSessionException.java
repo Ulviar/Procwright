@@ -10,12 +10,25 @@ public final class PooledLineSessionException extends RuntimeException {
     /** Failure reason. */
     private final Reason reason;
 
-    PooledLineSessionException(Reason reason, String message) {
+    /**
+     * Creates a pooled line-session exception.
+     *
+     * @param reason failure reason
+     * @param message failure message
+     */
+    public PooledLineSessionException(Reason reason, String message) {
         super(message);
         this.reason = Objects.requireNonNull(reason, "reason");
     }
 
-    PooledLineSessionException(Reason reason, String message, Throwable cause) {
+    /**
+     * Creates a pooled line-session exception with a cause.
+     *
+     * @param reason failure reason
+     * @param message failure message
+     * @param cause failure cause
+     */
+    public PooledLineSessionException(Reason reason, String message, Throwable cause) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
     }

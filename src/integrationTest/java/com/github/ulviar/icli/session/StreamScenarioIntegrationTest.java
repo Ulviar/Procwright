@@ -90,19 +90,6 @@ final class StreamScenarioIntegrationTest {
     }
 
     @Test
-    void streamTimeoutWatcherStopsAfterEarlyProcessExit() throws Exception {
-        CommandService service =
-                fixtureService(StreamOptions.defaults().withTimeout(Duration.ofSeconds(Long.MAX_VALUE)));
-
-        try (StreamSession session = service.listen(call -> call.args("stdout", "done"))) {
-            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
-
-            assertEquals(0, exit.exitCode().orElseThrow());
-            session.timeoutWatcherStopped().get(2, TimeUnit.SECONDS);
-        }
-    }
-
-    @Test
     void explicitCloseReportsClosedExit() throws Exception {
         CommandService service = fixtureService(StreamOptions.defaults());
 
@@ -168,20 +155,6 @@ final class StreamScenarioIntegrationTest {
 
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
             assertEquals(0, exit.exitCode().orElseThrow());
-        }
-    }
-
-    @Test
-    void rawOutputStreamsCannotBeReadAfterStreamSessionClaimsOutputOwnership() throws Exception {
-        CommandService service = fixtureService(StreamOptions.defaults());
-
-        try (StreamSession session = service.listen(call -> call.args("sleep", "5000"))) {
-            java.lang.reflect.Field field = StreamSession.class.getDeclaredField("session");
-            field.setAccessible(true);
-            Session rawSession = (Session) field.get(session);
-
-            assertThrows(IllegalStateException.class, rawSession.stdout()::read);
-            assertThrows(IllegalStateException.class, rawSession.stderr()::read);
         }
     }
 

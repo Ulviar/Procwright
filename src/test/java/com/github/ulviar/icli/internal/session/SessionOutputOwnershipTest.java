@@ -1,18 +1,38 @@
-package com.github.ulviar.icli.session;
+package com.github.ulviar.icli.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.github.ulviar.icli.command.CommandInput;
+import com.github.ulviar.icli.command.EnvironmentPolicy;
+import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.diagnostics.CommandEcho;
 import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
 import com.github.ulviar.icli.internal.DiagnosticEmitter;
+import com.github.ulviar.icli.internal.LaunchMode;
+import com.github.ulviar.icli.internal.LaunchPlan;
+import com.github.ulviar.icli.internal.SessionExecutionPlan;
+import com.github.ulviar.icli.internal.StreamExecutionPlan;
+import com.github.ulviar.icli.session.LineSessionOptions;
+import com.github.ulviar.icli.session.Session;
+import com.github.ulviar.icli.session.SessionExit;
+import com.github.ulviar.icli.session.StreamExit;
+import com.github.ulviar.icli.session.StreamStdinPolicy;
+import com.github.ulviar.icli.terminal.PtyProvider;
+import com.github.ulviar.icli.terminal.TerminalPolicy;
+import com.github.ulviar.icli.terminal.TerminalSignal;
+import com.github.ulviar.icli.terminal.TerminalSize;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -62,13 +82,132 @@ final class SessionOutputOwnershipTest {
         }
     }
 
+    @Test
+    void expectFactoryRejectsCustomSessionImplementations() {
+        Session session = new CustomSession();
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, session::expect);
+
+        assertEquals("Session must be an iCLI-created handle", exception.getMessage());
+    }
+
+    @Test
+    void rawOutputStreamsCannotBeReadAfterLineSessionClaimsOutputOwnership() throws Exception {
+        DefaultSession rawSession = defaultSessionWith(new ByteArrayInputStream(new byte[0]));
+
+        try (DefaultLineSession session = new DefaultLineSession(rawSession, LineSessionOptions.defaults())) {
+            assertThrows(IllegalStateException.class, rawSession.stdout()::read);
+            assertThrows(IllegalStateException.class, rawSession.stderr()::read);
+        }
+    }
+
+    @Test
+    void rawOutputStreamsCannotBeReadAfterStreamSessionClaimsOutputOwnership() throws Exception {
+        DefaultSession rawSession = defaultSessionWith(new ByteArrayInputStream(new byte[0]));
+
+        try (DefaultStreamSession session =
+                new DefaultStreamSession(rawSession, streamPlan(Duration.ZERO), diagnostics())) {
+            assertThrows(IllegalStateException.class, rawSession.stdout()::read);
+            assertThrows(IllegalStateException.class, rawSession.stderr()::read);
+        }
+    }
+
+    @Test
+    void streamTimeoutWatcherStopsAfterEarlyProcessExit() throws Exception {
+        StubProcess process = new StubProcess(new ByteArrayInputStream("done\n".getBytes(StandardCharsets.UTF_8)));
+        DefaultSession rawSession = defaultSessionWith(process);
+
+        try (DefaultStreamSession session =
+                new DefaultStreamSession(rawSession, streamPlan(Duration.ofSeconds(Long.MAX_VALUE)), diagnostics())) {
+            process.completeExit(0);
+
+            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+
+            assertEquals(0, exit.exitCode().orElseThrow());
+            session.timeoutWatcherStopped().get(2, TimeUnit.SECONDS);
+        }
+    }
+
     private static Session sessionWith(InputStream stdout) {
-        return new Session(
-                new StubProcess(stdout),
+        return defaultSessionWith(stdout);
+    }
+
+    private static DefaultSession defaultSessionWith(InputStream stdout) {
+        return defaultSessionWith(new StubProcess(stdout));
+    }
+
+    private static DefaultSession defaultSessionWith(StubProcess process) {
+        return new DefaultSession(
+                process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 StandardCharsets.UTF_8,
-                DiagnosticEmitter.of(DiagnosticsOptions.defaults(), "session-test", CommandEcho.empty()));
+                diagnostics());
+    }
+
+    private static StreamExecutionPlan streamPlan(Duration timeout) {
+        LaunchPlan launchPlan = new LaunchPlan(
+                LaunchMode.DIRECT,
+                List.of("stub"),
+                Optional.empty(),
+                EnvironmentPolicy.INHERIT,
+                Map.of(),
+                OutputMode.SEPARATE,
+                TerminalPolicy.DISABLED);
+        SessionExecutionPlan sessionPlan = new SessionExecutionPlan(
+                launchPlan,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                Duration.ZERO,
+                StandardCharsets.UTF_8,
+                PtyProvider.unavailable(),
+                TerminalSize.defaults());
+        return new StreamExecutionPlan(
+                sessionPlan, timeout, StreamStdinPolicy.KEEP_OPEN, 1024, chunk -> {}, DiagnosticsOptions.defaults());
+    }
+
+    private static DiagnosticEmitter diagnostics() {
+        return DiagnosticEmitter.of(DiagnosticsOptions.defaults(), "session-test", CommandEcho.empty());
+    }
+
+    private static final class CustomSession implements Session {
+
+        @Override
+        public InputStream stdout() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream stderr() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public OutputStream stdin() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public void send(String text) {}
+
+        @Override
+        public void sendLine(String line) {}
+
+        @Override
+        public void send(CommandInput input) {}
+
+        @Override
+        public void sendSignal(TerminalSignal signal) {}
+
+        @Override
+        public void closeStdin() {}
+
+        @Override
+        public CompletableFuture<SessionExit> onExit() {
+            return CompletableFuture.completedFuture(new SessionExit(OptionalInt.of(0), false));
+        }
+
+        @Override
+        public void close() {}
     }
 
     private static final class BlockingInputStream extends InputStream {
@@ -119,6 +258,11 @@ final class SessionOutputOwnershipTest {
 
         private StubProcess(InputStream stdout) {
             this.stdout = stdout;
+        }
+
+        private void completeExit(int exitCode) {
+            alive.set(false);
+            exit.complete(exitCode);
         }
 
         @Override

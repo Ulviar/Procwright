@@ -31,6 +31,17 @@
 - Common workflows: `ScenarioPresets` как typed builder customizers.
 - Command-backed integration helpers: optional `:icli-integrations`.
 
+## Миграция session-family handles после JPMS split
+
+- `Session`, `Expect`, `LineSession`, `StreamSession` и `PooledLineSession` теперь являются публичными handle
+  interfaces, а не concrete implementation classes.
+- Эти interfaces не являются пользовательским SPI: пользователь получает handles через `CommandService` и не должен
+  реализовывать или инстанцировать их самостоятельно.
+- Stateful реализации скрыты в неэкспортируемом `com.github.ulviar.icli.internal.session`.
+- Prompt automation строится через `Session.expect(...)` или `Expect.on(session)` только для sessions, созданных iCLI.
+- Модуль `com.github.ulviar.icli` экспортирует только публичные packages: root, `command`, `diagnostics`, `preset`,
+  `session`, `terminal`.
+
 ## Ограничения текущего rewrite
 
 - Публичный релиз еще не опубликован.

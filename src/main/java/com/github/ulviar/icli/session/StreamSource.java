@@ -20,7 +20,12 @@ public enum StreamSource {
         this.label = label;
     }
 
-    String label() {
+    /**
+     * Returns a stable lowercase diagnostic label.
+     *
+     * @return stream label
+     */
+    public String label() {
         return label;
     }
 }

@@ -21,9 +21,9 @@ contention и PTY stability при доступном provider. Release hardenin
 Linux/macOS/Windows, versioning policy, compatibility policy, dependency review, release checklist, migration notes,
 единые group/version для modules, Javadoc artifacts для Java modules, KDoc check для Kotlin API и tests, фиксирующие
 публичные package boundaries по всему production artifact; production package graph теперь проверяется отдельным
-class-file тестом. JPMS `module-info.java` сознательно отложен до устранения runtime-only public session support из
-экспортируемого `session` package; session shutdown escalation hardening остается отдельным release gate до тестового
-закрытия или явного release limitation.
+class-file тестом. Core artifact имеет JPMS descriptor `com.github.ulviar.icli`; public session-family handles стали
+interfaces, а stateful реализации перенесены в неэкспортируемый `internal.session`. Session shutdown escalation
+hardening остается отдельным release gate до тестового закрытия или явного release limitation.
 
 ## Release-релевантные критерии
 
@@ -47,7 +47,7 @@ class-file тестом. JPMS `module-info.java` сознательно отло
 | Scenario presets | Начато | `ScenarioPresets` дает typed builder customizers для command automation, env diagnostics, REPL, prompt automation, log following, binary byte snapshots, terminal-required session и warm worker pool без нового runtime. |
 | CLI integrations | Начато | Optional `:icli-integrations` содержит depth-limited JSON/JSONL codec, Content-Length framed JSON helpers, `JsonLineSession`, cancellation mapping, `ToolCallResult`, `CliAdapterError` и compile-tested command-backed tool examples без MCP dependency в core. |
 | Performance/stress | Начато | `stressTest` входит в `check` и покрывает bounded capture under load, stderr drain, timeout churn, rapid session lifecycle, pooled contention и conditional PTY stability. |
-| Release hardening | Начато | License, cross-platform CI, pinned workflow actions, Gradle wrapper checksum, dependency verification metadata, versioning/compatibility/dependency policies, release checklist, migration notes, unified module coordinates, Javadoc artifacts, Kotlin KDoc check и public package boundary tests добавлены. |
+| Release hardening | Начато | License, cross-platform CI, pinned workflow actions, Gradle wrapper checksum, dependency verification metadata, versioning/compatibility/dependency policies, release checklist, migration notes, unified module coordinates, JPMS descriptor for core, Javadoc artifacts, Kotlin KDoc check и public package boundary tests добавлены. |
 | Fixture/evals | Начато | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
 | Documentation | Базово закрыто | README описывает release status и verification tiers; `docs/` содержит public MkDocs Material site с overview, getting started, scenario docs, how-to guides, reference, API и release разделами; `publicDocsCheck` собирает site в strict mode и подкладывает generated Java API docs; public docs отделены от внутреннего русского `context/` и связаны с compile-tested examples через tests. |
 | Raw/session affinity pooling | Отложено | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
@@ -68,7 +68,6 @@ class-file тестом. JPMS `module-info.java` сознательно отло
 - Нужен ли отдельный optional PTY artifact после расширения platform matrix.
 - Какой Windows ConPTY provider будет добавлен: отдельный artifact или runtime-specific implementation.
 - Нужны ли отдельные JMH benchmarks после стабилизации deterministic stress suite.
-- Когда переносить session runtime support за фасадную границу, чтобы добавить настоящий JPMS `module-info.java`.
 - Когда добавлять Maven Central publishing, signing и POM metadata; текущая ветка готовит release candidate, но не
   публикует артефакты.
 - Нужно ли переименовать `SessionOptions.idleTimeout` перед публичной стабилизацией; текущая семантика зафиксирована

@@ -31,10 +31,6 @@ public final class PooledLineSessionInvocation {
         return new Builder(PooledLineSessionOptions.defaults());
     }
 
-    static Builder builder(PooledLineSessionOptions defaults) {
-        return new Builder(defaults);
-    }
-
     /**
      * Returns immutable line-session launch overrides.
      *

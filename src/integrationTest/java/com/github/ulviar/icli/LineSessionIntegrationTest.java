@@ -11,7 +11,6 @@ import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.LineSessionException;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.ResponseDecoder;
-import com.github.ulviar.icli.session.Session;
 import com.github.ulviar.icli.session.SessionOptions;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -215,19 +214,6 @@ final class LineSessionIntegrationTest {
 
             assertTrue(responses.contains(List.of("start:a", "end:a")));
             assertTrue(responses.contains(List.of("start:b", "end:b")));
-        }
-    }
-
-    @Test
-    void rawOutputStreamsCannotBeReadAfterLineSessionClaimsOutputOwnership() throws Exception {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("line-repl"))) {
-            java.lang.reflect.Field field = LineSession.class.getDeclaredField("session");
-            field.setAccessible(true);
-            Session rawSession = (Session) field.get(session);
-
-            assertThrows(IllegalStateException.class, rawSession.stdout()::read);
-            assertThrows(IllegalStateException.class, rawSession.stderr()::read);
-            assertEquals("response:hello", session.request("hello").text());
         }
     }
 

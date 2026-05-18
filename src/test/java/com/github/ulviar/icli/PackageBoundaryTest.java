@@ -29,23 +29,26 @@ final class PackageBoundaryTest {
             ROOT + ".command",
             ROOT + ".diagnostics",
             ROOT + ".internal",
+            ROOT + ".internal.session",
             ROOT + ".preset",
             ROOT + ".session",
             ROOT + ".terminal");
 
     private static final Map<String, Set<String>> ALLOWED_DEPENDENCIES = Map.of(
             ROOT,
-            packages("command", "diagnostics", "internal", "session"),
+            packages("command", "diagnostics", "internal", "internal.session", "session"),
             ROOT + ".command",
             packages("internal"),
             ROOT + ".diagnostics",
             packages("command", "internal", "terminal"),
             ROOT + ".internal",
             packages("command", "diagnostics", "session", "terminal"),
+            ROOT + ".internal.session",
+            packages("command", "diagnostics", "internal", "session", "terminal"),
             ROOT + ".preset",
             packages("command", "session", "terminal"),
             ROOT + ".session",
-            packages("command", "diagnostics", "internal", "terminal"),
+            packages("command", "diagnostics", "internal", "internal.session", "terminal"),
             ROOT + ".terminal",
             packages("command", "internal"));
 

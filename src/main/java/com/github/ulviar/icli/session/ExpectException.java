@@ -13,13 +13,28 @@ public final class ExpectException extends RuntimeException {
     /** Bounded transcript snapshot. */
     private final LineTranscript transcript;
 
-    ExpectException(Reason reason, LineTranscript transcript, String message) {
+    /**
+     * Creates an expect exception.
+     *
+     * @param reason failure reason
+     * @param transcript bounded transcript snapshot
+     * @param message failure message
+     */
+    public ExpectException(Reason reason, LineTranscript transcript, String message) {
         super(message);
         this.reason = Objects.requireNonNull(reason, "reason");
         this.transcript = Objects.requireNonNull(transcript, "transcript");
     }
 
-    ExpectException(Reason reason, LineTranscript transcript, String message, Throwable cause) {
+    /**
+     * Creates an expect exception with a cause.
+     *
+     * @param reason failure reason
+     * @param transcript bounded transcript snapshot
+     * @param message failure message
+     * @param cause failure cause
+     */
+    public ExpectException(Reason reason, LineTranscript transcript, String message, Throwable cause) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
         this.transcript = Objects.requireNonNull(transcript, "transcript");

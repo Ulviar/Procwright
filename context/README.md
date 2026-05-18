@@ -52,8 +52,8 @@
   документация, MkDocs Material и граница между `docs/` и `context/`.
 - [decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md) — пакетная архитектура
   ядра и границы public/internal API.
-- [decisions/ADR-0015-jpms-encapsulation.md](decisions/ADR-0015-jpms-encapsulation.md) — условия добавления
-  `module-info.java` и текущие JPMS-блокеры.
+- [decisions/ADR-0015-jpms-encapsulation.md](decisions/ADR-0015-jpms-encapsulation.md) — JPMS-инкапсуляция core и
+  разделение public session contracts / internal implementations.
 
 ## Правило навигации
 

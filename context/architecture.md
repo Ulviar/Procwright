@@ -103,21 +103,21 @@ com.github.ulviar.icli.command
   CommandExecutionException
 
 com.github.ulviar.icli.session
-  Session
+  Session (interface)
   SessionInvocation
   SessionOptions
   SessionExit
-  Expect
+  Expect (interface)
   ExpectOptions
   ExpectOutputFilter
   ExpectTranscriptValues
   ExpectException
   LineSessionInvocation
-  LineSession
+  LineSession (interface)
   LineSessionOptions
   LineResponse
   ResponseDecoder
-  StreamSession
+  StreamSession (interface)
   StreamOptions
   StreamInvocation
   StreamChunk
@@ -127,7 +127,7 @@ com.github.ulviar.icli.session
   StreamExit
   StreamTranscript
   StreamException
-  PooledLineSession
+  PooledLineSession (interface)
   PooledLineSessionOptions
   PooledLineSessionInvocation
   PooledLineSessionMetrics
@@ -153,6 +153,9 @@ com.github.ulviar.icli.preset
 
 com.github.ulviar.icli.internal
   runtime, plans, validation and process helpers that must not appear in public signatures
+
+com.github.ulviar.icli.internal.session
+  stateful session-family implementations and runtime factories hidden by JPMS exports
 
 com.github.ulviar.icli.kotlin
   runCommand(...)
