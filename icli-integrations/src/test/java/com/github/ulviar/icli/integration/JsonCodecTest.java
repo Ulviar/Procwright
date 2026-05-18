@@ -47,6 +47,21 @@ final class JsonCodecTest {
     }
 
     @Test
+    void rejectsJsonNestingBeyondConfiguredDepth() {
+        assertThrows(JsonParseException.class, () -> JsonCodec.parse("[[0]]", 1));
+        assertEquals(
+                JsonValue.array(List.of(JsonValue.array(List.of(JsonValue.number(0))))), JsonCodec.parse("[[0]]", 2));
+    }
+
+    @Test
+    void rejectsJsonWritingBeyondConfiguredDepth() {
+        JsonValue value = JsonValue.array(List.of(JsonValue.array(List.of(JsonValue.number(0)))));
+
+        assertThrows(JsonParseException.class, () -> JsonCodec.write(value, 1));
+        assertEquals("[[0]]", JsonCodec.write(value, 2));
+    }
+
+    @Test
     void jsonLineEscapesEmbeddedLineSeparators() {
         String line = JsonLines.line(JsonValue.string("a\nb"));
 

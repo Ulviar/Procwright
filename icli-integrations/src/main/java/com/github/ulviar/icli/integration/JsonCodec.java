@@ -14,6 +14,8 @@ import java.util.Objects;
  */
 public final class JsonCodec {
 
+    private static final int DEFAULT_MAX_DEPTH = 256;
+
     private JsonCodec() {}
 
     /**
@@ -24,7 +26,19 @@ public final class JsonCodec {
      * @throws JsonParseException when the input is not one complete JSON value
      */
     public static JsonValue parse(String text) {
-        Parser parser = new Parser(text);
+        return parse(text, DEFAULT_MAX_DEPTH);
+    }
+
+    /**
+     * Parses one complete JSON value with an explicit nesting limit.
+     *
+     * @param text JSON text
+     * @param maxDepth maximum object/array nesting depth
+     * @return parsed value
+     * @throws JsonParseException when the input is not one complete JSON value
+     */
+    public static JsonValue parse(String text, int maxDepth) {
+        Parser parser = new Parser(text, maxDepth);
         JsonValue value = parser.parseValue();
         parser.skipWhitespace();
         if (!parser.exhausted()) {
@@ -40,15 +54,27 @@ public final class JsonCodec {
      * @return compact JSON text
      */
     public static String write(JsonValue value) {
+        return write(value, DEFAULT_MAX_DEPTH);
+    }
+
+    /**
+     * Serializes one JSON value with an explicit nesting limit.
+     *
+     * @param value JSON value
+     * @param maxDepth maximum object/array nesting depth
+     * @return compact JSON text
+     */
+    public static String write(JsonValue value, int maxDepth) {
+        requirePositive(maxDepth, "maxDepth");
         StringBuilder builder = new StringBuilder();
-        append(builder, Objects.requireNonNull(value, "value"));
+        append(builder, Objects.requireNonNull(value, "value"), 0, maxDepth);
         return builder.toString();
     }
 
-    private static void append(StringBuilder builder, JsonValue value) {
+    private static void append(StringBuilder builder, JsonValue value, int depth, int maxDepth) {
         switch (value) {
-            case JsonValue.JsonObject object -> appendObject(builder, object);
-            case JsonValue.JsonArray array -> appendArray(builder, array);
+            case JsonValue.JsonObject object -> appendObject(builder, object, depth, maxDepth);
+            case JsonValue.JsonArray array -> appendArray(builder, array, depth, maxDepth);
             case JsonValue.JsonString string -> appendString(builder, string.value());
             case JsonValue.JsonNumber number -> builder.append(number.value().toString());
             case JsonValue.JsonBoolean bool -> builder.append(bool.value());
@@ -56,7 +82,8 @@ public final class JsonCodec {
         }
     }
 
-    private static void appendObject(StringBuilder builder, JsonValue.JsonObject object) {
+    private static void appendObject(StringBuilder builder, JsonValue.JsonObject object, int depth, int maxDepth) {
+        requireDepth(depth, maxDepth);
         builder.append('{');
         boolean first = true;
         for (Map.Entry<String, JsonValue> entry : object.members().entrySet()) {
@@ -65,20 +92,21 @@ public final class JsonCodec {
             }
             appendString(builder, entry.getKey());
             builder.append(':');
-            append(builder, entry.getValue());
+            append(builder, entry.getValue(), depth + 1, maxDepth);
             first = false;
         }
         builder.append('}');
     }
 
-    private static void appendArray(StringBuilder builder, JsonValue.JsonArray array) {
+    private static void appendArray(StringBuilder builder, JsonValue.JsonArray array, int depth, int maxDepth) {
+        requireDepth(depth, maxDepth);
         builder.append('[');
         boolean first = true;
         for (JsonValue value : array.values()) {
             if (!first) {
                 builder.append(',');
             }
-            append(builder, value);
+            append(builder, value, depth + 1, maxDepth);
             first = false;
         }
         builder.append(']');
@@ -111,23 +139,42 @@ public final class JsonCodec {
         builder.append('"');
     }
 
+    private static int requirePositive(int value, String name) {
+        if (value <= 0) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
+        return value;
+    }
+
+    private static void requireDepth(int depth, int maxDepth) {
+        if (depth >= maxDepth) {
+            throw new JsonParseException("JSON nesting exceeds maxDepth");
+        }
+    }
+
     private static final class Parser {
 
         private final String text;
+        private final int maxDepth;
         private int index;
 
-        private Parser(String text) {
+        private Parser(String text, int maxDepth) {
             this.text = Objects.requireNonNull(text, "text");
+            this.maxDepth = requirePositive(maxDepth, "maxDepth");
         }
 
         private JsonValue parseValue() {
+            return parseValue(0);
+        }
+
+        private JsonValue parseValue(int depth) {
             skipWhitespace();
             if (exhausted()) {
                 throw error("Expected JSON value");
             }
             return switch (text.charAt(index)) {
-                case '{' -> parseObject();
-                case '[' -> parseArray();
+                case '{' -> parseObject(depth);
+                case '[' -> parseArray(depth);
                 case '"' -> JsonValue.string(parseString());
                 case 't' -> parseLiteral("true", JsonValue.bool(true));
                 case 'f' -> parseLiteral("false", JsonValue.bool(false));
@@ -136,7 +183,8 @@ public final class JsonCodec {
             };
         }
 
-        private JsonValue.JsonObject parseObject() {
+        private JsonValue.JsonObject parseObject(int depth) {
+            requireDepth(depth, maxDepth);
             expect('{');
             skipWhitespace();
             LinkedHashMap<String, JsonValue> members = new LinkedHashMap<>();
@@ -152,7 +200,7 @@ public final class JsonCodec {
                 String name = parseString();
                 skipWhitespace();
                 expect(':');
-                JsonValue value = parseValue();
+                JsonValue value = parseValue(depth + 1);
                 if (members.putIfAbsent(name, value) != null) {
                     throw error("Duplicate object member");
                 }
@@ -165,7 +213,8 @@ public final class JsonCodec {
             }
         }
 
-        private JsonValue.JsonArray parseArray() {
+        private JsonValue.JsonArray parseArray(int depth) {
+            requireDepth(depth, maxDepth);
             expect('[');
             skipWhitespace();
             ArrayList<JsonValue> values = new ArrayList<>();
@@ -174,7 +223,7 @@ public final class JsonCodec {
                 return JsonValue.array(values);
             }
             while (true) {
-                values.add(parseValue());
+                values.add(parseValue(depth + 1));
                 skipWhitespace();
                 if (peek(']')) {
                     index++;

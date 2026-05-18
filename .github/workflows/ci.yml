@@ -7,6 +7,9 @@ on:
       - rewrite/**
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: Verify on ${{ matrix.os }}
@@ -21,10 +24,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: "25"
