@@ -35,6 +35,8 @@
 - [audits/standing-auditor-instructions.md](audits/standing-auditor-instructions.md) — постоянные роли независимого
   аудита.
 - [audits/step-audit-protocol.md](audits/step-audit-protocol.md) — протокол пошагового аудита изменений.
+- [audits/global-architecture-audit-2026-05-18.md](audits/global-architecture-audit-2026-05-18.md) — глобальный
+  архитектурный аудит текущего среза от верхних границ до классов.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
 - [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.
