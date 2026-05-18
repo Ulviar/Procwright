@@ -17,6 +17,9 @@
 Все кроссплатформенные сценарии должны проходить на всех трех платформах. Сценарии, которым нужен POSIX shell или
 system PTY provider, skip-аются через JUnit assumptions, если платформа не предоставляет нужную возможность.
 
+Windows ConPTY provider не входит в первый release-candidate baseline. `TerminalPolicy.REQUIRED` должен давать explicit
+unsupported behavior, если provider недоступен, и не должен silently fallback в pipes.
+
 ## Стабильность публичного API
 
 - Core public API живет в пакетах `com.github.ulviar.icli`, `com.github.ulviar.icli.command`,
@@ -31,6 +34,8 @@ system PTY provider, skip-аются через JUnit assumptions, если пл
 - Core artifact является именованным Java module `com.github.ulviar.icli` и экспортирует только public API packages.
   `com.github.ulviar.icli.internal` и вложенные runtime-пакеты не экспортируются. Integrations module экспортирует только
   `com.github.ulviar.icli.integration` и требует core module.
+- Для первого release-candidate baseline `CommandService` остается итоговым именем main entry point,
+  `SessionOptions.idleTimeout` сохраняет caller-visible semantics, а текущий набор `ScenarioPresets` заморожен.
 
 ## Поведенческая совместимость
 

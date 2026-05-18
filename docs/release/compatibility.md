@@ -23,6 +23,9 @@ support and the configured `PtyProvider`.
 
 Tests for machine-specific capabilities should skip through assumptions when a capability is unavailable.
 
+Windows ConPTY support is not a shipped provider in the current baseline. Terminal-required workflows must fail
+explicitly when no configured provider is available; they must not silently fall back to ordinary pipes.
+
 ## Compatibility before 1.0
 
 The project may still make breaking public API changes before `1.0.0`. Breaking changes must update compile-tested
@@ -30,3 +33,6 @@ examples, public docs, and release notes.
 
 The current rewrite includes a pre-1.0 session API break: session-family handles are sealed interfaces backed by hidden
 iCLI implementations. Create them through `CommandService`; custom handle implementations are not supported.
+
+For the first release-candidate baseline, `CommandService` remains the main entry point, `SessionOptions.idleTimeout`
+keeps its caller-visible activity semantics, and the current `ScenarioPresets` set is frozen.

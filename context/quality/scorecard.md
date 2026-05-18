@@ -2,79 +2,76 @@
 
 ## Статус
 
-Фаза 15 реализована в текущем срезе. Ветка содержит контекст clean rewrite, Gradle foundation с Java 25 baseline,
-compile-tested API sketches, детерминированную process fixture, one-shot execution kernel, scenario profile resolver для
-`run`, raw interactive session scenario, line-oriented request/response workflow, expect automation helper, первый PTY
-transport, listen-only streaming scenario, первый diagnostics/observability слой, optional Kotlin ergonomics module и
-pooled line-session scenario, scenario presets как typed builder customizers и optional CLI-backed integrations module.
-`CommandService.run(...)`, `CommandService.interactive(...)` и `CommandService.lineSession(...)` уже запускают реальные
-процессы через `ScenarioProfile -> LaunchPlan -> ExecutionPlan/SessionExecutionPlan`; `CommandService.listen(...)`
-добавляет streaming через `StreamExecutionPlan`, а `Session.expect(...)` добавляет prompt automation поверх raw session.
-Session-сценарии поддерживают `TerminalPolicy.DISABLED`, `AUTO` и `REQUIRED`; PTY доступен через узкий `PtyProvider`
-SPI и системный Unix-провайдер на базе `script(1)`. Diagnostics events имеют lifecycle `runId` и подключены к
-service-owned сценариям: `run`, `interactive`, `lineSession`, `listen` и worker launches внутри `pooled`. Kotlin module
-дает extension/suspend/Flow API без Kotlin dependency в Java core. `CommandService.pooled(...)` переиспользует
-существующий `LineSession` runtime для прогретых workers. `:icli-integrations` добавляет JSON/JSONL, Content-Length
-framing, structured adapter errors, cancellable calls и command-backed tool wrappers поверх существующих сценариев.
-Bounded `stressTest` входит в `check` и проверяет большие потоки, timeout churn, rapid session open/close, pooling
-contention и PTY stability при доступном provider. Release hardening добавляет Apache-2.0 license, CI matrix для
-Linux/macOS/Windows, versioning policy, compatibility policy, dependency review, release checklist, migration notes,
-единые group/version для modules, Javadoc artifacts для Java modules, KDoc check для Kotlin API и tests, фиксирующие
-публичные package boundaries по всему production artifact; production package graph теперь проверяется отдельным
-class-file тестом. Core artifact имеет JPMS descriptor `com.github.ulviar.icli`; public session-family handles стали
-interfaces, а stateful реализации перенесены в неэкспортируемый `internal.session`. Session shutdown escalation
-hardening остается отдельным release gate до тестового закрытия или явного release limitation.
+Текущий срез прошел release-stabilization pass 2026-05-18. Ветка содержит clean rewrite, Java 25 baseline, scenario-first
+public API, общий execution/session kernel, PTY capability boundary, diagnostics, optional Kotlin ergonomics,
+pooled line-session scenario, scenario presets, optional CLI-backed integrations, bounded stress suite, comparison
+research module, public MkDocs site и generated Java API docs для core/integrations.
 
-## Release-релевантные критерии
+Основной roadmap до release hardening выполнен для первого release-candidate baseline. Дальнейшая работа перед
+публикацией должна быть stabilization/release-focused: не расширять сценарии без ADR/eval, не добавлять shortcuts,
+которые создают второй API dialect, и не переносить optional/platform/runtime зависимости в core.
 
-| Область | Статус | Что должно быть верно |
+## Release-candidate baseline
+
+| Область | Статус | Что верно сейчас |
 | --- | --- | --- |
-| Engineering charter | Активно | Качество важнее скорости; требования закреплены как проектный стандарт. |
-| Scenario API | Начато | `run` выбирает сценарный профиль, а не напрямую набор runtime flags. |
-| Invariant model | Начато | `ScenarioProfile + CommandSpec + CommandInvocation/SessionInvocation` разворачиваются в валидированные scenario-specific plans. |
-| One-shot execution | Начато | Direct argv, explicit shell, stdin, working directory, env, charset, timeout и drain покрыты integration tests. |
-| Capture policy | Начато | Bounded stdout/stderr capture и truncation flags покрыты; streaming/discard еще не добавлены. |
-| Timeout/shutdown | Начато | Timeout supervision, forceful shutdown и process-tree cleanup покрыты integration tests. |
-| Command model | Начато | Immutable command spec, per-call invocation builder и explicit environment policy компилируются и покрыты базовыми тестами. |
-| Interactive session | Начато | Raw `Session` имеет защищенный stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout tests. |
-| Line session | Начато | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, bounded line length, различение EOF/timeout и stderr drain. |
-| Expect helper | Начато | Literal/regex matching, send/sendLine, bounded transcript, redacted action values, различение timeout/EOF и ANSI filter покрыты tests. |
-| PTY | Начато | `TerminalPolicy`, `PtyProvider`, Unix `script(1)` provider из trusted system paths, explicit unsupported behavior, terminal size request и Ctrl+C-style signal mapping покрыты tests. |
-| Streaming/listen | Начато | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, timeout/listener failure покрыты tests. |
-| Diagnostics | Начато | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo и launch failures без raw argv/env values, async listener SPI, transcript sink и diagnostic test recorder покрыты tests для service scenarios, включая pooled worker launches. |
-| Kotlin ergonomics | Начато | Optional `:icli-kotlin` module компилируется отдельно, содержит receiver extensions, suspend wrappers, узкий `ListenFlowInvocation` без listener override и Flow adapter tests без silent drops. |
-| Pooling | Начато | `PooledLineSession` использует existing `LineSession` workers, поддерживает max/warmup size, acquire timeout, reset/health hooks, worker retirement, graceful drain и metrics snapshot. |
-| Scenario presets | Начато | `ScenarioPresets` дает typed builder customizers для command automation, env diagnostics, REPL, prompt automation, log following, binary byte snapshots, terminal-required session и warm worker pool без нового runtime. |
-| CLI integrations | Начато | Optional `:icli-integrations` содержит depth-limited JSON/JSONL codec, Content-Length framed JSON helpers, `JsonLineSession`, cancellation mapping, `ToolCallResult`, `CliAdapterError` и compile-tested command-backed tool examples без MCP dependency в core. |
-| Performance/stress | Начато | `stressTest` входит в `check` и покрывает bounded capture under load, stderr drain, timeout churn, rapid session lifecycle, pooled contention и conditional PTY stability. |
-| Release hardening | Начато | License, cross-platform CI, pinned workflow actions, Gradle wrapper checksum, dependency verification metadata, versioning/compatibility/dependency policies, release checklist, migration notes, unified module coordinates, JPMS descriptor for core, Javadoc artifacts, Kotlin KDoc check и public package boundary tests добавлены. |
-| Fixture/evals | Начато | Process fixture моделирует success, stderr, large output, timeout, session I/O, line workflow и streaming cases. |
-| Documentation | Базово закрыто | README описывает release status и verification tiers; `docs/` содержит public MkDocs Material site с overview, getting started, scenario docs, how-to guides, reference, API и release разделами; `publicDocsCheck` собирает site в strict mode и подкладывает generated Java API docs; public docs отделены от внутреннего русского `context/` и связаны с compile-tested examples через tests. |
-| Raw/session affinity pooling | Отложено | Stateful affinity и raw session pooling не входят в текущий MVP-срез. |
+| Engineering charter | Активно | Качество, инварианты, TDD/evals и документация остаются обязательным стандартом проекта. |
+| Scenario API | RC baseline | Пользователь выбирает `run`, `interactive`, `lineSession`, `expect`, `listen` или `pooled`, а не собирает runtime flags. |
+| Invariant model | RC baseline | `ScenarioProfile + CommandSpec + scenario invocation` разворачиваются в валидированные execution/session plans. |
+| One-shot execution | RC baseline | Direct argv, explicit shell, stdin, cwd/env, charset, timeout, drain, bounded capture и typed result покрыты tests. |
+| Capture policy | RC baseline | Bounded capture и truncation flags реализованы; streaming/discard capture policies не входят в первый RC. |
+| Timeout/shutdown | RC baseline | Timeout supervision и process-tree cleanup покрыты integration/stress tests; platform timing остается bounded regression, а не performance guarantee. |
+| Command model | RC baseline | Immutable `CommandSpec`, per-call builders, explicit environment policy и result/error model покрыты unit/integration tests. |
+| Interactive session | RC baseline | Raw `Session` имеет guarded stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout. |
+| Line session | RC baseline | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, bounded line length, EOF/timeout distinction и stderr drain. |
+| Expect helper | RC baseline | Literal/regex matching, send/sendLine, bounded transcript, redacted action values и failure messages, ANSI filter и EOF/timeout distinction покрыты tests. |
+| PTY | RC baseline | `TerminalPolicy`, `PtyProvider`, system provider, explicit unsupported behavior, terminal size и terminal signal model покрыты; Windows ConPTY отложен. |
+| Streaming/listen | RC baseline | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, покрывает timeout/listener failure. |
+| Diagnostics | RC baseline | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo, async best-effort unordered delivery и transcript sink покрыты tests/docs. |
+| Kotlin ergonomics | RC baseline | Optional `:icli-kotlin` содержит extensions, suspend wrappers и Flow adapter; Java core не зависит от Kotlin; KDoc coverage check включен. |
+| Pooling | RC baseline | `PooledLineSession` использует existing `LineSession` workers, поддерживает max/warmup size, acquire timeout, reset/health hooks, retirement, drain и metrics. |
+| Scenario presets | RC baseline | Текущий набор presets заморожен для первого RC и остается typed builder customizer layer без нового runtime. |
+| CLI integrations | RC baseline | Optional `:icli-integrations` содержит JSON/JSONL, Content-Length framing, cancellation/error mapping и command-backed tool wrappers без MCP dependency. |
+| Performance/stress | RC baseline | `stressTest` входит в `check`; JMH/comparison остаются research/manual data, не performance guarantee. |
+| Release hardening | RC baseline | License, CI matrix, dependency verification, versioning/compatibility/dependency policies, release checklist, JPMS, Javadocs и public package boundary tests добавлены. |
+| Fixture/evals | RC baseline | Process fixture и `:icli-test-cli` моделируют success, stderr, large output, timeout, sessions, streaming и нестабильные real-world process behaviors. |
+| Documentation | RC baseline | Public MkDocs site описывает shipped behavior, содержит scenario/how-to/reference/release pages и включает generated Java API docs. |
 
-## Решения, которые нужно принять
+## Принятые стабилизационные решения
 
-- Итоговые имена `CommandSpec` / `CommandService` / `RunOptions`.
-- Нужно ли оставлять `CommandService` итоговым именем или переименовать до stabilization.
-- Полный набор capture policies после bounded-only MVP.
-- Нужно ли добавлять отдельные `Expect`-level diagnostic events до public stabilization; process lifecycle уже живет
-  на уровне owning `Session`.
-- Нужно ли добавлять ordered/bounded dispatcher для diagnostics transcript sink, если best-effort событий станет мало.
-- Когда Kotlin compiler начнет поддерживать следующие JVM targets, сверять `:icli-kotlin` target с Java baseline.
-- Нужно ли добавлять отдельные diagnostics events для pool worker lifecycle; текущий pool имеет локальные metrics.
-- Какие presets стоит оставить перед public stabilization; каталог presets не должен превращаться в набор use-case runners.
-- Нужен ли реальный MCP SDK adapter как отдельный модуль поверх `:icli-integrations`; core и текущий integration module
-  не должны зависеть от MCP SDK.
-- Нужен ли отдельный optional PTY artifact после расширения platform matrix.
-- Какой Windows ConPTY provider будет добавлен: отдельный artifact или runtime-specific implementation.
-- Нужны ли отдельные JMH benchmarks после стабилизации deterministic stress suite.
-- Когда добавлять Maven Central publishing, signing и POM metadata; текущая ветка готовит release candidate, но не
-  публикует артефакты.
-- Нужно ли переименовать `SessionOptions.idleTimeout` перед публичной стабилизацией; текущая семантика зафиксирована
-  как caller-visible activity: успешные записи, закрытие stdin и успешные чтения через session streams.
+- `CommandService` остается главным entry point перед первым RC.
+- Convenience one-line shortcuts не добавляются перед первым RC.
+- `SessionOptions.idleTimeout` сохраняет имя и caller-visible activity semantics.
+- Текущий набор `ScenarioPresets` заморожен; новые presets требуют ADR/eval.
+- Session-family handles остаются sealed public non-SPI contracts.
+- Diagnostics delivery остается async best-effort unordered.
+- Expect-level action diagnostics и подробные pool worker lifecycle events отложены.
+- Windows ConPTY provider отложен в optional/runtime-specific future artifact.
+- Kotlin generated docs через Dokka отложены; KDoc coverage check остается release gate.
+- Maven Central publishing/signing не добавлены в этот stabilization pass и требуют отдельного implementation step.
+
+## Отложено за пределы первого RC
+
+- Raw session pooling.
+- Stateful affinity pools.
+- Real MCP SDK adapter поверх `:icli-integrations`.
+- Windows ConPTY provider.
+- Dokka publication для Kotlin API docs.
+- Maven Central publishing implementation, signing и final POM metadata.
+- Machine-dependent performance promises.
+- Новые capture policy modes beyond bounded one-shot capture.
+
+## Следующий release-focused шаг
+
+1. Реализовать publishing/signing setup отдельным focused change по ADR-0017.
+2. Обновить `docs/release/installation.md` фактическими published coordinates после publishing implementation.
+3. Прогнать полный `./gradlew releaseCandidateCheck` на clean worktree.
+4. Проверить CI на Linux/macOS/Windows.
+5. Подготовить versioned public release notes на основе `docs/release/release-notes.md`.
 
 ## Что считается прогрессом
 
-- Новый public API компилируется в маленьких examples.
-- Каждый новый behavior добавляет eval/test.
-- Документы уменьшают неопределенность, а не заменяют реализацию.
+- Public API freeze audit остается без P0/P1 findings.
+- Каждый новый behavior добавляет owner в `quality/invariant-proof-map.md`.
+- Public docs описывают только behavior, доказанный tests/examples/release context.
+- Release-relevant changes обновляют `context/release/`, public docs и release gate.

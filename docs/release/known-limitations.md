@@ -11,10 +11,18 @@ The API is not stable yet. Names, package structure, and option shapes may chang
 Terminal capability is behind `TerminalPolicy` and `PtyProvider`. The current system provider is platform-dependent.
 Windows ConPTY support is not documented as a shipped provider in this release state.
 
+Terminal-required scenarios should fail explicitly when no provider is available. Silent fallback to ordinary pipes is
+not part of the contract.
+
 ## Kotlin API docs
 
 The optional Kotlin module has KDoc coverage checks, but generated Dokka publication is not part of the current public
 site yet.
+
+## Publishing
+
+No Maven Central artifact is published from this branch yet. Planned coordinates are documented, but publishing,
+signing, and final POM metadata remain a separate release implementation step.
 
 ## Not in the current MVP
 

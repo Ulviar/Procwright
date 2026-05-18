@@ -9,3 +9,4 @@ Release entry points:
 - [Compatibility](compatibility.md)
 - [Known limitations](known-limitations.md)
 - [Migration notes](migration.md)
+- [Release notes draft](release-notes.md)

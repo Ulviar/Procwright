@@ -38,9 +38,14 @@
 
 -
 
+## Stabilization decisions
+
+-
+
 ## Verification
 
 - `./gradlew releaseCandidateCheck`
 - `./gradlew publicDocsCheck`
 - generated Javadocs
+- Kotlin KDoc coverage check
 ```

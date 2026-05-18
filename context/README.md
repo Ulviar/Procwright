@@ -21,12 +21,15 @@
 - [plans/maximal-version-roadmap.md](plans/maximal-version-roadmap.md) — верхнеуровневый план максимальной версии.
 - [plans/active/documentation-writing-plan.md](plans/active/documentation-writing-plan.md) — план написания публичной
   документации.
+- [plans/active/release-stabilization-plan.md](plans/active/release-stabilization-plan.md) — план стабилизации перед
+  первым release candidate.
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
 - [evals/test-cli-simulator.md](evals/test-cli-simulator.md) — отдельный test CLI для моделирования проблем реальных
   дочерних процессов.
 - [evals/test-tiers.md](evals/test-tiers.md) — уровни локальных проверок и eval gate.
 - [quality/engineering-charter.md](quality/engineering-charter.md) — обязательные требования к качеству проекта.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и известные разрывы.
+- [quality/invariant-proof-map.md](quality/invariant-proof-map.md) — карта `invariant -> owner -> proof`.
 - [release/versioning-policy.md](release/versioning-policy.md) — политика версий.
 - [release/compatibility-policy.md](release/compatibility-policy.md) — совместимость и platform support.
 - [release/dependency-review.md](release/dependency-review.md) — обзор runtime/build dependencies.
@@ -43,6 +46,8 @@
   компонентов и классов, тестового покрытия, инвариантов, SOLID и GRASP.
 - [audits/audit-finding-remediation-2026-05-18.md](audits/audit-finding-remediation-2026-05-18.md) — отчет о закрытии
   findings двух архитектурных аудитов.
+- [audits/public-api-freeze-audit-2026-05-18.md](audits/public-api-freeze-audit-2026-05-18.md) — аудит public API перед
+  release-candidate freeze.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
 - [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.
@@ -62,6 +67,14 @@
   ядра и границы public/internal API.
 - [decisions/ADR-0015-jpms-encapsulation.md](decisions/ADR-0015-jpms-encapsulation.md) — JPMS-инкапсуляция core и
   разделение public session contracts / internal implementations.
+- [decisions/ADR-0016-first-rc-api-stabilization.md](decisions/ADR-0016-first-rc-api-stabilization.md) — стабилизация
+  public API перед первым release candidate.
+- [decisions/ADR-0017-release-publishing-strategy.md](decisions/ADR-0017-release-publishing-strategy.md) — стратегия
+  публикации release artifacts.
+- [decisions/ADR-0018-platform-pty-strategy.md](decisions/ADR-0018-platform-pty-strategy.md) — platform и PTY strategy
+  перед первым release candidate.
+- [decisions/ADR-0019-kotlin-generated-docs-strategy.md](decisions/ADR-0019-kotlin-generated-docs-strategy.md) — решение
+  по generated Kotlin docs.
 
 ## Правило навигации
 

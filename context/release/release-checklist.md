@@ -9,11 +9,14 @@
 - Все ADR для публичных архитектурных решений добавлены в `context/decisions/`.
 - Migration notes отражают переносимые идеи старой версии и то, что намеренно не переносится.
 - Versioning и compatibility policies актуальны для текущего Java/Kotlin baseline.
+- Приняты стабилизационные решения по public API, PTY/platform strategy, publishing strategy и Kotlin generated docs.
 - Dependency review не содержит неизвестных runtime dependencies.
 - Gradle wrapper distribution checksum и dependency verification metadata актуальны после каждого изменения
   build/test dependencies.
 - Если documentation toolchain остается без lock/hash-pinned transitive dependencies, этот residual supply-chain risk
   явно принят в release notes; предпочтительный вариант перед release — добавить lock/hashes workflow.
+- Publishing/signing setup реализован отдельным focused change по ADR-0017; до этого публичный release artifact не
+  считается готовым к публикации.
 
 ## Локальные проверки
 
@@ -83,5 +86,6 @@ Workflow permissions должны оставаться минимальными,
 - Source и Javadoc artifacts собираются для Java modules.
 - Public MkDocs site собирается в strict mode и включает generated Java API docs.
 - Kotlin public API задокументирован через KDoc в sources artifact и проверяется `:icli-kotlin:kotlinApiDocsCheck`.
+- Generated Kotlin API docs через Dokka не являются gate первого RC, пока ADR-0019 остается действующим решением.
 - License file присутствует в корне репозитория.
-- Если добавляется Maven Central publishing, signing и metadata оформляются отдельным ADR.
+- Maven Central publishing, signing и metadata добавляются только после focused implementation step по ADR-0017.

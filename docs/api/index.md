@@ -17,4 +17,4 @@ Current local commands:
 </ul>
 
 The optional Kotlin module currently enforces KDoc coverage in source. Generated Kotlin API docs are deliberately
-deferred until the Kotlin API is ready for public stabilization and a Dokka publication decision is made.
+deferred until the Kotlin API is ready for public stabilization and a focused Dokka setup is added.
