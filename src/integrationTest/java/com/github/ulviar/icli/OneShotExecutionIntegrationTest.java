@@ -168,7 +168,7 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void outputIsDecodedWithConfiguredCharset() {
         CommandResult result =
-                fixtureService().run(call -> call.args("stdout", "Привет\n").charset(StandardCharsets.UTF_8));
+                fixtureService().run(call -> call.args("stdout-utf8").charset(StandardCharsets.UTF_8));
 
         assertStdoutEquals("Привет\n", result);
     }

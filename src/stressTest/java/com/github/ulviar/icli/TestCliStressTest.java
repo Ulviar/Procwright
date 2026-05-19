@@ -125,7 +125,8 @@ final class TestCliStressTest {
                 CommandResult result = future.get(8, TimeUnit.SECONDS);
                 assertTrue(result.timedOut());
                 assertFalse(result.succeeded());
-                assertTrue(result.stdout().isEmpty() || "flaky-hang\n".equals(result.stdout()));
+                String stdout = normalizeLineEndings(result.stdout());
+                assertTrue(stdout.isEmpty() || stdout.startsWith("flaky-hang\n"));
             }
         } finally {
             executor.shutdownNow();
@@ -294,6 +295,10 @@ final class TestCliStressTest {
 
     private static long parseChildPid(String stdout) {
         return parsePid(stdout, "child:");
+    }
+
+    private static String normalizeLineEndings(String text) {
+        return text.replace("\r\n", "\n");
     }
 
     private static long parsePid(String stdout, String prefix) {

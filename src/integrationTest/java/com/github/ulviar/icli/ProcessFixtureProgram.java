@@ -16,6 +16,10 @@ public final class ProcessFixtureProgram {
                 System.out.write(args[1].getBytes(StandardCharsets.UTF_8));
                 System.out.flush();
             }
+            case "stdout-utf8" -> {
+                System.out.write("Привет\n".getBytes(StandardCharsets.UTF_8));
+                System.out.flush();
+            }
             case "stdin-length" -> System.out.println(System.in.readAllBytes().length);
             case "stdin-echo" -> System.out.write(System.in.readAllBytes());
             case "line-echo" -> {
