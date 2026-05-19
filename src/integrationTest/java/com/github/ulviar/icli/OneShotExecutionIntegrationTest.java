@@ -37,8 +37,8 @@ final class OneShotExecutionIntegrationTest {
 
         assertTrue(result.succeeded());
         assertEquals(0, result.exitCode().orElseThrow());
-        assertEquals("ready\n", result.stdout());
-        assertEquals("", result.stderr());
+        assertStdoutEquals("ready\n", result);
+        assertStderrEquals("", result);
     }
 
     @Test
@@ -47,15 +47,15 @@ final class OneShotExecutionIntegrationTest {
 
         assertFalse(result.succeeded());
         assertEquals(7, result.exitCode().orElseThrow());
-        assertEquals("out\n", result.stdout());
-        assertEquals("err\n", result.stderr());
+        assertStdoutEquals("out\n", result);
+        assertStderrEquals("err\n", result);
     }
 
     @Test
     void directArgvPreservesArgumentsWithoutShellExpansion() {
         CommandResult result = fixtureService().run(call -> call.args("args", "hello world", "$ICLI_NOT_EXPANDED"));
 
-        assertEquals("hello world|$ICLI_NOT_EXPANDED\n", result.stdout());
+        assertStdoutEquals("hello world|$ICLI_NOT_EXPANDED\n", result);
     }
 
     @Test
@@ -64,7 +64,7 @@ final class OneShotExecutionIntegrationTest {
                 .workingDirectory(workingDirectory)
                 .putEnvironment("ICLI_TEST_VALUE", "configured"));
 
-        assertEquals(workingDirectory.toRealPath() + "\nconfigured\n", result.stdout());
+        assertStdoutEquals(workingDirectory.toRealPath() + "\nconfigured\n", result);
     }
 
     @Test
@@ -81,7 +81,7 @@ final class OneShotExecutionIntegrationTest {
         });
 
         assertTrue(result.succeeded());
-        assertEquals("false\n", result.stdout());
+        assertStdoutEquals("false\n", result);
     }
 
     @Test
@@ -89,8 +89,8 @@ final class OneShotExecutionIntegrationTest {
         CommandResult result = fixtureService()
                 .run(call -> call.args("large-stdout", "64", "x").capture(CapturePolicy.bounded(16)));
 
-        assertEquals("x".repeat(16), result.stdout());
-        assertEquals("", result.stderr());
+        assertStdoutEquals("x".repeat(16), result);
+        assertStderrEquals("", result);
         assertTrue(result.stdoutTruncated());
         assertFalse(result.stderrTruncated());
     }
@@ -100,8 +100,8 @@ final class OneShotExecutionIntegrationTest {
         CommandResult result = fixtureService()
                 .run(call -> call.args("large-stderr", "64", "e").capture(CapturePolicy.bounded(16)));
 
-        assertEquals("done\n", result.stdout());
-        assertEquals("e".repeat(16), result.stderr());
+        assertStdoutEquals("done\n", result);
+        assertStderrEquals("e".repeat(16), result);
         assertFalse(result.stdoutTruncated());
         assertTrue(result.stderrTruncated());
     }
@@ -111,10 +111,11 @@ final class OneShotExecutionIntegrationTest {
         CommandResult result = fixtureService()
                 .run(call -> call.args("stdout-stderr", "out\n", "err\n").output(OutputMode.MERGED));
 
-        assertTrue(result.stdout().contains("out\n"));
-        assertTrue(result.stdout().contains("err\n"));
+        String stdout = normalizeLineEndings(result.stdout());
+        assertTrue(stdout.contains("out\n"));
+        assertTrue(stdout.contains("err\n"));
         assertTrue(new String(result.stdoutBytes(), StandardCharsets.UTF_8).contains("out\n"));
-        assertEquals("", result.stderr());
+        assertStderrEquals("", result);
         assertEquals(0, result.stderrBytes().length);
     }
 
@@ -156,7 +157,7 @@ final class OneShotExecutionIntegrationTest {
                 fixtureService().run(call -> call.args("stdout", "ok\n").timeout(Duration.ofSeconds(Long.MAX_VALUE)));
 
         assertTrue(result.succeeded());
-        assertEquals("ok\n", result.stdout());
+        assertStdoutEquals("ok\n", result);
     }
 
     @Test
@@ -164,7 +165,7 @@ final class OneShotExecutionIntegrationTest {
         CommandResult result =
                 fixtureService().run(call -> call.args("stdout", "Привет\n").charset(StandardCharsets.UTF_8));
 
-        assertEquals("Привет\n", result.stdout());
+        assertStdoutEquals("Привет\n", result);
     }
 
     @Test
@@ -172,7 +173,7 @@ final class OneShotExecutionIntegrationTest {
         CommandResult result = fixtureService().run(call -> call.args("stdin-length"));
 
         assertTrue(result.succeeded());
-        assertEquals("0\n", result.stdout());
+        assertStdoutEquals("0\n", result);
     }
 
     @Test
@@ -181,7 +182,7 @@ final class OneShotExecutionIntegrationTest {
                 fixtureService().run(call -> call.args("stdin-echo").input("payload\n"));
 
         assertTrue(result.succeeded());
-        assertEquals("payload\n", result.stdout());
+        assertStdoutEquals("payload\n", result);
     }
 
     @Test
@@ -191,7 +192,7 @@ final class OneShotExecutionIntegrationTest {
                 .charset(StandardCharsets.US_ASCII));
 
         assertTrue(result.succeeded());
-        assertEquals("e9\n", result.stdout());
+        assertStdoutEquals("e9\n", result);
     }
 
     @Test
@@ -202,7 +203,7 @@ final class OneShotExecutionIntegrationTest {
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
-        assertEquals("started\n", result.stdout());
+        assertStdoutEquals("started\n", result);
     }
 
     @Test
@@ -216,7 +217,7 @@ final class OneShotExecutionIntegrationTest {
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
-        assertEquals("started\n", result.stdout());
+        assertStdoutEquals("started\n", result);
         assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
         assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
     }
@@ -231,8 +232,8 @@ final class OneShotExecutionIntegrationTest {
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
-        assertTrue(result.stdout().contains("out-pulse"));
-        assertTrue(result.stderr().contains("err-pulse"));
+        assertTrue(normalizeLineEndings(result.stdout()).contains("out-pulse"));
+        assertTrue(normalizeLineEndings(result.stderr()).contains("err-pulse"));
         assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
         assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
     }
@@ -284,7 +285,7 @@ final class OneShotExecutionIntegrationTest {
                 .timeout(Duration.ofSeconds(5)));
 
         assertTrue(result.succeeded());
-        assertEquals("done\n", result.stdout());
+        assertStdoutEquals("done\n", result);
         assertTrue(result.stderrTruncated());
     }
 
@@ -295,7 +296,7 @@ final class OneShotExecutionIntegrationTest {
         CommandResult result = shell.run(call -> call.putEnvironment("ICLI_SHELL_VALUE", "configured"));
 
         assertTrue(result.succeeded());
-        assertEquals("shell:configured\n", result.stdout());
+        assertStdoutEquals("shell:configured\n", result);
     }
 
     private static CommandService fixtureService() {
@@ -341,6 +342,18 @@ final class OneShotExecutionIntegrationTest {
         if (systemRoot != null && !systemRoot.isBlank()) {
             call.putEnvironment("SystemRoot", systemRoot);
         }
+    }
+
+    private static void assertStdoutEquals(String expected, CommandResult result) {
+        assertEquals(expected, normalizeLineEndings(result.stdout()));
+    }
+
+    private static void assertStderrEquals(String expected, CommandResult result) {
+        assertEquals(expected, normalizeLineEndings(result.stderr()));
+    }
+
+    private static String normalizeLineEndings(String text) {
+        return text.replace("\r\n", "\n");
     }
 
     private static boolean isAliveEventually(long pid) {
