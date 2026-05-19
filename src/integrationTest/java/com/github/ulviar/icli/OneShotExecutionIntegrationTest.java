@@ -25,6 +25,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -64,7 +65,11 @@ final class OneShotExecutionIntegrationTest {
                 .workingDirectory(workingDirectory)
                 .putEnvironment("ICLI_TEST_VALUE", "configured"));
 
-        assertStdoutEquals(workingDirectory.toRealPath() + "\nconfigured\n", result);
+        List<String> stdoutLines = normalizeLineEndings(result.stdout()).lines().toList();
+        assertEquals(2, stdoutLines.size());
+        assertEquals(
+                workingDirectory.toRealPath(), Path.of(stdoutLines.getFirst()).toRealPath());
+        assertEquals("configured", stdoutLines.get(1));
     }
 
     @Test

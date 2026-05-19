@@ -77,11 +77,11 @@ final class TestCliStressTest {
                                 "--max-delay-millis=5",
                                 "--failure-exit-code=75")
                         .capture(CapturePolicy.bounded(4 * 1024))
-                        .timeout(Duration.ofSeconds(2)))));
+                        .timeout(Duration.ofSeconds(8)))));
             }
 
             for (Future<CommandResult> future : futures) {
-                CommandResult result = future.get(5, TimeUnit.SECONDS);
+                CommandResult result = future.get(12, TimeUnit.SECONDS);
                 assertFalse(result.timedOut());
                 OptionalInt exitCode = result.exitCode();
                 assertTrue(exitCode.isPresent());

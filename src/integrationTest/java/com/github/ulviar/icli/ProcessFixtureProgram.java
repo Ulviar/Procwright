@@ -12,7 +12,10 @@ public final class ProcessFixtureProgram {
 
     public static void main(String[] args) throws Exception {
         switch (args[0]) {
-            case "stdout" -> System.out.print(args[1]);
+            case "stdout" -> {
+                System.out.write(args[1].getBytes(StandardCharsets.UTF_8));
+                System.out.flush();
+            }
             case "stdin-length" -> System.out.println(System.in.readAllBytes().length);
             case "stdin-echo" -> System.out.write(System.in.readAllBytes());
             case "line-echo" -> {
