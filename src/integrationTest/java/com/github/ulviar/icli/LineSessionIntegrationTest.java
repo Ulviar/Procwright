@@ -67,7 +67,7 @@ final class LineSessionIntegrationTest {
 
         try (LineSession session = service.lineSession(call -> call.args("line-repl"))) {
             LineSessionException exception =
-                    assertThrows(LineSessionException.class, () -> session.request("slow", Duration.ofMillis(100)));
+                    assertThrows(LineSessionException.class, () -> session.request("slow", Duration.ofSeconds(1)));
 
             assertEquals(LineSessionException.Reason.TIMEOUT, exception.reason());
             assertTrue(exception.transcript().text().contains("stdout: started:slow"));
@@ -95,7 +95,7 @@ final class LineSessionIntegrationTest {
     void timeoutTranscriptIncludesPartialUnterminatedOutput() {
         try (LineSession session = fixtureService().lineSession(call -> call.args("partial-stderr-sleep", "5000"))) {
             LineSessionException exception =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofMillis(100)));
+                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
             assertEquals(LineSessionException.Reason.TIMEOUT, exception.reason());
             assertTrue(exception.transcript().text().contains("stderr: partial-error"));

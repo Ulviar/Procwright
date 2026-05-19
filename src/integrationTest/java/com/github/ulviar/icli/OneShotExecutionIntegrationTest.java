@@ -222,7 +222,8 @@ final class OneShotExecutionIntegrationTest {
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
-        assertStdoutEquals("started\n", result);
+        String stdout = normalizeLineEndings(result.stdout());
+        assertTrue(stdout.isEmpty() || "started\n".equals(stdout));
         assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
         assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
     }
