@@ -37,7 +37,8 @@ final class ExternalLibraryBoundaryTest {
         Path root = repositoryRoot();
         for (Path buildFile : gradleBuildFiles(root)) {
             String text = Files.readString(buildFile, StandardCharsets.UTF_8);
-            boolean comparisonBuild = root.relativize(buildFile).toString().equals("icli-comparison/build.gradle.kts");
+            String relativeBuildFile = relativePath(root, buildFile);
+            boolean comparisonBuild = relativeBuildFile.equals("icli-comparison/build.gradle.kts");
             for (String dependency : COMPARISON_DEPENDENCIES) {
                 if (comparisonBuild) {
                     assertTrue(
@@ -47,13 +48,13 @@ final class ExternalLibraryBoundaryTest {
                     assertTrue(
                             !containsProjectDependencyDeclaration(text),
                             () -> "Public artifact build file must not depend on :icli-comparison: "
-                                    + root.relativize(buildFile));
+                                    + relativeBuildFile);
                     assertTrue(
                             !containsDependencyDeclaration(text, dependency),
                             () -> "External process-library dependency "
                                     + dependency
                                     + " leaked into "
-                                    + root.relativize(buildFile));
+                                    + relativeBuildFile);
                 }
             }
             for (String dependency : JMH_DEPENDENCIES) {
@@ -70,7 +71,7 @@ final class ExternalLibraryBoundaryTest {
                             !containsDependencyDeclaration(text, dependency)
                                     && !containsJmhDependencyDeclaration(text, dependency),
                             () -> "JMH dependency leaked outside comparison benchmark source set: "
-                                    + root.relativize(buildFile));
+                                    + relativeBuildFile);
                 }
             }
         }
@@ -109,7 +110,7 @@ final class ExternalLibraryBoundaryTest {
             for (Map.Entry<String, String> forbidden : FORBIDDEN_IMPORTS.entrySet()) {
                 assertTrue(
                         !containsForbiddenReference(text, forbidden.getKey()),
-                        () -> forbidden.getValue() + " reference leaked into " + root.relativize(source));
+                        () -> forbidden.getValue() + " reference leaked into " + relativePath(root, source));
             }
         }
     }
@@ -142,7 +143,7 @@ final class ExternalLibraryBoundaryTest {
     private static void assertExpectedSourceRootsCovered(Path root, List<Path> sources) {
         Set<String> relativeSources = new HashSet<>();
         for (Path source : sources) {
-            relativeSources.add(root.relativize(source).toString());
+            relativeSources.add(relativePath(root, source));
         }
         assertTrue(
                 relativeSources.contains("src/main/java/com/github/ulviar/icli/CommandService.java"),
@@ -162,11 +163,15 @@ final class ExternalLibraryBoundaryTest {
     }
 
     private static boolean isIgnored(Path path) {
-        String normalized = path.toString();
+        String normalized = path.toString().replace('\\', '/');
         return normalized.contains("/.git/")
                 || normalized.contains("/.gradle/")
                 || normalized.contains("/build/")
                 || normalized.contains("/.idea/");
+    }
+
+    private static String relativePath(Path root, Path path) {
+        return root.relativize(path).toString().replace('\\', '/');
     }
 
     private static Path repositoryRoot() {
