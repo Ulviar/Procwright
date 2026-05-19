@@ -39,13 +39,13 @@ public final class ComparisonFixtureProgram {
     }
 
     private static void success() {
-        System.out.println("ok");
-        System.err.println("diagnostic:clean");
+        System.out.print("ok\n");
+        System.err.print("diagnostic:clean\n");
     }
 
     private static void nonZero() {
-        System.out.println("stdout:diagnostic");
-        System.err.println("stderr:diagnostic");
+        System.out.print("stdout:diagnostic\n");
+        System.err.print("stderr:diagnostic\n");
         System.exit(7);
     }
 
@@ -56,7 +56,7 @@ public final class ComparisonFixtureProgram {
 
     private static void env(String[] args) {
         requireArgs(args, 2);
-        System.out.println("env:" + System.getenv(args[1]));
+        System.out.print("env:" + System.getenv(args[1]) + "\n");
     }
 
     private static void writeRepeated(java.io.PrintStream stream, String[] args) {
@@ -76,10 +76,10 @@ public final class ComparisonFixtureProgram {
 
     private static void sleep(String[] args) throws InterruptedException {
         requireArgs(args, 2);
-        System.out.println("started");
+        System.out.print("started\n");
         System.out.flush();
         Thread.sleep(Long.parseLong(args[1]));
-        System.out.println("finished");
+        System.out.print("finished\n");
     }
 
     private static void stream(String[] args) throws InterruptedException {
@@ -87,9 +87,9 @@ public final class ComparisonFixtureProgram {
         int count = Integer.parseInt(args[1]);
         long delayMillis = Long.parseLong(args[2]);
         for (int index = 0; index < count; index++) {
-            System.out.println("out:" + index);
+            System.out.print("out:" + index + "\n");
             System.out.flush();
-            System.err.println("err:" + index);
+            System.err.print("err:" + index + "\n");
             System.err.flush();
             Thread.sleep(delayMillis);
         }
@@ -99,7 +99,7 @@ public final class ComparisonFixtureProgram {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println("response:" + line);
+                System.out.print("response:" + line + "\n");
                 System.out.flush();
             }
         }
@@ -110,7 +110,7 @@ public final class ComparisonFixtureProgram {
         System.out.flush();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
             String line = reader.readLine();
-            System.out.println("accepted:" + line);
+            System.out.print("accepted:" + line + "\n");
             System.out.flush();
         }
     }
