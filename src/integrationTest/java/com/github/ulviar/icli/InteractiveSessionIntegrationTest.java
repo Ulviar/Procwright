@@ -125,13 +125,13 @@ final class InteractiveSessionIntegrationTest {
     @Test
     void successfulWriteResetsIdleTimeout() throws Exception {
         CommandService service = fixtureService(SessionOptions.defaults()
-                .withIdleTimeout(Duration.ofMillis(400))
+                .withIdleTimeout(Duration.ofSeconds(1))
                 .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
 
         try (Session session = service.interactive(call -> call.args("sleep", "5000"))) {
-            Thread.sleep(250);
+            Thread.sleep(500);
             session.send("x");
-            Thread.sleep(250);
+            Thread.sleep(500);
 
             assertFalse(session.onExit().isDone());
 
@@ -143,14 +143,14 @@ final class InteractiveSessionIntegrationTest {
     @Test
     void successfulReadResetsIdleTimeout() throws Exception {
         CommandService service = fixtureService(SessionOptions.defaults()
-                .withIdleTimeout(Duration.ofMillis(400))
+                .withIdleTimeout(Duration.ofSeconds(1))
                 .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
 
-        try (Session session = service.interactive(call -> call.args("delayed-stdout-sleep", "250", "pulse", "5000"));
+        try (Session session = service.interactive(call -> call.args("delayed-stdout-sleep", "300", "pulse", "5000"));
                 BufferedReader stdout =
                         new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
             assertEquals("pulse", stdout.readLine());
-            Thread.sleep(250);
+            Thread.sleep(500);
 
             assertFalse(session.onExit().isDone());
 

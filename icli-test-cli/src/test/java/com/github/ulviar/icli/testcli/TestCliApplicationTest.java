@@ -130,10 +130,11 @@ final class TestCliApplicationTest {
 
     @Test
     void argvEnvCwdScenarioModelsLaunchContext() throws Exception {
+        Path cwd = Path.of("build", "test-cwd").toAbsolutePath().normalize();
         Run run = run(
                 "",
                 Map.of("ICLI_TEST_VALUE", "visible"),
-                Path.of("/tmp"),
+                cwd,
                 "argv-env-cwd",
                 "--env=ICLI_TEST_VALUE",
                 "--",
@@ -141,7 +142,7 @@ final class TestCliApplicationTest {
                 "two words");
 
         assertEquals(0, run.exitCode());
-        assertTrue(run.stdoutText().contains("cwd:/tmp"));
+        assertTrue(run.stdoutText().contains("cwd:" + cwd));
         assertTrue(run.stdoutText().contains("env:ICLI_TEST_VALUE=visible"));
         assertTrue(run.stdoutText().contains("argv:one|two words"));
     }
