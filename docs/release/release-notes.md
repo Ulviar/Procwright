@@ -1,7 +1,7 @@
 # Release Notes Draft
 
 !!! warning "Draft"
-    These notes describe the current unreleased rewrite baseline. Replace this page with versioned release notes when a
+    These notes describe the current unreleased pre-release baseline. Replace this page with versioned release notes when a
     public release candidate is cut.
 
 ## Status
@@ -38,6 +38,7 @@
 - The current `ScenarioPresets` set is frozen for the first release-candidate baseline.
 - Session-family handles are sealed public contracts backed by hidden iCLI implementations.
 - Diagnostics remains best-effort and unordered.
+- Core, integrations, and Kotlin public API type sets are guarded by exact baseline tests.
 
 ## Known Limitations
 

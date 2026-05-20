@@ -2,7 +2,7 @@
 
 ## Базовая runtime-платформа
 
-- Минимальная платформа clean rewrite — JDK 25.
+- Минимальная платформа текущего baseline — JDK 25.
 - Java-код компилируется с `--release 25`.
 - Kotlin module компилируется с JVM target 25 и остается optional module.
 
@@ -12,7 +12,7 @@
 
 - Linux latest;
 - macOS latest;
-- Windows latest.
+- Windows 2025 hosted runner.
 
 Все кроссплатформенные сценарии должны проходить на всех трех платформах. Сценарии, которым нужен POSIX shell или
 system PTY provider, skip-аются через JUnit assumptions, если платформа не предоставляет нужную возможность.
@@ -31,6 +31,7 @@ unsupported behavior, если provider недоступен, и не долже
 - Новые public packages требуют отдельного ADR.
 - Public top-level package surface покрывается tests, которые сканируют весь production artifact, чтобы случайная утечка
   внутреннего пакета была видна до релиза.
+- Точный approved public API surface зафиксирован в [public-api-baseline.md](public-api-baseline.md) и проверяется tests.
 - Core artifact является именованным Java module `com.github.ulviar.icli` и экспортирует только public API packages.
   `com.github.ulviar.icli.internal` и вложенные runtime-пакеты не экспортируются. Integrations module экспортирует только
   `com.github.ulviar.icli.integration` и требует core module.

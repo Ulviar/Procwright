@@ -11,6 +11,12 @@ import kotlin.test.assertEquals
 
 class PublicKotlinApiSurfaceTest {
 
+    private val publicApiTypes =
+        setOf(
+            "com.github.ulviar.icli.kotlin.IcliKotlinKt",
+            "com.github.ulviar.icli.kotlin.ListenFlowInvocation",
+        )
+
     @Test
     fun `kotlin public top level types stay in kotlin package`() {
         assertEquals(
@@ -19,37 +25,66 @@ class PublicKotlinApiSurfaceTest {
         )
     }
 
-    private fun publicTopLevelPackages(anchor: Class<*>): Set<String> {
+    @Test
+    fun `kotlin public api types stay in approved baseline`() {
+        assertEquals(publicApiTypes, publicApiTypeNames(ListenFlowInvocation::class.java))
+    }
+
+    private fun publicTopLevelPackages(anchor: Class<*>): Set<String> =
+        publicApiTypes(anchor).map { type -> type.packageName }.toSortedSet()
+
+    private fun publicApiTypeNames(anchor: Class<*>): Set<String> =
+        publicApiTypes(anchor).map { type -> type.name }.toSortedSet()
+
+    private fun publicApiTypes(anchor: Class<*>): Set<Class<*>> {
         val classesRoot = Path.of(anchor.protectionDomain.codeSource.location.toURI())
         if (Files.isRegularFile(classesRoot)) {
-            return publicTopLevelPackagesFromJar(anchor, classesRoot)
+            return publicApiTypesFromJar(anchor, classesRoot)
         }
         val files = Files.walk(classesRoot)
         try {
-            return files
-                .filter(::isTopLevelClass)
-                .map { classFile ->
-                    Class.forName(className(classesRoot, classFile), false, anchor.classLoader)
-                }
-                .filter { type -> Modifier.isPublic(type.modifiers) }
-                .map { type -> type.packageName }
-                .toList()
-                .toSortedSet()
+            return withPublicNestedTypes(
+                files
+                    .filter(::isTopLevelClass)
+                    .map { classFile ->
+                        Class.forName(className(classesRoot, classFile), false, anchor.classLoader)
+                    }
+                    .filter { type -> Modifier.isPublic(type.modifiers) }
+                    .toList()
+                    .toSortedSet(compareBy { type -> type.name })
+            )
         } finally {
             files.close()
         }
     }
 
-    private fun publicTopLevelPackagesFromJar(anchor: Class<*>, jarPath: Path): Set<String> {
+    private fun publicApiTypesFromJar(anchor: Class<*>, jarPath: Path): Set<Class<*>> {
         JarFile(jarPath.toFile()).use { jar ->
-            return jar.stream()
-                .filter(::isTopLevelClass)
-                .map { entry -> Class.forName(className(entry), false, anchor.classLoader) }
-                .filter { type -> Modifier.isPublic(type.modifiers) }
-                .map { type -> type.packageName }
-                .toList()
-                .toSortedSet()
+            return withPublicNestedTypes(
+                jar.stream()
+                    .filter(::isTopLevelClass)
+                    .map { entry -> Class.forName(className(entry), false, anchor.classLoader) }
+                    .filter { type -> Modifier.isPublic(type.modifiers) }
+                    .toList()
+                    .toSortedSet(compareBy { type -> type.name })
+            )
         }
+    }
+
+    private fun withPublicNestedTypes(types: Set<Class<*>>): Set<Class<*>> {
+        val result = types.toSortedSet(compareBy { type -> type.name })
+        val queue = ArrayDeque(result)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            current.declaredClasses
+                .filter { nested -> Modifier.isPublic(nested.modifiers) }
+                .forEach { nested ->
+                    if (result.add(nested)) {
+                        queue.addLast(nested)
+                    }
+                }
+        }
+        return result
     }
 
     private fun isTopLevelClass(path: Path): Boolean {

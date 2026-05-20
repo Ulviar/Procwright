@@ -32,6 +32,7 @@
 - [quality/invariant-proof-map.md](quality/invariant-proof-map.md) — карта `invariant -> owner -> proof`.
 - [release/versioning-policy.md](release/versioning-policy.md) — политика версий.
 - [release/compatibility-policy.md](release/compatibility-policy.md) — совместимость и platform support.
+- [release/public-api-baseline.md](release/public-api-baseline.md) — intended public surface и API guard перед первым RC.
 - [release/dependency-review.md](release/dependency-review.md) — обзор runtime/build dependencies.
 - [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release candidate.
 - [release/migration-notes.md](release/migration-notes.md) — migration notes из старой iCLI.

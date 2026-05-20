@@ -16,6 +16,9 @@
 The Java core module has no runtime dependencies outside the JDK and exports only public API packages. The integrations
 module exports only `com.github.ulviar.icli.integration` and requires the core module.
 
+The intended public type set is guarded by exact API baseline tests for the core, integrations, and Kotlin modules. See
+[API Baseline](api-baseline.md).
+
 ## Platform behavior
 
 Ordinary process execution is expected to work through JDK process APIs. Terminal capability depends on platform
@@ -31,7 +34,7 @@ explicitly when no configured provider is available; they must not silently fall
 The project may still make breaking public API changes before `1.0.0`. Breaking changes must update compile-tested
 examples, public docs, and release notes.
 
-The current rewrite includes a pre-1.0 session API break: session-family handles are sealed interfaces backed by hidden
+The current baseline includes a pre-1.0 session API break: session-family handles are sealed interfaces backed by hidden
 iCLI implementations. Create them through `CommandService`; custom handle implementations are not supported.
 
 For the first release-candidate baseline, `CommandService` remains the main entry point, `SessionOptions.idleTimeout`

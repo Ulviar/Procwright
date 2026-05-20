@@ -10,6 +10,8 @@
 - Migration notes отражают переносимые идеи старой версии и то, что намеренно не переносится.
 - Versioning и compatibility policies актуальны для текущего Java/Kotlin baseline.
 - Приняты стабилизационные решения по public API, PTY/platform strategy, publishing strategy и Kotlin generated docs.
+- Approved public API surface зафиксирован в [public-api-baseline.md](public-api-baseline.md) и проверяется exact baseline
+  tests для core, integrations и Kotlin modules.
 - Dependency review не содержит неизвестных runtime dependencies.
 - Gradle wrapper distribution checksum и dependency verification metadata актуальны после каждого изменения
   build/test dependencies.
@@ -52,6 +54,7 @@ comparison regression gate и JMH benchmark compilation/metadata generation. `jm
 
 - новое API расширяет один из канонических сценариев (`run`, `lineSession`, `interactive`, `expect`, `listen`,
   `pooled`) или optional integration layer;
+- новое/измененное API обновляет exact public API baseline test соответствующего модуля;
 - новые/измененные public entry points, examples и tests сверены с
   [../scenario-contracts.md](../scenario-contracts.md);
 - новые/измененные cookbook recipes сверены с [../scenario-cookbook.md](../scenario-cookbook.md) и compile-tested

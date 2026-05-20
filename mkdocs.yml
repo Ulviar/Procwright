@@ -3,7 +3,7 @@ site_description: Scenario-first JVM library for safe external CLI automation.
 site_url: https://ulviar.github.io/iCLI/
 repo_name: Ulviar/iCLI
 repo_url: https://github.com/Ulviar/iCLI
-edit_uri: edit/rewrite/clean-context/docs/
+edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: build/public-docs
 strict: true
@@ -71,6 +71,7 @@ nav:
   - Release:
       - release/index.md
       - Installation: release/installation.md
+      - API Baseline: release/api-baseline.md
       - Compatibility: release/compatibility.md
       - Known Limitations: release/known-limitations.md
       - Migration Notes: release/migration.md

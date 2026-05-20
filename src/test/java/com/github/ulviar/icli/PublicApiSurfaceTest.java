@@ -36,11 +36,84 @@ final class PublicApiSurfaceTest {
             "com.github.ulviar.icli.session",
             "com.github.ulviar.icli.terminal");
 
+    private static final Set<String> PUBLIC_API_TYPES = Set.of(
+            "com.github.ulviar.icli.CommandService",
+            "com.github.ulviar.icli.command.CapturePolicy",
+            "com.github.ulviar.icli.command.CapturePolicy$Bounded",
+            "com.github.ulviar.icli.command.CommandException",
+            "com.github.ulviar.icli.command.CommandExecutionException",
+            "com.github.ulviar.icli.command.CommandInput",
+            "com.github.ulviar.icli.command.CommandInvocation",
+            "com.github.ulviar.icli.command.CommandInvocation$Builder",
+            "com.github.ulviar.icli.command.CommandResult",
+            "com.github.ulviar.icli.command.CommandSpec",
+            "com.github.ulviar.icli.command.CommandSpec$Builder",
+            "com.github.ulviar.icli.command.EnvironmentPolicy",
+            "com.github.ulviar.icli.command.OutputMode",
+            "com.github.ulviar.icli.command.RunOptions",
+            "com.github.ulviar.icli.command.ShutdownPolicy",
+            "com.github.ulviar.icli.diagnostics.CommandEcho",
+            "com.github.ulviar.icli.diagnostics.DiagnosticEvent",
+            "com.github.ulviar.icli.diagnostics.DiagnosticEventType",
+            "com.github.ulviar.icli.diagnostics.DiagnosticListener",
+            "com.github.ulviar.icli.diagnostics.DiagnosticTranscriptSink",
+            "com.github.ulviar.icli.diagnostics.DiagnosticsOptions",
+            "com.github.ulviar.icli.preset.ScenarioPresets",
+            "com.github.ulviar.icli.session.Expect",
+            "com.github.ulviar.icli.session.ExpectException",
+            "com.github.ulviar.icli.session.ExpectException$Reason",
+            "com.github.ulviar.icli.session.ExpectOptions",
+            "com.github.ulviar.icli.session.ExpectOutputFilter",
+            "com.github.ulviar.icli.session.ExpectTranscriptValues",
+            "com.github.ulviar.icli.session.LineResponse",
+            "com.github.ulviar.icli.session.LineSession",
+            "com.github.ulviar.icli.session.LineSessionException",
+            "com.github.ulviar.icli.session.LineSessionException$Reason",
+            "com.github.ulviar.icli.session.LineSessionInvocation",
+            "com.github.ulviar.icli.session.LineSessionInvocation$Builder",
+            "com.github.ulviar.icli.session.LineSessionOptions",
+            "com.github.ulviar.icli.session.LineTranscript",
+            "com.github.ulviar.icli.session.PooledLineSession",
+            "com.github.ulviar.icli.session.PooledLineSessionException",
+            "com.github.ulviar.icli.session.PooledLineSessionException$Reason",
+            "com.github.ulviar.icli.session.PooledLineSessionInvocation",
+            "com.github.ulviar.icli.session.PooledLineSessionInvocation$Builder",
+            "com.github.ulviar.icli.session.PooledLineSessionMetrics",
+            "com.github.ulviar.icli.session.PooledLineSessionOptions",
+            "com.github.ulviar.icli.session.ResponseDecoder",
+            "com.github.ulviar.icli.session.ResponseDecoder$Reader",
+            "com.github.ulviar.icli.session.Session",
+            "com.github.ulviar.icli.session.SessionExit",
+            "com.github.ulviar.icli.session.SessionInvocation",
+            "com.github.ulviar.icli.session.SessionInvocation$Builder",
+            "com.github.ulviar.icli.session.SessionOptions",
+            "com.github.ulviar.icli.session.StreamChunk",
+            "com.github.ulviar.icli.session.StreamException",
+            "com.github.ulviar.icli.session.StreamExit",
+            "com.github.ulviar.icli.session.StreamInvocation",
+            "com.github.ulviar.icli.session.StreamInvocation$Builder",
+            "com.github.ulviar.icli.session.StreamListener",
+            "com.github.ulviar.icli.session.StreamOptions",
+            "com.github.ulviar.icli.session.StreamSession",
+            "com.github.ulviar.icli.session.StreamSource",
+            "com.github.ulviar.icli.session.StreamStdinPolicy",
+            "com.github.ulviar.icli.session.StreamTranscript",
+            "com.github.ulviar.icli.terminal.PtyProvider",
+            "com.github.ulviar.icli.terminal.PtyRequest",
+            "com.github.ulviar.icli.terminal.TerminalPolicy",
+            "com.github.ulviar.icli.terminal.TerminalSignal",
+            "com.github.ulviar.icli.terminal.TerminalSize");
+
     private static final String MODULE_NAME = "com.github.ulviar.icli";
 
     @Test
     void corePublicTopLevelTypesStayInApprovedPackages() throws Exception {
         assertEquals(PUBLIC_API_PACKAGES, publicTopLevelPackages(CommandService.class));
+    }
+
+    @Test
+    void corePublicApiTypesStayInApprovedBaseline() throws Exception {
+        assertEquals(PUBLIC_API_TYPES, publicApiTypeNames(CommandService.class));
     }
 
     @Test
@@ -99,6 +172,14 @@ final class PublicApiSurfaceTest {
             packages.add(type.getPackageName());
         }
         return packages;
+    }
+
+    private static Set<String> publicApiTypeNames(Class<?> anchor) throws Exception {
+        TreeSet<String> typeNames = new TreeSet<>();
+        for (Class<?> type : publicTopLevelTypes(anchor)) {
+            typeNames.add(type.getName());
+        }
+        return typeNames;
     }
 
     private static Set<Class<?>> publicTopLevelTypes(Class<?> anchor) throws Exception {

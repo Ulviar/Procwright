@@ -6,6 +6,7 @@ import java.io.File;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.jar.JarEntry;
@@ -15,43 +16,101 @@ import org.junit.jupiter.api.Test;
 
 final class PublicIntegrationApiSurfaceTest {
 
+    private static final Set<String> PUBLIC_API_TYPES = Set.of(
+            "com.github.ulviar.icli.integration.CancellableCall",
+            "com.github.ulviar.icli.integration.CliAdapterError",
+            "com.github.ulviar.icli.integration.CommandBackedTool",
+            "com.github.ulviar.icli.integration.CommandBackedTool$Handler",
+            "com.github.ulviar.icli.integration.ContentLengthJsonFrames",
+            "com.github.ulviar.icli.integration.IntegrationProtocolException",
+            "com.github.ulviar.icli.integration.IntegrationProtocolException$Reason",
+            "com.github.ulviar.icli.integration.JsonCodec",
+            "com.github.ulviar.icli.integration.JsonLineSession",
+            "com.github.ulviar.icli.integration.JsonLines",
+            "com.github.ulviar.icli.integration.JsonParseException",
+            "com.github.ulviar.icli.integration.JsonValue",
+            "com.github.ulviar.icli.integration.JsonValue$JsonArray",
+            "com.github.ulviar.icli.integration.JsonValue$JsonBoolean",
+            "com.github.ulviar.icli.integration.JsonValue$JsonNull",
+            "com.github.ulviar.icli.integration.JsonValue$JsonNumber",
+            "com.github.ulviar.icli.integration.JsonValue$JsonObject",
+            "com.github.ulviar.icli.integration.JsonValue$JsonString",
+            "com.github.ulviar.icli.integration.ToolCallResult",
+            "com.github.ulviar.icli.integration.ToolCallResult$Failure",
+            "com.github.ulviar.icli.integration.ToolCallResult$Success");
+
     @Test
     void integrationPublicTopLevelTypesStayInIntegrationPackage() throws Exception {
         assertEquals(Set.of("com.github.ulviar.icli.integration"), publicTopLevelPackages(JsonCodec.class));
     }
 
+    @Test
+    void integrationPublicApiTypesStayInApprovedBaseline() throws Exception {
+        assertEquals(PUBLIC_API_TYPES, publicApiTypeNames(JsonCodec.class));
+    }
+
     private static Set<String> publicTopLevelPackages(Class<?> anchor) throws Exception {
+        TreeSet<String> packages = new TreeSet<>();
+        for (Class<?> type : publicApiTypes(anchor)) {
+            packages.add(type.getPackageName());
+        }
+        return packages;
+    }
+
+    private static Set<String> publicApiTypeNames(Class<?> anchor) throws Exception {
+        TreeSet<String> typeNames = new TreeSet<>();
+        for (Class<?> type : publicApiTypes(anchor)) {
+            typeNames.add(type.getName());
+        }
+        return typeNames;
+    }
+
+    private static Set<Class<?>> publicApiTypes(Class<?> anchor) throws Exception {
         Path classesRoot = Path.of(
                 anchor.getProtectionDomain().getCodeSource().getLocation().toURI());
         if (Files.isRegularFile(classesRoot)) {
-            return publicTopLevelPackagesFromJar(anchor, classesRoot);
+            return publicApiTypesFromJar(anchor, classesRoot);
         }
-        TreeSet<String> packages = new TreeSet<>();
+        TreeSet<Class<?>> types = new TreeSet<>((left, right) -> left.getName().compareTo(right.getName()));
         try (Stream<Path> files = Files.walk(classesRoot)) {
             for (Path classFile : files.filter(PublicIntegrationApiSurfaceTest::isTopLevelClass)
                     .toList()) {
                 Class<?> type = Class.forName(className(classesRoot, classFile), false, anchor.getClassLoader());
                 if (Modifier.isPublic(type.getModifiers())) {
-                    packages.add(type.getPackageName());
+                    types.add(type);
                 }
             }
         }
-        return packages;
+        addPublicNestedTypes(types);
+        return types;
     }
 
-    private static Set<String> publicTopLevelPackagesFromJar(Class<?> anchor, Path jarPath) throws Exception {
-        TreeSet<String> packages = new TreeSet<>();
+    private static Set<Class<?>> publicApiTypesFromJar(Class<?> anchor, Path jarPath) throws Exception {
+        TreeSet<Class<?>> types = new TreeSet<>((left, right) -> left.getName().compareTo(right.getName()));
         try (JarFile jar = new JarFile(jarPath.toFile())) {
             for (JarEntry entry : jar.stream()
                     .filter(PublicIntegrationApiSurfaceTest::isTopLevelClass)
                     .toList()) {
                 Class<?> type = Class.forName(className(entry), false, anchor.getClassLoader());
                 if (Modifier.isPublic(type.getModifiers())) {
-                    packages.add(type.getPackageName());
+                    types.add(type);
                 }
             }
         }
-        return packages;
+        addPublicNestedTypes(types);
+        return types;
+    }
+
+    private static void addPublicNestedTypes(Set<Class<?>> types) {
+        ArrayDeque<Class<?>> queue = new ArrayDeque<>(types);
+        while (!queue.isEmpty()) {
+            Class<?> current = queue.removeFirst();
+            for (Class<?> nested : current.getDeclaredClasses()) {
+                if (Modifier.isPublic(nested.getModifiers()) && types.add(nested)) {
+                    queue.addLast(nested);
+                }
+            }
+        }
     }
 
     private static boolean isTopLevelClass(Path path) {
