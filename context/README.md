@@ -49,6 +49,8 @@
   findings двух архитектурных аудитов.
 - [audits/public-api-freeze-audit-2026-05-18.md](audits/public-api-freeze-audit-2026-05-18.md) — аудит public API перед
   release-candidate freeze.
+- [audits/usability-audit-open-source-process-usage-2026-05-20.md](audits/usability-audit-open-source-process-usage-2026-05-20.md)
+  — масштабный аудит удобства iCLI по реальным open-source сценариям использования `ProcessBuilder` и библиотек-аналогов.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
 - [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.
