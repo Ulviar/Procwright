@@ -23,6 +23,11 @@ public final class Slf4jNoOpServiceProvider implements SLF4JServiceProvider {
     private final IMarkerFactory markerFactory = new BasicMarkerFactory();
     private final MDCAdapter mdcAdapter = new NOPMDCAdapter();
 
+    /**
+     * Creates the no-op provider for SLF4J service loading.
+     */
+    public Slf4jNoOpServiceProvider() {}
+
     @Override
     public void initialize() {
         // No state to initialize.

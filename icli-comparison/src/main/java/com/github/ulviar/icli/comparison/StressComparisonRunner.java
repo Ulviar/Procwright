@@ -42,6 +42,8 @@ public final class StressComparisonRunner {
             new ZtExecAdapter(),
             new NuProcessAdapter());
 
+    private StressComparisonRunner() {}
+
     /**
      * Runs stress comparison and writes a raw Markdown result table.
      *
