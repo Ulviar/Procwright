@@ -40,6 +40,7 @@ Java/Kotlin приложений.
 - Bounded stress suite как часть `check`.
 - Release hardening: license, cross-platform CI, versioning/compatibility policies, dependency review и release
   checklist.
+- GitHub Packages publishing/signing setup для Java 17-targeted artifacts без runtime impact.
 
 ## Не входит в MVP
 
@@ -50,7 +51,7 @@ Java/Kotlin приложений.
 - Competitor samples.
 - Централизованная diagnostics bus или logging framework.
 - Отдельный public runner под каждый сценарий.
-- Release publishing.
+- Maven Central publishing implementation.
 
 ## Слои
 

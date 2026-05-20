@@ -25,8 +25,8 @@
 ## Статус реализации
 
 - Пункты 1-9 реализованы в core/integrations как scenario-first API поверх существующего runtime.
-- Пункт 10 находится в verification stage: public docs, context и release docs обновлены, финальные gates должны пройти
-  перед коммитом.
+- Пункт 10 реализован: public docs, context, release docs и public API baseline обновлены; локальный
+  `releaseCandidateCheck` на Java 17-targeted build прошел после переноса clean rewrite в `main`.
 - Generic/core async request API осознанно оставлен за рамками текущего изменения.
 
 ## Явно не входит
