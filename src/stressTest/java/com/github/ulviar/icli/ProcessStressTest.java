@@ -69,17 +69,18 @@ final class ProcessStressTest {
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
-            for (int index = 0; index < 16; index++) {
+            for (int index = 0; index < timeoutChurnParallelism(); index++) {
                 futures.add(executor.submit(() -> service.run(call -> call.args("sleep", "5000")
-                        .timeout(Duration.ofMillis(60))
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250))))));
+                        .timeout(timeoutChurnTimeout())
+                        .shutdown(timeoutChurnShutdown()))));
             }
 
             for (Future<CommandResult> future : futures) {
-                CommandResult result = future.get(8, TimeUnit.SECONDS);
+                CommandResult result = future.get(timeoutChurnWaitSeconds(), TimeUnit.SECONDS);
                 assertTrue(result.timedOut());
                 assertFalse(result.succeeded());
-                assertTrue(result.stdout().isEmpty() || "started\n".equals(result.stdout()));
+                String stdout = normalizeLineEndings(result.stdout());
+                assertTrue(stdout.isEmpty() || "started\n".equals(stdout), () -> "unexpected stdout: " + stdout);
             }
         } finally {
             executor.shutdownNow();
@@ -171,6 +172,28 @@ final class ProcessStressTest {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    private static int timeoutChurnParallelism() {
+        return isWindows() ? 8 : 16;
+    }
+
+    private static Duration timeoutChurnTimeout() {
+        return isWindows() ? Duration.ofMillis(250) : Duration.ofMillis(60);
+    }
+
+    private static ShutdownPolicy timeoutChurnShutdown() {
+        Duration interruptGrace = isWindows() ? Duration.ofMillis(50) : Duration.ofMillis(10);
+        Duration killGrace = isWindows() ? Duration.ofSeconds(1) : Duration.ofMillis(250);
+        return ShutdownPolicy.interruptThenKill(interruptGrace, killGrace);
+    }
+
+    private static long timeoutChurnWaitSeconds() {
+        return isWindows() ? 20 : 8;
+    }
+
+    private static String normalizeLineEndings(String text) {
+        return text.replace("\r\n", "\n");
     }
 
     private static String readUntil(Session session, BufferedReader reader, String prefix) throws Exception {

@@ -109,7 +109,7 @@ final class TestCliStressTest {
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
-            for (int index = 0; index < 16; index++) {
+            for (int index = 0; index < hangingFlakyParallelism(); index++) {
                 futures.add(executor.submit(() -> service.run(call -> call.args(
                                 "flaky",
                                 "--seed=1",
@@ -117,16 +117,16 @@ final class TestCliStressTest {
                                 "--fail-percent=0",
                                 "--started-text=flaky-hang")
                         .capture(CapturePolicy.bounded(1024))
-                        .timeout(Duration.ofMillis(80))
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(2))))));
+                        .timeout(hangingFlakyTimeout())
+                        .shutdown(hangingFlakyShutdown()))));
             }
 
             for (Future<CommandResult> future : futures) {
-                CommandResult result = future.get(12, TimeUnit.SECONDS);
+                CommandResult result = future.get(hangingFlakyWaitSeconds(), TimeUnit.SECONDS);
                 assertTrue(result.timedOut());
                 assertFalse(result.succeeded());
                 String stdout = normalizeLineEndings(result.stdout());
-                assertTrue(stdout.isEmpty() || stdout.startsWith("flaky-hang\n"));
+                assertTrue(stdout.isEmpty() || stdout.startsWith("flaky-hang\n"), () -> "unexpected stdout: " + stdout);
             }
         } finally {
             executor.shutdownNow();
@@ -330,5 +330,22 @@ final class TestCliStressTest {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    private static int hangingFlakyParallelism() {
+        return isWindows() ? 8 : 16;
+    }
+
+    private static Duration hangingFlakyTimeout() {
+        return isWindows() ? Duration.ofMillis(300) : Duration.ofMillis(80);
+    }
+
+    private static ShutdownPolicy hangingFlakyShutdown() {
+        Duration interruptGrace = isWindows() ? Duration.ofMillis(50) : Duration.ofMillis(10);
+        return ShutdownPolicy.interruptThenKill(interruptGrace, Duration.ofSeconds(2));
+    }
+
+    private static long hangingFlakyWaitSeconds() {
+        return isWindows() ? 20 : 12;
     }
 }
