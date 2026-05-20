@@ -384,9 +384,11 @@ one-shot запуска до интерактивных REPL, prompt automation,
 CommandService
   run(...)
   lineSession(...)
+  protocolSession(...)
   interactive(...)
   listen(...)
   pooled(...)
+  pooledProtocol(...)
 
 Session
   expect()

@@ -98,6 +98,7 @@ com.github.ulviar.icli.command
   RunOptions
   CommandInvocation
   CommandInput
+  CharsetPolicy
   CapturePolicy
   OutputMode
   EnvironmentPolicy
@@ -119,6 +120,7 @@ com.github.ulviar.icli.session
   LineSession (interface)
   LineSessionOptions
   LineResponse
+  LineTranscript
   ResponseDecoder
   StreamSession (interface)
   StreamOptions
@@ -135,6 +137,21 @@ com.github.ulviar.icli.session
   PooledLineSessionInvocation
   PooledLineSessionMetrics
   PooledLineSessionException
+  ProtocolAdapter
+  ProtocolReader
+  ProtocolReaders
+  ProtocolWriter
+  ProtocolSession (interface)
+  ProtocolSessionInvocation
+  ProtocolSessionOptions
+  ProtocolSessionException
+  ProtocolTranscript
+  PooledProtocolSession (interface)
+  PooledProtocolSessionOptions
+  PooledProtocolSessionInvocation
+  PooledProtocolSessionMetrics
+  PooledProtocolSessionException
+  PooledWorkerRetireReason
 
 com.github.ulviar.icli.diagnostics
   DiagnosticsOptions
@@ -172,9 +189,13 @@ com.github.ulviar.icli.kotlin
 com.github.ulviar.icli.integration
   JsonValue
   JsonCodec
+  JsonNumbers
+  JsonParseException
   JsonLines
   JsonLineSession
   ContentLengthJsonFrames
+  ProtocolAdapters
+  IntegrationProtocolException
   CancellableCall
   ToolCallResult
   CliAdapterError
@@ -182,8 +203,9 @@ com.github.ulviar.icli.integration
 ```
 
 Публичных core-пакетов должно быть мало, но они больше не должны превращать корень в плоский каталог всех типов.
-`Session`, `Expect`, `LineSession`, `StreamSession` и `PooledLineSession` остаются в одном `session` package, потому
-что разделяют инвариант единоличного владения stdout/stderr. Подробности зафиксированы в
+`Session`, `Expect`, `LineSession`, `ProtocolSession`, `StreamSession`, `PooledLineSession` и `PooledProtocolSession`
+остаются в одном `session` package, потому что разделяют инвариант единоличного владения stdin/stdout/stderr и
+session-family lifecycle. Подробности зафиксированы в
 [decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md).
 
 ## Расширения после MVP
