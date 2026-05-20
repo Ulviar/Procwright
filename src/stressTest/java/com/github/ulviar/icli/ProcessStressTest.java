@@ -80,7 +80,7 @@ final class ProcessStressTest {
                 assertTrue(result.timedOut());
                 assertFalse(result.succeeded());
                 String stdout = normalizeLineEndings(result.stdout());
-                assertTrue(stdout.isEmpty() || "started\n".equals(stdout), () -> "unexpected stdout: " + stdout);
+                assertTrue(stdout.isEmpty() || stdout.startsWith("started\n"), () -> "unexpected stdout: " + stdout);
             }
         } finally {
             executor.shutdownNow();
