@@ -245,8 +245,8 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void timeoutStopsDescendantProcesses() {
-        CommandResult result = fixtureService().run(call -> call.args("spawn-child-sleep", "5000")
-                .timeout(Duration.ofMillis(120))
+        CommandResult result = fixtureService().run(call -> call.args("spawn-child-sleep", "10000")
+                .timeout(descendantStartupTimeout())
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(500))));
         long childPid = result.stdout()
                 .lines()
@@ -254,7 +254,8 @@ final class OneShotExecutionIntegrationTest {
                 .map(line -> line.substring("child:".length()))
                 .mapToLong(Long::parseLong)
                 .findFirst()
-                .orElseThrow();
+                .orElseThrow(() -> new AssertionError(
+                        "fixture did not report child pid before timeout: " + normalizeLineEndings(result.stdout())));
 
         assertTrue(result.timedOut());
         assertFalse(isAliveEventually(childPid));
@@ -337,6 +338,10 @@ final class OneShotExecutionIntegrationTest {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    private static Duration descendantStartupTimeout() {
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(250);
     }
 
     private static void putWindowsSystemRootIfNeeded(CommandInvocation.Builder call) {
