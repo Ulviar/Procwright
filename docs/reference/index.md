@@ -7,6 +7,8 @@ Current reference entry points:
 
 - [Command model](command-model.md)
 - [Policies](policies.md)
+- [Output ownership](output-ownership.md)
+- [Portable command construction](portable-command-construction.md)
 - [Results and errors](results-and-errors.md)
 - [Diagnostics](diagnostics.md)
 - [Security](security.md)

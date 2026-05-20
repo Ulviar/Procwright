@@ -32,6 +32,8 @@ signing, and final POM metadata remain a separate release implementation step.
 - Backend-specific process library APIs in core.
 - Machine-dependent performance promises.
 
+The broader scope boundary is described in [Non-goals](../explanations/non-goals.md).
+
 ## Documentation scope
 
 Public docs describe implemented and tested behavior only. Internal `context/` documents may discuss future plans that

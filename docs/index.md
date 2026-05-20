@@ -32,5 +32,6 @@ public documentation.
 - [Scenarios](scenarios/index.md)
 - [How-to Guides](how-to/index.md)
 - [Reference](reference/index.md)
+- [Non-goals](explanations/non-goals.md)
 - [API](api/index.md)
 - [Release](release/index.md)

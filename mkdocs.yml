@@ -49,6 +49,8 @@ nav:
       - Integrations: scenarios/integrations.md
   - How-to:
       - how-to/index.md
+      - Migrate from ProcessBuilder: how-to/migrate-from-processbuilder.md
+      - Real-world Process Recipes: how-to/real-world-process-recipes.md
       - Run a Finite Command: how-to/run-finite-command.md
       - Stop Hung Processes: how-to/stop-hung-processes.md
       - Follow Logs: how-to/follow-logs.md
@@ -61,12 +63,15 @@ nav:
       - reference/index.md
       - Command Model: reference/command-model.md
       - Policies: reference/policies.md
+      - Output Ownership: reference/output-ownership.md
+      - Portable Command Construction: reference/portable-command-construction.md
       - Results and Errors: reference/results-and-errors.md
       - Diagnostics: reference/diagnostics.md
       - Security: reference/security.md
       - Platforms and PTY: reference/platforms-and-pty.md
   - Explanation:
       - Scenario-first Design: explanations/scenario-first.md
+      - Non-goals: explanations/non-goals.md
   - API: api/index.md
   - Release:
       - release/index.md
