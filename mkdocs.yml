@@ -42,6 +42,7 @@ nav:
       - Interactive Sessions: scenarios/interactive.md
       - Expect Automation: scenarios/expect.md
       - Line Sessions: scenarios/line-session.md
+      - Protocol Sessions: scenarios/protocol-session.md
       - Streaming: scenarios/streaming.md
       - Pooling: scenarios/pooling.md
       - Terminal Capability: scenarios/terminal.md

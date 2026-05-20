@@ -11,10 +11,12 @@ returns a type shaped for that workflow.
 | Control a live process directly. | `interactive` | `interactiveScenario` |
 | Automate a prompt-oriented dialogue. | `interactive` + `Expect` | `expectScenario` |
 | Exchange line-oriented requests and responses. | `lineSession` | `lineSessionScenario` |
+| Exchange framed or typed requests and responses. | `protocolSession` | `protocolSessionScenario` |
 | Require terminal capability. | `interactive` + `TerminalPolicy.REQUIRED` | `terminalRequiredSessionScenario` |
 | Consume output as it arrives. | `listen` | `listenOnlyStreamingScenario` |
 | Observe lifecycle and bounded diagnostics. | `DiagnosticsOptions` | `diagnosticsScenario` |
 | Reuse warm line workers. | `pooled` | `pooledLineSessionScenario` |
+| Reuse warm typed protocol workers. | `pooledProtocol` | `pooledProtocolSessionScenario` |
 | Apply typed workflow defaults. | `ScenarioPresets` | `scenarioPresetComposition` |
 
 The example method names above are intentionally mirrored from compile-tested source. The release gate should keep this
@@ -29,8 +31,10 @@ decision map because users often discover them while choosing a workflow.
 - `interactive` owns raw session lifecycle and direct stream access.
 - `Expect` owns prompt matching over a claimed interactive session output stream.
 - `lineSession` owns serialized line request/response protocols.
+- `protocolSession` owns serialized framed request/response protocols through a caller-provided adapter.
 - `listen` owns streaming callbacks and bounded diagnostics without retaining full output.
 - `pooled` owns reusable line-session worker lifecycle and pool metrics.
+- `pooledProtocol` owns reusable typed protocol worker lifecycle and pool metrics.
 - integration helpers own structured adapter boundaries over existing scenarios.
 
 ## Choosing between similar scenarios
@@ -40,7 +44,7 @@ time and the caller needs output chunks while it is still alive.
 
 Use `interactive` when the caller owns protocol parsing. Use `Expect` when the protocol is prompt-oriented and waiting
 for text or regex output is the main operation. Use `lineSession` when the protocol is a serialized request/response
-line protocol.
+line protocol. Use `protocolSession` when the worker protocol is framed, multi-line, binary, or typed.
 
-Use `pooled` only when the worker protocol is safe to reuse. Pooling is a line-session feature, not a generic process
-pool.
+Use `pooled` or `pooledProtocol` only when the worker protocol is safe to reuse. Pooling is still scenario-specific; it
+does not expose raw worker leases.

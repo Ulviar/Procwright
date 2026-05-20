@@ -12,8 +12,9 @@ Java/Kotlin приложений.
 должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
 
 Внешний пользовательский слой при этом остается scenario-first. Пользователь выбирает workflow (`run`,
-`lineSession`, `interactive`, `expect`, `listen`, `pooled`), а библиотека разворачивает его в policies, общий launch
-plan и scenario-specific execution plan. Это описано в [scenario-api.md](scenario-api.md).
+`lineSession`, `protocolSession`, `interactive`, `expect`, `listen`, `pooled`, `pooledProtocol`), а библиотека
+разворачивает его в policies, общий launch plan и scenario-specific execution plan. Это описано в
+[scenario-api.md](scenario-api.md).
 
 ## Входит в MVP
 
@@ -32,6 +33,7 @@ plan и scenario-specific execution plan. Это описано в [scenario-api
 - Correlation-safe diagnostics events с process-lifecycle `runId`.
 - Optional Kotlin ergonomics module без Kotlin dependency в Java core.
 - Pooled line-session scenario поверх существующих `LineSession` workers.
+- Generic protocol-session scenario и typed protocol pool поверх существующих session/runtime границ.
 - Scenario presets как typed builder customizers без отдельного runtime.
 - Optional CLI-backed integrations module без dependency на MCP SDK.
 - Детерминированный fixture/eval набор.
@@ -188,6 +190,6 @@ com.github.ulviar.icli.integration
 1. PTY hardening и кроссплатформенная матрица.
 2. Более богатый expect DSL.
 3. Более богатый Kotlin DSL поверх optional Kotlin module.
-4. Stateful affinity и raw session pooling поверх `pooled`.
+4. Stateful affinity и raw session pooling поверх `pooled`/`pooledProtocol`.
 5. Реальный MCP SDK adapter отдельным optional module поверх `:icli-integrations`.
 6. Machine-dependent benchmarks/JMH после deterministic stress suite.

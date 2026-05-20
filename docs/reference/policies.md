@@ -36,13 +36,26 @@ The current runtime applies shutdown to the process tree through JDK `ProcessHan
 
 Terminal policy is valid only for session-family workflows.
 
+## CharsetPolicy
+
+`CharsetPolicy.replace(charset)` keeps the forgiving default: malformed and unmappable bytes decode with the replacement
+character.
+
+`CharsetPolicy.report(charset)` turns malformed or unmappable bytes into typed failures. Use it for Unicode-sensitive
+protocols where silent `�` replacement would hide data corruption.
+
 ## Default option families
 
 - `RunOptions` defines capture, shutdown, timeout, charset, and output mode defaults for `run`.
 - `SessionOptions` defines idle timeout, shutdown, charset, terminal policy, PTY provider, and terminal size defaults.
 - `LineSessionOptions` defines request timeout, transcript limit, backlog limit, maximum line length, charset, and
   response decoder.
+- `ProtocolSessionOptions` defines request timeout, transcript limit, output backlog limit, request/response size
+  limits, and charset policy.
 - `ExpectOptions` defines match timeout, transcript limit, match buffer limit, charset, output filter, and transcript
   value policy.
 - `StreamOptions` defines stream timeout, shutdown, charset, and diagnostic limit.
-- `PooledLineSessionOptions` defines size, warmup, acquire timeout, worker retirement, reset, and health policies.
+- `PooledLineSessionOptions` defines size, warmup, min idle, acquire timeout, hook timeout, worker retirement,
+  replenishment, reset, and health policies.
+- `PooledProtocolSessionOptions` defines size, warmup, min idle, acquire timeout, hook timeout, worker retirement, and
+  replenishment policies for typed protocol workers.

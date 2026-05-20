@@ -63,8 +63,9 @@ Do not start by assembling process flags. Start by choosing the workflow:
 - `interactive` for raw live process control;
 - `Expect` for prompt automation;
 - `lineSession` for request/response protocols;
+- `protocolSession` for framed, multi-line, byte, or typed request/response protocols;
 - `listen` for streaming output;
-- `pooled` for reusable line workers;
+- `pooled` and `pooledProtocol` for reusable workers;
 - `:icli-integrations` for structured CLI adapters.
 
 The [Scenarios](scenarios/index.md) section gives the decision map. The [How-to Guides](how-to/index.md) section starts

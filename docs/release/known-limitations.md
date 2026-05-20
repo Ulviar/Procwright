@@ -21,8 +21,9 @@ site yet.
 
 ## Publishing
 
-No Maven Central artifact is published from this branch yet. Planned coordinates are documented, but publishing,
-signing, and final POM metadata remain a separate release implementation step.
+No Maven Central artifact is published from this branch yet. GitHub Packages metadata, signing hooks, Java 17
+publication guards, and SemVer/non-SNAPSHOT remote publish guards are configured, but no stable public version has been
+cut.
 
 ## Java release variants
 
@@ -34,6 +35,7 @@ threads.
 
 - Raw session pooling.
 - Stateful affinity pools.
+- Generic/core async request API.
 - A real MCP SDK adapter.
 - Backend-specific process library APIs in core.
 - Machine-dependent performance promises.

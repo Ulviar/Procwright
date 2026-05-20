@@ -16,10 +16,14 @@ The core artifact is the named Java module `com.github.ulviar.icli`. It exports 
 The exact public type set is guarded by `PublicApiSurfaceTest`. New public types require an intentional API baseline
 change, documentation updates, and compile-tested examples when user call shape changes.
 
+The first release-candidate scenario freeze covers `run`, `interactive`, `lineSession`, `protocolSession`, `pooled`, and
+`pooledProtocol`. Generic/core async request orchestration and raw session pooling are outside this baseline; the narrow
+cancellable JSON Lines helper remains part of the optional integrations module.
+
 ## Optional modules
 
-The integrations artifact exports only `com.github.ulviar.icli.integration` and is guarded by
-`PublicIntegrationApiSurfaceTest`.
+The integrations artifact exports only `com.github.ulviar.icli.integration`, requires the core module transitively for
+JPMS consumers, and is guarded by `PublicIntegrationApiSurfaceTest`.
 
 The Kotlin artifact publishes only `com.github.ulviar.icli.kotlin` and is guarded by `PublicKotlinApiSurfaceTest`.
 

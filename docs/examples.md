@@ -20,6 +20,8 @@ Source file:
 | `listenOnlyStreamingScenario` | Streaming output through `listen`. |
 | `diagnosticsScenario` | Lifecycle diagnostics through `DiagnosticsOptions`. |
 | `pooledLineSessionScenario` | Warm line-session worker pool. |
+| `protocolSessionScenario` | Framed or typed request/response worker. |
+| `pooledProtocolSessionScenario` | Warm typed protocol worker pool. |
 | `scenarioPresetComposition` | Typed `ScenarioPresets` composition. |
 
 ## Integration examples

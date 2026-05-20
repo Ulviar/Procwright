@@ -13,9 +13,11 @@ public final class PooledLineSessionInvocationDefaults {
         return PooledLineSessionInvocation.builder()
                 .maxSize(options.maxSize())
                 .warmupSize(options.warmupSize())
+                .minIdle(options.minIdle())
                 .acquireTimeout(options.acquireTimeout())
                 .maxRequestsPerWorker(options.maxRequestsPerWorker())
                 .maxWorkerAge(options.maxWorkerAge())
+                .backgroundReplenishment(options.backgroundReplenishment())
                 .reset(options.resetHook())
                 .healthCheck(options.healthCheck());
     }

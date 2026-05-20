@@ -40,6 +40,8 @@ final class SessionInvocationTest {
                 .idleTimeout(Duration.ofSeconds(3))
                 .charset(StandardCharsets.UTF_8)
                 .terminal(TerminalPolicy.REQUIRED)
+                .readiness(session -> {})
+                .readinessTimeout(Duration.ofSeconds(4))
                 .build();
 
         assertEquals("-i", invocation.arguments().get(0));
@@ -49,6 +51,8 @@ final class SessionInvocationTest {
         assertEquals(Duration.ofSeconds(3), invocation.idleTimeout().orElseThrow());
         assertEquals(StandardCharsets.UTF_8, invocation.charset().orElseThrow());
         assertEquals(TerminalPolicy.REQUIRED, invocation.terminalPolicy().orElseThrow());
+        assertEquals(Duration.ofSeconds(4), invocation.readinessTimeout().orElseThrow());
+        assertEquals(true, invocation.readinessProbe().isPresent());
     }
 
     @Test
@@ -82,5 +86,13 @@ final class SessionInvocationTest {
         SessionInvocation.Builder builder = SessionInvocation.builder();
 
         assertThrows(IllegalArgumentException.class, () -> builder.idleTimeout(Duration.ofMillis(-1)));
+    }
+
+    @Test
+    void rejectsInvalidReadinessTimeout() {
+        SessionInvocation.Builder builder = SessionInvocation.builder();
+
+        assertThrows(IllegalArgumentException.class, () -> builder.readinessTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> builder.readinessTimeout(Duration.ofMillis(-1)));
     }
 }

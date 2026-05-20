@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.github.ulviar.icli.command.CapturePolicy;
+import com.github.ulviar.icli.command.CharsetPolicy;
 import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
@@ -11,11 +12,14 @@ import com.github.ulviar.icli.session.ExpectOptions;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
 import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.PooledProtocolSessionOptions;
+import com.github.ulviar.icli.session.ProtocolSessionOptions;
 import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamOptions;
 import com.github.ulviar.icli.terminal.PtyProvider;
 import com.github.ulviar.icli.terminal.TerminalPolicy;
 import com.github.ulviar.icli.terminal.TerminalSize;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
@@ -52,8 +56,21 @@ final class PolicyValueTest {
                         CapturePolicy.bounded(512),
                         ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                         Duration.ofMillis(-1),
-                        java.nio.charset.StandardCharsets.UTF_8,
+                        StandardCharsets.UTF_8,
                         OutputMode.SEPARATE));
+    }
+
+    @Test
+    void runOptionsExposeCharsetPolicy() {
+        RunOptions options = new RunOptions(
+                CapturePolicy.bounded(512),
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                Duration.ofSeconds(1),
+                CharsetPolicy.report(StandardCharsets.UTF_8),
+                OutputMode.SEPARATE);
+
+        assertEquals(StandardCharsets.UTF_8, options.charset());
+        assertEquals(CharsetPolicy.report(StandardCharsets.UTF_8), options.charsetPolicy());
     }
 
     @Test
@@ -112,9 +129,15 @@ final class PolicyValueTest {
         assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
                 .withWarmupSize(-1));
         assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withMinIdle(-1));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
                 .withWarmupSize(2));
         assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withMinIdle(2));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
                 .withAcquireTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
+                .withHookTimeout(Duration.ZERO));
         assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
                 .withMaxRequestsPerWorker(0));
         assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
@@ -127,5 +150,45 @@ final class PolicyValueTest {
         assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 2, 0, 2, 0, 0, 0));
         assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 0, 2, 2, 0, 0, 0));
         assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(0, 0, 0, 0, 1, 0, 0));
+    }
+
+    @Test
+    void protocolSessionOptionsRejectInvalidLimits() {
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+                .withRequestTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+                .withTranscriptLimit(0));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+                .withStdoutBacklogLimit(0));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+                .withMaxRequestBytes(0));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+                .withMaxRequestChars(0));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+                .withMaxResponseBytes(0));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+                .withMaxResponseChars(0));
+    }
+
+    @Test
+    void pooledProtocolSessionOptionsRejectInvalidPoolPolicies() {
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withMaxSize(0));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withWarmupSize(-1));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withMinIdle(-1));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withWarmupSize(2));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withMinIdle(2));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withAcquireTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withHookTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withMaxRequestsPerWorker(0));
+        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
+                .withMaxWorkerAge(Duration.ofMillis(-1)));
     }
 }

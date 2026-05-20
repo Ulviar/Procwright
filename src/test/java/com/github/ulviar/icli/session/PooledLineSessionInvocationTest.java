@@ -20,9 +20,12 @@ final class PooledLineSessionInvocationTest {
                 .terminal(TerminalPolicy.DISABLED)
                 .maxSize(3)
                 .warmupSize(2)
+                .minIdle(1)
                 .acquireTimeout(Duration.ofMillis(250))
+                .hookTimeout(Duration.ofMillis(125))
                 .maxRequestsPerWorker(7)
                 .maxWorkerAge(Duration.ofMinutes(5))
+                .backgroundReplenishment(false)
                 .build();
 
         assertEquals(
@@ -39,9 +42,12 @@ final class PooledLineSessionInvocationTest {
                 invocation.lineSessionInvocation().terminalPolicy().orElseThrow());
         assertEquals(3, invocation.options().maxSize());
         assertEquals(2, invocation.options().warmupSize());
+        assertEquals(1, invocation.options().minIdle());
         assertEquals(Duration.ofMillis(250), invocation.options().acquireTimeout());
+        assertEquals(Duration.ofMillis(125), invocation.options().hookTimeout());
         assertEquals(7, invocation.options().maxRequestsPerWorker());
         assertEquals(Duration.ofMinutes(5), invocation.options().maxWorkerAge());
+        assertEquals(false, invocation.options().backgroundReplenishment());
     }
 
     @Test
@@ -62,6 +68,10 @@ final class PooledLineSessionInvocationTest {
         assertEquals(3, invocation.options().maxSize());
         assertThrows(IllegalArgumentException.class, () -> PooledLineSessionInvocation.builder()
                 .warmupSize(2)
+                .maxSize(1)
+                .build());
+        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionInvocation.builder()
+                .minIdle(2)
                 .maxSize(1)
                 .build());
     }

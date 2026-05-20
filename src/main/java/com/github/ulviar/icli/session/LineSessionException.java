@@ -68,7 +68,17 @@ public final class LineSessionException extends RuntimeException {
         EOF,
         /** Session was closed before the request could complete. */
         CLOSED,
-        /** Output could not be read or a custom decoder failed. */
+        /** Process stdin could not accept the request. */
+        BROKEN_PIPE,
+        /** Output bytes could not be decoded according to the selected charset policy. */
+        DECODE_ERROR,
+        /** Response exceeded a configured size limit. */
+        RESPONSE_TOO_LARGE,
+        /** Stdout produced more pending response data than the session allows. */
+        STDOUT_BACKLOG_OVERFLOW,
+        /** Custom response decoder failed. */
+        DECODER_FAILED,
+        /** Output could not be read or another runtime path failed. */
         FAILURE
     }
 }

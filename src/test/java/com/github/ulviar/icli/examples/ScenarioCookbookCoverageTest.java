@@ -53,6 +53,7 @@ final class ScenarioCookbookCoverageTest {
                 "## `interactive`",
                 "## `Expect`",
                 "## `lineSession`",
+                "## `protocolSession`",
                 "## `listen`",
                 "## `pooled`",
                 "## Диагностика",

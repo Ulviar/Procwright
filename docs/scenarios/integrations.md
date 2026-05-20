@@ -6,10 +6,14 @@ It currently covers:
 
 - one-shot command-backed tools;
 - JSON Lines sessions over `LineSession`;
+- protocol-session adapters for JSON Lines, delimiter-framed bytes, Content-Length JSON, and typed JSON mapping;
 - cancellable JSON Lines calls;
 - Content-Length framed JSON helpers;
 - structured adapter errors;
 - command-backed tool result wrappers.
+
+`JsonLineSession.requestAsync` is a narrow cancellable helper in this optional module. It is not the generic/core async
+request API that remains outside the current baseline.
 
 Compile-tested sources:
 
@@ -23,6 +27,6 @@ CLI output is treated as untrusted data. The integration layer does not turn pro
 ## Boundary
 
 The module is optional and does not add an MCP SDK dependency. It is a small structured boundary over existing
-`run` and `lineSession` scenarios.
+`run`, `lineSession`, and `protocolSession` scenarios.
 
 Adapter errors are structured and should not expose raw argv, environment values, or unbounded output by default.

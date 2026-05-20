@@ -15,12 +15,20 @@ import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
+import com.github.ulviar.icli.session.PooledProtocolSession;
+import com.github.ulviar.icli.session.PooledProtocolSessionMetrics;
+import com.github.ulviar.icli.session.ProtocolAdapter;
+import com.github.ulviar.icli.session.ProtocolReader;
+import com.github.ulviar.icli.session.ProtocolReaders;
+import com.github.ulviar.icli.session.ProtocolSession;
+import com.github.ulviar.icli.session.ProtocolWriter;
 import com.github.ulviar.icli.session.Session;
 import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamSession;
 import com.github.ulviar.icli.session.StreamSource;
 import com.github.ulviar.icli.terminal.TerminalPolicy;
 import com.github.ulviar.icli.terminal.TerminalSignal;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 
@@ -142,6 +150,38 @@ final class CommandServiceApiExamples {
         }
     }
 
+    void protocolSessionScenario() {
+        CommandService worker = CommandService.forCommand("tool");
+        ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
+
+        try (ProtocolSession<String, String> session = worker.protocolSession(adapter, call -> call.args("worker")
+                .requestTimeout(Duration.ofSeconds(2))
+                .outputBacklogLimit(128 * 1024)
+                .readiness(ready -> ready.request("ready")))) {
+            String response = session.request("first line\nsecond line");
+            if (response.isBlank()) {
+                throw new IllegalStateException("empty response");
+            }
+        }
+    }
+
+    void pooledProtocolSessionScenario() {
+        CommandService worker = CommandService.forCommand("tool");
+
+        try (PooledProtocolSession<String, String> pool =
+                worker.pooledProtocol(LengthPrefixedTextAdapter::new, call -> call.args("worker")
+                        .maxSize(4)
+                        .warmupSize(1)
+                        .minIdle(1)
+                        .readiness(ready -> ready.request("ready")))) {
+            String response = pool.request("document\nbody", Duration.ofSeconds(2));
+            PooledProtocolSessionMetrics metrics = pool.metrics();
+            if (response.isBlank() || metrics.size() > 4) {
+                throw new IllegalStateException("unexpected pooled response");
+            }
+        }
+    }
+
     void scenarioPresetComposition() {
         CommandService tool = CommandService.forCommand("tool");
 
@@ -156,6 +196,25 @@ final class CommandServiceApiExamples {
             ScenarioPresets.logFollowing(Duration.ZERO).accept(call);
         })) {
             stream.close();
+        }
+    }
+
+    private static final class LengthPrefixedTextAdapter implements ProtocolAdapter<String, String> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            byte[] body = request.getBytes(StandardCharsets.UTF_8);
+            writer.writeLine(Integer.toString(body.length));
+            writer.write(body);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            ProtocolReader stdout = readers.stdout();
+            int length = Integer.parseInt(stdout.readLine(32));
+            byte[] body = stdout.readExactly(length);
+            return new String(body, StandardCharsets.UTF_8);
         }
     }
 }

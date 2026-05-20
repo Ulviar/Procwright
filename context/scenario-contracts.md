@@ -11,15 +11,18 @@
 
 - `run`;
 - `lineSession`;
+- `protocolSession`;
 - `interactive`;
 - `expect`;
 - `listen`;
-- `pooled`.
+- `pooled`;
+- `pooledProtocol`.
 
 Terminal/PTY — capability внутри `interactive` и `lineSession`, а не отдельный сценарий core. Command-backed tools —
 optional integration layer поверх process scenarios, а не часть core process workflow.
 `ScenarioPresets` — typed customizers для существующих scenario builders, а не отдельный сценарий.
-Pooled workers наследуют terminal capability только через `LineSession`; отдельного PTY pool runtime нет.
+Pooled workers наследуют terminal capability только через `LineSession` или `ProtocolSession`; отдельного PTY pool
+runtime нет.
 
 ## Общие правила всех сценариев
 
@@ -91,6 +94,38 @@ Line-oriented request/response workflow для REPL-like процессов.
 - terminal capability допустима как `TerminalPolicy` только если line protocol действительно работает под terminal
   transport;
 - dependency-specific expect/PTY APIs не должны подменять line-session contract.
+
+## `protocolSession`
+
+Generic request/response workflow для framed, multi-line, byte-oriented или typed worker protocols.
+
+Библиотека гарантирует:
+
+- один request/response cycle декодируется за раз;
+- caller-provided `ProtocolAdapter<I, O>` владеет request writer и response decoder;
+- request writer может писать `byte[]` или `String`, а не только одну line;
+- response decoder читает stdout/stderr через deadline-aware readers;
+- request timeout относится к одному циклу;
+- request bytes/chars и response bytes/chars имеют отдельные limits;
+- output backlog bounded per stream;
+- strict charset policy может fail fast с `DECODE_ERROR` вместо silent replacement;
+- transcript bounded и маркирует truncated/malformed/redacted state;
+- timeout, EOF, broken pipe, decode failure, oversized request/response, output backlog overflow и protocol decoder
+  failure различаются;
+- failure закрывает session, чтобы не продолжать работу в неизвестном protocol state;
+- readiness probe выполняется после launch и до возврата `ProtocolSession`.
+
+Пользователь отвечает за:
+
+- protocol framing и domain decoding внутри adapter;
+- выбор size limits, соответствующих протоколу;
+- reset/health semantics, если процесс используется через pool;
+- отсутствие конкурирующих raw reads перед созданием `ProtocolSession`.
+
+Граница scenario:
+
+- `protocolSession` не является raw stream parser API;
+- common adapters живут в optional `:icli-integrations`, а не создают второй process runtime.
 
 ## `interactive`
 
@@ -176,19 +211,23 @@ Listen-only streaming workflow для `tail`, `logs --follow` и похожих 
 - `listen` не является full-output capture API;
 - если нужен completed result с bounded output, используется `run`.
 
-## `pooled`
+## `pooled` / `pooledProtocol`
 
-Pooled line-oriented workers для CLI/REPL с дорогим startup.
+Pooled line-oriented или typed protocol workers для CLI/REPL с дорогим startup.
 
 Библиотека гарантирует:
 
-- pool использует существующий `LineSession` runtime;
+- pool использует существующий `LineSession` или `ProtocolSession` runtime;
 - worker lease не раскрывается пользователю;
 - `request(...)` сам берет worker, выполняет request и возвращает/retire worker;
 - `maxSize` ограничивает live workers;
 - `warmupSize` запускает bounded subset заранее;
+- `minIdle` и background replenishment держат дорогие workers готовыми без раскрытия leases;
 - acquire timeout отличим от request timeout;
-- reset/health hooks работают через `LineSession`;
+- reset/health hooks работают через выбранный session type, имеют typed worker handle и ограничены hook timeout;
+- `pooledProtocol` получает serialized factory adapter-ов, чтобы каждый worker владел собственным protocol state;
+- metrics различают acquire wait, request duration без acquire wait, worker startup duration, failed startup count, live
+  states и retire reasons;
 - `close()` запрещает новые requests, закрывает idle workers и дает leased workers завершить текущий request.
 
 Пользователь отвечает за:
@@ -200,7 +239,7 @@ Pooled line-oriented workers для CLI/REPL с дорогим startup.
 Граница scenario:
 
 - pool не является general process pool;
-- он работает только поверх line-oriented protocol.
+- он работает только поверх line-oriented или explicit typed protocol scenario.
 
 ## Optional integration layer
 

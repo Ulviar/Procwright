@@ -8,8 +8,10 @@
 
 - Release type: unreleased pre-release candidate baseline.
 - Version: `0.0.0-SNAPSHOT`.
-- Java release variants: 17, 21, and 25 from one source tree; default local target is 25.
-- API stability: pre-1.0; public names may still change before the first published artifact.
+- Java release variants: 17, 21, and 25 from one source tree; default local development target is 25.
+- Public artifact target: Java 17.
+- API stability: pre-1.0; first-RC scenario call shapes are being frozen for `run`, `interactive`, `lineSession`,
+  `protocolSession`, `pooled`, and `pooledProtocol`.
 
 ## Shipped Behavior In The Current Branch
 
@@ -20,13 +22,17 @@
 - Raw interactive sessions with guarded stdin, explicit output ownership, idempotent close, and exit futures.
 - Line-oriented request/response sessions with bounded transcripts, custom decoders, timeout/EOF distinction, and
   serialized requests.
+- Generic typed protocol sessions with adapter-owned framing, deadline-aware readers/writers, readiness probes, strict
+  charset decoding, request/response size limits, and bounded transcripts.
+- Pooled typed protocol sessions with warmup, min-idle replenishment, health/reset hooks, retirement reasons, and richer
+  metrics.
 - Listen-only streaming sessions with output listeners, bounded diagnostics, close semantics, and listener failure
   propagation.
 - PTY capability boundary through `TerminalPolicy` and `PtyProvider`.
 - Structured diagnostics with redaction-friendly command echo.
 - Optional Kotlin ergonomics module.
-- Optional CLI-backed integrations module with JSON, JSON Lines, Content-Length framing, cancellable calls, adapter
-  errors, and command-backed tool wrappers.
+- Optional CLI-backed integrations module with JSON, JSON Lines, Content-Length framing, protocol adapters, cancellable
+  calls, adapter errors, and command-backed tool wrappers.
 - Bounded stress suite and comparison research module.
 - Public MkDocs documentation and generated Java API docs for core and integrations.
 
@@ -36,6 +42,7 @@
 - Convenience one-line shortcut APIs are not added before the first release candidate.
 - `SessionOptions.idleTimeout` keeps its current name and caller-visible activity semantics.
 - The current `ScenarioPresets` set is frozen for the first release-candidate baseline.
+- `protocolSession` and `pooledProtocol` are canonical scenario APIs, not low-level flag bundles.
 - Session-family handles are sealed public contracts backed by hidden iCLI implementations.
 - Diagnostics remains best-effort and unordered.
 - Core, integrations, and Kotlin public API type sets are guarded by exact baseline tests.
@@ -43,12 +50,14 @@
 
 ## Known Limitations
 
-- No stable Maven Central artifact is published yet.
+- No stable Maven Central artifact is published yet. GitHub Packages metadata is configured, but no public release
+  artifact has been cut.
 - Windows ConPTY support is not shipped in the current baseline.
 - Java 17 uses platform-thread fallback for internal background work; Java 21+ may use virtual threads internally.
 - Generated Kotlin API docs are not part of the public site yet; Kotlin public declarations are checked through KDoc in
   source.
-- Raw session pooling, stateful affinity pools, and a real MCP SDK adapter are not included.
+- Raw session pooling, stateful affinity pools, generic/core async request API, and a real MCP SDK adapter are not
+  included.
 - Machine-dependent benchmark results are research data, not performance guarantees.
 
 ## Verification

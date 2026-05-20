@@ -50,6 +50,10 @@ public final class PooledLineSessionException extends RuntimeException {
         ACQUIRE_TIMEOUT,
         /** Pool is closed or closing. */
         CLOSED,
+        /** Worker startup failed. */
+        STARTUP_FAILED,
+        /** Worker health or reset hook did not finish before its deadline. */
+        HOOK_TIMEOUT,
         /** Worker lifecycle hook or request handling failed outside normal line-session errors. */
         WORKER_FAILED
     }

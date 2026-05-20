@@ -4,6 +4,9 @@ import com.github.ulviar.icli.command.CommandException;
 import com.github.ulviar.icli.command.CommandExecutionException;
 import com.github.ulviar.icli.command.CommandResult;
 import com.github.ulviar.icli.session.LineSessionException;
+import com.github.ulviar.icli.session.PooledLineSessionException;
+import com.github.ulviar.icli.session.PooledProtocolSessionException;
+import com.github.ulviar.icli.session.ProtocolSessionException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -75,8 +78,21 @@ public record CliAdapterError(String code, String message, JsonValue.JsonObject 
         if (failure instanceof CommandException commandException) {
             return from(commandException.result());
         }
-        if (failure instanceof CommandExecutionException) {
-            return of("command_launch_failed", "Command could not be launched or supervised");
+        if (failure instanceof CommandExecutionException commandExecutionException) {
+            LinkedHashMap<String, JsonValue> details = new LinkedHashMap<>();
+            details.put(
+                    "reason",
+                    JsonValue.string(commandExecutionException.reason().name()));
+            return new CliAdapterError(
+                    switch (commandExecutionException.reason()) {
+                        case LAUNCH_FAILED -> "command_launch_failed";
+                        case DECODE_ERROR -> "command_decode_error";
+                        case READINESS_TIMEOUT -> "readiness_timeout";
+                        case READINESS_FAILED -> "readiness_failed";
+                        case RUNTIME_FAILURE -> "command_runtime_failure";
+                    },
+                    "Command could not be launched or supervised",
+                    JsonValue.object(details));
         }
         if (failure instanceof LineSessionException lineSessionException) {
             LinkedHashMap<String, JsonValue> details = new LinkedHashMap<>();
@@ -86,9 +102,77 @@ public record CliAdapterError(String code, String message, JsonValue.JsonObject 
                         case TIMEOUT -> "line_timeout";
                         case EOF -> "line_eof";
                         case CLOSED -> "line_closed";
+                        case BROKEN_PIPE -> "line_broken_pipe";
+                        case DECODE_ERROR -> "line_decode_error";
+                        case RESPONSE_TOO_LARGE -> "line_response_too_large";
+                        case STDOUT_BACKLOG_OVERFLOW -> "line_stdout_backlog_overflow";
+                        case DECODER_FAILED -> "line_decoder_failed";
                         case FAILURE -> "line_failure";
                     },
                     "Line-session request failed",
+                    JsonValue.object(details));
+        }
+        if (failure instanceof ProtocolSessionException protocolSessionException) {
+            LinkedHashMap<String, JsonValue> details = new LinkedHashMap<>();
+            details.put(
+                    "reason", JsonValue.string(protocolSessionException.reason().name()));
+            putExitCode(details, protocolSessionException.exitCode());
+            details.put(
+                    "transcriptTruncated",
+                    JsonValue.bool(protocolSessionException.transcript().truncated()));
+            details.put(
+                    "transcriptMalformed",
+                    JsonValue.bool(protocolSessionException.transcript().malformed()));
+            details.put(
+                    "transcriptRedacted",
+                    JsonValue.bool(protocolSessionException.transcript().redacted()));
+            return new CliAdapterError(
+                    switch (protocolSessionException.reason()) {
+                        case TIMEOUT -> "protocol_timeout";
+                        case CLOSED -> "protocol_closed";
+                        case EOF -> "protocol_eof";
+                        case BROKEN_PIPE -> "protocol_broken_pipe";
+                        case DECODE_ERROR -> "protocol_decode_error";
+                        case REQUEST_TOO_LARGE -> "protocol_request_too_large";
+                        case RESPONSE_TOO_LARGE -> "protocol_response_too_large";
+                        case OUTPUT_BACKLOG_OVERFLOW -> "protocol_output_backlog_overflow";
+                        case PROTOCOL_DECODER_FAILED -> "protocol_decoder_failed";
+                        case PROCESS_EXITED -> "protocol_process_exited";
+                        case FAILURE -> "protocol_failure";
+                    },
+                    "Protocol-session request failed",
+                    JsonValue.object(details));
+        }
+        if (failure instanceof PooledLineSessionException pooledLineSessionException) {
+            LinkedHashMap<String, JsonValue> details = new LinkedHashMap<>();
+            details.put(
+                    "reason",
+                    JsonValue.string(pooledLineSessionException.reason().name()));
+            return new CliAdapterError(
+                    switch (pooledLineSessionException.reason()) {
+                        case ACQUIRE_TIMEOUT -> "pool_acquire_timeout";
+                        case CLOSED -> "pool_closed";
+                        case STARTUP_FAILED -> "pool_startup_failed";
+                        case HOOK_TIMEOUT -> "pool_hook_timeout";
+                        case WORKER_FAILED -> "pool_worker_failed";
+                    },
+                    "Pooled line-session request failed",
+                    JsonValue.object(details));
+        }
+        if (failure instanceof PooledProtocolSessionException pooledProtocolSessionException) {
+            LinkedHashMap<String, JsonValue> details = new LinkedHashMap<>();
+            details.put(
+                    "reason",
+                    JsonValue.string(pooledProtocolSessionException.reason().name()));
+            return new CliAdapterError(
+                    switch (pooledProtocolSessionException.reason()) {
+                        case ACQUIRE_TIMEOUT -> "pool_acquire_timeout";
+                        case CLOSED -> "pool_closed";
+                        case STARTUP_FAILED -> "pool_startup_failed";
+                        case HOOK_TIMEOUT -> "pool_hook_timeout";
+                        case WORKER_FAILED -> "pool_worker_failed";
+                    },
+                    "Pooled protocol-session request failed",
                     JsonValue.object(details));
         }
         if (failure instanceof CancellationException) {

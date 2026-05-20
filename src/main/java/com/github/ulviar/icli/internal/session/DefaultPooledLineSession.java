@@ -1,6 +1,7 @@
 package com.github.ulviar.icli.internal.session;
 
 import com.github.ulviar.icli.internal.DurationSupport;
+import com.github.ulviar.icli.internal.Threading;
 import com.github.ulviar.icli.session.LineResponse;
 import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.LineSessionException;
@@ -8,8 +9,11 @@ import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionException;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
 import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -26,16 +30,23 @@ public final class DefaultPooledLineSession implements PooledLineSession {
     private final Supplier<LineSession> workerFactory;
     private final PooledLineSessionOptions options;
     private final ArrayDeque<Worker> idle = new ArrayDeque<>();
+    private final EnumMap<PooledWorkerRetireReason, Long> retireReasons = new EnumMap<>(PooledWorkerRetireReason.class);
     private final Object lock = new Object();
     private final CompletableFuture<Void> drained = new CompletableFuture<>();
 
     private boolean closing;
     private int size;
     private int leased;
+    private int starting;
+    private int retiring;
     private long created;
     private long retired;
     private long completedRequests;
     private long failedRequests;
+    private long failedStartups;
+    private long totalAcquireWaitNanos;
+    private long totalRequestDurationNanos;
+    private long totalWorkerStartupNanos;
 
     public DefaultPooledLineSession(Supplier<LineSession> workerFactory, PooledLineSessionOptions options) {
         this.workerFactory = Objects.requireNonNull(workerFactory, "workerFactory");
@@ -53,27 +64,32 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         requireRequestLine(line);
         Worker worker = null;
         boolean reusable = false;
+        PooledWorkerRetireReason retireReason = PooledWorkerRetireReason.WORKER_FAILED;
+        long requestStarted = 0;
         try {
             worker = acquire();
+            requestStarted = System.nanoTime();
             LineResponse response = worker.session.request(line);
             worker.requests++;
             runReset(worker);
-            completedRequests();
+            completedRequests(requestStarted);
             reusable = true;
             return response;
         } catch (LineSessionException exception) {
-            failedRequests();
+            retireReason = retireReasonFor(exception);
+            failedRequests(requestStarted);
             throw exception;
         } catch (PooledLineSessionException exception) {
-            failedRequests();
+            retireReason = retireReasonFor(exception);
+            failedRequests(requestStarted);
             throw exception;
         } catch (RuntimeException exception) {
-            failedRequests();
+            failedRequests(requestStarted);
             throw new PooledLineSessionException(
                     PooledLineSessionException.Reason.WORKER_FAILED, "Pooled line-session worker failed", exception);
         } finally {
             if (worker != null) {
-                release(worker, reusable);
+                release(worker, reusable, retireReason);
             }
         }
     }
@@ -90,27 +106,32 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         requirePositive(timeout, "timeout");
         Worker worker = null;
         boolean reusable = false;
+        PooledWorkerRetireReason retireReason = PooledWorkerRetireReason.WORKER_FAILED;
+        long requestStarted = 0;
         try {
             worker = acquire();
+            requestStarted = System.nanoTime();
             LineResponse response = worker.session.request(line, timeout);
             worker.requests++;
             runReset(worker);
-            completedRequests();
+            completedRequests(requestStarted);
             reusable = true;
             return response;
         } catch (LineSessionException exception) {
-            failedRequests();
+            retireReason = retireReasonFor(exception);
+            failedRequests(requestStarted);
             throw exception;
         } catch (PooledLineSessionException exception) {
-            failedRequests();
+            retireReason = retireReasonFor(exception);
+            failedRequests(requestStarted);
             throw exception;
         } catch (RuntimeException exception) {
-            failedRequests();
+            failedRequests(requestStarted);
             throw new PooledLineSessionException(
                     PooledLineSessionException.Reason.WORKER_FAILED, "Pooled line-session worker failed", exception);
         } finally {
             if (worker != null) {
-                release(worker, reusable);
+                release(worker, reusable, retireReason);
             }
         }
     }
@@ -123,7 +144,20 @@ public final class DefaultPooledLineSession implements PooledLineSession {
     public PooledLineSessionMetrics metrics() {
         synchronized (lock) {
             return new PooledLineSessionMetrics(
-                    size, idle.size(), leased, created, retired, completedRequests, failedRequests);
+                    size,
+                    idle.size(),
+                    leased,
+                    starting,
+                    retiring,
+                    created,
+                    retired,
+                    completedRequests,
+                    failedRequests,
+                    failedStartups,
+                    totalAcquireWaitNanos,
+                    totalRequestDurationNanos,
+                    totalWorkerStartupNanos,
+                    Map.copyOf(retireReasons));
         }
     }
 
@@ -179,7 +213,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             lock.notifyAll();
         }
         while (!workersToClose.isEmpty()) {
-            retireIdle(workersToClose.removeFirst());
+            retireIdle(workersToClose.removeFirst(), PooledWorkerRetireReason.CLOSED);
         }
         completeDrainedIfReady();
     }
@@ -191,10 +225,16 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 warmed.addLast(openWorker());
             }
         } catch (RuntimeException exception) {
+            synchronized (lock) {
+                failedStartups++;
+            }
             while (!warmed.isEmpty()) {
                 closeQuietly(warmed.removeFirst());
             }
-            throw exception;
+            throw new PooledLineSessionException(
+                    PooledLineSessionException.Reason.STARTUP_FAILED,
+                    "Could not start pooled line-session worker",
+                    exception);
         }
         synchronized (lock) {
             size += warmed.size();
@@ -203,6 +243,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
     }
 
     private Worker acquire() {
+        long started = System.nanoTime();
         long deadlineNanos = DurationSupport.deadlineFromNow(options.acquireTimeout());
         while (true) {
             Worker worker = takeOrReserveWorker(deadlineNanos);
@@ -211,30 +252,32 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             }
             boolean healthy;
             try {
-                healthy = isHealthy(worker);
+                healthy = isHealthy(worker, deadlineNanos);
             } catch (RuntimeException exception) {
-                release(worker, false);
+                release(worker, false, PooledWorkerRetireReason.HEALTH_FAILED);
                 throw exception;
             }
             if (healthy) {
+                recordAcquireWait(started);
                 return worker;
             }
-            release(worker, false);
+            release(worker, false, PooledWorkerRetireReason.HEALTH_FAILED);
         }
     }
 
     private Worker takeOrReserveWorker(long deadlineNanos) {
         while (true) {
             Worker expired = null;
+            PooledWorkerRetireReason expiredReason = null;
             synchronized (lock) {
                 ensureOpen();
                 Worker worker = idle.pollFirst();
                 if (worker != null) {
-                    if (shouldRetire(worker)) {
+                    PooledWorkerRetireReason reason = retireReasonForPolicy(worker);
+                    if (reason != null) {
                         size--;
-                        retired++;
-                        lock.notifyAll();
                         expired = worker;
+                        expiredReason = reason;
                     } else {
                         leased++;
                         return worker;
@@ -263,7 +306,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 }
             }
             if (expired != null) {
-                closeQuietly(expired);
+                retireIdle(expired, expiredReason);
             }
         }
     }
@@ -276,56 +319,87 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             synchronized (lock) {
                 leased--;
                 size--;
+                failedStartups++;
                 lock.notifyAll();
             }
             completeDrainedIfReady();
-            throw exception;
+            throw new PooledLineSessionException(
+                    PooledLineSessionException.Reason.STARTUP_FAILED,
+                    "Could not start pooled line-session worker",
+                    exception);
         }
         synchronized (lock) {
             if (!closing) {
                 return worker;
             }
         }
-        release(worker, false);
+        release(worker, false, PooledWorkerRetireReason.CLOSED);
         throw closed();
     }
 
     private Worker openWorker() {
-        LineSession session = workerFactory.get();
         synchronized (lock) {
-            created++;
+            starting++;
         }
-        return new Worker(session);
+        long started = System.nanoTime();
+        try {
+            LineSession session = workerFactory.get();
+            synchronized (lock) {
+                created++;
+                totalWorkerStartupNanos += System.nanoTime() - started;
+            }
+            return new Worker(session);
+        } finally {
+            synchronized (lock) {
+                starting--;
+                lock.notifyAll();
+            }
+        }
     }
 
-    private boolean isHealthy(Worker worker) {
-        try {
-            return options.healthCheck().test(worker.session);
-        } catch (RuntimeException exception) {
+    private boolean isHealthy(Worker worker, long acquireDeadlineNanos) {
+        Duration timeout = WorkerHookSupport.boundedTimeout(options.hookTimeout(), acquireDeadlineNanos);
+        if (timeout.isZero()) {
             throw new PooledLineSessionException(
-                    PooledLineSessionException.Reason.WORKER_FAILED,
-                    "Pooled line-session health check failed",
-                    exception);
+                    PooledLineSessionException.Reason.ACQUIRE_TIMEOUT,
+                    "Timed out waiting for pooled line-session health check");
         }
+        return WorkerHookSupport.run(
+                "icli-line-pool-health-",
+                timeout,
+                () -> options.healthCheck().test(worker.session),
+                () -> new PooledLineSessionException(
+                        PooledLineSessionException.Reason.HOOK_TIMEOUT, "Pooled line-session health check timed out"),
+                exception -> new PooledLineSessionException(
+                        PooledLineSessionException.Reason.WORKER_FAILED,
+                        "Pooled line-session health check failed",
+                        exception));
     }
 
     private void runReset(Worker worker) {
-        try {
-            options.resetHook().accept(worker.session);
-        } catch (RuntimeException exception) {
-            throw new PooledLineSessionException(
-                    PooledLineSessionException.Reason.WORKER_FAILED,
-                    "Pooled line-session reset hook failed",
-                    exception);
-        }
+        WorkerHookSupport.run(
+                "icli-line-pool-reset-",
+                options.hookTimeout(),
+                () -> {
+                    options.resetHook().accept(worker.session);
+                    return null;
+                },
+                () -> new PooledLineSessionException(
+                        PooledLineSessionException.Reason.HOOK_TIMEOUT, "Pooled line-session reset hook timed out"),
+                exception -> new PooledLineSessionException(
+                        PooledLineSessionException.Reason.WORKER_FAILED,
+                        "Pooled line-session reset hook failed",
+                        exception));
     }
 
-    private void release(Worker worker, boolean reusable) {
-        if (reusable && shouldRetire(worker)) {
+    private void release(Worker worker, boolean reusable, PooledWorkerRetireReason failureReason) {
+        PooledWorkerRetireReason policyReason = reusable ? retireReasonForPolicy(worker) : null;
+        if (policyReason != null) {
             reusable = false;
+            failureReason = policyReason;
         }
         if (!reusable) {
-            retire(worker);
+            retire(worker, failureReason);
             return;
         }
         synchronized (lock) {
@@ -338,32 +412,97 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 return;
             }
         }
-        retire(worker);
+        retire(worker, PooledWorkerRetireReason.CLOSED);
     }
 
-    private void retireIdle(Worker worker) {
-        closeQuietly(worker);
-        workersRetired();
-        completeDrainedIfReady();
-    }
-
-    private boolean shouldRetire(Worker worker) {
+    private PooledWorkerRetireReason retireReasonForPolicy(Worker worker) {
         if (worker.requests >= options.maxRequestsPerWorker()) {
-            return true;
+            return PooledWorkerRetireReason.MAX_REQUESTS;
         }
         Duration maxAge = options.maxWorkerAge();
-        return !maxAge.isZero() && System.nanoTime() - worker.createdAtNanos >= DurationSupport.saturatedNanos(maxAge);
+        if (!maxAge.isZero() && System.nanoTime() - worker.createdAtNanos >= DurationSupport.saturatedNanos(maxAge)) {
+            return PooledWorkerRetireReason.AGE;
+        }
+        return null;
     }
 
-    private void retire(Worker worker) {
-        closeQuietly(worker);
-        synchronized (lock) {
-            leased--;
-            size--;
-            retired++;
-            lock.notifyAll();
+    private static PooledWorkerRetireReason retireReasonFor(LineSessionException exception) {
+        return switch (exception.reason()) {
+            case TIMEOUT -> PooledWorkerRetireReason.TIMEOUT;
+            case DECODE_ERROR, DECODER_FAILED -> PooledWorkerRetireReason.DECODER_FAILED;
+            case EOF -> PooledWorkerRetireReason.PROCESS_EXITED;
+            default -> PooledWorkerRetireReason.WORKER_FAILED;
+        };
+    }
+
+    private static PooledWorkerRetireReason retireReasonFor(PooledLineSessionException exception) {
+        return switch (exception.reason()) {
+            case HOOK_TIMEOUT -> PooledWorkerRetireReason.TIMEOUT;
+            default -> PooledWorkerRetireReason.WORKER_FAILED;
+        };
+    }
+
+    private void retireIdle(Worker worker, PooledWorkerRetireReason reason) {
+        beginRetiring();
+        try {
+            closeQuietly(worker);
+        } finally {
+            finishRetiring(reason);
         }
         completeDrainedIfReady();
+        replenishIfNeeded();
+    }
+
+    private void retire(Worker worker, PooledWorkerRetireReason reason) {
+        beginRetiring();
+        try {
+            closeQuietly(worker);
+        } finally {
+            synchronized (lock) {
+                leased--;
+                size--;
+            }
+            finishRetiring(reason);
+        }
+        completeDrainedIfReady();
+        replenishIfNeeded();
+    }
+
+    private void replenishIfNeeded() {
+        if (!options.backgroundReplenishment() || options.minIdle() == 0) {
+            return;
+        }
+        Threading.start("icli-line-pool-replenish-", this::replenishOnce);
+    }
+
+    private void replenishOnce() {
+        synchronized (lock) {
+            if (closing || idle.size() >= options.minIdle() || size >= options.maxSize()) {
+                return;
+            }
+            size++;
+        }
+        Worker worker;
+        try {
+            worker = openWorker();
+        } catch (RuntimeException exception) {
+            synchronized (lock) {
+                size--;
+                failedStartups++;
+                lock.notifyAll();
+            }
+            return;
+        }
+        synchronized (lock) {
+            if (closing) {
+                leased++;
+            } else {
+                idle.addLast(worker);
+                lock.notifyAll();
+                return;
+            }
+        }
+        retire(worker, PooledWorkerRetireReason.CLOSED);
     }
 
     private void closeQuietly(Worker worker) {
@@ -374,30 +513,53 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         }
     }
 
-    private void completedRequests() {
+    private void beginRetiring() {
+        synchronized (lock) {
+            retiring++;
+        }
+    }
+
+    private void finishRetiring(PooledWorkerRetireReason reason) {
+        synchronized (lock) {
+            retiring--;
+            retired++;
+            retireReasons.merge(reason, 1L, Long::sum);
+            lock.notifyAll();
+        }
+    }
+
+    private void completedRequests(long requestStarted) {
         synchronized (lock) {
             completedRequests++;
+            recordRequestDuration(requestStarted);
         }
     }
 
-    private void failedRequests() {
+    private void failedRequests(long requestStarted) {
         synchronized (lock) {
             failedRequests++;
+            recordRequestDuration(requestStarted);
         }
     }
 
-    private void workersRetired() {
+    private void recordRequestDuration(long requestStarted) {
+        if (requestStarted != 0) {
+            totalRequestDurationNanos += System.nanoTime() - requestStarted;
+        }
+    }
+
+    private void recordAcquireWait(long started) {
         synchronized (lock) {
-            retired++;
-            lock.notifyAll();
+            totalAcquireWaitNanos += System.nanoTime() - started;
         }
     }
 
     private void completeDrainedIfReady() {
         synchronized (lock) {
-            if (closing && size == 0 && leased == 0) {
+            if (closing && size == 0 && leased == 0 && starting == 0 && retiring == 0) {
                 drained.complete(null);
             }
+            lock.notifyAll();
         }
     }
 

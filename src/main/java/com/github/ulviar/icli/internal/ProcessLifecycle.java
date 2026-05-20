@@ -31,7 +31,9 @@ public final class ProcessLifecycle {
             return builder.start();
         } catch (IOException exception) {
             throw new CommandExecutionException(
-                    "Could not start command: " + CommandEchoSupport.redactedSummary(plan), exception);
+                    CommandExecutionException.Reason.LAUNCH_FAILED,
+                    "Could not start command: " + CommandEchoSupport.redactedSummary(plan),
+                    exception);
         }
     }
 

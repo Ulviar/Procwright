@@ -1,6 +1,7 @@
 package com.github.ulviar.icli.internal;
 
 import com.github.ulviar.icli.command.CapturePolicy;
+import com.github.ulviar.icli.command.CharsetPolicy;
 import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
@@ -17,7 +18,7 @@ public record ExecutionPlan(
         CapturePolicy.Bounded capturePolicy,
         ShutdownPolicy shutdownPolicy,
         Duration timeout,
-        Charset charset,
+        CharsetPolicy charsetPolicy,
         StdinPolicy stdin,
         DiagnosticsOptions diagnosticsOptions) {
 
@@ -29,9 +30,13 @@ public record ExecutionPlan(
         if (timeout.isNegative()) {
             throw new IllegalArgumentException("timeout must not be negative");
         }
-        Objects.requireNonNull(charset, "charset");
+        Objects.requireNonNull(charsetPolicy, "charsetPolicy");
         Objects.requireNonNull(stdin, "stdin");
         Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
+    }
+
+    public Charset charset() {
+        return charsetPolicy.charset();
     }
 
     LaunchMode launchMode() {

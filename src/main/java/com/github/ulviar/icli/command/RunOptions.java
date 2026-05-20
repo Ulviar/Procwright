@@ -20,7 +20,7 @@ public final class RunOptions {
     private final CapturePolicy capturePolicy;
     private final ShutdownPolicy shutdownPolicy;
     private final Duration timeout;
-    private final Charset charset;
+    private final CharsetPolicy charsetPolicy;
     private final OutputMode outputMode;
 
     /**
@@ -48,10 +48,28 @@ public final class RunOptions {
             Duration timeout,
             Charset charset,
             OutputMode outputMode) {
+        this(capturePolicy, shutdownPolicy, timeout, CharsetPolicy.replace(charset), outputMode);
+    }
+
+    /**
+     * Creates run options from explicit policies.
+     *
+     * @param capturePolicy default capture policy
+     * @param shutdownPolicy default shutdown policy
+     * @param timeout default timeout
+     * @param charsetPolicy default output charset policy
+     * @param outputMode default output mode
+     */
+    public RunOptions(
+            CapturePolicy capturePolicy,
+            ShutdownPolicy shutdownPolicy,
+            Duration timeout,
+            CharsetPolicy charsetPolicy,
+            OutputMode outputMode) {
         this.capturePolicy = Objects.requireNonNull(capturePolicy, "capturePolicy");
         this.shutdownPolicy = Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
         this.timeout = requireNonNegative(timeout, "timeout");
-        this.charset = Objects.requireNonNull(charset, "charset");
+        this.charsetPolicy = Objects.requireNonNull(charsetPolicy, "charsetPolicy");
         this.outputMode = Objects.requireNonNull(outputMode, "outputMode");
     }
 
@@ -97,7 +115,16 @@ public final class RunOptions {
      * @return output charset
      */
     public Charset charset() {
-        return charset;
+        return charsetPolicy.charset();
+    }
+
+    /**
+     * Returns the default output charset decoding policy.
+     *
+     * @return output charset policy
+     */
+    public CharsetPolicy charsetPolicy() {
+        return charsetPolicy;
     }
 
     /**
@@ -120,13 +147,13 @@ public final class RunOptions {
         return capturePolicy.equals(that.capturePolicy)
                 && shutdownPolicy.equals(that.shutdownPolicy)
                 && timeout.equals(that.timeout)
-                && charset.equals(that.charset)
+                && charsetPolicy.equals(that.charsetPolicy)
                 && outputMode == that.outputMode;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(capturePolicy, shutdownPolicy, timeout, charset, outputMode);
+        return Objects.hash(capturePolicy, shutdownPolicy, timeout, charsetPolicy, outputMode);
     }
 
     private static Duration requireNonNegative(Duration duration, String name) {

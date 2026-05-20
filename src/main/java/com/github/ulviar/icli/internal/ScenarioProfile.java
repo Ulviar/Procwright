@@ -1,6 +1,7 @@
 package com.github.ulviar.icli.internal;
 
 import com.github.ulviar.icli.command.CapturePolicy;
+import com.github.ulviar.icli.command.CharsetPolicy;
 import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
@@ -27,7 +28,7 @@ public sealed interface ScenarioProfile
                 bounded(options.capturePolicy()),
                 options.shutdownPolicy(),
                 options.timeout(),
-                options.charset(),
+                options.charsetPolicy(),
                 options.outputMode(),
                 TerminalPolicy.DISABLED);
     }
@@ -65,7 +66,7 @@ public sealed interface ScenarioProfile
             CapturePolicy.Bounded capturePolicy,
             ShutdownPolicy shutdownPolicy,
             Duration timeout,
-            Charset charset,
+            CharsetPolicy charsetPolicy,
             OutputMode outputMode,
             TerminalPolicy terminalPolicy)
             implements ScenarioProfile {
@@ -78,9 +79,13 @@ public sealed interface ScenarioProfile
             if (timeout.isNegative()) {
                 throw new IllegalArgumentException("timeout must not be negative");
             }
-            Objects.requireNonNull(charset, "charset");
+            Objects.requireNonNull(charsetPolicy, "charsetPolicy");
             Objects.requireNonNull(outputMode, "outputMode");
             Objects.requireNonNull(terminalPolicy, "terminalPolicy");
+        }
+
+        public Charset charset() {
+            return charsetPolicy.charset();
         }
 
         @Override

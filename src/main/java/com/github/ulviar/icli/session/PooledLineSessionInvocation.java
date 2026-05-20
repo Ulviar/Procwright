@@ -57,9 +57,12 @@ public final class PooledLineSessionInvocation {
         private final LineSessionInvocation.Builder lineSessionBuilder = LineSessionInvocation.builder();
         private int maxSize;
         private int warmupSize;
+        private int minIdle;
         private Duration acquireTimeout;
+        private Duration hookTimeout;
         private int maxRequestsPerWorker;
         private Duration maxWorkerAge;
+        private boolean backgroundReplenishment;
         private Consumer<LineSession> resetHook;
         private Predicate<LineSession> healthCheck;
 
@@ -67,9 +70,12 @@ public final class PooledLineSessionInvocation {
             PooledLineSessionOptions defaults = Objects.requireNonNull(options, "options");
             maxSize = defaults.maxSize();
             warmupSize = defaults.warmupSize();
+            minIdle = defaults.minIdle();
             acquireTimeout = defaults.acquireTimeout();
+            hookTimeout = defaults.hookTimeout();
             maxRequestsPerWorker = defaults.maxRequestsPerWorker();
             maxWorkerAge = defaults.maxWorkerAge();
+            backgroundReplenishment = defaults.backgroundReplenishment();
             resetHook = defaults.resetHook();
             healthCheck = defaults.healthCheck();
         }
@@ -209,6 +215,20 @@ public final class PooledLineSessionInvocation {
         }
 
         /**
+         * Sets the minimum idle worker target.
+         *
+         * @param minIdle minimum idle workers to keep ready
+         * @return this builder
+         */
+        public Builder minIdle(int minIdle) {
+            if (minIdle < 0) {
+                throw new IllegalArgumentException("minIdle must not be negative");
+            }
+            this.minIdle = minIdle;
+            return this;
+        }
+
+        /**
          * Sets the maximum time to wait for an available worker.
          *
          * @param acquireTimeout acquire timeout
@@ -216,6 +236,17 @@ public final class PooledLineSessionInvocation {
          */
         public Builder acquireTimeout(Duration acquireTimeout) {
             this.acquireTimeout = requirePositive(acquireTimeout, "acquireTimeout");
+            return this;
+        }
+
+        /**
+         * Sets the maximum time to wait for one health or reset hook.
+         *
+         * @param hookTimeout hook timeout
+         * @return this builder
+         */
+        public Builder hookTimeout(Duration hookTimeout) {
+            this.hookTimeout = requirePositive(hookTimeout, "hookTimeout");
             return this;
         }
 
@@ -238,6 +269,17 @@ public final class PooledLineSessionInvocation {
          */
         public Builder maxWorkerAge(Duration maxWorkerAge) {
             this.maxWorkerAge = requireNonNegative(maxWorkerAge, "maxWorkerAge");
+            return this;
+        }
+
+        /**
+         * Sets whether retired workers may be replenished in the background.
+         *
+         * @param backgroundReplenishment background replenishment flag
+         * @return this builder
+         */
+        public Builder backgroundReplenishment(boolean backgroundReplenishment) {
+            this.backgroundReplenishment = backgroundReplenishment;
             return this;
         }
 
@@ -274,7 +316,16 @@ public final class PooledLineSessionInvocation {
 
         private PooledLineSessionOptions options() {
             return new PooledLineSessionOptions(
-                    maxSize, warmupSize, acquireTimeout, maxRequestsPerWorker, maxWorkerAge, resetHook, healthCheck);
+                    maxSize,
+                    warmupSize,
+                    minIdle,
+                    acquireTimeout,
+                    hookTimeout,
+                    maxRequestsPerWorker,
+                    maxWorkerAge,
+                    backgroundReplenishment,
+                    resetHook,
+                    healthCheck);
         }
 
         private static int requirePositive(int value, String name) {

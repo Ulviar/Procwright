@@ -1,6 +1,8 @@
 package com.github.ulviar.icli;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -85,6 +87,22 @@ public final class ProcessFixtureProgram {
                     System.out.flush();
                 }
             }
+            case "framed-repl" -> {
+                InputStream input = System.in;
+                String header;
+                while ((header = readAsciiLine(input)) != null) {
+                    int length = Integer.parseInt(header);
+                    byte[] body = input.readNBytes(length);
+                    if (body.length != length) {
+                        return;
+                    }
+                    System.out.println("len:" + body.length);
+                    System.out.write(body);
+                    System.out.println();
+                    System.out.println("END");
+                    System.out.flush();
+                }
+            }
             case "two-line-delay-repl" -> {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
                 String line;
@@ -158,6 +176,11 @@ public final class ProcessFixtureProgram {
                 System.err.print(args[2].repeat(Integer.parseInt(args[1])));
                 System.out.print("done\n");
             }
+            case "large-stderr-sleep" -> {
+                System.err.print(args[2].repeat(Integer.parseInt(args[1])));
+                System.err.flush();
+                Thread.sleep(Long.parseLong(args[3]));
+            }
             case "stdout-stderr" -> {
                 System.out.print(args[1]);
                 System.out.flush();
@@ -215,5 +238,21 @@ public final class ProcessFixtureProgram {
     private static String javaExecutable() {
         String executableName = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
         return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
+    }
+
+    private static String readAsciiLine(InputStream input) throws java.io.IOException {
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        while (true) {
+            int value = input.read();
+            if (value < 0) {
+                return line.size() == 0 ? null : line.toString(StandardCharsets.US_ASCII);
+            }
+            if (value == '\n') {
+                return line.toString(StandardCharsets.US_ASCII);
+            }
+            if (value != '\r') {
+                line.write(value);
+            }
+        }
     }
 }

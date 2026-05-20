@@ -13,8 +13,9 @@ iCLI is intended for applications that need to call external CLIs without owning
 - interact with a long-running process through stdin/stdout;
 - automate prompt-oriented dialogues;
 - use line-oriented request/response workers;
+- use framed, multi-line, byte, or typed protocol workers;
 - consume streaming output without retaining all data in memory;
-- reuse warm line-session workers;
+- reuse warm line-session or typed protocol workers;
 - wrap a CLI as a structured integration boundary.
 
 ## Documentation model

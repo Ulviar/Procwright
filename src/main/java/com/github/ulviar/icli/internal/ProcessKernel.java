@@ -6,6 +6,7 @@ import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
 import java.io.OutputStream;
+import java.nio.charset.CharacterCodingException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
@@ -233,7 +234,14 @@ public final class ProcessKernel {
     }
 
     private static String decode(CapturedOutput output, ExecutionPlan plan) {
-        return new String(output.bytes(), plan.charset());
+        try {
+            return plan.charsetPolicy().decode(output.bytes());
+        } catch (CharacterCodingException exception) {
+            throw new CommandExecutionException(
+                    CommandExecutionException.Reason.DECODE_ERROR,
+                    "Could not decode command output with " + plan.charset().displayName(),
+                    exception);
+        }
     }
 
     private static void closeStreams(Process process) {

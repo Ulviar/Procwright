@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.github.ulviar.icli.command.CommandResult;
+import com.github.ulviar.icli.session.PooledLineSessionException;
+import com.github.ulviar.icli.session.ProtocolSessionException;
+import com.github.ulviar.icli.session.ProtocolTranscript;
 import java.time.Duration;
 import java.util.OptionalInt;
 import java.util.concurrent.CancellationException;
@@ -42,6 +45,41 @@ final class CliAdapterErrorTest {
         assertEquals("protocol_error", error.code());
         assertEquals(
                 JsonValue.string("OVERSIZED_FRAME"),
+                error.details().member("reason").orElseThrow());
+    }
+
+    @Test
+    void mapsRuntimeProtocolFailuresWithoutTranscriptText() {
+        CliAdapterError error = CliAdapterError.from(new ProtocolSessionException(
+                ProtocolSessionException.Reason.RESPONSE_TOO_LARGE,
+                new ProtocolTranscript("secret output", true, true, false),
+                OptionalInt.of(3),
+                "too large",
+                null));
+        String encoded = JsonCodec.write(error.toJson());
+
+        assertEquals("protocol_response_too_large", error.code());
+        assertEquals(
+                JsonValue.string("RESPONSE_TOO_LARGE"),
+                error.details().member("reason").orElseThrow());
+        assertEquals(JsonValue.number(3), error.details().member("exitCode").orElseThrow());
+        assertEquals(
+                JsonValue.bool(true),
+                error.details().member("transcriptTruncated").orElseThrow());
+        assertEquals(
+                JsonValue.bool(true),
+                error.details().member("transcriptMalformed").orElseThrow());
+        assertFalse(encoded.contains("secret output"));
+    }
+
+    @Test
+    void mapsPooledFailuresWithStableCodes() {
+        CliAdapterError error = CliAdapterError.from(
+                new PooledLineSessionException(PooledLineSessionException.Reason.STARTUP_FAILED, "startup failed"));
+
+        assertEquals("pool_startup_failed", error.code());
+        assertEquals(
+                JsonValue.string("STARTUP_FAILED"),
                 error.details().member("reason").orElseThrow());
     }
 

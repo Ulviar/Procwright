@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.ulviar.icli.command.CommandExecutionException;
 import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.session.LineResponse;
@@ -32,6 +33,30 @@ final class LineSessionIntegrationTest {
             assertEquals("response:hello", response.text());
             assertTrue(response.transcript().text().contains("stdout: response:hello"));
         }
+    }
+
+    @Test
+    void readinessProbeRunsBeforeLineSessionIsReturned() {
+        try (LineSession session = fixtureService().lineSession(call -> call.args("line-repl")
+                .readiness(ready ->
+                        assertEquals("response:healthy", ready.request("health").text()))
+                .readinessTimeout(Duration.ofSeconds(2)))) {
+            LineResponse response = session.request("hello");
+
+            assertEquals("response:hello", response.text());
+        }
+    }
+
+    @Test
+    void readinessFailureClosesLineSessionBeforeReturn() {
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class, () -> fixtureService().lineSession(call -> call.args("line-repl")
+                        .readiness(ready -> {
+                            throw new IllegalStateException("not ready");
+                        })
+                        .readinessTimeout(Duration.ofSeconds(2))));
+
+        assertEquals(CommandExecutionException.Reason.READINESS_FAILED, exception.reason());
     }
 
     @Test
@@ -136,7 +161,7 @@ final class LineSessionIntegrationTest {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
-            assertEquals(LineSessionException.Reason.FAILURE, exception.reason());
+            assertEquals(LineSessionException.Reason.DECODER_FAILED, exception.reason());
         }
     }
 
@@ -153,7 +178,7 @@ final class LineSessionIntegrationTest {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("many", Duration.ofSeconds(2)));
 
-            assertEquals(LineSessionException.Reason.FAILURE, exception.reason());
+            assertEquals(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW, exception.reason());
         }
     }
 
@@ -165,7 +190,7 @@ final class LineSessionIntegrationTest {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
 
-            assertEquals(LineSessionException.Reason.FAILURE, exception.reason());
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
             assertTrue(exception.getCause().getMessage().contains("maxLineChars"));
         }
     }

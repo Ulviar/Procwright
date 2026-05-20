@@ -218,6 +218,30 @@ try (PooledLineSession pool = service.pooled(call -> call
 }
 ```
 
+### `protocolSession`
+
+Generic request/response workers для framed, multi-line, byte-oriented или typed protocols.
+
+Инварианты сценария:
+
+- caller-provided adapter владеет request writer и response decoder;
+- runtime владеет launch, timeout, output pumps, bounded transcript и cleanup;
+- один request одновременно;
+- request/response size limits и strict charset decoding дают typed failures;
+- readiness probe выполняется до возврата session.
+
+### `pooledProtocol`
+
+Typed protocol pool для дорогих workers, где adapter и hooks доказывают безопасное переиспользование.
+
+Инварианты сценария:
+
+- pool использует existing `ProtocolSession` runtime;
+- каждый worker получает отдельный adapter из factory и владеет своим protocol state;
+- worker lease скрыт от пользователя;
+- warmup, minIdle, bounded health/reset hooks и retirement остаются pool-owned;
+- metrics показывают latency, startup и retire reasons, но не становятся control plane.
+
 ## Сценарий как preset, не как мешок flags
 
 Каждый сценарий должен иметь свой default profile:
@@ -234,6 +258,12 @@ lineSession
   capture: transcript window
   terminal: disabled by default; per-call AUTO/REQUIRED available through session invocation
   timeout: request timeout + session idle timeout
+
+protocolSession
+  stdin/stdout/stderr: adapter-owned request/response protocol
+  capture: bounded transcript window with malformed/truncated flags
+  timeout: request timeout + session idle timeout
+  limits: request bytes/chars, response bytes/chars, output backlog
 
 interactive
   stdin: open
@@ -252,6 +282,14 @@ pooled
   size: bounded max workers
   acquisition: bounded acquire timeout
   reset/health: explicit hooks through line-session primitive
+  shutdown: idle close immediately, leased close after current request
+
+pooledProtocol
+  worker: existing protocolSession
+  adapter: per-worker adapter factory
+  size: bounded max workers + minIdle replenishment
+  acquisition: bounded acquire timeout
+  reset/health: explicit bounded hooks through typed protocol primitive
   shutdown: idle close immediately, leased close after current request
 ```
 
@@ -305,9 +343,11 @@ try (StreamSession stream = service.listen(call -> {
 ```text
 CommandService.run(...)
 CommandService.lineSession(...)
+CommandService.protocolSession(...)
 CommandService.interactive(...)
 CommandService.listen(...)
 CommandService.pooled(...)
+CommandService.pooledProtocol(...)
 Session.expect()
 ```
 
@@ -334,10 +374,12 @@ Scenario-first не означает "класс на каждый use case".
 
 - `run`;
 - `lineSession`;
+- `protocolSession`;
 - `interactive`;
 - `expect`;
 - `listen`;
-- `pooled`.
+- `pooled`;
+- `pooledProtocol`.
 
 Плохо на раннем этапе:
 

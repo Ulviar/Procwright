@@ -15,6 +15,7 @@ import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionException;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
 import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.PooledWorkerRetireReason;
 import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamOptions;
 import java.nio.file.Path;
@@ -28,6 +29,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 final class PooledLineSessionIntegrationTest {
+
+    @Test
+    void warmupLaunchFailureIsPooledStartupFailure() {
+        CommandService missingExecutable = CommandService.forCommand("icli-missing-executable-for-startup-test");
+
+        PooledLineSessionException exception = assertThrows(
+                PooledLineSessionException.class, () -> missingExecutable.pooled(call -> call.warmupSize(1)));
+
+        assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, exception.reason());
+    }
 
     @Test
     void warmPoolReusesLineSessionWorkers() {
@@ -58,6 +69,7 @@ final class PooledLineSessionIntegrationTest {
             assertEquals(1, metrics.retired());
             assertEquals(0, metrics.size());
             assertEquals(1, metrics.completedRequests());
+            assertEquals(1, metrics.retireReasons().get(PooledWorkerRetireReason.MAX_REQUESTS));
         }
     }
 
@@ -72,6 +84,7 @@ final class PooledLineSessionIntegrationTest {
             assertEquals(1, metrics.created());
             assertEquals(1, metrics.retired());
             assertEquals(0, metrics.size());
+            assertEquals(1, metrics.retireReasons().get(PooledWorkerRetireReason.AGE));
         }
     }
 
@@ -91,6 +104,7 @@ final class PooledLineSessionIntegrationTest {
             assertEquals(1, pool.metrics().retired());
             assertEquals(2, pool.metrics().completedRequests());
             assertEquals(1, pool.metrics().failedRequests());
+            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.TIMEOUT));
         }
     }
 
@@ -109,6 +123,7 @@ final class PooledLineSessionIntegrationTest {
             assertEquals(2, pool.metrics().retired());
             assertEquals(0, pool.metrics().completedRequests());
             assertEquals(2, pool.metrics().failedRequests());
+            assertEquals(2, pool.metrics().retireReasons().get(PooledWorkerRetireReason.PROCESS_EXITED));
         }
     }
 
@@ -148,7 +163,10 @@ final class PooledLineSessionIntegrationTest {
                 PooledLineSessionException exception =
                         assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
 
+                PooledLineSessionMetrics waiting = pool.metrics();
                 assertEquals(PooledLineSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
+                assertTrue(waiting.totalAcquireWaitNanos() > 0);
+                assertEquals(0, waiting.totalRequestDurationNanos());
                 assertEquals("response:hold", first.get().text());
                 assertEquals(1, pool.metrics().completedRequests());
                 assertEquals(1, pool.metrics().failedRequests());
@@ -173,6 +191,43 @@ final class PooledLineSessionIntegrationTest {
             assertEquals(1, pool.metrics().failedRequests());
             assertEquals(1, pool.metrics().retired());
             assertEquals(0, pool.metrics().size());
+            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.WORKER_FAILED));
+        }
+    }
+
+    @Test
+    void resetHookTimeoutCountsAsFailedRequestAndRetiresWorker() {
+        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("line-repl")
+                .maxSize(1)
+                .hookTimeout(Duration.ofMillis(50))
+                .reset(worker -> sleepIgnoringInterrupt(Duration.ofSeconds(5))))) {
+            PooledLineSessionException exception =
+                    assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
+
+            assertEquals(PooledLineSessionException.Reason.HOOK_TIMEOUT, exception.reason());
+            assertEquals(0, pool.metrics().completedRequests());
+            assertEquals(1, pool.metrics().failedRequests());
+            assertEquals(1, pool.metrics().retired());
+            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.TIMEOUT));
+        }
+    }
+
+    @Test
+    void healthHookTimeoutIsBoundedAndRetiresWorker() {
+        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("line-repl")
+                .maxSize(1)
+                .warmupSize(1)
+                .hookTimeout(Duration.ofMillis(50))
+                .healthCheck(worker -> {
+                    sleepIgnoringInterrupt(Duration.ofSeconds(5));
+                    return true;
+                }))) {
+            PooledLineSessionException exception =
+                    assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
+
+            assertEquals(PooledLineSessionException.Reason.HOOK_TIMEOUT, exception.reason());
+            assertEquals(1, pool.metrics().retired());
+            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
         }
     }
 
@@ -209,6 +264,25 @@ final class PooledLineSessionIntegrationTest {
 
             assertEquals(2, pool.metrics().created());
             assertEquals(1, pool.metrics().retired());
+            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
+        }
+    }
+
+    @Test
+    void minIdleReplenishesRetiredLineWorkersInBackground() throws Exception {
+        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("line-repl")
+                .maxSize(1)
+                .warmupSize(1)
+                .minIdle(1)
+                .maxRequestsPerWorker(1))) {
+            assertEquals("response:hello", pool.request("hello").text());
+
+            assertTrue(awaitIdle(pool, 1));
+            PooledLineSessionMetrics metrics = pool.metrics();
+            assertEquals(1, metrics.size());
+            assertEquals(1, metrics.idle());
+            assertEquals(2, metrics.created());
+            assertEquals(1, metrics.retired());
         }
     }
 
@@ -325,5 +399,24 @@ final class PooledLineSessionIntegrationTest {
             Thread.sleep(10);
         }
         return false;
+    }
+
+    private static boolean awaitIdle(PooledLineSession pool, int expectedIdle) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (pool.metrics().idle() == expectedIdle) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return false;
+    }
+
+    private static void sleepIgnoringInterrupt(Duration duration) {
+        try {
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

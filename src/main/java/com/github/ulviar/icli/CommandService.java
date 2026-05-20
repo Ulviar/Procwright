@@ -16,6 +16,7 @@ import com.github.ulviar.icli.internal.ScenarioProfile;
 import com.github.ulviar.icli.internal.SessionExecutionPlan;
 import com.github.ulviar.icli.internal.StreamExecutionPlan;
 import com.github.ulviar.icli.internal.session.PooledLineSessionInvocationDefaults;
+import com.github.ulviar.icli.internal.session.ReadinessSupport;
 import com.github.ulviar.icli.internal.session.SessionRuntime;
 import com.github.ulviar.icli.internal.session.SessionScenarioSupport;
 import com.github.ulviar.icli.internal.session.StreamRuntime;
@@ -25,6 +26,13 @@ import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionInvocation;
 import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.PooledProtocolSession;
+import com.github.ulviar.icli.session.PooledProtocolSessionInvocation;
+import com.github.ulviar.icli.session.PooledProtocolSessionOptions;
+import com.github.ulviar.icli.session.ProtocolAdapter;
+import com.github.ulviar.icli.session.ProtocolSession;
+import com.github.ulviar.icli.session.ProtocolSessionInvocation;
+import com.github.ulviar.icli.session.ProtocolSessionOptions;
 import com.github.ulviar.icli.session.Session;
 import com.github.ulviar.icli.session.SessionInvocation;
 import com.github.ulviar.icli.session.SessionOptions;
@@ -33,6 +41,7 @@ import com.github.ulviar.icli.session.StreamOptions;
 import com.github.ulviar.icli.session.StreamSession;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Entry point for scenario-first command workflows.
@@ -45,6 +54,8 @@ public final class CommandService {
     private final LineSessionOptions lineSessionOptions;
     private final StreamOptions streamOptions;
     private final PooledLineSessionOptions pooledLineSessionOptions;
+    private final ProtocolSessionOptions protocolSessionOptions;
+    private final PooledProtocolSessionOptions pooledProtocolSessionOptions;
     private final DiagnosticsOptions diagnosticsOptions;
     private final ProcessKernel processKernel;
 
@@ -106,7 +117,9 @@ public final class CommandService {
                 sessionOptions,
                 lineSessionOptions,
                 streamOptions,
-                PooledLineSessionOptions.defaults());
+                PooledLineSessionOptions.defaults(),
+                ProtocolSessionOptions.defaults(),
+                PooledProtocolSessionOptions.defaults());
     }
 
     /**
@@ -133,6 +146,70 @@ public final class CommandService {
                 lineSessionOptions,
                 streamOptions,
                 pooledLineSessionOptions,
+                ProtocolSessionOptions.defaults(),
+                PooledProtocolSessionOptions.defaults());
+    }
+
+    /**
+     * Creates a service from base command and all scenario defaults.
+     *
+     * @param commandSpec base command specification
+     * @param runOptions default run options
+     * @param sessionOptions default interactive session options
+     * @param lineSessionOptions default line-session options
+     * @param streamOptions default stream options
+     * @param pooledLineSessionOptions default pooled line-session options
+     * @param protocolSessionOptions default protocol-session options
+     */
+    public CommandService(
+            CommandSpec commandSpec,
+            RunOptions runOptions,
+            SessionOptions sessionOptions,
+            LineSessionOptions lineSessionOptions,
+            StreamOptions streamOptions,
+            PooledLineSessionOptions pooledLineSessionOptions,
+            ProtocolSessionOptions protocolSessionOptions) {
+        this(
+                commandSpec,
+                runOptions,
+                sessionOptions,
+                lineSessionOptions,
+                streamOptions,
+                pooledLineSessionOptions,
+                protocolSessionOptions,
+                PooledProtocolSessionOptions.defaults());
+    }
+
+    /**
+     * Creates a service from base command and all scenario defaults.
+     *
+     * @param commandSpec base command specification
+     * @param runOptions default run options
+     * @param sessionOptions default interactive session options
+     * @param lineSessionOptions default line-session options
+     * @param streamOptions default stream options
+     * @param pooledLineSessionOptions default pooled line-session options
+     * @param protocolSessionOptions default protocol-session options
+     * @param pooledProtocolSessionOptions default pooled protocol-session options
+     */
+    public CommandService(
+            CommandSpec commandSpec,
+            RunOptions runOptions,
+            SessionOptions sessionOptions,
+            LineSessionOptions lineSessionOptions,
+            StreamOptions streamOptions,
+            PooledLineSessionOptions pooledLineSessionOptions,
+            ProtocolSessionOptions protocolSessionOptions,
+            PooledProtocolSessionOptions pooledProtocolSessionOptions) {
+        this(
+                commandSpec,
+                runOptions,
+                sessionOptions,
+                lineSessionOptions,
+                streamOptions,
+                pooledLineSessionOptions,
+                protocolSessionOptions,
+                pooledProtocolSessionOptions,
                 DiagnosticsOptions.defaults());
     }
 
@@ -143,6 +220,8 @@ public final class CommandService {
             LineSessionOptions lineSessionOptions,
             StreamOptions streamOptions,
             PooledLineSessionOptions pooledLineSessionOptions,
+            ProtocolSessionOptions protocolSessionOptions,
+            PooledProtocolSessionOptions pooledProtocolSessionOptions,
             DiagnosticsOptions diagnosticsOptions) {
         this(
                 commandSpec,
@@ -151,6 +230,8 @@ public final class CommandService {
                 lineSessionOptions,
                 streamOptions,
                 pooledLineSessionOptions,
+                protocolSessionOptions,
+                pooledProtocolSessionOptions,
                 diagnosticsOptions,
                 ProcessKernel.standard());
     }
@@ -162,6 +243,8 @@ public final class CommandService {
             LineSessionOptions lineSessionOptions,
             StreamOptions streamOptions,
             PooledLineSessionOptions pooledLineSessionOptions,
+            ProtocolSessionOptions protocolSessionOptions,
+            PooledProtocolSessionOptions pooledProtocolSessionOptions,
             DiagnosticsOptions diagnosticsOptions,
             ProcessKernel processKernel) {
         this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
@@ -170,6 +253,9 @@ public final class CommandService {
         this.lineSessionOptions = Objects.requireNonNull(lineSessionOptions, "lineSessionOptions");
         this.streamOptions = Objects.requireNonNull(streamOptions, "streamOptions");
         this.pooledLineSessionOptions = Objects.requireNonNull(pooledLineSessionOptions, "pooledLineSessionOptions");
+        this.protocolSessionOptions = Objects.requireNonNull(protocolSessionOptions, "protocolSessionOptions");
+        this.pooledProtocolSessionOptions =
+                Objects.requireNonNull(pooledProtocolSessionOptions, "pooledProtocolSessionOptions");
         this.diagnosticsOptions = Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
         this.processKernel = Objects.requireNonNull(processKernel, "processKernel");
     }
@@ -252,6 +338,24 @@ public final class CommandService {
     }
 
     /**
+     * Returns the default protocol-session options.
+     *
+     * @return default protocol-session options
+     */
+    public ProtocolSessionOptions protocolSessionOptions() {
+        return protocolSessionOptions;
+    }
+
+    /**
+     * Returns the default pooled protocol-session options.
+     *
+     * @return default pooled protocol-session options
+     */
+    public PooledProtocolSessionOptions pooledProtocolSessionOptions() {
+        return pooledProtocolSessionOptions;
+    }
+
+    /**
      * Returns the default diagnostics options.
      *
      * @return diagnostics options
@@ -278,6 +382,8 @@ public final class CommandService {
                 lineSessionOptions,
                 streamOptions,
                 pooledLineSessionOptions,
+                protocolSessionOptions,
+                pooledProtocolSessionOptions,
                 diagnosticsOptions,
                 processKernel);
     }
@@ -317,7 +423,15 @@ public final class CommandService {
 
         SessionExecutionPlan plan =
                 ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
-        return openSession("interactive", plan);
+        Session session = openSession("interactive", plan);
+        invocation
+                .readinessProbe()
+                .ifPresent(probe -> ReadinessSupport.check(
+                        session,
+                        probe,
+                        invocation.readinessTimeout().orElse(ReadinessSupport.DEFAULT_TIMEOUT),
+                        session::close));
+        return session;
     }
 
     /**
@@ -353,6 +467,62 @@ public final class CommandService {
 
         return SessionScenarioSupport.openPooledLineSession(
                 () -> openLineSession("pooled", invocation.lineSessionInvocation()), invocation.options());
+    }
+
+    /**
+     * Opens a generic request/response protocol session.
+     *
+     * @param adapter protocol adapter
+     * @param configure invocation callback
+     * @param <I> request type
+     * @param <O> response type
+     * @return protocol session
+     * @throws CommandExecutionException when the process cannot be started
+     */
+    public <I, O> ProtocolSession<I, O> protocolSession(
+            ProtocolAdapter<I, O> adapter, Consumer<ProtocolSessionInvocation.Builder<I, O>> configure) {
+        Objects.requireNonNull(adapter, "adapter");
+        Objects.requireNonNull(configure, "configure");
+
+        ProtocolSessionInvocation.Builder<I, O> builder = ProtocolSessionInvocation.builder(protocolSessionOptions);
+        configure.accept(builder);
+        ProtocolSessionInvocation<I, O> invocation = builder.build();
+
+        return openProtocolSession("protocolSession", adapter, invocation);
+    }
+
+    /**
+     * Opens a pooled typed protocol session.
+     *
+     * <p>Each worker receives a fresh adapter instance from {@code adapterFactory}. This keeps protocol state scoped to
+     * one worker and avoids requiring adapters to be thread-safe. iCLI serializes factory calls, but the returned
+     * adapters are used independently by their worker sessions.
+     *
+     * @param adapterFactory per-worker protocol adapter factory
+     * @param configure invocation callback
+     * @param <I> request type
+     * @param <O> response type
+     * @return pooled protocol session
+     * @throws CommandExecutionException when a worker process cannot be started
+     */
+    public <I, O> PooledProtocolSession<I, O> pooledProtocol(
+            Supplier<? extends ProtocolAdapter<I, O>> adapterFactory,
+            Consumer<PooledProtocolSessionInvocation.Builder<I, O>> configure) {
+        Objects.requireNonNull(adapterFactory, "adapterFactory");
+        Objects.requireNonNull(configure, "configure");
+
+        PooledProtocolSessionInvocation.Builder<I, O> builder =
+                PooledProtocolSessionInvocation.builder(protocolSessionOptions, pooledProtocolSessionOptions);
+        configure.accept(builder);
+        PooledProtocolSessionInvocation<I, O> invocation = builder.build();
+        Object adapterFactoryLock = new Object();
+
+        return SessionScenarioSupport.openPooledProtocolSession(
+                () -> openProtocolSession(
+                        "pooledProtocol",
+                        createProtocolAdapter(adapterFactory, adapterFactoryLock),
+                        invocation.protocolSessionInvocation()),
+                invocation);
     }
 
     /**
@@ -393,10 +563,47 @@ public final class CommandService {
                 ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
         Session session = openSession(scenario, plan);
         try {
-            return SessionScenarioSupport.openLineSession(session, lineSessionOptions);
+            LineSession lineSession = SessionScenarioSupport.openLineSession(session, lineSessionOptions);
+            invocation
+                    .readinessProbe()
+                    .ifPresent(probe -> ReadinessSupport.check(
+                            lineSession,
+                            probe,
+                            invocation.readinessTimeout().orElse(ReadinessSupport.DEFAULT_TIMEOUT),
+                            lineSession::close));
+            return lineSession;
         } catch (RuntimeException exception) {
             session.close();
             throw exception;
+        }
+    }
+
+    private <I, O> ProtocolSession<I, O> openProtocolSession(
+            String scenario, ProtocolAdapter<I, O> adapter, ProtocolSessionInvocation<I, O> invocation) {
+        SessionExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.interactive(sessionOptions), commandSpec, invocation);
+        Session session = openSession(scenario, plan);
+        try {
+            ProtocolSession<I, O> protocolSession =
+                    SessionScenarioSupport.openProtocolSession(session, adapter, invocation.options());
+            invocation
+                    .readinessProbe()
+                    .ifPresent(probe -> ReadinessSupport.check(
+                            protocolSession,
+                            probe,
+                            invocation.readinessTimeout().orElse(ReadinessSupport.DEFAULT_TIMEOUT),
+                            protocolSession::close));
+            return protocolSession;
+        } catch (RuntimeException exception) {
+            session.close();
+            throw exception;
+        }
+    }
+
+    private static <I, O> ProtocolAdapter<I, O> createProtocolAdapter(
+            Supplier<? extends ProtocolAdapter<I, O>> adapterFactory, Object lock) {
+        synchronized (lock) {
+            return Objects.requireNonNull(adapterFactory.get(), "adapterFactory returned null");
         }
     }
 

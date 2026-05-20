@@ -18,6 +18,8 @@ import com.github.ulviar.icli.internal.ProcessKernel;
 import com.github.ulviar.icli.preset.ScenarioPresets;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.PooledProtocolSessionOptions;
+import com.github.ulviar.icli.session.ProtocolSessionOptions;
 import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamOptions;
 import java.io.IOException;
@@ -320,6 +322,8 @@ final class OneShotExecutionIntegrationTest {
                 LineSessionOptions.defaults(),
                 StreamOptions.defaults(),
                 PooledLineSessionOptions.defaults(),
+                ProtocolSessionOptions.defaults(),
+                PooledProtocolSessionOptions.defaults(),
                 DiagnosticsOptions.defaults(),
                 processKernel);
     }

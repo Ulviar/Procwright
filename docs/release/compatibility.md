@@ -3,7 +3,9 @@
 ## Current baseline
 
 - Build JDK: 17, 21, or 25 for the matching release variant.
-- Java bytecode target: selected by `--project-prop=icli.javaRelease=17`, `21`, or `25`; default target is 25.
+- Java bytecode target: selected by `--project-prop=icli.javaRelease=17`, `21`, or `25`; default development target is
+  25.
+- Public release artifacts are published only with `--project-prop=icli.javaRelease=17`.
 - Current version: `0.0.0-SNAPSHOT`.
 
 ## Modules
@@ -14,7 +16,8 @@
   `com.github.ulviar.icli.integrations`.
 
 The Java core module has no runtime dependencies outside the JDK and exports only public API packages. The integrations
-module exports only `com.github.ulviar.icli.integration` and requires the core module.
+module exports only `com.github.ulviar.icli.integration` and requires the core module transitively because its public
+helpers expose core protocol/session types.
 
 The intended public type set is guarded by exact API baseline tests for the core, integrations, and Kotlin modules. See
 [API Baseline](api-baseline.md).
@@ -41,4 +44,6 @@ The current baseline includes a pre-1.0 session API break: session-family handle
 iCLI implementations. Create them through `CommandService`; custom handle implementations are not supported.
 
 For the first release-candidate baseline, `CommandService` remains the main entry point, `SessionOptions.idleTimeout`
-keeps its caller-visible activity semantics, and the current `ScenarioPresets` set is frozen.
+keeps its caller-visible activity semantics, and the current `ScenarioPresets` set is frozen. The first RC freeze scope
+also covers the scenario call shapes for `run`, `interactive`, `lineSession`, `protocolSession`, `pooled`, and
+`pooledProtocol`.

@@ -2,39 +2,39 @@
 
 ## Статус
 
-Accepted as a pre-publishing decision.
+Accepted, updated after publishing setup implementation.
 
 ## Контекст
 
 Проект подготовил release hardening baseline: group/version, source/Javadoc artifacts для Java modules, public docs,
-license, dependency review и release checklist. Но реальная публикация в Maven Central требует signing, metadata,
-credential handling и проверки supply-chain границ. Эти изменения рискованнее обычной документации и не должны
-появляться как побочный эффект стабилизации API.
+license, dependency review и release checklist. Для использования iCLI как внешней зависимости нужен реальный publishing
+setup, но credentials и signing material не должны попадать в репозиторий.
 
 ## Решение
 
-Первый release-candidate stabilization pass не добавляет Maven Central publishing plugin, signing setup или credential
-handling.
-
-Планируемые coordinates остаются:
+Release setup публикует Java 17-targeted artifacts с координатами:
 
 - `com.github.ulviar:icli`;
 - `com.github.ulviar:icli-kotlin`;
 - `com.github.ulviar:icli-integrations`.
 
-Перед публичной публикацией нужен отдельный implementation step:
+Текущий configured target — GitHub Packages:
 
-- выбрать publishing plugin и signing flow;
-- добавить POM metadata: name, description, URL, license, SCM, developers;
-- настроить reproducible local publication check;
-- обновить dependency verification metadata после build tooling changes;
-- обновить release checklist и public installation docs с фактическими coordinates;
-- прогнать полный release gate.
+- `maven-publish` и `signing` включены для public artifacts;
+- POM metadata содержит name, description, URL, Apache-2.0 license, SCM и developers;
+- credentials читаются только из `GITHUB_ACTOR`/`GITHUB_TOKEN`;
+- signing key читается только из `SIGNING_KEY`/`SIGNING_PASSWORD`;
+- publish tasks fail fast, если `icli.javaRelease != 17`.
+- remote publish tasks fail fast, если version остается `*-SNAPSHOT` или не похожа на SemVer; release job передает
+  version из GitHub release tag через `icli.version`.
+
+Maven Central остается future release-infrastructure step. Он не должен менять public API или process runtime.
 
 ## Инварианты
 
 - Publishing setup не должен добавлять runtime dependency в public artifacts.
 - Credentials не хранятся в репозитории.
+- Published artifacts собираются с Java 17 target; Java 21/25 остаются checked source variants.
 - Published artifacts должны соответствовать JPMS/package boundary tests.
 - Source и Javadoc artifacts обязательны для Java modules.
 - Kotlin artifact остается optional и не становится dependency core module.
@@ -43,11 +43,13 @@ handling.
 
 Плюсы:
 
-- Release stabilization не смешивается с credential-sensitive инфраструктурой.
-- Public docs честно говорят, что stable artifact еще не опубликован.
+- iCLI можно готовить как внешнюю dependency с устойчивыми coordinates.
+- Artifact policy явно фиксирует Java 17 minimum target.
+- GitHub Packages publication не требует хранения secrets в repo.
 - Maven Central задача остается отдельным reviewable change.
 
 Минусы:
 
 - Первый RC пока нельзя установить из Maven Central.
-- Перед публикацией потребуется еще один release-focused PR/commit.
+- GitHub Packages artifact появится только после tagged GitHub release и успешного release job с repository
+  permissions/secrets.

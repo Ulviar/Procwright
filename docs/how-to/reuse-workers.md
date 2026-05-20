@@ -1,13 +1,15 @@
 # Reuse Workers
 
 Use `pooled` when a CLI worker has expensive startup cost and supports a safe line-oriented request/response protocol.
+Use `pooledProtocol` for framed, multi-line, byte, or typed request/response protocols.
 
 ## Steps
 
-1. Confirm the worker protocol is line-oriented.
-2. Define maximum pool size and optional warmup.
-3. Add reset and health hooks when the worker has mutable protocol state.
-4. Set worker retirement policies such as request limit or age when useful.
+1. Confirm the worker protocol is safely reusable.
+2. Choose `pooled` for line workers or `pooledProtocol` for adapter-owned protocols.
+3. Define maximum pool size, warmup, and optional minimum idle workers.
+4. Add bounded reset and health hooks when the worker has mutable protocol state.
+5. Set worker retirement policies such as request limit or age when useful.
 
 ```java
 try (PooledLineSession pool = tool.pooled(call -> call.args("repl")
@@ -24,6 +26,9 @@ try (PooledLineSession pool = tool.pooled(call -> call.args("repl")
 ```
 
 Compile-tested source: `CommandServiceApiExamples.pooledLineSessionScenario`.
+
+Typed protocol pool shape is compile-tested as `CommandServiceApiExamples.pooledProtocolSessionScenario`. It uses a
+per-worker adapter factory so adapter state is never shared between workers.
 
 ## Use this scenario because
 

@@ -41,6 +41,9 @@ unsupported behavior, если provider недоступен, и не долже
   `com.github.ulviar.icli.integration` и требует core module.
 - Для первого release-candidate baseline `CommandService` остается итоговым именем main entry point,
   `SessionOptions.idleTimeout` сохраняет caller-visible semantics, а текущий набор `ScenarioPresets` заморожен.
+- Public API freeze scope первого RC включает сценарии `run`, `interactive`, `lineSession`, `protocolSession`, `pooled`
+  и `pooledProtocol`. Новые сценарии или изменение их caller-visible invariants требуют отдельного ADR и baseline test
+  update.
 
 ## Поведенческая совместимость
 

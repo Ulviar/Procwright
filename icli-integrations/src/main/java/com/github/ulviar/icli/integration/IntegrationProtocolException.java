@@ -48,6 +48,8 @@ public final class IntegrationProtocolException extends RuntimeException {
     public enum Reason {
         /** Header block is malformed. */
         BAD_HEADER,
+        /** Frame payload cannot be represented by the selected framing rule. */
+        BAD_FRAME,
         /** Required content length header is absent. */
         MISSING_LENGTH,
         /** Content length is invalid. */

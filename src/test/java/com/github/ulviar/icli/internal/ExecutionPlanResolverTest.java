@@ -229,7 +229,7 @@ final class ExecutionPlanResolverTest {
                 (CapturePolicy.Bounded) RunOptions.defaults().capturePolicy(),
                 RunOptions.defaults().shutdownPolicy(),
                 RunOptions.defaults().timeout(),
-                RunOptions.defaults().charset(),
+                RunOptions.defaults().charsetPolicy(),
                 RunOptions.defaults().outputMode(),
                 terminalPolicy);
     }

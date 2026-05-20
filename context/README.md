@@ -23,6 +23,8 @@
   документации.
 - [plans/active/release-stabilization-plan.md](plans/active/release-stabilization-plan.md) — план стабилизации перед
   первым release candidate.
+- [plans/active/protocol-session-roadmap.md](plans/active/protocol-session-roadmap.md) — roadmap stable artifact,
+  protocol sessions, readiness probes, typed pools и adapter helpers.
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные behavior checks.
 - [evals/test-cli-simulator.md](evals/test-cli-simulator.md) — отдельный test CLI для моделирования проблем реальных
   дочерних процессов.

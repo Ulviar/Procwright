@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSessionOptions;
+import com.github.ulviar.icli.session.PooledProtocolSessionOptions;
 import com.github.ulviar.icli.session.SessionOptions;
 import org.junit.jupiter.api.Test;
 
@@ -20,6 +21,7 @@ final class CommandServiceTest {
         assertEquals(SessionOptions.defaults(), service.sessionOptions());
         assertEquals(LineSessionOptions.defaults(), service.lineSessionOptions());
         assertEquals(PooledLineSessionOptions.defaults(), service.pooledLineSessionOptions());
+        assertEquals(PooledProtocolSessionOptions.defaults(), service.pooledProtocolSessionOptions());
     }
 
     @Test

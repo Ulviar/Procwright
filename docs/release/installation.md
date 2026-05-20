@@ -1,8 +1,8 @@
 # Installation
 
 !!! warning "No stable artifact yet"
-    iCLI is not published as a stable release. Do not treat these coordinates as available until a release candidate is
-    cut and publishing/signing setup is implemented.
+    iCLI is not published as a stable release. The build now has publishing metadata and GitHub Packages configuration,
+    but these coordinates are unavailable until a release candidate is cut through a GitHub release.
 
 Planned Maven coordinates:
 
@@ -21,6 +21,21 @@ dependencies {
 }
 ```
 
+GitHub Packages consumers must add the package repository and authenticate with a token that can read packages:
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull
+            password = providers.gradleProperty("gpr.key").orNull
+        }
+    }
+}
+```
+
 Current local development uses the repository Gradle wrapper:
 
 ```bash
@@ -36,11 +51,27 @@ Build a specific Java release variant with the matching JDK:
 ./gradlew check --project-prop=icli.javaRelease=25
 ```
 
-Publishing to Maven Central, signing, and final POM metadata require a separate implementation step before the first
-public release.
+Public artifacts must be built with `--project-prop=icli.javaRelease=17`. Java 21 and Java 25 remain checked source
+variants, not separate public coordinates.
 
 ## Publishing Status
 
-The pre-release stabilization decision keeps publishing infrastructure out of the current branch. A focused publishing
-change must add signing, POM metadata, local publication checks, and updated verification metadata before these
-coordinates become real artifacts.
+Configured publishing target:
+
+- GitHub Packages repository: `https://maven.pkg.github.com/Ulviar/iCLI`;
+- credentials are read from `GITHUB_ACTOR` and `GITHUB_TOKEN`;
+- signing uses in-memory `SIGNING_KEY` and `SIGNING_PASSWORD` when present;
+- credentials and signing material are never stored in the repository;
+- remote publication rejects `*-SNAPSHOT` or non-SemVer versions and the release job passes `icli.version` from the
+  GitHub release tag;
+- the release-only CI job publishes to GitHub Packages with scoped `packages: write` permission after the verification
+  matrix passes.
+
+Local publication check:
+
+```bash
+./gradlew publishToMavenLocal --project-prop=icli.javaRelease=17
+```
+
+Maven Central publication remains a future release-infrastructure step; GitHub Packages is the configured
+external-dependency path after a release candidate is published.

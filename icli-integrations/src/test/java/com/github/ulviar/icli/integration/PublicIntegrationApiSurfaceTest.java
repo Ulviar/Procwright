@@ -1,8 +1,10 @@
 package com.github.ulviar.icli.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.lang.module.ModuleDescriptor;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,6 +37,7 @@ final class PublicIntegrationApiSurfaceTest {
             "com.github.ulviar.icli.integration.JsonValue$JsonNumber",
             "com.github.ulviar.icli.integration.JsonValue$JsonObject",
             "com.github.ulviar.icli.integration.JsonValue$JsonString",
+            "com.github.ulviar.icli.integration.ProtocolAdapters",
             "com.github.ulviar.icli.integration.ToolCallResult",
             "com.github.ulviar.icli.integration.ToolCallResult$Failure",
             "com.github.ulviar.icli.integration.ToolCallResult$Success");
@@ -47,6 +50,17 @@ final class PublicIntegrationApiSurfaceTest {
     @Test
     void integrationPublicApiTypesStayInApprovedBaseline() throws Exception {
         assertEquals(PUBLIC_API_TYPES, publicApiTypeNames(JsonCodec.class));
+    }
+
+    @Test
+    void integrationModuleRequiresCoreTransitively() throws Exception {
+        ModuleDescriptor descriptor = moduleDescriptor(JsonCodec.class);
+        ModuleDescriptor.Requires core = descriptor.requires().stream()
+                .filter(requires -> requires.name().equals("com.github.ulviar.icli"))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(core.modifiers().contains(ModuleDescriptor.Requires.Modifier.TRANSITIVE));
     }
 
     private static Set<String> publicTopLevelPackages(Class<?> anchor) throws Exception {
@@ -83,6 +97,25 @@ final class PublicIntegrationApiSurfaceTest {
         }
         addPublicNestedTypes(types);
         return types;
+    }
+
+    private static ModuleDescriptor moduleDescriptor(Class<?> anchor) throws Exception {
+        Path classesRoot = Path.of(
+                anchor.getProtectionDomain().getCodeSource().getLocation().toURI());
+        if (Files.isRegularFile(classesRoot)) {
+            try (JarFile jar = new JarFile(classesRoot.toFile())) {
+                JarEntry entry = jar.getJarEntry("module-info.class");
+                assertTrue(entry != null, "Integration artifact must contain module-info.class");
+                try (var input = jar.getInputStream(entry)) {
+                    return ModuleDescriptor.read(input);
+                }
+            }
+        }
+        Path moduleInfo = classesRoot.resolve("module-info.class");
+        assertTrue(Files.isRegularFile(moduleInfo), "Integration classes must contain module-info.class");
+        try (var input = Files.newInputStream(moduleInfo)) {
+            return ModuleDescriptor.read(input);
+        }
     }
 
     private static Set<Class<?>> publicApiTypesFromJar(Class<?> anchor, Path jarPath) throws Exception {

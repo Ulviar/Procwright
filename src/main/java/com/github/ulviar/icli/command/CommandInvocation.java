@@ -25,7 +25,7 @@ public final class CommandInvocation {
     private final CapturePolicy capturePolicy;
     private final ShutdownPolicy shutdownPolicy;
     private final Duration timeout;
-    private final Charset charset;
+    private final CharsetPolicy charsetPolicy;
     private final OutputMode outputMode;
     private final CommandInput input;
 
@@ -37,7 +37,7 @@ public final class CommandInvocation {
         capturePolicy = builder.capturePolicy;
         shutdownPolicy = builder.shutdownPolicy;
         timeout = builder.timeout;
-        charset = builder.charset;
+        charsetPolicy = builder.charsetPolicy;
         outputMode = builder.outputMode;
         input = builder.input;
     }
@@ -120,7 +120,16 @@ public final class CommandInvocation {
      * @return charset when configured
      */
     public Optional<Charset> charset() {
-        return Optional.ofNullable(charset);
+        return charsetPolicy().map(CharsetPolicy::charset);
+    }
+
+    /**
+     * Returns the per-call charset decoding policy override.
+     *
+     * @return charset policy when configured
+     */
+    public Optional<CharsetPolicy> charsetPolicy() {
+        return Optional.ofNullable(charsetPolicy);
     }
 
     /**
@@ -156,7 +165,7 @@ public final class CommandInvocation {
                 && Objects.equals(capturePolicy, that.capturePolicy)
                 && Objects.equals(shutdownPolicy, that.shutdownPolicy)
                 && Objects.equals(timeout, that.timeout)
-                && Objects.equals(charset, that.charset)
+                && Objects.equals(charsetPolicy, that.charsetPolicy)
                 && Objects.equals(outputMode, that.outputMode)
                 && Objects.equals(input, that.input);
     }
@@ -171,7 +180,7 @@ public final class CommandInvocation {
                 capturePolicy,
                 shutdownPolicy,
                 timeout,
-                charset,
+                charsetPolicy,
                 outputMode,
                 input);
     }
@@ -188,7 +197,7 @@ public final class CommandInvocation {
         private CapturePolicy capturePolicy;
         private ShutdownPolicy shutdownPolicy;
         private Duration timeout;
-        private Charset charset;
+        private CharsetPolicy charsetPolicy;
         private OutputMode outputMode;
         private CommandInput input;
 
@@ -317,7 +326,18 @@ public final class CommandInvocation {
          * @return this builder
          */
         public Builder charset(Charset charset) {
-            this.charset = Objects.requireNonNull(charset, "charset");
+            this.charsetPolicy = CharsetPolicy.replace(charset);
+            return this;
+        }
+
+        /**
+         * Sets the per-call output charset decoding policy override.
+         *
+         * @param charsetPolicy output charset policy
+         * @return this builder
+         */
+        public Builder charsetPolicy(CharsetPolicy charsetPolicy) {
+            this.charsetPolicy = Objects.requireNonNull(charsetPolicy, "charsetPolicy");
             return this;
         }
 

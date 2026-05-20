@@ -1,9 +1,15 @@
 import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.api.component.AdhocComponentWithVariants
+import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 import org.gradle.external.javadoc.StandardJavadocDocletOptions
 
 plugins {
     `java-library`
     `java-test-fixtures`
+    `maven-publish`
+    signing
     id("com.diffplug.spotless") version "8.5.1"
     id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
 }
@@ -26,6 +32,9 @@ if (icliJavaRelease !in supportedJavaReleases) {
 }
 
 val icliJavaVersion = JavaVersion.toVersion(icliJavaRelease)
+val icliVersion = providers.gradleProperty("icli.version").orElse("0.0.0-SNAPSHOT").get()
+val releaseVersionPattern =
+    Regex("""[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?""")
 
 extra["icliJavaRelease"] = icliJavaRelease
 
@@ -33,13 +42,43 @@ extra["icliJavaVersion"] = icliJavaVersion
 
 allprojects {
     group = "com.github.ulviar"
-    version = "0.0.0-SNAPSHOT"
+    version = icliVersion
 
     tasks.withType<Javadoc>().configureEach {
         (options as StandardJavadocDocletOptions).apply {
             encoding = "UTF-8"
             charSet = "UTF-8"
             docEncoding = "UTF-8"
+        }
+    }
+
+    tasks.withType<PublishToMavenRepository>().configureEach {
+        doFirst {
+            if (icliJavaRelease != 17) {
+                throw GradleException(
+                    "Public iCLI artifacts must be published with --project-prop=icli.javaRelease=17"
+                )
+            }
+            if (project.version.toString().endsWith("-SNAPSHOT")) {
+                throw GradleException(
+                    "Public iCLI artifacts must not be published with a SNAPSHOT version; set --project-prop=icli.version=<release-version>"
+                )
+            }
+            if (!releaseVersionPattern.matches(project.version.toString())) {
+                throw GradleException(
+                    "Public iCLI artifacts must use a SemVer release version such as 0.1.0 or 0.1.0-rc.1"
+                )
+            }
+        }
+    }
+
+    tasks.withType<PublishToMavenLocal>().configureEach {
+        doFirst {
+            if (icliJavaRelease != 17) {
+                throw GradleException(
+                    "Public iCLI artifacts must be published with --project-prop=icli.javaRelease=17"
+                )
+            }
         }
     }
 }
@@ -49,6 +88,63 @@ java {
     targetCompatibility = icliJavaVersion
     withSourcesJar()
     withJavadocJar()
+}
+
+(components["java"] as AdhocComponentWithVariants).apply {
+    withVariantsFromConfiguration(configurations["testFixturesApiElements"]) { skip() }
+    withVariantsFromConfiguration(configurations["testFixturesRuntimeElements"]) { skip() }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"])
+            artifactId = "icli"
+            pom {
+                name.set("iCLI")
+                description.set(
+                    "Scenario-first JVM library for safe external CLI execution and interactive process workflows."
+                )
+                url.set("https://github.com/Ulviar/iCLI")
+                licenses {
+                    license {
+                        name.set("Apache License, Version 2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:https://github.com/Ulviar/iCLI.git")
+                    developerConnection.set("scm:git:https://github.com/Ulviar/iCLI.git")
+                    url.set("https://github.com/Ulviar/iCLI")
+                }
+                developers {
+                    developer {
+                        id.set("Ulviar")
+                        name.set("Ulviar")
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
+            credentials {
+                username = providers.environmentVariable("GITHUB_ACTOR").orNull
+                password = providers.environmentVariable("GITHUB_TOKEN").orNull
+            }
+        }
+    }
+}
+
+signing {
+    val signingKey = providers.environmentVariable("SIGNING_KEY").orNull
+    val signingPassword = providers.environmentVariable("SIGNING_PASSWORD").orNull
+    if (!signingKey.isNullOrBlank() && signingPassword != null) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign(publishing.publications["mavenJava"])
+    }
 }
 
 dependencies {

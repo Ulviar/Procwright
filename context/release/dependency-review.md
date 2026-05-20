@@ -59,9 +59,21 @@ integration layer.
 
 ## Publishing dependencies
 
-Publishing/signing plugins, credential handling и final POM metadata не добавлены в текущий build. ADR-0017 требует
-отдельный focused implementation step перед публичной публикацией. Такой step должен обновить этот dependency review и
-Gradle dependency verification metadata.
+Publishing/signing setup добавлен для public artifacts:
+
+- root, `:icli-integrations` и `:icli-kotlin` применяют `maven-publish`;
+- root, `:icli-integrations` и `:icli-kotlin` применяют Gradle `signing`;
+- POM metadata содержит name, description, project URL, Apache-2.0 license, SCM и developer metadata;
+- GitHub Packages credentials читаются только из `GITHUB_ACTOR` и `GITHUB_TOKEN`;
+- signing material читается только из `SIGNING_KEY` и `SIGNING_PASSWORD`;
+- publish tasks fail fast, если `icli.javaRelease != 17`;
+- remote publish tasks fail fast для `*-SNAPSHOT` или non-SemVer version; release job передает `icli.version` из GitHub
+  release tag;
+- CI smoke проверяет `publishToMavenLocal` на Java 17, а release event может публиковать GitHub Packages artifact через
+  job с `packages: write`.
+
+Эти плагины являются build-time tooling и не добавляют runtime dependencies в public artifacts. Gradle dependency
+verification metadata должна обновляться при изменении plugin versions или новых build dependencies.
 
 ## Модуль сравнения
 
@@ -97,7 +109,8 @@ GitHub Actions workflow использует:
 
 - `actions/checkout`, pinned to commit SHA;
 - `actions/setup-java` с Temurin JDK 17/21/25 matrix, pinned to commit SHA;
-- минимальные workflow permissions: `contents: read`.
+- минимальные default workflow permissions: `contents: read`;
+- release-only publish job с scoped `packages: write` для GitHub Packages.
 
 ## Правило добавления dependency
 

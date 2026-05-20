@@ -2,9 +2,9 @@
 
 iCLI is a JVM library for safe, scenario-first control of external command-line processes.
 
-The project is not published as a stable release yet. The current version is `0.0.0-SNAPSHOT`, the default build target
-is Java 25, Java 17/21/25 release variants are checked from the same source tree, and public API names may still change
-before the first release candidate.
+The project is not published as a stable release yet. The current version is `0.0.0-SNAPSHOT`, the default development
+target is Java 25, Java 17/21/25 release variants are checked from the same source tree, and the public release artifact
+is intended to target Java 17.
 
 ## Why iCLI exists
 
@@ -14,6 +14,7 @@ automation usually needs a workflow instead:
 - run a finite command and inspect a typed result;
 - automate a prompt-oriented session;
 - exchange requests with a line-oriented worker;
+- exchange framed, multi-line, byte, or typed requests with a protocol worker;
 - follow streaming output without retaining everything in memory;
 - reuse warm workers safely;
 - wrap an external CLI as a structured integration boundary.
@@ -59,8 +60,9 @@ The example above is compile-tested as `CommandServiceApiExamples.oneShotScenari
 | Control a live process directly. | `interactive` |
 | Automate prompts. | `interactive` + `Expect` |
 | Talk to a line request/response worker. | `lineSession` |
+| Talk to a framed or typed request/response worker. | `protocolSession` |
 | Follow logs or streaming output. | `listen` |
-| Reuse expensive line workers. | `pooled` |
+| Reuse expensive workers. | `pooled` / `pooledProtocol` |
 | Require terminal capability. | session API + `TerminalPolicy.REQUIRED` |
 | Wrap a CLI as a structured adapter. | `:icli-integrations` |
 

@@ -1,6 +1,7 @@
 # Pooling
 
 Use `pooled` when a line-oriented worker is expensive to start and the protocol can be safely reused between requests.
+Use `pooledProtocol` for framed, multi-line, binary, or typed workers.
 
 The scenario covers:
 
@@ -8,12 +9,15 @@ The scenario covers:
 - maximum pool size;
 - warmup size;
 - acquire timeout;
-- reset and health hooks;
+- bounded reset and health hooks;
 - worker retirement after failure or request limit;
+- optional age retirement, minimum idle replenishment, and startup/request/acquire timing metrics;
 - graceful drain;
 - metrics snapshots.
 
 Compile-tested source: `CommandServiceApiExamples.pooledLineSessionScenario`.
+
+For typed protocol workers, see [Protocol Sessions](protocol-session.md).
 
 ## Example
 
@@ -39,5 +43,8 @@ The caller owns protocol safety. A worker should be pooled only when reset and h
 timeout, decoder failure, failed reset, failed health check, request limit, or worker age limit makes reuse unsafe, iCLI
 retires the worker.
 
-Pooling is intentionally a line-session scenario. Raw session pooling and stateful affinity are not part of the current
-MVP surface.
+`pooledProtocol` uses an adapter factory, not a shared adapter instance. iCLI serializes factory calls; each worker owns
+one returned adapter and one process protocol state.
+
+Pooling is intentionally scenario-specific. iCLI has line-session and typed protocol pools, but raw session pooling,
+stateful affinity, and exposed leases are not part of the current surface.

@@ -17,8 +17,9 @@
   build/test dependencies.
 - Если documentation toolchain остается без lock/hash-pinned transitive dependencies, этот residual supply-chain risk
   явно принят в release notes; предпочтительный вариант перед release — добавить lock/hashes workflow.
-- Publishing/signing setup реализован отдельным focused change по ADR-0017; до этого публичный release artifact не
-  считается готовым к публикации.
+- Publishing/signing setup реализован по ADR-0017; remote publish запрещает `*-SNAPSHOT` и non-SemVer version, а
+  публичный artifact считается готовым к публикации только после Java 17-targeted local publication check и CI job с
+  repository secrets.
 
 ## Локальные проверки
 
@@ -52,8 +53,8 @@ comparison regression gate и JMH benchmark compilation/metadata generation. `jm
 
 Сценарный release gate:
 
-- новое API расширяет один из канонических сценариев (`run`, `lineSession`, `interactive`, `expect`, `listen`,
-  `pooled`) или optional integration layer;
+- новое API расширяет один из канонических сценариев (`run`, `lineSession`, `protocolSession`, `interactive`, `expect`,
+  `listen`, `pooled`, `pooledProtocol`) или optional integration layer;
 - новое/измененное API обновляет exact public API baseline test соответствующего модуля;
 - новые/измененные public entry points, examples и tests сверены с
   [../scenario-contracts.md](../scenario-contracts.md);
@@ -91,4 +92,13 @@ Workflow permissions должны оставаться минимальными,
 - Kotlin public API задокументирован через KDoc в sources artifact и проверяется `:icli-kotlin:kotlinApiDocsCheck`.
 - Generated Kotlin API docs через Dokka не являются gate первого RC, пока ADR-0019 остается действующим решением.
 - License file присутствует в корне репозитория.
-- Maven Central publishing, signing и metadata добавляются только после focused implementation step по ADR-0017.
+- POM metadata соответствует Apache-2.0 license, SCM и planned coordinates.
+- Release job передает non-SNAPSHOT version через `icli.version` из GitHub release tag.
+- Local publication check проходит:
+
+```bash
+./gradlew publishToMavenLocal --project-prop=icli.javaRelease=17
+```
+
+- Maven Central publishing остается отдельным release-infrastructure step; GitHub Packages является текущим configured
+  external artifact target.

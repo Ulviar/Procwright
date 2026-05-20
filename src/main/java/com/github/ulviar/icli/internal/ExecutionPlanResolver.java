@@ -8,6 +8,7 @@ import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
 import com.github.ulviar.icli.session.LineSessionInvocation;
+import com.github.ulviar.icli.session.ProtocolSessionInvocation;
 import com.github.ulviar.icli.session.SessionInvocation;
 import com.github.ulviar.icli.session.StreamInvocation;
 import com.github.ulviar.icli.terminal.PtyProvider;
@@ -46,7 +47,7 @@ public final class ExecutionPlanResolver {
                 bounded(invocation.capturePolicy().orElse(profile.capturePolicy())),
                 invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
                 invocation.timeout().orElse(profile.timeout()),
-                invocation.charset().orElse(profile.charset()),
+                invocation.charsetPolicy().orElse(profile.charsetPolicy()),
                 invocation.input().map(StdinPolicy::input).orElse(profile.stdin()),
                 diagnosticsOptions);
     }
@@ -71,6 +72,24 @@ public final class ExecutionPlanResolver {
 
     public static SessionExecutionPlan resolve(
             ScenarioProfile.Interactive profile, CommandSpec spec, LineSessionInvocation invocation) {
+        InvocationShape invocationShape = shape(invocation);
+        LaunchPlan launchPlan = launchPlan(
+                profile,
+                spec,
+                invocationShape,
+                OutputMode.SEPARATE,
+                invocation.terminalPolicy().orElse(profile.terminalPolicy()));
+        return new SessionExecutionPlan(
+                launchPlan,
+                invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
+                invocation.idleTimeout().orElse(profile.idleTimeout()),
+                profile.charset(),
+                profile.ptyProvider(),
+                profile.terminalSize());
+    }
+
+    public static SessionExecutionPlan resolve(
+            ScenarioProfile.Interactive profile, CommandSpec spec, ProtocolSessionInvocation<?, ?> invocation) {
         InvocationShape invocationShape = shape(invocation);
         LaunchPlan launchPlan = launchPlan(
                 profile,
@@ -192,6 +211,14 @@ public final class ExecutionPlanResolver {
     }
 
     private static InvocationShape shape(LineSessionInvocation invocation) {
+        return new InvocationShape(
+                invocation.arguments(),
+                invocation.workingDirectory(),
+                invocation.environmentPolicy(),
+                invocation.environment());
+    }
+
+    private static InvocationShape shape(ProtocolSessionInvocation<?, ?> invocation) {
         return new InvocationShape(
                 invocation.arguments(),
                 invocation.workingDirectory(),

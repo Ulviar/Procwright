@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.time.Duration;
 import java.time.Instant;
@@ -139,7 +140,13 @@ public final class DefaultLineSession implements LineSession {
     }
 
     private void pump(String streamName, InputStream stream, boolean responseStream) {
-        try (Reader reader = new InputStreamReader(stream, options.charset())) {
+        try (Reader reader = new InputStreamReader(
+                stream,
+                options.charsetPolicy()
+                        .charset()
+                        .newDecoder()
+                        .onMalformedInput(options.charsetPolicy().malformedInputAction())
+                        .onUnmappableCharacter(options.charsetPolicy().unmappableCharacterAction()))) {
             char[] buffer = new char[1024];
             StringBuilder line = new StringBuilder();
             int count;
@@ -176,6 +183,7 @@ public final class DefaultLineSession implements LineSession {
                 currentLine.append(value);
                 if (currentLine.length() > options.maxLineChars()) {
                     offerStdoutEvent(StdoutEvent.failure(
+                            LineSessionException.Reason.RESPONSE_TOO_LARGE,
                             new CommandExecutionException("Line-session stdout line exceeds maxLineChars")));
                     closeQuietly();
                     return false;
@@ -190,7 +198,9 @@ public final class DefaultLineSession implements LineSession {
             return;
         }
         stdoutEvents.clear();
-        stdoutEvents.offer(StdoutEvent.failure(new CommandExecutionException("Line-session stdout backlog overflow")));
+        stdoutEvents.offer(StdoutEvent.failure(
+                LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW,
+                new CommandExecutionException("Line-session stdout backlog overflow")));
         closeQuietly();
     }
 
@@ -200,7 +210,7 @@ public final class DefaultLineSession implements LineSession {
         } catch (LineSessionException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            throw failure("Response decoder failed", exception);
+            throw failure(LineSessionException.Reason.DECODER_FAILED, "Response decoder failed", exception);
         }
     }
 
@@ -225,19 +235,22 @@ public final class DefaultLineSession implements LineSession {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             writer.interrupt();
-            throw failure("Interrupted while writing line-session stdin", exception);
+            throw failure(
+                    LineSessionException.Reason.FAILURE, "Interrupted while writing line-session stdin", exception);
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause();
             if (cause instanceof IllegalStateException illegalState) {
                 throw closed(illegalState);
             }
             if (cause instanceof IOException ioException) {
-                throw failure("Could not write line-session stdin", ioException);
+                throw failure(
+                        LineSessionException.Reason.BROKEN_PIPE, "Could not write line-session stdin", ioException);
             }
             if (cause instanceof RuntimeException runtimeException) {
-                throw failure("Could not write line-session stdin", runtimeException);
+                throw failure(
+                        LineSessionException.Reason.FAILURE, "Could not write line-session stdin", runtimeException);
             }
-            throw failure("Could not write line-session stdin", cause);
+            throw failure(LineSessionException.Reason.FAILURE, "Could not write line-session stdin", cause);
         }
     }
 
@@ -283,6 +296,10 @@ public final class DefaultLineSession implements LineSession {
 
     private LineSessionException failure(String message, Throwable cause) {
         return new LineSessionException(LineSessionException.Reason.FAILURE, lineTranscript(), message, cause);
+    }
+
+    private LineSessionException failure(LineSessionException.Reason reason, String message, Throwable cause) {
+        return new LineSessionException(reason, lineTranscript(), message, cause);
     }
 
     private LineTranscript lineTranscript() {
@@ -339,28 +356,48 @@ public final class DefaultLineSession implements LineSession {
                     }
                     case EOF -> throw eof();
                     case CLOSED -> throw closed(null);
-                    case FAILURE -> throw failure("Could not read line-session stdout", event.failure());
+                    case FAILURE -> throw failure(event.reason(), failureMessage(event.reason()), event.failure());
                 }
             }
         }
     }
 
-    private record StdoutEvent(Kind kind, String line, Throwable failure) {
+    private static String failureMessage(LineSessionException.Reason reason) {
+        if (reason == LineSessionException.Reason.DECODE_ERROR) {
+            return "Could not decode line-session stdout";
+        }
+        if (reason == LineSessionException.Reason.RESPONSE_TOO_LARGE) {
+            return "Line-session response exceeded configured size limit";
+        }
+        if (reason == LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW) {
+            return "Line-session stdout backlog overflow";
+        }
+        return "Could not read line-session stdout";
+    }
+
+    private record StdoutEvent(Kind kind, String line, LineSessionException.Reason reason, Throwable failure) {
 
         private static StdoutEvent line(String line) {
-            return new StdoutEvent(Kind.LINE, line, null);
+            return new StdoutEvent(Kind.LINE, line, null, null);
         }
 
         private static StdoutEvent eof() {
-            return new StdoutEvent(Kind.EOF, null, null);
+            return new StdoutEvent(Kind.EOF, null, null, null);
         }
 
         private static StdoutEvent failure(Throwable failure) {
-            return new StdoutEvent(Kind.FAILURE, null, failure);
+            LineSessionException.Reason reason = failure instanceof CharacterCodingException
+                    ? LineSessionException.Reason.DECODE_ERROR
+                    : LineSessionException.Reason.FAILURE;
+            return failure(reason, failure);
+        }
+
+        private static StdoutEvent failure(LineSessionException.Reason reason, Throwable failure) {
+            return new StdoutEvent(Kind.FAILURE, null, reason, failure);
         }
 
         private static StdoutEvent closed() {
-            return new StdoutEvent(Kind.CLOSED, null, null);
+            return new StdoutEvent(Kind.CLOSED, null, null, null);
         }
 
         private StdoutEvent {
@@ -369,6 +406,7 @@ public final class DefaultLineSession implements LineSession {
                 Objects.requireNonNull(line, "line");
             }
             if (kind == Kind.FAILURE) {
+                Objects.requireNonNull(reason, "reason");
                 Objects.requireNonNull(failure, "failure");
             }
         }

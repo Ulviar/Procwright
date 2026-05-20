@@ -41,11 +41,12 @@ See [Follow logs](follow-logs.md) and [Streaming](../scenarios/streaming.md).
 
 ## Local daemon startup with readiness check
 
-Use `listen` or `interactive` for the process lifecycle, and keep readiness in the application layer.
+Use `listen` when readiness is an external observation such as HTTP polling or a known log line. Use `interactive`,
+`lineSession`, or `protocolSession` readiness probes when readiness can be checked through the worker protocol itself.
 
 Typical readiness checks are HTTP polling, socket availability, a PID file, a status command, or a known log line. iCLI
-should own stream draining, timeout, shutdown, and diagnostics. The application should own the domain-specific definition
-of "ready".
+should own stream draining, timeout, shutdown, and diagnostics. The application still owns the domain-specific definition
+of "ready"; iCLI only owns when the probe runs and how the process is closed on readiness failure.
 
 Do not turn this into a raw background `Process` unless the caller truly wants to own every stream and shutdown detail.
 
@@ -67,6 +68,14 @@ requests.
 
 See [Talk to a line worker](talk-to-line-worker.md), [Reuse workers](reuse-workers.md), and
 [Line Sessions](../scenarios/line-session.md).
+
+## Framed or typed protocol worker
+
+Use `protocolSession` when requests or responses are multi-line, byte-oriented, content-length framed, delimiter-framed,
+or mapped to domain types. Use `pooledProtocol` when startup is expensive and reset/health semantics are clear.
+
+See [Protocol Sessions](../scenarios/protocol-session.md), [Reuse workers](reuse-workers.md), and
+[Integrations](../scenarios/integrations.md).
 
 ## JSON Lines or Content-Length tool adapter
 

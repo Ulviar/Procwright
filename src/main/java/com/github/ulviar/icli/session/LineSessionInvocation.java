@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Per-session launch overrides for a line-oriented command session.
@@ -27,6 +28,8 @@ public final class LineSessionInvocation {
     private final ShutdownPolicy shutdownPolicy;
     private final Duration idleTimeout;
     private final TerminalPolicy terminalPolicy;
+    private final Consumer<LineSession> readinessProbe;
+    private final Duration readinessTimeout;
 
     private LineSessionInvocation(Builder builder) {
         arguments = List.copyOf(builder.arguments);
@@ -36,6 +39,8 @@ public final class LineSessionInvocation {
         shutdownPolicy = builder.shutdownPolicy;
         idleTimeout = builder.idleTimeout;
         terminalPolicy = builder.terminalPolicy;
+        readinessProbe = builder.readinessProbe;
+        readinessTimeout = builder.readinessTimeout;
     }
 
     /**
@@ -110,6 +115,24 @@ public final class LineSessionInvocation {
         return Optional.ofNullable(terminalPolicy);
     }
 
+    /**
+     * Returns the per-session readiness probe.
+     *
+     * @return readiness probe when configured
+     */
+    public Optional<Consumer<LineSession>> readinessProbe() {
+        return Optional.ofNullable(readinessProbe);
+    }
+
+    /**
+     * Returns the per-session readiness timeout.
+     *
+     * @return readiness timeout when configured
+     */
+    public Optional<Duration> readinessTimeout() {
+        return Optional.ofNullable(readinessTimeout);
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {
@@ -124,7 +147,9 @@ public final class LineSessionInvocation {
                 && environmentPolicy == that.environmentPolicy
                 && Objects.equals(shutdownPolicy, that.shutdownPolicy)
                 && Objects.equals(idleTimeout, that.idleTimeout)
-                && terminalPolicy == that.terminalPolicy;
+                && terminalPolicy == that.terminalPolicy
+                && Objects.equals(readinessProbe, that.readinessProbe)
+                && Objects.equals(readinessTimeout, that.readinessTimeout);
     }
 
     @Override
@@ -136,7 +161,9 @@ public final class LineSessionInvocation {
                 environmentPolicy,
                 shutdownPolicy,
                 idleTimeout,
-                terminalPolicy);
+                terminalPolicy,
+                readinessProbe,
+                readinessTimeout);
     }
 
     /**
@@ -151,6 +178,8 @@ public final class LineSessionInvocation {
         private ShutdownPolicy shutdownPolicy;
         private Duration idleTimeout;
         private TerminalPolicy terminalPolicy;
+        private Consumer<LineSession> readinessProbe;
+        private Duration readinessTimeout;
 
         private Builder() {}
 
@@ -271,6 +300,28 @@ public final class LineSessionInvocation {
         }
 
         /**
+         * Sets a readiness probe that runs after launch and before this line session is returned.
+         *
+         * @param readinessProbe readiness probe
+         * @return this builder
+         */
+        public Builder readiness(Consumer<LineSession> readinessProbe) {
+            this.readinessProbe = Objects.requireNonNull(readinessProbe, "readinessProbe");
+            return this;
+        }
+
+        /**
+         * Sets the readiness probe timeout.
+         *
+         * @param readinessTimeout readiness timeout
+         * @return this builder
+         */
+        public Builder readinessTimeout(Duration readinessTimeout) {
+            this.readinessTimeout = requirePositive(readinessTimeout, "readinessTimeout");
+            return this;
+        }
+
+        /**
          * Builds an immutable line-session invocation draft.
          *
          * @return immutable line-session invocation draft
@@ -283,6 +334,14 @@ public final class LineSessionInvocation {
             Objects.requireNonNull(duration, name);
             if (duration.isNegative()) {
                 throw new IllegalArgumentException(name + " must not be negative");
+            }
+            return duration;
+        }
+
+        private static Duration requirePositive(Duration duration, String name) {
+            Objects.requireNonNull(duration, name);
+            if (duration.isZero() || duration.isNegative()) {
+                throw new IllegalArgumentException(name + " must be positive");
             }
             return duration;
         }

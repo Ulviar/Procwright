@@ -19,10 +19,12 @@ workflow и не скатиться к ручной сборке process harness
 | Управлять живым процессом через stdin/stdout | `interactive` | `interactiveScenario` |
 | Автоматизировать prompt-oriented диалог | `interactive` + `Expect` | `expectScenario` |
 | Делать request/response поверх line protocol | `lineSession` | `lineSessionScenario` |
+| Делать request/response поверх framed/typed protocol | `protocolSession` | `protocolSessionScenario` |
 | Требовать terminal capability | `interactive` + `TerminalPolicy.REQUIRED` | `terminalRequiredSessionScenario` |
 | Читать поток вывода без накопления всего output | `listen` | `listenOnlyStreamingScenario` |
 | Наблюдать lifecycle без раскрытия raw argv/env/output | `DiagnosticsOptions` | `diagnosticsScenario` |
 | Переиспользовать line-oriented workers | `pooled` | `pooledLineSessionScenario` |
+| Переиспользовать typed protocol workers | `pooledProtocol` | `pooledProtocolSessionScenario` |
 | Взять готовый workflow preset без нового runner | `ScenarioPresets` | `scenarioPresetComposition` |
 | Обернуть CLI как tool adapter | `:icli-integrations` | `oneShotCommandBackedTool` |
 | Общаться с JSON Lines worker | `JsonLineSession` | `jsonLineCommandBackedTool` |
@@ -97,6 +99,24 @@ Compile-tested example:
 - timeout/failure закрывает session, чтобы не продолжать неизвестное protocol state;
 - transcript bounded и доступен в ошибке.
 
+## `protocolSession`
+
+Используй `protocolSession`, когда worker protocol является request/response, но ответ не сводится к одной stdout line:
+multi-line documents, byte frames, delimiter/content-length framing, JSON frames или typed request/response adapter.
+
+Compile-tested example:
+
+- `protocolSessionScenario`
+
+Инварианты:
+
+- adapter владеет framing и response decoder;
+- runtime владеет process lifecycle, timeout, output pumps, transcript и cleanup;
+- один request одновременно;
+- request/response size limits fail как typed protocol errors;
+- strict charset decoding не заменяет битые bytes молча;
+- readiness probe выполняется до возврата session.
+
 ## `listen`
 
 Используй `listen`, когда нужно обрабатывать output chunks по мере поступления и не хранить весь output в памяти:
@@ -118,14 +138,16 @@ Compile-tested example:
 Используй `pooled`, когда один line-oriented worker дорогой в запуске, но protocol позволяет безопасно переиспользовать
 worker между requests.
 
-Compile-tested example:
+Compile-tested examples:
 
 - `pooledLineSessionScenario`
+- `pooledProtocolSessionScenario`
 
 Инварианты:
 
-- pool строится поверх `LineSession`, а не нового process runtime;
+- pool строится поверх `LineSession` или `ProtocolSession`, а не нового process runtime;
 - `maxSize` ограничивает live workers;
+- `warmupSize` и `minIdle` управляют readiness дорогих workers;
 - request timeout/failure retire worker;
 - metrics являются snapshot, а не управляющим API.
 

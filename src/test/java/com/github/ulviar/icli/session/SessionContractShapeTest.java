@@ -16,6 +16,10 @@ final class SessionContractShapeTest {
         assertSealedWithSingleImplementation(
                 PooledLineSession.class, "com.github.ulviar.icli.internal.session.DefaultPooledLineSession");
         assertSealedWithSingleImplementation(
+                ProtocolSession.class, "com.github.ulviar.icli.internal.session.DefaultProtocolSession");
+        assertSealedWithSingleImplementation(
+                PooledProtocolSession.class, "com.github.ulviar.icli.internal.session.DefaultPooledProtocolSession");
+        assertSealedWithSingleImplementation(
                 StreamSession.class, "com.github.ulviar.icli.internal.session.DefaultStreamSession");
     }
 

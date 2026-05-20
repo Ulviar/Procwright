@@ -1,5 +1,6 @@
 package com.github.ulviar.icli.session;
 
+import com.github.ulviar.icli.command.CharsetPolicy;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -16,14 +17,14 @@ public final class LineSessionOptions {
             64 * 1024,
             1024,
             DEFAULT_MAX_LINE_CHARS,
-            StandardCharsets.UTF_8,
+            CharsetPolicy.replace(StandardCharsets.UTF_8),
             ResponseDecoder.firstLine());
 
     private final Duration requestTimeout;
     private final int transcriptLimit;
     private final int stdoutBacklogLimit;
     private final int maxLineChars;
-    private final Charset charset;
+    private final CharsetPolicy charsetPolicy;
     private final ResponseDecoder responseDecoder;
 
     /**
@@ -41,7 +42,13 @@ public final class LineSessionOptions {
             int stdoutBacklogLimit,
             Charset charset,
             ResponseDecoder responseDecoder) {
-        this(requestTimeout, transcriptLimit, stdoutBacklogLimit, DEFAULT_MAX_LINE_CHARS, charset, responseDecoder);
+        this(
+                requestTimeout,
+                transcriptLimit,
+                stdoutBacklogLimit,
+                DEFAULT_MAX_LINE_CHARS,
+                CharsetPolicy.replace(charset),
+                responseDecoder);
     }
 
     /**
@@ -61,6 +68,32 @@ public final class LineSessionOptions {
             int maxLineChars,
             Charset charset,
             ResponseDecoder responseDecoder) {
+        this(
+                requestTimeout,
+                transcriptLimit,
+                stdoutBacklogLimit,
+                maxLineChars,
+                CharsetPolicy.replace(charset),
+                responseDecoder);
+    }
+
+    /**
+     * Creates line-session options from explicit policies.
+     *
+     * @param requestTimeout default request timeout
+     * @param transcriptLimit maximum retained transcript characters
+     * @param stdoutBacklogLimit maximum pending stdout response lines
+     * @param maxLineChars maximum retained characters for one unterminated stdout line
+     * @param charsetPolicy line protocol charset policy
+     * @param responseDecoder default response decoder
+     */
+    public LineSessionOptions(
+            Duration requestTimeout,
+            int transcriptLimit,
+            int stdoutBacklogLimit,
+            int maxLineChars,
+            CharsetPolicy charsetPolicy,
+            ResponseDecoder responseDecoder) {
         this.requestTimeout = requirePositive(requestTimeout, "requestTimeout");
         if (transcriptLimit <= 0) {
             throw new IllegalArgumentException("transcriptLimit must be positive");
@@ -74,7 +107,7 @@ public final class LineSessionOptions {
             throw new IllegalArgumentException("maxLineChars must be positive");
         }
         this.maxLineChars = maxLineChars;
-        this.charset = Objects.requireNonNull(charset, "charset");
+        this.charsetPolicy = Objects.requireNonNull(charsetPolicy, "charsetPolicy");
         this.responseDecoder = Objects.requireNonNull(responseDecoder, "responseDecoder");
     }
 
@@ -95,7 +128,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withRequestTimeout(Duration requestTimeout) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charset, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -106,7 +139,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withTranscriptLimit(int transcriptLimit) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charset, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -117,7 +150,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withStdoutBacklogLimit(int stdoutBacklogLimit) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charset, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -128,7 +161,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withMaxLineChars(int maxLineChars) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charset, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -139,7 +172,23 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withCharset(Charset charset) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charset, responseDecoder);
+                requestTimeout,
+                transcriptLimit,
+                stdoutBacklogLimit,
+                maxLineChars,
+                CharsetPolicy.replace(charset),
+                responseDecoder);
+    }
+
+    /**
+     * Returns a copy with a different line protocol charset policy.
+     *
+     * @param charsetPolicy line protocol charset policy
+     * @return updated options
+     */
+    public LineSessionOptions withCharsetPolicy(CharsetPolicy charsetPolicy) {
+        return new LineSessionOptions(
+                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -150,7 +199,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withResponseDecoder(ResponseDecoder responseDecoder) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charset, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -195,7 +244,16 @@ public final class LineSessionOptions {
      * @return charset
      */
     public Charset charset() {
-        return charset;
+        return charsetPolicy.charset();
+    }
+
+    /**
+     * Returns the line protocol charset decoding policy.
+     *
+     * @return charset policy
+     */
+    public CharsetPolicy charsetPolicy() {
+        return charsetPolicy;
     }
 
     /**
@@ -219,14 +277,14 @@ public final class LineSessionOptions {
                 && stdoutBacklogLimit == that.stdoutBacklogLimit
                 && maxLineChars == that.maxLineChars
                 && requestTimeout.equals(that.requestTimeout)
-                && charset.equals(that.charset)
+                && charsetPolicy.equals(that.charsetPolicy)
                 && responseDecoder.equals(that.responseDecoder);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charset, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     private static Duration requirePositive(Duration duration, String name) {
