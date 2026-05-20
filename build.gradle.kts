@@ -1,4 +1,5 @@
 import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.external.javadoc.StandardJavadocDocletOptions
 
 plugins {
     `java-library`
@@ -33,6 +34,14 @@ extra["icliJavaVersion"] = icliJavaVersion
 allprojects {
     group = "com.github.ulviar"
     version = "0.0.0-SNAPSHOT"
+
+    tasks.withType<Javadoc>().configureEach {
+        (options as StandardJavadocDocletOptions).apply {
+            encoding = "UTF-8"
+            charSet = "UTF-8"
+            docEncoding = "UTF-8"
+        }
+    }
 }
 
 java {
