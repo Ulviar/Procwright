@@ -5,7 +5,7 @@ boundary.
 
 ## Java baseline
 
-The rewrite targets Java 25 bytecode and requires JDK 25 or newer to build.
+iCLI targets Java 25 bytecode and requires JDK 25 or newer to build.
 
 ## Ordinary process execution
 

@@ -2,8 +2,8 @@
 
 ## Статус
 
-Текущий срез прошел release-stabilization pass 2026-05-18. Ветка содержит clean rewrite, Java 25 baseline, scenario-first
-public API, общий execution/session kernel, PTY capability boundary, diagnostics, optional Kotlin ergonomics,
+Текущий срез прошел release-stabilization pass 2026-05-18. Ветка содержит Java 25 baseline, scenario-first public API,
+общий execution/session kernel, PTY capability boundary, diagnostics, optional Kotlin ergonomics,
 pooled line-session scenario, scenario presets, optional CLI-backed integrations, bounded stress suite, comparison
 research module, public MkDocs site и generated Java API docs для core/integrations.
 

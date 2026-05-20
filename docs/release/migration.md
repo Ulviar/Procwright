@@ -1,6 +1,6 @@
 # Migration Notes
 
-iCLI is a clean rewrite, not an incremental refactor of the earlier implementation.
+Treat the current iCLI API as a new pre-release baseline, not as an incremental update to the earlier prototype.
 
 ## What carries forward
 

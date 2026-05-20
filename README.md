@@ -2,9 +2,8 @@
 
 iCLI is a JVM library for safe, scenario-first control of external command-line processes.
 
-The project is a clean rewrite and is not published as a stable release yet. The current version is
-`0.0.0-SNAPSHOT`, the build requires JDK 25 or newer, and public API names may still change before the first release
-candidate.
+The project is not published as a stable release yet. The current version is `0.0.0-SNAPSHOT`, the build requires JDK
+25 or newer, and public API names may still change before the first release candidate.
 
 ## Why iCLI exists
 
@@ -24,7 +23,7 @@ redaction-friendly observation.
 
 ## Quick Start From Source
 
-There is no stable Maven artifact yet. For now, evaluate the rewrite from source:
+There is no stable Maven artifact yet. For now, evaluate iCLI from source:
 
 ```bash
 git clone https://github.com/Ulviar/iCLI.git

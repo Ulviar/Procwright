@@ -1,6 +1,6 @@
 # Getting Started
 
-!!! warning "Unreleased rewrite"
+!!! warning "Unreleased baseline"
     iCLI is not published as a stable release yet. Treat coordinates, package names, and API names as pre-release
     until the first release candidate is cut.
 

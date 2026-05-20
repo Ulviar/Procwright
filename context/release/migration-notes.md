@@ -42,7 +42,7 @@
 - Модуль `com.github.ulviar.icli` экспортирует только публичные packages: root, `command`, `diagnostics`, `preset`,
   `session`, `terminal`.
 
-## Ограничения текущего rewrite
+## Ограничения текущего baseline
 
 - Публичный релиз еще не опубликован.
 - Stateful affinity и raw session pooling остаются будущими расширениями.

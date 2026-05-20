@@ -1,6 +1,6 @@
 # Known Limitations
 
-This page tracks release-relevant limitations for the current rewrite state.
+This page tracks release-relevant limitations for the current pre-release baseline.
 
 ## Pre-release API
 
