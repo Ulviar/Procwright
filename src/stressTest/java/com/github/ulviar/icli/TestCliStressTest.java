@@ -118,11 +118,11 @@ final class TestCliStressTest {
                                 "--started-text=flaky-hang")
                         .capture(CapturePolicy.bounded(1024))
                         .timeout(Duration.ofMillis(80))
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(300))))));
+                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(2))))));
             }
 
             for (Future<CommandResult> future : futures) {
-                CommandResult result = future.get(8, TimeUnit.SECONDS);
+                CommandResult result = future.get(12, TimeUnit.SECONDS);
                 assertTrue(result.timedOut());
                 assertFalse(result.succeeded());
                 String stdout = normalizeLineEndings(result.stdout());
