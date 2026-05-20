@@ -38,8 +38,8 @@ jobs:
 
       - name: Verify Unix
         if: runner.os != 'Windows'
-        run: ./gradlew check javadoc -Picli.javaRelease=${{ matrix.java-release }} --no-daemon
+        run: ./gradlew check javadoc --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon
 
       - name: Verify Windows
         if: runner.os == 'Windows'
-        run: .\gradlew.bat check javadoc -Picli.javaRelease=${{ matrix.java-release }} --no-daemon
+        run: .\gradlew.bat check javadoc --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon

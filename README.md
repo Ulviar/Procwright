@@ -33,8 +33,8 @@ cd iCLI
 ./gradlew publicDocsCheck
 ```
 
-To evaluate a specific Java release variant, run Gradle with the matching JDK and `-Picli.javaRelease=17`, `21`, or
-`25`.
+To evaluate a specific Java release variant, run Gradle with the matching JDK and
+`--project-prop=icli.javaRelease=17`, `21`, or `25`.
 
 The smallest workflow is a one-shot command:
 

@@ -31,9 +31,9 @@ Use the broader verification tiers when changing behavior:
 Run a specific release variant with the matching JDK:
 
 ```bash
-./gradlew check -Picli.javaRelease=17
-./gradlew check -Picli.javaRelease=21
-./gradlew check -Picli.javaRelease=25
+./gradlew check --project-prop=icli.javaRelease=17
+./gradlew check --project-prop=icli.javaRelease=21
+./gradlew check --project-prop=icli.javaRelease=25
 ```
 
 ## First scenario

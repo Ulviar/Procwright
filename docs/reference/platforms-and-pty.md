@@ -6,7 +6,7 @@ boundary.
 ## Java baseline
 
 iCLI keeps one source tree for Java 17, 21, and 25 release variants. The default local target is Java 25; set
-`-Picli.javaRelease=17`, `21`, or `25` to build a specific variant with the matching JDK.
+`--project-prop=icli.javaRelease=17`, `21`, or `25` to build a specific variant with the matching JDK.
 
 On Java 21 and newer runtimes, iCLI may use virtual threads behind an internal runtime boundary. The Java 17 variant
 uses daemon platform-thread fallback. The public API does not expose or require a specific threading implementation.

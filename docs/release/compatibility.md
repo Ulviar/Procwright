@@ -3,7 +3,7 @@
 ## Current baseline
 
 - Build JDK: 17, 21, or 25 for the matching release variant.
-- Java bytecode target: selected by `-Picli.javaRelease=17`, `21`, or `25`; default target is 25.
+- Java bytecode target: selected by `--project-prop=icli.javaRelease=17`, `21`, or `25`; default target is 25.
 - Current version: `0.0.0-SNAPSHOT`.
 
 ## Modules
