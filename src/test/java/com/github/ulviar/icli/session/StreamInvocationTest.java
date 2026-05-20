@@ -21,7 +21,7 @@ final class StreamInvocationTest {
         arguments.add("--ignored");
 
         assertEquals(1, invocation.arguments().size());
-        assertEquals("--follow", invocation.arguments().getFirst());
+        assertEquals("--follow", invocation.arguments().get(0));
     }
 
     @Test
@@ -40,7 +40,7 @@ final class StreamInvocationTest {
                 .onOutput(listener)
                 .build();
 
-        assertEquals("logs", invocation.arguments().getFirst());
+        assertEquals("logs", invocation.arguments().get(0));
         assertEquals(workingDirectory, invocation.workingDirectory().orElseThrow());
         assertEquals("1", invocation.environment().get("NO_COLOR"));
         assertEquals(shutdownPolicy, invocation.shutdownPolicy().orElseThrow());

@@ -16,7 +16,7 @@ public final class CommandEchoSupport {
                 .sorted(Comparator.naturalOrder())
                 .toList();
         return new CommandEcho(
-                launchPlan.command().getFirst(),
+                launchPlan.command().get(0),
                 launchPlan.command().size() - 1,
                 launchPlan.workingDirectory(),
                 environmentNames,
@@ -33,6 +33,6 @@ public final class CommandEchoSupport {
         if (commandSnapshot.isEmpty()) {
             throw new IllegalArgumentException("command must not be empty");
         }
-        return "executable=" + commandSnapshot.getFirst() + ", argumentCount=" + (commandSnapshot.size() - 1);
+        return "executable=" + commandSnapshot.get(0) + ", argumentCount=" + (commandSnapshot.size() - 1);
     }
 }

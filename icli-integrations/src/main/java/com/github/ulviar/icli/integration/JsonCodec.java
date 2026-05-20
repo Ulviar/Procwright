@@ -72,13 +72,21 @@ public final class JsonCodec {
     }
 
     private static void append(StringBuilder builder, JsonValue value, int depth, int maxDepth) {
-        switch (value) {
-            case JsonValue.JsonObject object -> appendObject(builder, object, depth, maxDepth);
-            case JsonValue.JsonArray array -> appendArray(builder, array, depth, maxDepth);
-            case JsonValue.JsonString string -> appendString(builder, string.value());
-            case JsonValue.JsonNumber number -> builder.append(number.value().toString());
-            case JsonValue.JsonBoolean bool -> builder.append(bool.value());
-            case JsonValue.JsonNull ignored -> builder.append("null");
+        if (value instanceof JsonValue.JsonObject object) {
+            appendObject(builder, object, depth, maxDepth);
+        } else if (value instanceof JsonValue.JsonArray array) {
+            appendArray(builder, array, depth, maxDepth);
+        } else if (value instanceof JsonValue.JsonString string) {
+            appendString(builder, string.value());
+        } else if (value instanceof JsonValue.JsonNumber number) {
+            builder.append(number.value().toString());
+        } else if (value instanceof JsonValue.JsonBoolean bool) {
+            builder.append(bool.value());
+        } else if (value instanceof JsonValue.JsonNull) {
+            builder.append("null");
+        } else {
+            throw new JsonParseException(
+                    "Unsupported JSON value type: " + value.getClass().getName());
         }
     }
 

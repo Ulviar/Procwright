@@ -9,10 +9,8 @@ import org.junit.jupiter.api.Test;
 
 final class BuildBaselineTest {
 
-    private static final int JAVA_25_CLASS_FILE_MAJOR_VERSION = 69;
-
     @Test
-    void productionClassesTargetJava25Bytecode() throws IOException {
+    void productionClassesTargetConfiguredJavaBytecode() throws IOException {
         try (InputStream stream = CommandService.class.getResourceAsStream("CommandService.class")) {
             assertNotNull(stream);
 
@@ -20,7 +18,16 @@ final class BuildBaselineTest {
 
             int majorVersion = ((header[6] & 0xFF) << 8) | (header[7] & 0xFF);
 
-            assertEquals(JAVA_25_CLASS_FILE_MAJOR_VERSION, majorVersion);
+            assertEquals(expectedClassFileMajorVersion(), majorVersion);
         }
+    }
+
+    private static int expectedClassFileMajorVersion() {
+        return switch (Integer.getInteger("icli.javaRelease", 25)) {
+            case 17 -> 61;
+            case 21 -> 65;
+            case 25 -> 69;
+            default -> throw new AssertionError("Unsupported icli.javaRelease");
+        };
     }
 }

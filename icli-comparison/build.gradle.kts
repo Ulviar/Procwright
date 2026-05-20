@@ -3,6 +3,8 @@ plugins {
     application
 }
 
+val icliJavaRelease = rootProject.extra["icliJavaRelease"] as Int
+val icliJavaVersion = rootProject.extra["icliJavaVersion"] as JavaVersion
 val jmhVersion = "1.37"
 val comparisonNativeAccessArg = "--enable-native-access=ALL-UNNAMED"
 val jmhUnsafeAccessArg = "--sun-misc-unsafe-memory-access=allow"
@@ -38,8 +40,8 @@ dependencies {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    sourceCompatibility = icliJavaVersion
+    targetCompatibility = icliJavaVersion
 }
 
 application { mainClass.set("com.github.ulviar.icli.comparison.ComparisonRunner") }
@@ -50,7 +52,7 @@ configurations.named("jmhRuntimeOnly") { extendsFrom(configurations.runtimeOnly.
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release.set(25)
+    options.release.set(icliJavaRelease)
 }
 
 tasks.withType<Test>().configureEach { useJUnitPlatform() }

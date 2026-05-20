@@ -96,7 +96,7 @@ declarations публичных modules.
 GitHub Actions workflow использует:
 
 - `actions/checkout`, pinned to commit SHA;
-- `actions/setup-java` с Temurin JDK 25, pinned to commit SHA;
+- `actions/setup-java` с Temurin JDK 17/21/25 matrix, pinned to commit SHA;
 - минимальные workflow permissions: `contents: read`.
 
 ## Правило добавления dependency

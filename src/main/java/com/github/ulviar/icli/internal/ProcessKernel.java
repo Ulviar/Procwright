@@ -12,7 +12,6 @@ import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -60,8 +59,7 @@ public final class ProcessKernel {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_STARTED,
                     DiagnosticEmitter.attributes("pid", Long.toString(process.pid())));
-            executor = Executors.newThreadPerTaskExecutor(
-                    Thread.ofVirtual().name("icli-output-pump-", 0).factory());
+            executor = Threading.newTaskExecutor("icli-output-pump-");
             Future<CapturedOutput> stdout =
                     executor.submit(() -> CapturedOutput.capture(process.getInputStream(), plan.capturePolicy()));
             Future<CapturedOutput> stderr = plan.outputMode() == OutputMode.MERGED

@@ -2,6 +2,7 @@ package com.github.ulviar.icli.internal.session;
 
 import com.github.ulviar.icli.command.CommandExecutionException;
 import com.github.ulviar.icli.internal.DurationSupport;
+import com.github.ulviar.icli.internal.Threading;
 import com.github.ulviar.icli.session.LineResponse;
 import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.LineSessionException;
@@ -134,9 +135,7 @@ public final class DefaultLineSession implements LineSession {
     }
 
     private void startPump(String streamName, InputStream stream, boolean responseStream) {
-        Thread.ofVirtual()
-                .name("icli-line-" + streamName + "-", 0)
-                .start(() -> pump(streamName, stream, responseStream));
+        Threading.start("icli-line-" + streamName + "-", () -> pump(streamName, stream, responseStream));
     }
 
     private void pump(String streamName, InputStream stream, boolean responseStream) {
@@ -207,7 +206,7 @@ public final class DefaultLineSession implements LineSession {
 
     private void writeLine(String line, Charset charset, long deadlineNanos) {
         CompletableFuture<Void> written = new CompletableFuture<>();
-        Thread writer = Thread.ofVirtual().name("icli-line-stdin-", 0).start(() -> {
+        Thread writer = Threading.start("icli-line-stdin-", () -> {
             try {
                 session.stdin().write((line + "\n").getBytes(charset));
                 session.stdin().flush();

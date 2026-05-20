@@ -23,7 +23,7 @@ final class CommandInvocationTest {
         arguments.add("--follow");
 
         assertEquals(1, invocation.arguments().size());
-        assertEquals("logs", invocation.arguments().getFirst());
+        assertEquals("logs", invocation.arguments().get(0));
     }
 
     @Test
@@ -44,7 +44,7 @@ final class CommandInvocationTest {
                 .input("payload")
                 .build();
 
-        assertEquals("status", invocation.arguments().getFirst());
+        assertEquals("status", invocation.arguments().get(0));
         assertEquals(workingDirectory, invocation.workingDirectory().orElseThrow());
         assertEquals("dumb", invocation.environment().get("TERM"));
         assertEquals(capturePolicy, invocation.capturePolicy().orElseThrow());

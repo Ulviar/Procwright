@@ -4,6 +4,7 @@ import com.github.ulviar.icli.diagnostics.DiagnosticEventType;
 import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import com.github.ulviar.icli.internal.DurationSupport;
 import com.github.ulviar.icli.internal.StreamExecutionPlan;
+import com.github.ulviar.icli.internal.Threading;
 import com.github.ulviar.icli.session.SessionExit;
 import com.github.ulviar.icli.session.StreamChunk;
 import com.github.ulviar.icli.session.StreamException;
@@ -125,7 +126,7 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private void startPump(StreamSource source, InputStream stream) {
-        Thread.ofVirtual().name("icli-stream-" + source.label() + "-", 0).start(() -> pump(source, stream));
+        Threading.start("icli-stream-" + source.label() + "-", () -> pump(source, stream));
     }
 
     private void pump(StreamSource source, InputStream stream) {
@@ -189,7 +190,7 @@ public final class DefaultStreamSession implements StreamSession {
             timeoutWatcherStopped.complete(null);
             return;
         }
-        Thread watcher = Thread.ofVirtual().name("icli-stream-timeout-", 0).unstarted(() -> {
+        Thread watcher = Threading.unstarted("icli-stream-timeout-", () -> {
             try {
                 if (!sleep(timeout) || exit.isDone()) {
                     return;

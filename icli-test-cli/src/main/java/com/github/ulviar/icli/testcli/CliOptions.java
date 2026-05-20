@@ -72,7 +72,7 @@ record CliOptions(String scenario, Map<String, List<String>> options, List<Strin
 
     String string(String name, String defaultValue) {
         List<String> values = values(name);
-        return values.isEmpty() ? defaultValue : values.getLast();
+        return values.isEmpty() ? defaultValue : values.get(values.size() - 1);
     }
 
     int integer(String name, int defaultValue) {
@@ -97,11 +97,11 @@ record CliOptions(String scenario, Map<String, List<String>> options, List<Strin
         if (values.isEmpty()) {
             return defaultValue;
         }
-        String raw = values.getLast().toLowerCase(Locale.ROOT);
+        String raw = values.get(values.size() - 1).toLowerCase(Locale.ROOT);
         return switch (raw) {
             case "true", "1", "yes", "on" -> true;
             case "false", "0", "no", "off" -> false;
-            default -> throw new IllegalArgumentException(name + " must be boolean: " + values.getLast());
+            default -> throw new IllegalArgumentException(name + " must be boolean: " + values.get(values.size() - 1));
         };
     }
 

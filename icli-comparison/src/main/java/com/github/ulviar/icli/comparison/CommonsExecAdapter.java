@@ -107,7 +107,7 @@ final class CommonsExecAdapter implements CandidateAdapter {
     }
 
     private static CommandLine commandLine(CommandRequest request) {
-        CommandLine commandLine = new CommandLine(request.command().getFirst());
+        CommandLine commandLine = new CommandLine(request.command().get(0));
         request.command().stream().skip(1).forEach(argument -> commandLine.addArgument(argument, false));
         return commandLine;
     }

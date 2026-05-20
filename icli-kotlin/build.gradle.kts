@@ -5,6 +5,9 @@ plugins {
     id("org.jetbrains.kotlin.jvm")
 }
 
+val icliJavaRelease = rootProject.extra["icliJavaRelease"] as Int
+val icliJavaVersion = rootProject.extra["icliJavaVersion"] as JavaVersion
+
 dependencies {
     api(project(":"))
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
@@ -13,12 +16,12 @@ dependencies {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    sourceCompatibility = icliJavaVersion
+    targetCompatibility = icliJavaVersion
     withSourcesJar()
 }
 
-kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_25) } }
+kotlin { compilerOptions { jvmTarget.set(kotlinJvmTarget(icliJavaRelease)) } }
 
 val kotlinApiDocsCheck =
     tasks.register("kotlinApiDocsCheck") {
@@ -62,3 +65,11 @@ fun hasKdocBefore(lines: List<String>, declarationIndex: Int): Boolean {
     }
     return index >= 0 && lines[index].trimEnd().endsWith("*/")
 }
+
+fun kotlinJvmTarget(release: Int): JvmTarget =
+    when (release) {
+        17 -> JvmTarget.JVM_17
+        21 -> JvmTarget.JVM_21
+        25 -> JvmTarget.JVM_25
+        else -> throw GradleException("Unsupported Kotlin JVM target for Java release $release")
+    }

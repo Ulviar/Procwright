@@ -35,7 +35,7 @@ final class TestCliStressTest {
     @Test
     void parallelBurstProcessesKeepBothStreamsBounded() throws Exception {
         CommandService service = testCliService();
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < 12; index++) {
@@ -62,7 +62,7 @@ final class TestCliStressTest {
     @Test
     void seededFlakyProcessesProduceMixedOutcomesWithoutTimeouts() throws Exception {
         CommandService service = testCliService();
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         AtomicInteger succeeded = new AtomicInteger();
         AtomicInteger failed = new AtomicInteger();
         try {
@@ -106,7 +106,7 @@ final class TestCliStressTest {
     @Test
     void hangingFlakyProcessesTimeoutAndCleanUpUnderChurn() throws Exception {
         CommandService service = testCliService();
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < hangingFlakyParallelism(); index++) {
@@ -187,7 +187,7 @@ final class TestCliStressTest {
     @Test
     void mixedLoadProcessesCompleteUnderParallelChurn() throws Exception {
         CommandService service = testCliService();
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < 8; index++) {
@@ -225,7 +225,7 @@ final class TestCliStressTest {
         try (PooledLineSession pool = testCliLineService()
                 .pooled(call ->
                         call.args("line-repl").maxSize(2).warmupSize(1).acquireTimeout(Duration.ofSeconds(2)))) {
-            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch start = new CountDownLatch(1);
             try {
                 ArrayList<Future<String>> futures = new ArrayList<>();

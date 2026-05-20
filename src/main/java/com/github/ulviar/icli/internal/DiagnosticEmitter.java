@@ -66,10 +66,10 @@ public final class DiagnosticEmitter {
         DiagnosticEvent event = new DiagnosticEvent(
                 type, runId, Instant.now(), scenario, command, DiagnosticAttributeSchema.validate(type, attributes));
         if (options.listenerEnabled()) {
-            Thread.ofVirtual().name("icli-diagnostics-listener-", 0).start(() -> deliverListener(event));
+            Threading.start("icli-diagnostics-listener-", () -> deliverListener(event));
         }
         if (options.transcriptSinkEnabled()) {
-            Thread.ofVirtual().name("icli-diagnostics-transcript-", 0).start(() -> deliverTranscript(event));
+            Threading.start("icli-diagnostics-transcript-", () -> deliverTranscript(event));
         }
     }
 

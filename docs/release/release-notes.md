@@ -8,7 +8,7 @@
 
 - Release type: unreleased pre-release candidate baseline.
 - Version: `0.0.0-SNAPSHOT`.
-- Java baseline: JDK 25.
+- Java release variants: 17, 21, and 25 from one source tree; default local target is 25.
 - API stability: pre-1.0; public names may still change before the first published artifact.
 
 ## Shipped Behavior In The Current Branch
@@ -39,11 +39,13 @@
 - Session-family handles are sealed public contracts backed by hidden iCLI implementations.
 - Diagnostics remains best-effort and unordered.
 - Core, integrations, and Kotlin public API type sets are guarded by exact baseline tests.
+- Java 17/21/25 release variants are selected with `icli.javaRelease` and checked in CI.
 
 ## Known Limitations
 
 - No stable Maven Central artifact is published yet.
 - Windows ConPTY support is not shipped in the current baseline.
+- Java 17 uses platform-thread fallback for internal background work; Java 21+ may use virtual threads internally.
 - Generated Kotlin API docs are not part of the public site yet; Kotlin public declarations are checked through KDoc in
   source.
 - Raw session pooling, stateful affinity pools, and a real MCP SDK adapter are not included.

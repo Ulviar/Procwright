@@ -67,8 +67,7 @@ final class OneShotExecutionIntegrationTest {
 
         List<String> stdoutLines = normalizeLineEndings(result.stdout()).lines().toList();
         assertEquals(2, stdoutLines.size());
-        assertEquals(
-                workingDirectory.toRealPath(), Path.of(stdoutLines.getFirst()).toRealPath());
+        assertEquals(workingDirectory.toRealPath(), Path.of(stdoutLines.get(0)).toRealPath());
         assertEquals("configured", stdoutLines.get(1));
     }
 

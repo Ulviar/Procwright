@@ -66,7 +66,7 @@ final class ProcessStressTest {
     @Test
     void timeoutChurnCompletesWithoutDeadlock() throws Exception {
         CommandService service = fixtureService();
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < timeoutChurnParallelism(); index++) {
@@ -105,7 +105,7 @@ final class ProcessStressTest {
     void pooledContentionCompletesAllRequestsWithinMaxSize() throws Exception {
         try (PooledLineSession pool = fixtureService()
                 .pooled(call -> call.args("line-repl").maxSize(3).warmupSize(1))) {
-            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch start = new CountDownLatch(1);
             try {
                 ArrayList<Future<String>> futures = new ArrayList<>();
@@ -197,8 +197,11 @@ final class ProcessStressTest {
     }
 
     private static String readUntil(Session session, BufferedReader reader, String prefix) throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor(
-                Thread.ofVirtual().name("icli-stress-pty-reader-", 0).factory());
+        ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "icli-stress-pty-reader");
+            thread.setDaemon(true);
+            return thread;
+        });
         try {
             Future<String> match = executor.submit(() -> {
                 String line;

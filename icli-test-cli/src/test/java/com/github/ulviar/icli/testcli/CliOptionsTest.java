@@ -32,7 +32,7 @@ final class CliOptionsTest {
         assertEquals(2048, options.byteSize("stdout-bytes", 0));
         assertEquals("second", options.string("tag", "missing"));
         assertEquals(2, options.values("tag").size());
-        assertEquals("raw value", options.positionals().getFirst());
+        assertEquals("raw value", options.positionals().get(0));
     }
 
     @Test

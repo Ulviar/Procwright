@@ -270,7 +270,7 @@ final class IcliCandidateAdapter implements CandidateAdapter {
     }
 
     private static CommandService service(List<String> command) {
-        CommandSpec.Builder builder = CommandSpec.builder(command.getFirst());
+        CommandSpec.Builder builder = CommandSpec.builder(command.get(0));
         if (command.size() > 1) {
             builder.args(command.subList(1, command.size()));
         }

@@ -198,7 +198,7 @@ final class DiagnosticsOptionsTest {
 
         assertTrue(delivered.await(1, TimeUnit.SECONDS));
         assertEquals(1, events.stream().map(DiagnosticEvent::runId).distinct().count());
-        assertFalse(events.getFirst().runId().isBlank());
+        assertFalse(events.get(0).runId().isBlank());
     }
 
     @Test
@@ -299,7 +299,7 @@ final class DiagnosticsOptionsTest {
 
     private static void sleep(Duration duration) {
         try {
-            Thread.sleep(duration);
+            TimeUnit.NANOSECONDS.sleep(duration.toNanos());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new AssertionError("interrupted", exception);

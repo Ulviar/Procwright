@@ -24,6 +24,12 @@ site yet.
 No Maven Central artifact is published from this branch yet. Planned coordinates are documented, but publishing,
 signing, and final POM metadata remain a separate release implementation step.
 
+## Java release variants
+
+Java 17, 21, and 25 variants build from the same source tree. The Java 17 variant uses platform-thread fallback for
+internal background work, so high-concurrency performance may differ from Java 21/25 runtimes that can use virtual
+threads.
+
 ## Not in the current MVP
 
 - Raw session pooling.

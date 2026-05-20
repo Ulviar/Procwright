@@ -7,6 +7,7 @@ import com.github.ulviar.icli.session.SessionExit;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * JSON Lines request/response helper over an existing {@link LineSession}.
@@ -15,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
  * lifecycle, timeout, and shutdown behavior.
  */
 public final class JsonLineSession implements AutoCloseable {
+
+    private static final AtomicLong THREAD_SEQUENCE = new AtomicLong();
 
     private final LineSession session;
 
@@ -56,7 +59,7 @@ public final class JsonLineSession implements AutoCloseable {
     }
 
     /**
-     * Sends one JSON request asynchronously on a virtual thread.
+     * Sends one JSON request asynchronously on a background task.
      *
      * <p>Calling {@link CancellableCall#cancel()} closes the underlying line session. This intentionally maps
      * cancellation to the same lifecycle path used by line-session failures instead of leaving a half-decoded protocol
@@ -70,7 +73,7 @@ public final class JsonLineSession implements AutoCloseable {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(timeout, "timeout");
         CompletableFuture<JsonValue> completion = new CompletableFuture<>();
-        Thread.ofVirtual().name("icli-json-line-request-", 0).start(() -> {
+        startTask("icli-json-line-request-", () -> {
             try {
                 completion.complete(request(request, timeout));
             } catch (Throwable throwable) {
@@ -111,6 +114,12 @@ public final class JsonLineSession implements AutoCloseable {
         if (response.lines().size() != 1) {
             throw new JsonParseException("Expected exactly one JSON response line");
         }
-        return JsonLines.parseLine(response.lines().getFirst());
+        return JsonLines.parseLine(response.lines().get(0));
+    }
+
+    private static void startTask(String namePrefix, Runnable task) {
+        Thread thread = new Thread(task, namePrefix + THREAD_SEQUENCE.getAndIncrement());
+        thread.setDaemon(true);
+        thread.start();
     }
 }

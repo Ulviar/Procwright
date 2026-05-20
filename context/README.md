@@ -53,7 +53,8 @@
   — масштабный аудит удобства iCLI по реальным open-source сценариям использования `ProcessBuilder` и библиотек-аналогов.
 - [decisions/ADR-0001-clean-rewrite.md](decisions/ADR-0001-clean-rewrite.md) — решение о чистой ветке.
 - [decisions/ADR-0002-java-baseline.md](decisions/ADR-0002-java-baseline.md) — замененное решение о Java 21 baseline.
-- [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — Java 25 baseline для clean rewrite.
+- [decisions/ADR-0004-java-25-baseline.md](decisions/ADR-0004-java-25-baseline.md) — историческое решение о Java 25
+  development baseline.
 - [decisions/ADR-0003-pty-packaging.md](decisions/ADR-0003-pty-packaging.md) — PTY не входит в core foundation.
 - [decisions/ADR-0005-pty-transport.md](decisions/ADR-0005-pty-transport.md) — PTY transport через узкий provider.
 - [decisions/ADR-0006-kotlin-module.md](decisions/ADR-0006-kotlin-module.md) — optional Kotlin ergonomics module.
@@ -78,6 +79,8 @@
   перед первым release candidate.
 - [decisions/ADR-0019-kotlin-generated-docs-strategy.md](decisions/ADR-0019-kotlin-generated-docs-strategy.md) — решение
   по generated Kotlin docs.
+- [decisions/ADR-0020-java-release-variants.md](decisions/ADR-0020-java-release-variants.md) — один source tree и
+  проверяемые Java 17/21/25 release variants.
 
 ## Правило навигации
 

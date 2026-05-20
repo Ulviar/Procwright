@@ -1,5 +1,8 @@
 plugins { `java-library` }
 
+val icliJavaRelease = rootProject.extra["icliJavaRelease"] as Int
+val icliJavaVersion = rootProject.extra["icliJavaVersion"] as JavaVersion
+
 dependencies {
     api(project(":"))
 
@@ -9,15 +12,15 @@ dependencies {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    sourceCompatibility = icliJavaVersion
+    targetCompatibility = icliJavaVersion
     withSourcesJar()
     withJavadocJar()
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release.set(25)
+    options.release.set(icliJavaRelease)
 }
 
 tasks.withType<Test>().configureEach { useJUnitPlatform() }

@@ -24,7 +24,7 @@ final class SessionInvocationTest {
         arguments.add("--ignored");
 
         assertEquals(1, invocation.arguments().size());
-        assertEquals("-i", invocation.arguments().getFirst());
+        assertEquals("-i", invocation.arguments().get(0));
     }
 
     @Test
@@ -42,7 +42,7 @@ final class SessionInvocationTest {
                 .terminal(TerminalPolicy.REQUIRED)
                 .build();
 
-        assertEquals("-i", invocation.arguments().getFirst());
+        assertEquals("-i", invocation.arguments().get(0));
         assertEquals(workingDirectory, invocation.workingDirectory().orElseThrow());
         assertEquals("dumb", invocation.environment().get("TERM"));
         assertEquals(shutdownPolicy, invocation.shutdownPolicy().orElseThrow());

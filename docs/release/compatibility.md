@@ -2,8 +2,8 @@
 
 ## Current baseline
 
-- Build JDK: 25 or newer.
-- Java bytecode target: 25.
+- Build JDK: 17, 21, or 25 for the matching release variant.
+- Java bytecode target: selected by `-Picli.javaRelease=17`, `21`, or `25`; default target is 25.
 - Current version: `0.0.0-SNAPSHOT`.
 
 ## Modules
@@ -25,6 +25,9 @@ Ordinary process execution is expected to work through JDK process APIs. Termina
 support and the configured `PtyProvider`.
 
 Tests for machine-specific capabilities should skip through assumptions when a capability is unavailable.
+
+On Java 21 and newer runtimes, iCLI may use virtual threads internally. Java 17 uses a daemon platform-thread fallback.
+This is an implementation detail, not a public API contract.
 
 Windows ConPTY support is not a shipped provider in the current baseline. Terminal-required workflows must fail
 explicitly when no configured provider is available; they must not silently fall back to ordinary pipes.

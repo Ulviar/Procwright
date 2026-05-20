@@ -113,8 +113,11 @@ final class ProcessSupport {
     }
 
     static byte[] readAllBytesBounded(InputStream input, Duration timeout, Runnable onTimeout) throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor(
-                Thread.ofVirtual().name("icli-comparison-reader-", 0).factory());
+        ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "icli-comparison-reader");
+            thread.setDaemon(true);
+            return thread;
+        });
         Future<byte[]> read = executor.submit(input::readAllBytes);
         try {
             return read.get(timeout.toMillis(), TimeUnit.MILLISECONDS);

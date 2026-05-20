@@ -86,7 +86,7 @@ public final class StressComparisonRunner {
         int succeeded = 0;
         int failed = 0;
         String note = "";
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         try {
             ArrayList<Future<CommandOutcome>> futures = new ArrayList<>();
             for (int seed = 1; seed <= FLAKY_SEEDS; seed++) {
@@ -188,7 +188,7 @@ public final class StressComparisonRunner {
         try (PooledLineSession pool = testCliLineService()
                 .pooled(call ->
                         call.args("line-repl").maxSize(2).warmupSize(1).acquireTimeout(Duration.ofSeconds(2)))) {
-            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch start = new CountDownLatch(1);
             int timeouts = 0;
             int successes = 0;
@@ -261,7 +261,7 @@ public final class StressComparisonRunner {
     private ScenarioResult parallelAttempts(
             String id, String scenario, CandidateAdapter candidate, int attempts, Attempt attempt, OutcomeCheck check) {
         long started = System.nanoTime();
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         ArrayList<Duration> elapsed = new ArrayList<>();
         int passed = 0;
         String note = "";
@@ -385,7 +385,7 @@ public final class StressComparisonRunner {
     }
 
     private static CommandSpec commandSpec(List<String> command) {
-        CommandSpec.Builder builder = CommandSpec.builder(command.getFirst());
+        CommandSpec.Builder builder = CommandSpec.builder(command.get(0));
         if (command.size() > 1) {
             builder.args(command.subList(1, command.size()));
         }

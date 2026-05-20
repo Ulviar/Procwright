@@ -7,14 +7,37 @@ plugins {
     id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
 }
 
+val supportedJavaReleases = setOf(17, 21, 25)
+val icliJavaRelease =
+    providers
+        .gradleProperty("icli.javaRelease")
+        .map { value ->
+            value.toIntOrNull()
+                ?: throw GradleException("icli.javaRelease must be a number: $value")
+        }
+        .orElse(25)
+        .get()
+
+if (icliJavaRelease !in supportedJavaReleases) {
+    throw GradleException(
+        "icli.javaRelease must be one of $supportedJavaReleases, got $icliJavaRelease"
+    )
+}
+
+val icliJavaVersion = JavaVersion.toVersion(icliJavaRelease)
+
+extra["icliJavaRelease"] = icliJavaRelease
+
+extra["icliJavaVersion"] = icliJavaVersion
+
 allprojects {
     group = "com.github.ulviar"
     version = "0.0.0-SNAPSHOT"
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    sourceCompatibility = icliJavaVersion
+    targetCompatibility = icliJavaVersion
     withSourcesJar()
     withJavadocJar()
 }
@@ -64,7 +87,7 @@ dependencies { "stressTestImplementation"(project(":icli-test-cli")) }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release.set(25)
+    options.release.set(icliJavaRelease)
 }
 
 tasks.named<Javadoc>("javadoc") {
@@ -77,7 +100,10 @@ tasks.named<Javadoc>("javadoc") {
     classpath += sourceSets.main.get().output
 }
 
-tasks.withType<Test>().configureEach { useJUnitPlatform() }
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    systemProperty("icli.javaRelease", icliJavaRelease.toString())
+}
 
 val integrationTest =
     tasks.register<Test>("integrationTest") {

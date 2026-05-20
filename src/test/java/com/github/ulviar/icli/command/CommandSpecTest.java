@@ -58,7 +58,7 @@ final class CommandSpecTest {
 
         assertEquals("git", spec.executable());
         assertEquals(1, spec.arguments().size());
-        assertEquals("status", spec.arguments().getFirst());
+        assertEquals("status", spec.arguments().get(0));
     }
 
     @Test

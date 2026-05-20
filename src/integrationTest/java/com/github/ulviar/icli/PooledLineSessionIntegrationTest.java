@@ -20,6 +20,7 @@ import com.github.ulviar.icli.session.StreamOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -133,23 +134,28 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void acquireTimeoutIsDistinctWhenAllWorkersAreBusy() throws Exception {
         try (PooledLineSession pool = fixtureService()
-                        .pooled(call -> call.args("line-repl").maxSize(1).acquireTimeout(Duration.ofMillis(100)));
-                var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                .pooled(call -> call.args("line-repl").maxSize(1).acquireTimeout(Duration.ofMillis(100)))) {
+            ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch firstStarted = new CountDownLatch(1);
-            Future<LineResponse> first = executor.submit(() -> {
-                firstStarted.countDown();
-                return pool.request("hold", Duration.ofSeconds(2));
-            });
-            assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
-            assertTrue(awaitLeased(pool, 1));
+            try {
+                Future<LineResponse> first = executor.submit(() -> {
+                    firstStarted.countDown();
+                    return pool.request("hold", Duration.ofSeconds(2));
+                });
+                assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
+                assertTrue(awaitLeased(pool, 1));
 
-            PooledLineSessionException exception =
-                    assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
+                PooledLineSessionException exception =
+                        assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
 
-            assertEquals(PooledLineSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
-            assertEquals("response:hold", first.get().text());
-            assertEquals(1, pool.metrics().completedRequests());
-            assertEquals(1, pool.metrics().failedRequests());
+                assertEquals(PooledLineSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
+                assertEquals("response:hold", first.get().text());
+                assertEquals(1, pool.metrics().completedRequests());
+                assertEquals(1, pool.metrics().failedRequests());
+            } finally {
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            }
         }
     }
 
@@ -209,44 +215,54 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void closeDrainsLeasedWorkersAndRejectsNewRequests() throws Exception {
         try (PooledLineSession pool =
-                        fixtureService().pooled(call -> call.args("line-repl").maxSize(1));
-                var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<LineResponse> inFlight = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));
-            assertTrue(awaitLeased(pool, 1));
+                fixtureService().pooled(call -> call.args("line-repl").maxSize(1))) {
+            ExecutorService executor = Executors.newCachedThreadPool();
+            try {
+                Future<LineResponse> inFlight = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));
+                assertTrue(awaitLeased(pool, 1));
 
-            pool.close();
+                pool.close();
 
-            PooledLineSessionException closed =
-                    assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
-            assertEquals(PooledLineSessionException.Reason.CLOSED, closed.reason());
-            assertEquals("response:hold", inFlight.get().text());
-            assertTrue(pool.awaitDrained(Duration.ofSeconds(2)));
-            assertEquals(0, pool.metrics().size());
-            assertEquals(1, pool.metrics().completedRequests());
-            assertEquals(1, pool.metrics().failedRequests());
-            assertFalse(pool.onDrained().isCompletedExceptionally());
+                PooledLineSessionException closed =
+                        assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
+                assertEquals(PooledLineSessionException.Reason.CLOSED, closed.reason());
+                assertEquals("response:hold", inFlight.get().text());
+                assertTrue(pool.awaitDrained(Duration.ofSeconds(2)));
+                assertEquals(0, pool.metrics().size());
+                assertEquals(1, pool.metrics().completedRequests());
+                assertEquals(1, pool.metrics().failedRequests());
+                assertFalse(pool.onDrained().isCompletedExceptionally());
+            } finally {
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            }
         }
     }
 
     @Test
     void closePreservesLeasedMetricsWhileRetiringIdleWorkers() throws Exception {
         try (PooledLineSession pool = fixtureService()
-                        .pooled(call -> call.args("line-repl").maxSize(2).warmupSize(2));
-                var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<LineResponse> inFlight = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));
-            assertTrue(awaitLeased(pool, 1));
+                .pooled(call -> call.args("line-repl").maxSize(2).warmupSize(2))) {
+            ExecutorService executor = Executors.newCachedThreadPool();
+            try {
+                Future<LineResponse> inFlight = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));
+                assertTrue(awaitLeased(pool, 1));
 
-            pool.close();
-            PooledLineSessionMetrics closing = pool.metrics();
+                pool.close();
+                PooledLineSessionMetrics closing = pool.metrics();
 
-            assertEquals(1, closing.size());
-            assertEquals(0, closing.idle());
-            assertEquals(1, closing.leased());
-            assertEquals(1, closing.retired());
-            assertEquals("response:hold", inFlight.get().text());
-            assertTrue(pool.awaitDrained(Duration.ofSeconds(2)));
-            assertEquals(0, pool.metrics().size());
-            assertEquals(0, pool.metrics().leased());
+                assertEquals(1, closing.size());
+                assertEquals(0, closing.idle());
+                assertEquals(1, closing.leased());
+                assertEquals(1, closing.retired());
+                assertEquals("response:hold", inFlight.get().text());
+                assertTrue(pool.awaitDrained(Duration.ofSeconds(2)));
+                assertEquals(0, pool.metrics().size());
+                assertEquals(0, pool.metrics().leased());
+            } finally {
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            }
         }
     }
 

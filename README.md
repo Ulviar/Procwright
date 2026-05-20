@@ -2,8 +2,9 @@
 
 iCLI is a JVM library for safe, scenario-first control of external command-line processes.
 
-The project is not published as a stable release yet. The current version is `0.0.0-SNAPSHOT`, the build requires JDK
-25 or newer, and public API names may still change before the first release candidate.
+The project is not published as a stable release yet. The current version is `0.0.0-SNAPSHOT`, the default build target
+is Java 25, Java 17/21/25 release variants are checked from the same source tree, and public API names may still change
+before the first release candidate.
 
 ## Why iCLI exists
 
@@ -31,6 +32,9 @@ cd iCLI
 ./gradlew quickCheck
 ./gradlew publicDocsCheck
 ```
+
+To evaluate a specific Java release variant, run Gradle with the matching JDK and `-Picli.javaRelease=17`, `21`, or
+`25`.
 
 The smallest workflow is a one-shot command:
 

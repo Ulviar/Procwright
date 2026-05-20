@@ -6,7 +6,7 @@
 
 ## Requirements
 
-- JDK 25 or newer.
+- JDK 17, 21, or 25 for the matching release variant. The default local target is 25.
 - Gradle wrapper from this repository for local builds.
 - No stable Maven artifact is published yet.
 
@@ -26,6 +26,14 @@ Use the broader verification tiers when changing behavior:
 ./gradlew scenarioCheck
 ./gradlew regressionCheck
 ./gradlew check
+```
+
+Run a specific release variant with the matching JDK:
+
+```bash
+./gradlew check -Picli.javaRelease=17
+./gradlew check -Picli.javaRelease=21
+./gradlew check -Picli.javaRelease=25
 ```
 
 ## First scenario

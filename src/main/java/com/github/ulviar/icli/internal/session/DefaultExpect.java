@@ -1,6 +1,7 @@
 package com.github.ulviar.icli.internal.session;
 
 import com.github.ulviar.icli.internal.DurationSupport;
+import com.github.ulviar.icli.internal.Threading;
 import com.github.ulviar.icli.session.Expect;
 import com.github.ulviar.icli.session.ExpectException;
 import com.github.ulviar.icli.session.ExpectOptions;
@@ -175,7 +176,7 @@ public final class DefaultExpect implements Expect {
     }
 
     private void startPump(String streamName, InputStream stream, boolean matchable) {
-        Thread.ofVirtual().name("icli-expect-" + streamName + "-", 0).start(() -> pump(streamName, stream, matchable));
+        Threading.start("icli-expect-" + streamName + "-", () -> pump(streamName, stream, matchable));
     }
 
     private void pump(String streamName, InputStream stream, boolean matchable) {

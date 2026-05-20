@@ -62,13 +62,17 @@ final class SessionOutputOwnershipTest {
         BlockingInputStream stdout = new BlockingInputStream();
         try (Session session = sessionWith(stdout)) {
             CompletableFuture<Integer> read = new CompletableFuture<>();
-            Thread.ofVirtual().name("icli-test-blocking-public-output-read").start(() -> {
-                try {
-                    read.complete(session.stdout().read());
-                } catch (Throwable throwable) {
-                    read.completeExceptionally(throwable);
-                }
-            });
+            Thread thread = new Thread(
+                    () -> {
+                        try {
+                            read.complete(session.stdout().read());
+                        } catch (Throwable throwable) {
+                            read.completeExceptionally(throwable);
+                        }
+                    },
+                    "icli-test-blocking-public-output-read");
+            thread.setDaemon(true);
+            thread.start();
             stdout.awaitReadStarted();
 
             assertThrows(IllegalStateException.class, session::expect);

@@ -13,6 +13,18 @@ public final class TestCliApplication {
 
     private TestCliApplication() {}
 
+    /**
+     * Runs one modeled CLI scenario against explicit process boundaries.
+     *
+     * @param args command-line arguments
+     * @param stdin input stream
+     * @param stdout output stream
+     * @param stderr error stream
+     * @param environment environment variables
+     * @param workingDirectory working directory
+     * @return process-style exit code
+     * @throws Exception when a scenario fails outside its modeled exit-code path
+     */
     public static int run(
             String[] args,
             InputStream stdin,

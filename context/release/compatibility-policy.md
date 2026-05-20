@@ -2,9 +2,11 @@
 
 ## Базовая runtime-платформа
 
-- Минимальная платформа текущего baseline — JDK 25.
-- Java-код компилируется с `--release 25`.
-- Kotlin module компилируется с JVM target 25 и остается optional module.
+- Поддерживаемые release targets текущего baseline — Java 17, Java 21 и Java 25.
+- Java-код компилируется с `--release ${icli.javaRelease}`; default target для локальной разработки — 25.
+- Kotlin module компилируется с JVM target, соответствующим `icli.javaRelease`, и остается optional module.
+- На Java 21+ runtime iCLI может использовать virtual threads через внутренний runtime boundary. Java 17 variant
+  использует daemon platform-thread fallback; это не меняет public API contract, но может менять performance profile.
 
 ## Поддержка платформ
 
@@ -13,6 +15,8 @@
 - Linux latest;
 - macOS latest;
 - Windows 2025 hosted runner.
+
+Каждая ОС проверяется на Temurin JDK 17, 21 и 25.
 
 Все кроссплатформенные сценарии должны проходить на всех трех платформах. Сценарии, которым нужен POSIX shell или
 system PTY provider, skip-аются через JUnit assumptions, если платформа не предоставляет нужную возможность.

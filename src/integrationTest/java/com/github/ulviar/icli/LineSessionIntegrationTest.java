@@ -15,8 +15,10 @@ import com.github.ulviar.icli.session.SessionOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 final class LineSessionIntegrationTest {
@@ -203,17 +205,22 @@ final class LineSessionIntegrationTest {
         ResponseDecoder twoLineDecoder = reader -> List.of(reader.readLine(), reader.readLine());
         CommandService service = fixtureService(LineSessionOptions.defaults().withResponseDecoder(twoLineDecoder));
 
-        try (LineSession session = service.lineSession(call -> call.args("two-line-delay-repl"));
-                var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            Future<LineResponse> first = executor.submit(() -> session.request("a"));
-            Future<LineResponse> second = executor.submit(() -> session.request("b"));
+        try (LineSession session = service.lineSession(call -> call.args("two-line-delay-repl"))) {
+            ExecutorService executor = Executors.newCachedThreadPool();
+            try {
+                Future<LineResponse> first = executor.submit(() -> session.request("a"));
+                Future<LineResponse> second = executor.submit(() -> session.request("b"));
 
-            List<String> firstLines = first.get().lines();
-            List<String> secondLines = second.get().lines();
-            List<List<String>> responses = List.of(firstLines, secondLines);
+                List<String> firstLines = first.get().lines();
+                List<String> secondLines = second.get().lines();
+                List<List<String>> responses = List.of(firstLines, secondLines);
 
-            assertTrue(responses.contains(List.of("start:a", "end:a")));
-            assertTrue(responses.contains(List.of("start:b", "end:b")));
+                assertTrue(responses.contains(List.of("start:a", "end:a")));
+                assertTrue(responses.contains(List.of("start:b", "end:b")));
+            } finally {
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            }
         }
     }
 
@@ -234,7 +241,7 @@ final class LineSessionIntegrationTest {
 
     private static void sleep(Duration duration) {
         try {
-            Thread.sleep(duration);
+            TimeUnit.NANOSECONDS.sleep(duration.toNanos());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new AssertionError("interrupted", exception);

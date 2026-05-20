@@ -140,7 +140,7 @@ public final class ComparisonRunner {
         }
 
         long started = System.nanoTime();
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        ExecutorService executor = Executors.newCachedThreadPool();
         ArrayList<Future<CommandOutcome>> futures = new ArrayList<>();
         ArrayList<Duration> elapsed = new ArrayList<>();
         int passed = 0;

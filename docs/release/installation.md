@@ -28,6 +28,14 @@ Current local development uses the repository Gradle wrapper:
 ./gradlew publicDocsCheck
 ```
 
+Build a specific Java release variant with the matching JDK:
+
+```bash
+./gradlew check -Picli.javaRelease=17
+./gradlew check -Picli.javaRelease=21
+./gradlew check -Picli.javaRelease=25
+```
+
 Publishing to Maven Central, signing, and final POM metadata require a separate implementation step before the first
 public release.
 

@@ -9,6 +9,7 @@ import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
 import com.github.ulviar.icli.internal.DiagnosticEmitter;
 import com.github.ulviar.icli.internal.DurationSupport;
 import com.github.ulviar.icli.internal.ProcessLifecycle;
+import com.github.ulviar.icli.internal.Threading;
 import com.github.ulviar.icli.session.Expect;
 import com.github.ulviar.icli.session.ExpectOptions;
 import com.github.ulviar.icli.session.LineSession;
@@ -229,7 +230,7 @@ public final class DefaultSession implements Session {
     }
 
     private void startExitWatcher() {
-        Thread.ofVirtual().name("icli-session-exit-", 0).start(() -> {
+        Threading.start("icli-session-exit-", () -> {
             try {
                 int exitCode = process.waitFor();
                 completeNaturalExit(exitCode);
@@ -247,7 +248,7 @@ public final class DefaultSession implements Session {
         }
 
         long idleTimeoutNanos = DurationSupport.saturatedNanos(idleTimeout);
-        Thread.ofVirtual().name("icli-session-idle-timeout-", 0).start(() -> {
+        Threading.start("icli-session-idle-timeout-", () -> {
             while (!exit.isDone()) {
                 long elapsedNanos = System.nanoTime() - lastActivityNanos.get();
                 long remainingNanos = idleTimeoutNanos - elapsedNanos;
