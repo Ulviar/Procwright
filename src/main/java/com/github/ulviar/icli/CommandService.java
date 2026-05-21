@@ -368,8 +368,9 @@ public final class CommandService {
      * Returns a copy with different diagnostics options.
      *
      * <p>Diagnostics are emitted by command-service scenarios that own process lifecycle: {@code run},
-     * {@code interactive}, {@code lineSession}, {@code listen}, and worker launches inside {@code pooled}. {@code Expect}
-     * is a helper over an already opened {@link Session} and does not emit separate process lifecycle events.
+     * {@code interactive}, {@code lineSession}, {@code protocolSession}, {@code listen}, worker launches inside
+     * {@code pooled}, and worker launches inside {@code pooledProtocol}. {@code Expect} is a helper over an already
+     * opened {@link Session} and does not emit separate process lifecycle events.
      *
      * @param diagnosticsOptions diagnostics options
      * @return updated command service
@@ -412,7 +413,7 @@ public final class CommandService {
      *
      * @param configure invocation callback
      * @return interactive session
-     * @throws CommandExecutionException when the process cannot be started
+     * @throws CommandExecutionException when the process cannot be started or the configured readiness probe fails
      */
     public Session interactive(Consumer<SessionInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
@@ -439,7 +440,7 @@ public final class CommandService {
      *
      * @param configure invocation callback
      * @return line-oriented session
-     * @throws CommandExecutionException when the process cannot be started
+     * @throws CommandExecutionException when the process cannot be started or the configured readiness probe fails
      */
     public LineSession lineSession(Consumer<LineSessionInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
@@ -456,7 +457,7 @@ public final class CommandService {
      *
      * @param configure invocation callback
      * @return pooled line-oriented session
-     * @throws CommandExecutionException when a worker process cannot be started
+     * @throws CommandExecutionException when a worker process cannot be started or cannot become ready
      */
     public PooledLineSession pooled(Consumer<PooledLineSessionInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
@@ -477,7 +478,7 @@ public final class CommandService {
      * @param <I> request type
      * @param <O> response type
      * @return protocol session
-     * @throws CommandExecutionException when the process cannot be started
+     * @throws CommandExecutionException when the process cannot be started or the configured readiness probe fails
      */
     public <I, O> ProtocolSession<I, O> protocolSession(
             ProtocolAdapter<I, O> adapter, Consumer<ProtocolSessionInvocation.Builder<I, O>> configure) {
@@ -503,7 +504,7 @@ public final class CommandService {
      * @param <I> request type
      * @param <O> response type
      * @return pooled protocol session
-     * @throws CommandExecutionException when a worker process cannot be started
+     * @throws CommandExecutionException when a worker process cannot be started or cannot become ready
      */
     public <I, O> PooledProtocolSession<I, O> pooledProtocol(
             Supplier<? extends ProtocolAdapter<I, O>> adapterFactory,

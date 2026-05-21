@@ -6,11 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.CommandService;
-import com.github.ulviar.icli.ProcessFixtureProgram;
+import com.github.ulviar.icli.TestCliSupport;
 import com.github.ulviar.icli.command.CapturePolicy;
 import com.github.ulviar.icli.command.CommandExecutionException;
 import com.github.ulviar.icli.command.CommandResult;
-import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.internal.DiagnosticAttributeSchema;
@@ -23,8 +22,6 @@ import com.github.ulviar.icli.session.StreamExit;
 import com.github.ulviar.icli.session.StreamListener;
 import com.github.ulviar.icli.session.StreamOptions;
 import com.github.ulviar.icli.session.StreamSession;
-import com.github.ulviar.icli.testing.diagnostics.DiagnosticRecorder;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -40,8 +37,9 @@ final class DiagnosticsIntegrationTest {
                 .withDiagnostics(
                         DiagnosticsOptions.defaults().withListener(recorder).withTranscriptSink(recorder));
 
-        CommandResult result = service.run(call -> call.args("cwd-env", "SECRET_VALUE", "--token", "secret-argument")
-                .putEnvironment("SECRET_VALUE", "hidden-value"));
+        CommandResult result =
+                service.run(call -> call.args("argv-env-cwd", "--env=SECRET_VALUE", "--", "--token", "secret-argument")
+                        .putEnvironment("SECRET_VALUE", "hidden-value"));
 
         assertTrue(result.succeeded());
         assertTrue(recorder.awaitContains(DiagnosticEventType.COMMAND_PREPARED));
@@ -50,7 +48,7 @@ final class DiagnosticsIntegrationTest {
 
         DiagnosticEvent prepared = recorder.first(DiagnosticEventType.COMMAND_PREPARED);
         assertTrue(prepared.command().environmentNames().contains("SECRET_VALUE"));
-        assertEquals(7, prepared.command().argumentCount());
+        assertEquals(8, prepared.command().argumentCount());
         assertFalse(prepared.toString().contains("hidden-value"));
         assertFalse(prepared.toString().contains("secret-argument"));
         assertEquals("run", prepared.scenario());
@@ -62,7 +60,7 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        CommandResult result = service.run(call -> call.args("large-stdout", "32", "secret-output")
+        CommandResult result = service.run(call -> call.args("exit", "--stdout=" + "secret-output".repeat(4))
                 .putEnvironment("SECRET_VALUE", "secret-env-value")
                 .capture(CapturePolicy.bounded(8)));
 
@@ -85,7 +83,8 @@ final class DiagnosticsIntegrationTest {
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(timeoutRecorder));
 
         CommandResult timeout = timeoutService.run(
-                call -> call.args("sleep", "5000", "secret-timeout-arg").timeout(Duration.ofMillis(100)));
+                call -> call.args("sleep", "--millis=5000", "--finished=false", "--", "secret-timeout-arg")
+                        .timeout(Duration.ofMillis(100)));
 
         assertTrue(timeout.timedOut());
         assertEventsSafe(
@@ -116,7 +115,7 @@ final class DiagnosticsIntegrationTest {
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
         try (StreamSession session = service.listen(
-                call -> call.args("stdout", "secret-stream-output").onOutput(chunk -> {
+                call -> call.args("exit", "--stdout=secret-stream-output").onOutput(chunk -> {
                     throw new IllegalStateException("listener failed");
                 }))) {
             assertThrows(java.util.concurrent.ExecutionException.class, () -> session.onExit()
@@ -147,8 +146,8 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        CommandResult result =
-                service.run(call -> call.args("large-stdout", "64", "x").capture(CapturePolicy.bounded(16)));
+        CommandResult result = service.run(call ->
+                call.args("burst", "--stdout-bytes=64", "--stdout-byte=x").capture(CapturePolicy.bounded(16)));
 
         assertTrue(result.stdoutTruncated());
         DiagnosticEvent event = recorder.first(DiagnosticEventType.OUTPUT_TRUNCATED);
@@ -162,7 +161,7 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        CommandResult result = service.run(call -> call.args("sleep", "5000")
+        CommandResult result = service.run(call -> call.args("sleep", "--millis=5000", "--finished=false")
                 .timeout(Duration.ofMillis(100))
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
 
@@ -181,7 +180,7 @@ final class DiagnosticsIntegrationTest {
                     throw new AssertionError("diagnostics failed");
                 }));
 
-        CommandResult result = service.run(call -> call.args("stdout", "ok\n"));
+        CommandResult result = service.run(call -> call.args("exit", "--stdout=ok\n"));
 
         assertTrue(result.succeeded());
         assertEquals("ok\n", result.stdout());
@@ -193,8 +192,8 @@ final class DiagnosticsIntegrationTest {
         CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(64))
                 .withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (StreamSession session =
-                service.listen(call -> call.args("large-stdout", "128", "x").onOutput(StreamListener.noop()))) {
+        try (StreamSession session = service.listen(call ->
+                call.args("burst", "--stdout-bytes=128", "--stdout-byte=x").onOutput(StreamListener.noop()))) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertTrue(exit.diagnostics().truncated());
@@ -206,7 +205,8 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder closeRecorder = new DiagnosticRecorder();
         CommandService closeService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(closeRecorder));
-        try (StreamSession session = closeService.listen(call -> call.args("sleep", "5000"))) {
+        try (StreamSession session =
+                closeService.listen(call -> call.args("sleep", "--millis=5000", "--finished=false"))) {
             session.close();
             session.onExit().get(2, TimeUnit.SECONDS);
         }
@@ -226,8 +226,8 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (StreamSession session =
-                service.listen(call -> call.args("sleep", "5000").timeout(Duration.ofMillis(100)))) {
+        try (StreamSession session = service.listen(
+                call -> call.args("sleep", "--millis=5000", "--finished=false").timeout(Duration.ofMillis(100)))) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertTrue(exit.timedOut());
@@ -242,7 +242,7 @@ final class DiagnosticsIntegrationTest {
         CommandService listenerFailureService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(listenerFailureRecorder));
         try (StreamSession session = listenerFailureService.listen(
-                call -> call.args("stdout", "boom").onOutput(chunk -> {
+                call -> call.args("exit", "--stdout=boom").onOutput(chunk -> {
                     throw new IllegalStateException("listener failed");
                 }))) {
             try {
@@ -261,7 +261,7 @@ final class DiagnosticsIntegrationTest {
         CommandService interactiveService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(interactiveRecorder));
 
-        try (Session session = interactiveService.interactive(call -> call.args("exit-now"))) {
+        try (Session session = interactiveService.interactive(call -> call.args("exit"))) {
             session.onExit().get(2, TimeUnit.SECONDS);
         }
 
@@ -281,7 +281,7 @@ final class DiagnosticsIntegrationTest {
         CommandService lineService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(lineRecorder));
 
-        try (LineSession session = lineService.lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = lineService.lineSession(call -> call.args("controlled-line-repl"))) {
             assertEquals("response:hello", session.request("hello").text());
         }
 
@@ -306,8 +306,8 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (PooledLineSession pool =
-                service.pooled(call -> call.args("line-repl").maxSize(1).warmupSize(1))) {
+        try (PooledLineSession pool = service.pooled(
+                call -> call.args("controlled-line-repl").maxSize(1).warmupSize(1))) {
             assertEquals("response:hello", pool.request("hello").text());
         }
 
@@ -350,23 +350,11 @@ final class DiagnosticsIntegrationTest {
     }
 
     private static CommandService fixtureService(StreamOptions streamOptions) {
-        CommandSpec command = CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
-                .build();
         return new CommandService(
-                command,
+                TestCliSupport.command(),
                 RunOptions.defaults(),
                 SessionOptions.defaults(),
                 LineSessionOptions.defaults(),
                 streamOptions);
-    }
-
-    private static String javaExecutable() {
-        String executableName = isWindows() ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }

@@ -9,7 +9,6 @@ import com.github.ulviar.icli.command.CapturePolicy;
 import com.github.ulviar.icli.command.CommandExecutionException;
 import com.github.ulviar.icli.command.CommandInvocation;
 import com.github.ulviar.icli.command.CommandResult;
-import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.OutputMode;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
@@ -36,7 +35,7 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void successfulCommandCapturesStdoutAndExitCode() {
-        CommandResult result = fixtureService().run(call -> call.args("stdout", "ready\n"));
+        CommandResult result = fixtureService().run(call -> call.args("exit", "--stdout=ready\n"));
 
         assertTrue(result.succeeded());
         assertEquals(0, result.exitCode().orElseThrow());
@@ -46,7 +45,8 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void nonZeroCommandCapturesStdoutAndStderr() {
-        CommandResult result = fixtureService().run(call -> call.args("stderr-exit", "7", "out\n", "err\n"));
+        CommandResult result =
+                fixtureService().run(call -> call.args("exit", "--exit-code=7", "--stdout=out\n", "--stderr=err\n"));
 
         assertFalse(result.succeeded());
         assertEquals(7, result.exitCode().orElseThrow());
@@ -56,21 +56,24 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void directArgvPreservesArgumentsWithoutShellExpansion() {
-        CommandResult result = fixtureService().run(call -> call.args("args", "hello world", "$ICLI_NOT_EXPANDED"));
+        CommandResult result =
+                fixtureService().run(call -> call.args("argv-env-cwd", "--", "hello world", "$ICLI_NOT_EXPANDED"));
 
-        assertStdoutEquals("hello world|$ICLI_NOT_EXPANDED\n", result);
+        assertTrue(normalizeLineEndings(result.stdout()).contains("argv:hello world|$ICLI_NOT_EXPANDED\n"));
     }
 
     @Test
     void commandReceivesWorkingDirectoryAndEnvironmentOverride(@TempDir Path workingDirectory) throws IOException {
-        CommandResult result = fixtureService().run(call -> call.args("cwd-env", "ICLI_TEST_VALUE")
+        CommandResult result = fixtureService().run(call -> call.args("argv-env-cwd", "--env=ICLI_TEST_VALUE")
                 .workingDirectory(workingDirectory)
                 .putEnvironment("ICLI_TEST_VALUE", "configured"));
 
         List<String> stdoutLines = normalizeLineEndings(result.stdout()).lines().toList();
-        assertEquals(2, stdoutLines.size());
-        assertEquals(workingDirectory.toRealPath(), Path.of(stdoutLines.get(0)).toRealPath());
-        assertEquals("configured", stdoutLines.get(1));
+        assertEquals(3, stdoutLines.size());
+        assertEquals(
+                workingDirectory.toRealPath(),
+                Path.of(stdoutLines.get(0).substring("cwd:".length())).toRealPath());
+        assertEquals("env:ICLI_TEST_VALUE=configured", stdoutLines.get(1));
     }
 
     @Test
@@ -82,18 +85,20 @@ final class OneShotExecutionIntegrationTest {
                 .orElseThrow(() -> new AssertionError("test requires one inherited environment variable"));
 
         CommandResult result = fixtureService().run(call -> {
-            call.args("env-present", inheritedName).cleanEnvironment().putEnvironment("ICLI_TEST_VALUE", "configured");
+            call.args("argv-env-cwd", "--env=" + inheritedName)
+                    .cleanEnvironment()
+                    .putEnvironment("ICLI_TEST_VALUE", "configured");
             putWindowsSystemRootIfNeeded(call);
         });
 
         assertTrue(result.succeeded());
-        assertStdoutEquals("false\n", result);
+        assertTrue(normalizeLineEndings(result.stdout()).contains("env:" + inheritedName + "=<missing>\n"));
     }
 
     @Test
     void largeStdoutIsBoundedAndMarkedAsTruncated() {
-        CommandResult result = fixtureService()
-                .run(call -> call.args("large-stdout", "64", "x").capture(CapturePolicy.bounded(16)));
+        CommandResult result = fixtureService().run(call -> call.args("burst", "--stdout-bytes=64", "--stdout-byte=x")
+                .capture(CapturePolicy.bounded(16)));
 
         assertStdoutEquals("x".repeat(16), result);
         assertStderrEquals("", result);
@@ -103,10 +108,11 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void largeStderrIsBoundedIndependentlyFromStdout() {
-        CommandResult result = fixtureService()
-                .run(call -> call.args("large-stderr", "64", "e").capture(CapturePolicy.bounded(16)));
+        CommandResult result = fixtureService().run(call -> call.args(
+                        "burst", "--stdout-bytes=5", "--stdout-byte=d", "--stderr-bytes=64", "--stderr-byte=e")
+                .capture(CapturePolicy.bounded(16)));
 
-        assertStdoutEquals("done\n", result);
+        assertStdoutEquals("ddddd", result);
         assertStderrEquals("e".repeat(16), result);
         assertFalse(result.stdoutTruncated());
         assertTrue(result.stderrTruncated());
@@ -114,8 +120,8 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void stderrCanBeMergedIntoStdout() {
-        CommandResult result = fixtureService()
-                .run(call -> call.args("stdout-stderr", "out\n", "err\n").output(OutputMode.MERGED));
+        CommandResult result = fixtureService().run(call -> call.args("exit", "--stdout=out\n", "--stderr=err\n")
+                .output(OutputMode.MERGED));
 
         String stdout = normalizeLineEndings(result.stdout());
         assertTrue(stdout.contains("out\n"));
@@ -128,7 +134,7 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void capturedOutputBytesAreAvailableForBinaryWorkflows() {
         CommandResult result = fixtureService().run(call -> {
-            call.args("stdout-bytes");
+            call.args("binary", "--pattern=nul-ff-ascii");
             ScenarioPresets.binaryOutputCapture(Duration.ofSeconds(1), 16).accept(call);
         });
 
@@ -159,8 +165,8 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void hugeTimeoutIsSaturatedInsteadOfOverflowing() {
-        CommandResult result =
-                fixtureService().run(call -> call.args("stdout", "ok\n").timeout(Duration.ofSeconds(Long.MAX_VALUE)));
+        CommandResult result = fixtureService()
+                .run(call -> call.args("exit", "--stdout=ok\n").timeout(Duration.ofSeconds(Long.MAX_VALUE)));
 
         assertTrue(result.succeeded());
         assertStdoutEquals("ok\n", result);
@@ -168,18 +174,18 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void outputIsDecodedWithConfiguredCharset() {
-        CommandResult result =
-                fixtureService().run(call -> call.args("stdout-utf8").charset(StandardCharsets.UTF_8));
+        CommandResult result = fixtureService()
+                .run(call -> call.args("exit", "--stdout=Привет\n").charset(StandardCharsets.UTF_8));
 
         assertStdoutEquals("Привет\n", result);
     }
 
     @Test
     void runScenarioClosesStdinByDefault() {
-        CommandResult result = fixtureService().run(call -> call.args("stdin-length"));
+        CommandResult result = fixtureService().run(call -> call.args("stdin-echo", "--mode=bytes-count"));
 
         assertTrue(result.succeeded());
-        assertStdoutEquals("0\n", result);
+        assertStdoutEquals("bytes:0\n", result);
     }
 
     @Test
@@ -193,7 +199,7 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void inputCharsetIsIndependentFromOutputCharset() {
-        CommandResult result = fixtureService().run(call -> call.args("stdin-hex")
+        CommandResult result = fixtureService().run(call -> call.args("stdin-echo", "--mode=hex")
                 .input("é", Charset.forName("ISO-8859-1"))
                 .charset(StandardCharsets.US_ASCII));
 
@@ -203,7 +209,7 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void timeoutStopsProcessAndReturnsDiagnosticResult() {
-        CommandResult result = fixtureService().run(call -> call.args("sleep", "5000")
+        CommandResult result = fixtureService().run(call -> call.args("sleep", "--millis=5000", "--finished=false")
                 .timeout(Duration.ofMillis(100))
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
 
@@ -215,7 +221,7 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void timeoutIsEnforcedWhileWritingInput() {
         java.time.Instant started = java.time.Instant.now();
-        CommandResult result = fixtureService().run(call -> call.args("ignore-stdin-sleep", "5000")
+        CommandResult result = fixtureService().run(call -> call.args("ignore-stdin", "--millis=5000")
                 .input("x".repeat(8 * 1024 * 1024))
                 .timeout(Duration.ofMillis(100))
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
@@ -232,24 +238,26 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void timeoutCleanupIsBoundedWhileStdoutAndStderrPumpsAreActive() {
         java.time.Instant started = java.time.Instant.now();
-        CommandResult result = fixtureService().run(call -> call.args("paired-streams-sleep", "20")
-                .timeout(Duration.ofMillis(120))
-                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250))));
+        CommandResult result = fixtureService()
+                .run(call -> call.args("long-run", "--ticks=100000", "--interval-millis=20", "--stderr-every=1")
+                        .timeout(Duration.ofMillis(120))
+                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250))));
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
-        assertTrue(normalizeLineEndings(result.stdout()).contains("out-pulse"));
-        assertTrue(normalizeLineEndings(result.stderr()).contains("err-pulse"));
+        assertTrue(normalizeLineEndings(result.stdout()).contains("tick:"));
+        assertTrue(normalizeLineEndings(result.stderr()).contains("err-tick:"));
         assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
         assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
     }
 
     @Test
     void timeoutStopsDescendantProcesses() {
-        CommandResult result = fixtureService().run(call -> call.args("spawn-child-sleep", "10000")
-                .timeout(descendantStartupTimeout())
-                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(500))));
+        CommandResult result = fixtureService()
+                .run(call -> call.args("spawn-child", "--child-scenario=sleep", "--child-millis=10000", "--wait=true")
+                        .timeout(descendantStartupTimeout())
+                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(500))));
         long childPid = result.stdout()
                 .lines()
                 .filter(line -> line.startsWith("child:"))
@@ -276,7 +284,7 @@ final class OneShotExecutionIntegrationTest {
         }));
         exception = assertThrows(
                 IllegalStateException.class,
-                () -> service.run(call -> call.args("sleep", "5000")
+                () -> service.run(call -> call.args("sleep", "--millis=5000", "--finished=false")
                         .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))));
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
@@ -288,12 +296,18 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void processWritingLargeStderrDoesNotBlockStdoutCompletion() {
-        CommandResult result = fixtureService().run(call -> call.args("flood-stderr", Integer.toString(2 * 1024 * 1024))
+        CommandResult result = fixtureService().run(call -> call.args(
+                        "burst",
+                        "--stdout-first=false",
+                        "--stdout-bytes=5",
+                        "--stdout-byte=d",
+                        "--stderr-bytes=2m",
+                        "--stderr-byte=e")
                 .capture(CapturePolicy.bounded(1024))
                 .timeout(Duration.ofSeconds(5)));
 
         assertTrue(result.succeeded());
-        assertStdoutEquals("done\n", result);
+        assertStdoutEquals("ddddd", result);
         assertTrue(result.stderrTruncated());
     }
 
@@ -312,11 +326,8 @@ final class OneShotExecutionIntegrationTest {
     }
 
     private static CommandService fixtureService(ProcessKernel processKernel) {
-        CommandSpec command = CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
-                .build();
         return new CommandService(
-                command,
+                TestCliSupport.command(),
                 RunOptions.defaults(),
                 SessionOptions.defaults(),
                 LineSessionOptions.defaults(),
@@ -326,11 +337,6 @@ final class OneShotExecutionIntegrationTest {
                 PooledProtocolSessionOptions.defaults(),
                 DiagnosticsOptions.defaults(),
                 processKernel);
-    }
-
-    private static String javaExecutable() {
-        String executableName = isWindows() ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
     }
 
     private static String shellEchoEnvironmentCommand(String variableName) {

@@ -102,6 +102,26 @@ final class ScenarioRegistry {
                     "Runs a line-oriented request/response protocol.",
                     ProtocolScenarios::lineRepl),
             scenario(
+                    "controlled-line-repl",
+                    "protocol",
+                    "Runs a line protocol with health, reset, delay, noise, and stderr control requests.",
+                    ProtocolScenarios::controlledLineRepl),
+            scenario(
+                    "exit-after-read",
+                    "protocol",
+                    "Reads one stdin line and exits without producing a response.",
+                    ProtocolScenarios::exitAfterRead),
+            scenario(
+                    "two-line-delay-repl",
+                    "protocol",
+                    "Returns two response lines per request with a configurable delay.",
+                    ProtocolScenarios::twoLineDelayRepl),
+            scenario(
+                    "length-line-frame",
+                    "protocol",
+                    "Runs a length-line framed protocol for arbitrary request bodies.",
+                    ProtocolScenarios::lengthLineFrame),
+            scenario(
                     "jsonl",
                     "protocol",
                     "Runs a JSON Lines style protocol with optional malformed replies.",

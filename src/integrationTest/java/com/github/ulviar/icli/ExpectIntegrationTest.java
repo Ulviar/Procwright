@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.session.Expect;
 import com.github.ulviar.icli.session.ExpectException;
@@ -14,7 +13,6 @@ import com.github.ulviar.icli.session.ExpectOutputFilter;
 import com.github.ulviar.icli.session.ExpectTranscriptValues;
 import com.github.ulviar.icli.session.Session;
 import java.io.InputStream;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -23,7 +21,8 @@ final class ExpectIntegrationTest {
 
     @Test
     void literalMatchAndSendLineRecordOrder() {
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             expect.expectText("ready> ");
             expect.sendLine("hello");
@@ -43,7 +42,8 @@ final class ExpectIntegrationTest {
                 .withTimeout(Duration.ofSeconds(1))
                 .withTranscriptValues(ExpectTranscriptValues.VERBATIM);
 
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(options)) {
             expect.expectText("ready> ");
             expect.sendLine("hello");
@@ -57,7 +57,8 @@ final class ExpectIntegrationTest {
 
     @Test
     void regexMatchWorksAcrossPromptOutput() {
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             expect.expectRegex(Pattern.compile("ready>\\s*$"));
         }
@@ -65,7 +66,8 @@ final class ExpectIntegrationTest {
 
     @Test
     void sendWritesRawText() {
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             expect.expectText("ready> ");
             expect.send("raw\n");
@@ -75,7 +77,8 @@ final class ExpectIntegrationTest {
 
     @Test
     void sendLineRejectsEmbeddedLineSeparators() {
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             assertThrows(IllegalArgumentException.class, () -> expect.sendLine("a\nb"));
             assertThrows(IllegalArgumentException.class, () -> expect.sendLine("a\rb"));
@@ -84,7 +87,8 @@ final class ExpectIntegrationTest {
 
     @Test
     void sessionOutputCanHaveOnlyOneExpectOwner() {
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             assertThrows(IllegalStateException.class, () -> session.expect());
         }
@@ -92,7 +96,8 @@ final class ExpectIntegrationTest {
 
     @Test
     void rawOutputStreamsCannotBeReadAfterExpectClaimsOutputOwnership() throws Exception {
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"))) {
+        try (Session session = fixtureService()
+                .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"))) {
             InputStream stdout = session.stdout();
             InputStream stderr = session.stderr();
 
@@ -108,7 +113,8 @@ final class ExpectIntegrationTest {
 
     @Test
     void newRawOutputStreamsCannotBeReadAfterExpectClaimsOutputOwnership() throws Exception {
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             assertThrows(IllegalStateException.class, session.stdout()::read);
             assertThrows(IllegalStateException.class, session.stderr()::read);
@@ -118,7 +124,7 @@ final class ExpectIntegrationTest {
 
     @Test
     void closingExpectClosesUnderlyingSession() throws Exception {
-        Session session = fixtureService().interactive(call -> call.args("sleep", "5000"));
+        Session session = fixtureService().interactive(call -> call.args("sleep", "--millis=5000", "--finished=false"));
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)));
 
         expect.close();
@@ -131,7 +137,9 @@ final class ExpectIntegrationTest {
 
     @Test
     void timeoutRedactsExpectedTextInTranscriptAndMessageByDefault() {
-        try (Session session = fixtureService().interactive(call -> call.args("partial-stderr-sleep", "5000"));
+        try (Session session = fixtureService()
+                        .interactive(call ->
+                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofMillis(100)))) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("secret-done"));
 
@@ -148,7 +156,7 @@ final class ExpectIntegrationTest {
     void eofRedactsExpectedRegexInMessageByDefault() {
         Pattern secretPattern = Pattern.compile("secret-never");
 
-        try (Session session = fixtureService().interactive(call -> call.args("exit-now"));
+        try (Session session = fixtureService().interactive(call -> call.args("exit"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectRegex(secretPattern));
 
@@ -165,7 +173,9 @@ final class ExpectIntegrationTest {
                 .withTimeout(Duration.ofMillis(100))
                 .withTranscriptValues(ExpectTranscriptValues.VERBATIM);
 
-        try (Session session = fixtureService().interactive(call -> call.args("partial-stderr-sleep", "5000"));
+        try (Session session = fixtureService()
+                        .interactive(call ->
+                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
                 Expect expect = session.expect(options)) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("visible-done"));
 
@@ -186,7 +196,9 @@ final class ExpectIntegrationTest {
                     return output;
                 });
 
-        try (Session session = fixtureService().interactive(call -> call.args("partial-stderr-sleep", "5000"));
+        try (Session session = fixtureService()
+                        .interactive(call ->
+                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
                 Expect expect = session.expect(options)) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("done"));
 
@@ -202,7 +214,8 @@ final class ExpectIntegrationTest {
                     throw new IllegalArgumentException("bad output");
                 });
 
-        try (Session session = fixtureService().interactive(call -> call.args("prompt-repl"));
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
                 Expect expect = session.expect(options)) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("ready"));
 
@@ -219,7 +232,7 @@ final class ExpectIntegrationTest {
                 .withMatchBufferLimit(16)
                 .withTranscriptLimit(256);
 
-        try (Session session = fixtureService().interactive(call -> call.args("line-repl"));
+        try (Session session = fixtureService().interactive(call -> call.args("controlled-line-repl"));
                 Expect expect = session.expect(options)) {
             expect.sendLine("many");
             expect.expectText("done");
@@ -233,7 +246,7 @@ final class ExpectIntegrationTest {
         ExpectOptions options =
                 ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)).withTranscriptLimit(80);
 
-        try (Session session = fixtureService().interactive(call -> call.args("line-repl"));
+        try (Session session = fixtureService().interactive(call -> call.args("controlled-line-repl"));
                 Expect expect = session.expect(options)) {
             expect.sendLine("many");
             expect.expectText("done");
@@ -245,7 +258,7 @@ final class ExpectIntegrationTest {
 
     @Test
     void eofBeforeExpectedOutputIsDistinct() {
-        try (Session session = fixtureService().interactive(call -> call.args("exit-now"));
+        try (Session session = fixtureService().interactive(call -> call.args("exit"));
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("never"));
 
@@ -266,18 +279,6 @@ final class ExpectIntegrationTest {
     }
 
     private static CommandService fixtureService() {
-        CommandSpec command = CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
-                .build();
-        return new CommandService(command, RunOptions.defaults());
-    }
-
-    private static String javaExecutable() {
-        String executableName = isWindows() ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
+        return new CommandService(TestCliSupport.command(), RunOptions.defaults());
     }
 }

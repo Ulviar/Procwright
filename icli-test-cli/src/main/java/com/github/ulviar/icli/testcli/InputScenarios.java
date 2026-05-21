@@ -21,7 +21,9 @@ final class InputScenarios {
     }
 
     static int ignoreStdin(ScenarioContext context) throws Exception {
-        context.stdoutLine(context.options().string("started-text", "started"));
+        if (context.options().bool("started", true)) {
+            context.stdoutLine(context.options().string("started-text", "started"));
+        }
         context.sleepMillis(context.options().longValue("millis", 1000));
         return context.options().integer("exit-code", 0);
     }

@@ -1,5 +1,4 @@
 import org.gradle.api.artifacts.ProjectDependency
-import org.gradle.api.component.AdhocComponentWithVariants
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
@@ -7,7 +6,6 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions
 
 plugins {
     `java-library`
-    `java-test-fixtures`
     `maven-publish`
     signing
     id("com.diffplug.spotless") version "8.5.1"
@@ -34,7 +32,9 @@ if (icliJavaRelease !in supportedJavaReleases) {
 val icliJavaVersion = JavaVersion.toVersion(icliJavaRelease)
 val icliVersion = providers.gradleProperty("icli.version").orElse("0.0.0-SNAPSHOT").get()
 val releaseVersionPattern =
-    Regex("""[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?""")
+    Regex(
+        """(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"""
+    )
 
 extra["icliJavaRelease"] = icliJavaRelease
 
@@ -88,11 +88,6 @@ java {
     targetCompatibility = icliJavaVersion
     withSourcesJar()
     withJavadocJar()
-}
-
-(components["java"] as AdhocComponentWithVariants).apply {
-    withVariantsFromConfiguration(configurations["testFixturesApiElements"]) { skip() }
-    withVariantsFromConfiguration(configurations["testFixturesRuntimeElements"]) { skip() }
 }
 
 publishing {
@@ -150,7 +145,6 @@ signing {
 dependencies {
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation(testFixtures(project))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -188,7 +182,10 @@ configurations.named("stressTestImplementation") {
 
 configurations.named("stressTestRuntimeOnly") { extendsFrom(configurations.testRuntimeOnly.get()) }
 
-dependencies { "stressTestImplementation"(project(":icli-test-cli")) }
+dependencies {
+    "integrationTestImplementation"(project(":icli-test-cli"))
+    "stressTestImplementation"(project(":icli-test-cli"))
+}
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
@@ -311,15 +308,9 @@ val scenarioCheck =
 
 val regressionCheck =
     tasks.register("regressionCheck") {
-        description = "Runs bounded stress, boundary, and comparison regression checks."
+        description = "Runs bounded stress and public boundary regression checks."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(
-            scenarioCheck,
-            stressTest,
-            externalLibraryBoundaryCheck,
-            ":icli-comparison:comparisonCheck",
-            ":icli-test-cli:check",
-        )
+        dependsOn(scenarioCheck, stressTest, externalLibraryBoundaryCheck, ":icli-test-cli:check")
     }
 
 val publicJavaJavadocCheck =
@@ -388,7 +379,6 @@ val cleanWorkingTreeCheck =
             publicDocsCheck,
             ":icli-kotlin:check",
             ":icli-integrations:check",
-            ":icli-comparison:check",
             ":icli-test-cli:check",
         )
 
@@ -421,7 +411,6 @@ tasks.register("releaseCandidateCheck") {
         publicDocsCheck,
         ":icli-kotlin:check",
         ":icli-integrations:check",
-        ":icli-comparison:check",
         ":icli-test-cli:check",
         cleanWorkingTreeCheck,
     )

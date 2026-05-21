@@ -41,11 +41,11 @@ jobs:
 
       - name: Verify Unix
         if: runner.os != 'Windows'
-        run: ./gradlew check javadoc --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon
+        run: ./gradlew check publicJavaJavadocCheck --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon
 
       - name: Verify Windows
         if: runner.os == 'Windows'
-        run: .\gradlew.bat check javadoc --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon
+        run: .\gradlew.bat check publicJavaJavadocCheck --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon
 
       - name: Publication smoke Unix
         if: runner.os != 'Windows' && matrix.java-release == 17

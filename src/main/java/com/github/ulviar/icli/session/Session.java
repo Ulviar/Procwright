@@ -23,12 +23,19 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
     /**
      * Returns raw process stdout.
      *
+     * <p>Calling this method claims stdout ownership for raw caller code. Higher-level helpers such as {@link Expect}
+     * also need exclusive output ownership; mixing raw stream reads with those helpers can make later operations fail
+     * with {@link IllegalStateException} or lose protocol state.
+     *
      * @return stdout stream
      */
     InputStream stdout();
 
     /**
      * Returns raw process stderr.
+     *
+     * <p>Calling this method claims stderr ownership for raw caller code. Do not read this stream concurrently with an
+     * iCLI scenario/helper that drains stderr for diagnostics.
      *
      * @return stderr stream
      */

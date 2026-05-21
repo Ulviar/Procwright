@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.github.ulviar.icli.command.CharsetPolicy;
-import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.session.PooledProtocolSession;
 import com.github.ulviar.icli.session.PooledProtocolSessionException;
@@ -20,7 +19,6 @@ import com.github.ulviar.icli.session.ProtocolSessionOptions;
 import com.github.ulviar.icli.session.ProtocolWriter;
 import com.github.ulviar.icli.session.SessionOptions;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -37,7 +35,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void protocolSessionSupportsMultilineStringRequests() {
         try (ProtocolSession<String, String> session =
-                fixtureService().protocolSession(new FramedStringAdapter(), call -> call.args("framed-repl"))) {
+                fixtureService().protocolSession(new FramedStringAdapter(), call -> call.args("length-line-frame"))) {
             String response = session.request("one\ntwo", Duration.ofSeconds(2));
 
             assertEquals("one\ntwo", response);
@@ -47,7 +45,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void readinessProbeRunsBeforeProtocolSessionIsReturned() {
         try (ProtocolSession<String, String> session = fixtureService()
-                .protocolSession(new FramedStringAdapter(), call -> call.args("framed-repl")
+                .protocolSession(new FramedStringAdapter(), call -> call.args("length-line-frame")
                         .readiness(ready -> assertEquals("ready", ready.request("ready")))
                         .readinessTimeout(Duration.ofSeconds(2)))) {
             assertEquals("payload", session.request("payload"));
@@ -57,7 +55,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void requestSizeLimitIsTypedFailure() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new FramedStringAdapter(), call -> call.args("framed-repl")
+                .protocolSession(new FramedStringAdapter(), call -> call.args("length-line-frame")
                         .maxRequestBytes(4))
                 .request("too-large"));
 
@@ -67,7 +65,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void responseSizeLimitIsTypedFailure() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new FramedStringAdapter(), call -> call.args("framed-repl")
+                .protocolSession(new FramedStringAdapter(), call -> call.args("length-line-frame")
                         .maxResponseBytes(8))
                 .request("response is too large"));
 
@@ -77,7 +75,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void strictCharsetPolicyReportsMalformedOutput() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new FramedBytesAsLineAdapter(), call -> call.args("framed-repl")
+                .protocolSession(new FramedBytesAsLineAdapter(), call -> call.args("length-line-frame")
                         .charsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8)))
                 .request(new byte[] {(byte) 0xFF}));
 
@@ -88,7 +86,8 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void textCharacterLimitFailsBeforeDelimiterOrEof() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new StdoutLineAdapter(4), call -> call.args("large-stdout", "100", "a"))
+                .protocolSession(
+                        new StdoutLineAdapter(4), call -> call.args("burst", "--stdout-bytes=100", "--stdout-byte=a"))
                 .request(""));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
@@ -97,7 +96,8 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void outputBacklogOverflowIsVisibleWhenAdapterReadsOtherStream() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new StdoutLineAdapter(16), call -> call.args("large-stderr-sleep", "4096", "e", "5000")
+                .protocolSession(new StdoutLineAdapter(16), call -> call.args(
+                                "partial", "--stdout=", "--stderr=" + "e".repeat(4096), "--hold-millis=5000")
                         .outputBacklogLimit(128))
                 .request(""));
 
@@ -107,7 +107,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void decoderFailureIsTypedProtocolFailure() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new FailingDecoderAdapter(), call -> call.args("stdout", "ignored"))
+                .protocolSession(new FailingDecoderAdapter(), call -> call.args("exit", "--stdout=ignored"))
                 .request(""));
 
         assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, exception.reason());
@@ -116,7 +116,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void processExitBeforeResponseIsTypedProtocolFailure() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new StdoutLineAdapter(16), call -> call.args("exit-now"))
+                .protocolSession(new StdoutLineAdapter(16), call -> call.args("exit"))
                 .request(""));
 
         assertEquals(ProtocolSessionException.Reason.PROCESS_EXITED, exception.reason());
@@ -125,7 +125,9 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void protocolRequestTimeoutIsTypedFailure() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new StdoutLineAdapter(16), call -> call.args("ignore-stdin", "5000"))
+                .protocolSession(
+                        new StdoutLineAdapter(16),
+                        call -> call.args("ignore-stdin", "--millis=5000", "--started=false"))
                 .request("", Duration.ofMillis(100)));
 
         assertEquals(ProtocolSessionException.Reason.TIMEOUT, exception.reason());
@@ -134,7 +136,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void pooledProtocolSessionReusesTypedWorkersWithoutExposingLease() {
         try (PooledProtocolSession<String, String> pool = fixtureService()
-                .pooledProtocol(FramedStringAdapter::new, call -> call.args("framed-repl")
+                .pooledProtocol(FramedStringAdapter::new, call -> call.args("length-line-frame")
                         .maxSize(2)
                         .warmupSize(1)
                         .minIdle(1)
@@ -155,7 +157,7 @@ final class ProtocolSessionIntegrationTest {
         try (PooledProtocolSession<String, String> pool = fixtureService()
                 .pooledProtocol(
                         FramedStringAdapter::new,
-                        call -> call.args("framed-repl").maxSize(1).maxRequestsPerWorker(1))) {
+                        call -> call.args("length-line-frame").maxSize(1).maxRequestsPerWorker(1))) {
             assertEquals("first", pool.request("first"));
 
             PooledProtocolSessionMetrics metrics = pool.metrics();
@@ -174,7 +176,7 @@ final class ProtocolSessionIntegrationTest {
                         .withMaxRequestsPerWorker(1));
 
         try (PooledProtocolSession<String, String> pool =
-                service.pooledProtocol(FramedStringAdapter::new, call -> call.args("framed-repl"))) {
+                service.pooledProtocol(FramedStringAdapter::new, call -> call.args("length-line-frame"))) {
             assertEquals("first", pool.request("first"));
 
             assertEquals(1L, pool.metrics().retireReasons().get(PooledWorkerRetireReason.MAX_REQUESTS));
@@ -190,9 +192,9 @@ final class ProtocolSessionIntegrationTest {
     void pooledProtocolWarmupReadinessFailureIsStartupFailure() {
         PooledProtocolSessionException exception =
                 assertThrows(PooledProtocolSessionException.class, () -> fixtureService()
-                        .pooledProtocol(
-                                FramedStringAdapter::new,
-                                call -> call.args("framed-repl").warmupSize(1).readiness(ready -> {
+                        .pooledProtocol(FramedStringAdapter::new, call -> call.args("length-line-frame")
+                                .warmupSize(1)
+                                .readiness(ready -> {
                                     throw new IllegalStateException("not ready");
                                 })));
 
@@ -202,9 +204,9 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void pooledProtocolAcquireTimeoutIsDistinctFromRequestTimeout() throws Exception {
         try (PooledProtocolSession<String, String> pool = fixtureService()
-                .pooledProtocol(
-                        SleepingAdapter::new,
-                        call -> call.args("ignore-stdin", "5000").maxSize(1).acquireTimeout(Duration.ofMillis(100)))) {
+                .pooledProtocol(SleepingAdapter::new, call -> call.args("ignore-stdin", "--millis=5000")
+                        .maxSize(1)
+                        .acquireTimeout(Duration.ofMillis(100)))) {
             ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch firstStarted = new CountDownLatch(1);
             try {
@@ -235,7 +237,7 @@ final class ProtocolSessionIntegrationTest {
         try (PooledProtocolSession<String, String> pool = fixtureService()
                 .pooledProtocol(
                         factory::newAdapter,
-                        call -> call.args("framed-repl").maxSize(2).warmupSize(2))) {
+                        call -> call.args("length-line-frame").maxSize(2).warmupSize(2))) {
             ExecutorService executor = Executors.newCachedThreadPool();
             try {
                 Future<String> first = executor.submit(() -> pool.request("first"));
@@ -256,8 +258,8 @@ final class ProtocolSessionIntegrationTest {
         SerializedAdapterFactory factory = new SerializedAdapterFactory();
 
         try (PooledProtocolSession<String, String> pool = fixtureService()
-                .pooledProtocol(
-                        factory::newAdapter, call -> call.args("framed-repl").maxSize(2))) {
+                .pooledProtocol(factory::newAdapter, call -> call.args("length-line-frame")
+                        .maxSize(2))) {
             ExecutorService executor = Executors.newCachedThreadPool();
             try {
                 Future<String> first = executor.submit(() -> pool.request("first"));
@@ -277,7 +279,7 @@ final class ProtocolSessionIntegrationTest {
     void protocolPoolHealthHookTimeoutIsBounded() {
         PooledProtocolSessionException exception = assertThrows(PooledProtocolSessionException.class, () -> {
             try (PooledProtocolSession<String, String> pool = fixtureService()
-                    .pooledProtocol(FramedStringAdapter::new, call -> call.args("framed-repl")
+                    .pooledProtocol(FramedStringAdapter::new, call -> call.args("length-line-frame")
                             .maxSize(1)
                             .warmupSize(1)
                             .hookTimeout(Duration.ofMillis(50))
@@ -295,7 +297,7 @@ final class ProtocolSessionIntegrationTest {
     @Test
     void protocolPoolResetHookTimeoutIsBoundedAndRetiresWorker() {
         try (PooledProtocolSession<String, String> pool = fixtureService()
-                .pooledProtocol(FramedStringAdapter::new, call -> call.args("framed-repl")
+                .pooledProtocol(FramedStringAdapter::new, call -> call.args("length-line-frame")
                         .maxSize(1)
                         .hookTimeout(Duration.ofMillis(50))
                         .reset(worker -> sleepIgnoringInterrupt(Duration.ofSeconds(5))))) {
@@ -314,11 +316,8 @@ final class ProtocolSessionIntegrationTest {
 
     private static CommandService fixtureService(
             ProtocolSessionOptions protocolOptions, PooledProtocolSessionOptions pooledProtocolOptions) {
-        CommandSpec command = CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
-                .build();
         return new CommandService(
-                command,
+                TestCliSupport.command(),
                 RunOptions.defaults(),
                 SessionOptions.defaults(),
                 com.github.ulviar.icli.session.LineSessionOptions.defaults(),
@@ -326,15 +325,6 @@ final class ProtocolSessionIntegrationTest {
                 com.github.ulviar.icli.session.PooledLineSessionOptions.defaults(),
                 protocolOptions,
                 pooledProtocolOptions);
-    }
-
-    private static String javaExecutable() {
-        String executableName = isWindows() ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 
     private static boolean awaitIdle(PooledProtocolSession<?, ?> pool, int expectedIdle) throws InterruptedException {

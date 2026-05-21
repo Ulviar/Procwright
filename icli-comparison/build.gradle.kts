@@ -187,6 +187,13 @@ tasks.register<JavaExec>("jmhPtyBenchmark") {
     )
 }
 
-tasks.check { dependsOn("comparisonCheck") }
+tasks.named("check") {
+    description =
+        "No-op for the research comparison module; run comparisonCheck or JMH tasks explicitly."
+    setDependsOn(emptyList<Any>())
+}
 
-tasks.check { dependsOn("jmhCompileCheck") }
+tasks.named<Javadoc>("javadoc") {
+    enabled = false
+    description = "Disabled because this project is a research harness, not a published API."
+}

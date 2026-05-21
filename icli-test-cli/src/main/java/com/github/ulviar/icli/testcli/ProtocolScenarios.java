@@ -10,6 +10,34 @@ final class ProtocolScenarios {
     private ProtocolScenarios() {}
 
     static int lineRepl(ScenarioContext context) throws Exception {
+        return lineRepl(context, false);
+    }
+
+    static int controlledLineRepl(ScenarioContext context) throws Exception {
+        return lineRepl(context, true);
+    }
+
+    static int exitAfterRead(ScenarioContext context) throws Exception {
+        try (var reader = context.stdinReader()) {
+            reader.readLine();
+        }
+        return context.options().integer("exit-code", 0);
+    }
+
+    static int twoLineDelayRepl(ScenarioContext context) throws Exception {
+        long delayMillis = context.options().longValue("delay-millis", 100);
+        try (var reader = context.stdinReader()) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                context.stdoutLine("start:" + line);
+                context.sleepMillis(delayMillis);
+                context.stdoutLine("end:" + line);
+            }
+        }
+        return context.options().integer("exit-code", 0);
+    }
+
+    private static int lineRepl(ScenarioContext context, boolean controlsEnabled) throws Exception {
         CliOptions options = context.options();
         String prompt = options.string("prompt", "");
         String responsePrefix = options.string("response-prefix", "response:");
@@ -25,7 +53,9 @@ final class ProtocolScenarios {
                     context.stdoutLine(options.string("bye-text", "bye"));
                     return exitCode;
                 }
-                if (line.startsWith(":sleep")) {
+                if (controlsEnabled && runControlRequest(line, context)) {
+                    // Handled by the simulator control protocol.
+                } else if (line.startsWith(":sleep")) {
                     context.sleepMillis(commandNumber(line, ":sleep", 100));
                 } else if (line.startsWith(":stderr")) {
                     context.stderrLine(commandText(line, ":stderr"));
@@ -45,6 +75,24 @@ final class ProtocolScenarios {
             }
         }
         return options.integer("exit-code", 0);
+    }
+
+    static int lengthLineFrame(ScenarioContext context) throws Exception {
+        while (true) {
+            String header = readAsciiLine(context.stdin());
+            if (header == null) {
+                return context.options().integer("exit-code", 0);
+            }
+            int length = Integer.parseInt(header);
+            byte[] body = context.stdin().readNBytes(length);
+            if (body.length != length) {
+                return context.options().integer("truncated-exit-code", 0);
+            }
+            context.stdoutLine("len:" + body.length);
+            context.stdout().write(body);
+            context.stdoutLine("");
+            context.stdoutLine("END");
+        }
     }
 
     static int jsonLines(ScenarioContext context) throws Exception {
@@ -101,6 +149,46 @@ final class ProtocolScenarios {
         return value.isBlank() ? defaultValue : Integer.parseInt(value);
     }
 
+    private static boolean runControlRequest(String line, ScenarioContext context) throws Exception {
+        switch (line) {
+            case "pid" ->
+                context.stdoutLine("response:pid:" + ProcessHandle.current().pid());
+            case "health" -> context.stdoutLine("response:healthy");
+            case "reset" -> context.stdoutLine("response:reset");
+            case "hold" -> {
+                context.sleepMillis(context.options().longValue("hold-millis", 500));
+                context.stdoutLine("response:hold");
+            }
+            case "multi" -> {
+                context.stdoutLine("first:multi");
+                context.stdoutLine("second:multi");
+            }
+            case "slow" -> {
+                context.stdoutLine("started:slow");
+                context.sleepMillis(context.options().longValue("slow-millis", 5000));
+            }
+            case "slow-response" -> {
+                context.sleepMillis(context.options().longValue("slow-response-millis", 5000));
+                context.stdoutLine("response:slow");
+            }
+            case "many" -> {
+                for (int index = 0; index < 20; index++) {
+                    context.stdoutLine("noise-" + index + "-abcdefghijklmnop");
+                }
+                context.stdoutLine("done");
+            }
+            case "stderr-burst" -> {
+                context.writeRepeated(context.stderr(), (byte) 'e', 256 * 1024, 8192);
+                context.stderrLine("");
+                context.stdoutLine("response:stderr-burst");
+            }
+            default -> {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static String commandText(String line, String command) {
         return line.substring(command.length()).stripLeading();
     }
@@ -127,6 +215,22 @@ final class ProtocolScenarios {
             previous1 = value;
         }
         throw new IOException("Content-Length header exceeds limit");
+    }
+
+    private static String readAsciiLine(java.io.InputStream input) throws IOException {
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        while (true) {
+            int value = input.read();
+            if (value < 0) {
+                return line.size() == 0 ? null : line.toString(StandardCharsets.US_ASCII);
+            }
+            if (value == '\n') {
+                return line.toString(StandardCharsets.US_ASCII);
+            }
+            if (value != '\r') {
+                line.write(value);
+            }
+        }
     }
 
     private static int contentLength(byte[] headerBytes) throws IOException {

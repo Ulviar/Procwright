@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.command.CommandExecutionException;
-import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.session.LineResponse;
 import com.github.ulviar.icli.session.LineSession;
@@ -13,7 +12,6 @@ import com.github.ulviar.icli.session.LineSessionException;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.ResponseDecoder;
 import com.github.ulviar.icli.session.SessionOptions;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -26,7 +24,7 @@ final class LineSessionIntegrationTest {
 
     @Test
     void requestSendsLineAndReadsDefaultResponse() {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = fixtureService().lineSession(call -> call.args("controlled-line-repl"))) {
             LineResponse response = session.request("hello");
 
             assertEquals(List.of("response:hello"), response.lines());
@@ -37,7 +35,7 @@ final class LineSessionIntegrationTest {
 
     @Test
     void readinessProbeRunsBeforeLineSessionIsReturned() {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("line-repl")
+        try (LineSession session = fixtureService().lineSession(call -> call.args("controlled-line-repl")
                 .readiness(ready ->
                         assertEquals("response:healthy", ready.request("health").text()))
                 .readinessTimeout(Duration.ofSeconds(2)))) {
@@ -49,8 +47,8 @@ final class LineSessionIntegrationTest {
 
     @Test
     void readinessFailureClosesLineSessionBeforeReturn() {
-        CommandExecutionException exception = assertThrows(
-                CommandExecutionException.class, () -> fixtureService().lineSession(call -> call.args("line-repl")
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .lineSession(call -> call.args("controlled-line-repl")
                         .readiness(ready -> {
                             throw new IllegalStateException("not ready");
                         })
@@ -61,7 +59,7 @@ final class LineSessionIntegrationTest {
 
     @Test
     void requestRejectsEmbeddedLineSeparators() {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = fixtureService().lineSession(call -> call.args("controlled-line-repl"))) {
             assertThrows(IllegalArgumentException.class, () -> session.request("a\nb"));
             assertThrows(IllegalArgumentException.class, () -> session.request("a\rb"));
         }
@@ -72,7 +70,7 @@ final class LineSessionIntegrationTest {
         CommandService service = fixtureService(LineSessionOptions.defaults()
                 .withResponseDecoder(reader -> List.of(reader.readLine(), reader.readLine())));
 
-        try (LineSession session = service.lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = service.lineSession(call -> call.args("controlled-line-repl"))) {
             LineResponse response = session.request("multi");
 
             assertEquals(List.of("first:multi", "second:multi"), response.lines());
@@ -92,7 +90,7 @@ final class LineSessionIntegrationTest {
         };
         CommandService service = fixtureService(LineSessionOptions.defaults().withResponseDecoder(waitForDone));
 
-        try (LineSession session = service.lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = service.lineSession(call -> call.args("controlled-line-repl"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("slow", Duration.ofSeconds(1)));
 
@@ -106,7 +104,7 @@ final class LineSessionIntegrationTest {
 
     @Test
     void perRequestTimeoutBoundsStdinWrite() {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("ignore-stdin", "5000"))) {
+        try (LineSession session = fixtureService().lineSession(call -> call.args("ignore-stdin", "--millis=5000"))) {
             LineSessionException exception = assertThrows(
                     LineSessionException.class,
                     () -> session.request("x".repeat(8 * 1024 * 1024), Duration.ofMillis(100)));
@@ -120,7 +118,9 @@ final class LineSessionIntegrationTest {
 
     @Test
     void timeoutTranscriptIncludesPartialUnterminatedOutput() {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("partial-stderr-sleep", "5000"))) {
+        try (LineSession session = fixtureService()
+                .lineSession(
+                        call -> call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
@@ -131,7 +131,9 @@ final class LineSessionIntegrationTest {
 
     @Test
     void transcriptAttributesInterleavedPartialOutputToStreams() {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("mixed-partial-sleep", "5000"))) {
+        try (LineSession session = fixtureService()
+                .lineSession(call ->
+                        call.args("partial", "--stdout=partial-out", "--stderr=partial-err", "--hold-millis=5000"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofMillis(100)));
 
@@ -157,7 +159,7 @@ final class LineSessionIntegrationTest {
             throw new IllegalArgumentException("bad response");
         }));
 
-        try (LineSession session = service.lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = service.lineSession(call -> call.args("controlled-line-repl"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
@@ -174,7 +176,7 @@ final class LineSessionIntegrationTest {
         CommandService service = fixtureService(
                 LineSessionOptions.defaults().withStdoutBacklogLimit(1).withResponseDecoder(delayedDecoder));
 
-        try (LineSession session = service.lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = service.lineSession(call -> call.args("controlled-line-repl"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("many", Duration.ofSeconds(2)));
 
@@ -186,7 +188,8 @@ final class LineSessionIntegrationTest {
     void unterminatedStdoutLineIsBounded() {
         CommandService service = fixtureService(LineSessionOptions.defaults().withMaxLineChars(32));
 
-        try (LineSession session = service.lineSession(call -> call.args("large-line-stdout", "x", "128", "5000"))) {
+        try (LineSession session = service.lineSession(
+                call -> call.args("partial", "--stdout=" + "x".repeat(128), "--stderr=", "--hold-millis=5000"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
 
@@ -206,7 +209,7 @@ final class LineSessionIntegrationTest {
                     return List.of(line);
                 }));
 
-        try (LineSession session = service.lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = service.lineSession(call -> call.args("controlled-line-repl"))) {
             LineResponse response = session.request("many");
 
             assertEquals("done", response.text());
@@ -217,7 +220,7 @@ final class LineSessionIntegrationTest {
 
     @Test
     void stderrIsDrainedWhileWaitingForStdoutResponse() throws Exception {
-        try (LineSession session = fixtureService().lineSession(call -> call.args("line-repl"))) {
+        try (LineSession session = fixtureService().lineSession(call -> call.args("controlled-line-repl"))) {
             LineResponse response = session.request("stderr-burst");
 
             assertEquals("response:stderr-burst", response.text());
@@ -230,7 +233,8 @@ final class LineSessionIntegrationTest {
         ResponseDecoder twoLineDecoder = reader -> List.of(reader.readLine(), reader.readLine());
         CommandService service = fixtureService(LineSessionOptions.defaults().withResponseDecoder(twoLineDecoder));
 
-        try (LineSession session = service.lineSession(call -> call.args("two-line-delay-repl"))) {
+        try (LineSession session =
+                service.lineSession(call -> call.args("two-line-delay-repl", "--delay-millis=100"))) {
             ExecutorService executor = Executors.newCachedThreadPool();
             try {
                 Future<LineResponse> first = executor.submit(() -> session.request("a"));
@@ -274,18 +278,7 @@ final class LineSessionIntegrationTest {
     }
 
     private static CommandService fixtureService(LineSessionOptions lineSessionOptions) {
-        CommandSpec command = CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
-                .build();
-        return new CommandService(command, RunOptions.defaults(), SessionOptions.defaults(), lineSessionOptions);
-    }
-
-    private static String javaExecutable() {
-        String executableName = isWindows() ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
+        return new CommandService(
+                TestCliSupport.command(), RunOptions.defaults(), SessionOptions.defaults(), lineSessionOptions);
     }
 }

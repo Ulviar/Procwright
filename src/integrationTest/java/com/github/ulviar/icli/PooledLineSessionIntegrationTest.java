@@ -18,7 +18,6 @@ import com.github.ulviar.icli.session.PooledLineSessionOptions;
 import com.github.ulviar.icli.session.PooledWorkerRetireReason;
 import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamOptions;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -43,7 +42,7 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void warmPoolReusesLineSessionWorkers() {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).warmupSize(1))) {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1).warmupSize(1))) {
             String firstPid = pool.request("pid").text();
             String secondPid = pool.request("pid").text();
 
@@ -60,7 +59,7 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void maxRequestsPerWorkerRetiresWorkersAfterUseLimit() {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).maxRequestsPerWorker(1))) {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1).maxRequestsPerWorker(1))) {
             String firstPid = pool.request("pid").text();
 
             PooledLineSessionMetrics metrics = pool.metrics();
@@ -76,7 +75,7 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void maxWorkerAgeRetiresWorkerAfterUse() {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).maxWorkerAge(Duration.ofNanos(1)))) {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1).maxWorkerAge(Duration.ofNanos(1)))) {
             String firstPid = pool.request("pid").text();
 
             PooledLineSessionMetrics metrics = pool.metrics();
@@ -90,8 +89,8 @@ final class PooledLineSessionIntegrationTest {
 
     @Test
     void requestTimeoutRetiresWorkerBeforeNextRequest() {
-        try (PooledLineSession pool =
-                fixtureService().pooled(call -> call.args("line-repl").maxSize(1))) {
+        try (PooledLineSession pool = fixtureService()
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1))) {
             String firstPid = pool.request("pid").text();
 
             LineSessionException timeout = assertThrows(
@@ -130,7 +129,7 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void callerValidationHappensBeforeWorkerAcquire() {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).warmupSize(1))) {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1).warmupSize(1))) {
             assertThrows(IllegalArgumentException.class, () -> pool.request("a\nb"));
             assertThrows(IllegalArgumentException.class, () -> pool.request("a", Duration.ZERO));
             assertThrows(NullPointerException.class, () -> pool.request(null));
@@ -149,7 +148,7 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void acquireTimeoutIsDistinctWhenAllWorkersAreBusy() throws Exception {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).acquireTimeout(Duration.ofMillis(100)))) {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1).acquireTimeout(Duration.ofMillis(100)))) {
             ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch firstStarted = new CountDownLatch(1);
             try {
@@ -180,7 +179,7 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void resetFailureCountsAsFailedRequestAndRetiresWorker() {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).reset(worker -> {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1).reset(worker -> {
                     throw new IllegalStateException("dirty worker");
                 }))) {
             PooledLineSessionException exception =
@@ -197,7 +196,7 @@ final class PooledLineSessionIntegrationTest {
 
     @Test
     void resetHookTimeoutCountsAsFailedRequestAndRetiresWorker() {
-        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("line-repl")
+        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("controlled-line-repl")
                 .maxSize(1)
                 .hookTimeout(Duration.ofMillis(50))
                 .reset(worker -> sleepIgnoringInterrupt(Duration.ofSeconds(5))))) {
@@ -214,7 +213,7 @@ final class PooledLineSessionIntegrationTest {
 
     @Test
     void healthHookTimeoutIsBoundedAndRetiresWorker() {
-        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("line-repl")
+        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("controlled-line-repl")
                 .maxSize(1)
                 .warmupSize(1)
                 .hookTimeout(Duration.ofMillis(50))
@@ -236,7 +235,7 @@ final class PooledLineSessionIntegrationTest {
         AtomicInteger resetCalls = new AtomicInteger();
 
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).reset(worker -> {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1).reset(worker -> {
                     resetCalls.incrementAndGet();
                     assertEquals("response:reset", worker.request("reset").text());
                 }))) {
@@ -253,8 +252,10 @@ final class PooledLineSessionIntegrationTest {
     void unhealthyIdleWorkerIsRetiredAndReplaced() {
         AtomicInteger checks = new AtomicInteger();
 
-        try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(1).warmupSize(1).healthCheck(worker -> {
+        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("controlled-line-repl")
+                .maxSize(1)
+                .warmupSize(1)
+                .healthCheck(worker -> {
                     int attempt = checks.incrementAndGet();
                     return attempt > 1
                             && "response:healthy"
@@ -270,7 +271,7 @@ final class PooledLineSessionIntegrationTest {
 
     @Test
     void minIdleReplenishesRetiredLineWorkersInBackground() throws Exception {
-        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("line-repl")
+        try (PooledLineSession pool = fixtureService().pooled(call -> call.args("controlled-line-repl")
                 .maxSize(1)
                 .warmupSize(1)
                 .minIdle(1)
@@ -288,8 +289,8 @@ final class PooledLineSessionIntegrationTest {
 
     @Test
     void closeDrainsLeasedWorkersAndRejectsNewRequests() throws Exception {
-        try (PooledLineSession pool =
-                fixtureService().pooled(call -> call.args("line-repl").maxSize(1))) {
+        try (PooledLineSession pool = fixtureService()
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1))) {
             ExecutorService executor = Executors.newCachedThreadPool();
             try {
                 Future<LineResponse> inFlight = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));
@@ -316,7 +317,7 @@ final class PooledLineSessionIntegrationTest {
     @Test
     void closePreservesLeasedMetricsWhileRetiringIdleWorkers() throws Exception {
         try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(2).warmupSize(2))) {
+                .pooled(call -> call.args("controlled-line-repl").maxSize(2).warmupSize(2))) {
             ExecutorService executor = Executors.newCachedThreadPool();
             try {
                 Future<LineResponse> inFlight = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));
@@ -350,7 +351,7 @@ final class PooledLineSessionIntegrationTest {
                 StreamOptions.defaults(),
                 PooledLineSessionOptions.defaults().withMaxSize(2).withWarmupSize(2));
 
-        try (PooledLineSession pool = service.pooled(call -> call.args("line-repl"))) {
+        try (PooledLineSession pool = service.pooled(call -> call.args("controlled-line-repl"))) {
             PooledLineSessionMetrics metrics = pool.metrics();
 
             assertEquals(2, metrics.size());
@@ -362,8 +363,8 @@ final class PooledLineSessionIntegrationTest {
 
     @Test
     void awaitDrainedSaturatesHugeTimeout() {
-        try (PooledLineSession pool =
-                fixtureService().pooled(call -> call.args("line-repl").maxSize(1))) {
+        try (PooledLineSession pool = fixtureService()
+                .pooled(call -> call.args("controlled-line-repl").maxSize(1))) {
             pool.close();
 
             assertTrue(pool.awaitDrained(Duration.ofSeconds(Long.MAX_VALUE)));
@@ -376,18 +377,7 @@ final class PooledLineSessionIntegrationTest {
     }
 
     private static CommandSpec fixtureCommand() {
-        return CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), ProcessFixtureProgram.class.getName())
-                .build();
-    }
-
-    private static String javaExecutable() {
-        String executableName = isWindows() ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", executableName).toString();
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
+        return TestCliSupport.command();
     }
 
     private static boolean awaitLeased(PooledLineSession pool, int expectedLeased) throws InterruptedException {

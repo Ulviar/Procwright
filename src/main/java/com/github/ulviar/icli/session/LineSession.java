@@ -18,17 +18,26 @@ public sealed interface LineSession extends AutoCloseable permits DefaultLineSes
     /**
      * Sends one line and decodes one response with the default request timeout.
      *
+     * <p>Only one request can be active at a time. On timeout, EOF, broken pipe, decode error, response-size overflow,
+     * stdout backlog overflow, decoder failure, or another request/response failure, the line session is closed because
+     * the protocol state is no longer trustworthy. The thrown {@link LineSessionException} contains a stable reason and
+     * bounded transcript snapshot.
+     *
      * @param line request line without the terminating line feed
      * @return decoded response
+     * @throws LineSessionException when the request cannot be completed safely
      */
     LineResponse request(String line);
 
     /**
      * Sends one line and decodes one response with an explicit request timeout.
      *
+     * <p>Failure handling is the same as {@link #request(String)}.
+     *
      * @param line request line without the terminating line feed
      * @param timeout request timeout
      * @return decoded response
+     * @throws LineSessionException when the request cannot be completed safely
      */
     LineResponse request(String line, Duration timeout);
 
