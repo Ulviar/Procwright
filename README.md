@@ -31,7 +31,6 @@ There is no stable Maven artifact yet. For now, evaluate iCLI from source:
 git clone https://github.com/Ulviar/iCLI.git
 cd iCLI
 ./gradlew quickCheck
-./gradlew publicDocsCheck
 ```
 
 To evaluate a specific Java release variant, run Gradle with the matching JDK and
@@ -69,7 +68,6 @@ The example above is compile-tested as `CommandServiceApiExamples.oneShotScenari
 Start with the public docs:
 
 - [Getting Started](docs/getting-started.md)
-- [Scenarios](docs/scenarios/index.md)
 - [How-to Guides](docs/how-to/index.md)
 - [Examples](docs/examples.md)
 - [Reference](docs/reference/index.md)
@@ -85,21 +83,14 @@ Start with the public docs:
 
 ## Verification
 
-Common checks:
+For source evaluation, run the fast check:
 
 ```bash
 ./gradlew quickCheck
-./gradlew scenarioCheck
-./gradlew regressionCheck
-./gradlew check
-./gradlew publicDocsCheck
 ```
 
-Release-candidate validation is stricter and intentionally requires a clean worktree:
-
-```bash
-./gradlew releaseCandidateCheck
-```
+The broader verification matrix is documented in [Compatibility](docs/release/compatibility.md) and the contributor
+context under [context/](context/).
 
 Contributor context, ADRs, audits, and release policies live under [context/](context/). They are project memory, not a
 replacement for the public documentation under [docs/](docs/).

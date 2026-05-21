@@ -17,8 +17,9 @@ if (!result.succeeded()) {
 }
 ```
 
-Use `CommandSpec.shell(...)` only when shell syntax is required. Do not build shell command lines by concatenating
-untrusted input.
+Use `CommandSpec.shell(...)` or `CommandService.forShellCommand(...)` only when shell syntax is required. Shell mode
+hands the command string to the operating-system shell. Do not build shell command lines by concatenating untrusted
+input; pass untrusted values as direct argv arguments through `forCommand(...)` and `args(...)`.
 
 ## Environment handling
 
@@ -32,10 +33,33 @@ Environment values are not exposed in diagnostics. Diagnostic command echoes exp
 Output, transcripts, diagnostics, line lengths, JSON frame sizes, and JSON depth are bounded by policy. Increase limits
 only when the calling application has a concrete need.
 
+## Redaction boundaries
+
+iCLI separates bounded retention from sanitization.
+
+Diagnostics are designed to be redaction-friendly: command echoes avoid raw argv values by default, environment
+diagnostics expose variable names rather than values, and raw stdin/stdout/stderr are not emitted as diagnostic
+attributes.
+
+Process output is different. `CommandResult`, session transcripts, line/protocol transcripts, stream listener chunks,
+and failure snapshots can contain raw stdout/stderr produced by the child process. They are bounded by policy, but they
+are not generally secret-sanitized. Do not persist or expose them unless the calling application treats the child output
+as safe for that destination.
+
 ## Prompt transcripts
 
 `Expect` redacts caller-provided send and expect values in transcripts and failure messages by default. Verbatim
 transcript values are an explicit opt-in and should not be used for secrets.
+
+## Malformed output and charsets
+
+The forgiving default text policy replaces malformed or unmappable bytes. Use `CharsetPolicy.report(...)` when malformed
+text must be a typed failure instead of silently containing replacement characters. For binary-sensitive workflows,
+inspect bounded byte snapshots rather than relying only on decoded text.
+
+Protocol sessions and integration framing helpers can surface malformed output as protocol, decode, or oversized-output
+failures. Transcript snapshots should be treated as diagnostics; malformed, truncated, or redacted snapshots are not a
+substitute for application-level validation.
 
 ## CLI-backed integrations
 

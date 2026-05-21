@@ -28,5 +28,8 @@ Compile-tested source: `CommandServiceApiExamples.terminalRequiredSessionScenari
 The current core API exposes terminal policy, terminal size, terminal control signals, and a narrow `PtyProvider` SPI.
 It does not expose backend-specific PTY library types.
 
-The initial system provider is platform-dependent. Code that requires a terminal should use `REQUIRED` so unavailable
-terminal support is visible as a failure instead of an accidental pipe fallback.
+The initial system provider is platform-dependent. Unix-like environments depend on an available system terminal helper
+such as `script(1)`. Windows ConPTY is not shipped as a provider in the current release state.
+
+Code that requires a terminal should use `REQUIRED` so unavailable terminal support is visible as a failure instead of
+an accidental pipe fallback. See [Platforms and PTY](../reference/platforms-and-pty.md) for the platform boundary.

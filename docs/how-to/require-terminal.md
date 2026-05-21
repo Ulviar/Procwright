@@ -23,3 +23,7 @@ Compile-tested source: `CommandServiceApiExamples.terminalRequiredSessionScenari
 
 Terminal capability is part of session-family lifecycle. `run` and `listen` do not expose PTY controls in the current
 public API.
+
+Current terminal support is intentionally narrow. Unix-like environments depend on an available system terminal helper
+such as `script(1)`, and Windows ConPTY is not shipped in the current release state. Use `REQUIRED` only when the caller
+can handle explicit terminal-unavailable failure.

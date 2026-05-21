@@ -62,8 +62,8 @@ Configured publishing target:
 - credentials are read from `GITHUB_ACTOR` and `GITHUB_TOKEN`;
 - signing uses in-memory `SIGNING_KEY` and `SIGNING_PASSWORD` when present;
 - credentials and signing material are never stored in the repository;
-- remote publication rejects `*-SNAPSHOT` or non-SemVer versions and the release job passes `icli.version` from the
-  GitHub release tag;
+- remote publication rejects `*-SNAPSHOT` or non-SemVer versions; valid RC tag shapes include `v0.1.0-rc.1` and
+  `0.1.0-rc.1`, and the release job passes `icli.version` from the GitHub release tag;
 - the release-only CI job publishes to GitHub Packages with scoped `packages: write` permission after the verification
   matrix passes.
 

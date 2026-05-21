@@ -5,6 +5,7 @@ the scenario guides and should avoid tutorial prose.
 
 Current reference entry points:
 
+- [Scenario contracts](../scenarios/index.md)
 - [Command model](command-model.md)
 - [Policies](policies.md)
 - [Output ownership](output-ownership.md)
@@ -13,13 +14,14 @@ Current reference entry points:
 - [Diagnostics](diagnostics.md)
 - [Security](security.md)
 - [Platforms and PTY](platforms-and-pty.md)
+- [Generated API docs](../api/index.md)
 
 ## Local API docs
 
 Build Java API docs locally:
 
 ```bash
-./gradlew javadoc :icli-integrations:javadoc
+./gradlew publicJavaJavadocCheck
 ```
 
 Kotlin public declarations are checked for KDoc during module verification:

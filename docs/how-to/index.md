@@ -7,8 +7,8 @@ represented in test sources, the example should be added to the test suite befor
 
 ## Guides
 
-- [Migrate from ProcessBuilder](migrate-from-processbuilder.md)
-- [Real-world process recipes](real-world-process-recipes.md)
+- [Choose a process scenario](choose-process-scenario.md)
+- [Choose an iCLI scenario when replacing ProcessBuilder](replace-processbuilder.md)
 - [Run a finite command](run-finite-command.md)
 - [Stop hung processes](stop-hung-processes.md)
 - [Follow logs](follow-logs.md)

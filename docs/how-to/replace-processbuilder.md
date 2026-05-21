@@ -1,7 +1,7 @@
-# Migrate from ProcessBuilder
+# Choose an iCLI Scenario When Replacing ProcessBuilder
 
 Use this guide when existing code launches external commands with `ProcessBuilder`, `Runtime.exec`, or a small local
-process utility. The migration should start from the workflow the caller needs, not from a method-by-method API mapping.
+process utility. Start from the workflow the caller needs, not from a method-by-method API mapping.
 
 ## Choose the scenario first
 
@@ -111,7 +111,7 @@ Compile-tested source: `CommandServiceApiExamples.lineSessionScenario`.
 On timeout, EOF, decoder failure, or read/write failure, the line session closes. This is intentional: after a failed
 request/response cycle, the protocol state is unknown.
 
-## What not to migrate literally
+## What not to copy literally
 
 - Do not translate every `ProcessBuilder` setter into a long iCLI callback. Choose the scenario and then set only the
   policies that matter to that scenario.

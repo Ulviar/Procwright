@@ -36,22 +36,10 @@ nav:
   - Overview: index.md
   - Getting Started: getting-started.md
   - Examples: examples.md
-  - Scenarios:
-      - scenarios/index.md
-      - Run: scenarios/run.md
-      - Interactive Sessions: scenarios/interactive.md
-      - Expect Automation: scenarios/expect.md
-      - Line Sessions: scenarios/line-session.md
-      - Protocol Sessions: scenarios/protocol-session.md
-      - Streaming: scenarios/streaming.md
-      - Pooling: scenarios/pooling.md
-      - Terminal Capability: scenarios/terminal.md
-      - Scenario Presets: scenarios/presets.md
-      - Integrations: scenarios/integrations.md
   - How-to:
       - how-to/index.md
-      - Migrate from ProcessBuilder: how-to/migrate-from-processbuilder.md
-      - Real-world Process Recipes: how-to/real-world-process-recipes.md
+      - Choose a Process Scenario: how-to/choose-process-scenario.md
+      - Choose for ProcessBuilder Code: how-to/replace-processbuilder.md
       - Run a Finite Command: how-to/run-finite-command.md
       - Stop Hung Processes: how-to/stop-hung-processes.md
       - Follow Logs: how-to/follow-logs.md
@@ -62,6 +50,18 @@ nav:
       - Wrap a CLI Tool: how-to/wrap-cli-tool.md
   - Reference:
       - reference/index.md
+      - Scenario Contracts:
+          - scenarios/index.md
+          - Run: scenarios/run.md
+          - Interactive Sessions: scenarios/interactive.md
+          - Expect Automation: scenarios/expect.md
+          - Line Sessions: scenarios/line-session.md
+          - Protocol Sessions: scenarios/protocol-session.md
+          - Streaming: scenarios/streaming.md
+          - Pooling: scenarios/pooling.md
+          - Terminal Capability: scenarios/terminal.md
+          - Scenario Presets: scenarios/presets.md
+          - Integrations: scenarios/integrations.md
       - Command Model: reference/command-model.md
       - Policies: reference/policies.md
       - Output Ownership: reference/output-ownership.md
@@ -70,15 +70,16 @@ nav:
       - Diagnostics: reference/diagnostics.md
       - Security: reference/security.md
       - Platforms and PTY: reference/platforms-and-pty.md
+      - Generated API Docs: api/index.md
   - Explanation:
       - Scenario-first Design: explanations/scenario-first.md
+      - Output Ownership Rationale: explanations/output-ownership.md
+      - Process Cleanup Limits: explanations/process-cleanup-limits.md
       - Non-goals: explanations/non-goals.md
-  - API: api/index.md
   - Release:
       - release/index.md
       - Installation: release/installation.md
       - API Baseline: release/api-baseline.md
       - Compatibility: release/compatibility.md
       - Known Limitations: release/known-limitations.md
-      - Migration Notes: release/migration.md
-      - Release Notes Draft: release/release-notes.md
+      - Current Pre-release Status: release/pre-release-status.md

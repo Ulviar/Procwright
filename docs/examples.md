@@ -5,8 +5,8 @@ so a reader can find the complete source shape when a page shows only a focused 
 
 ## Core examples
 
-Source file:
-[CommandServiceApiExamples.java](https://github.com/Ulviar/iCLI/blob/main/src/test/java/com/github/ulviar/icli/examples/CommandServiceApiExamples.java)
+Source file in the same checkout or release source tree:
+`src/test/java/com/github/ulviar/icli/examples/CommandServiceApiExamples.java`
 
 | Example | Demonstrates |
 | --- | --- |
@@ -26,8 +26,8 @@ Source file:
 
 ## Integration examples
 
-Source file:
-[CommandBackedToolExamples.java](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/com/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
+Source file in the same checkout or release source tree:
+`icli-integrations/src/test/java/com/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java`
 
 | Example | Demonstrates |
 | --- | --- |

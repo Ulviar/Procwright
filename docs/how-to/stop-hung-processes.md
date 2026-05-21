@@ -22,3 +22,7 @@ Compile-tested source: `CommandServiceApiExamples.policyComposition`.
 
 Timeout, shutdown escalation, stream draining, and process-tree cleanup are runtime invariants. They should not be
 assembled at every call site with custom watcher threads.
+
+Cleanup uses JDK `ProcessHandle` descendant tracking. It covers the process tree visible to the JVM, but it is not an OS
+sandbox: detached children, inaccessible process handles, platform limits, or commands that deliberately escape their
+parent tree may need caller-side containment outside iCLI.

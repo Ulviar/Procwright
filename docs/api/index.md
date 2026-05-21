@@ -1,4 +1,4 @@
-# API
+# Generated API Docs
 
 iCLI publishes generated API documentation as part of the release process.
 

@@ -1,9 +1,9 @@
 # Output Ownership
 
-Output ownership answers one question: who is allowed to read stdout and stderr for a process?
+Output ownership answers one contract question: who is allowed to read stdout and stderr for a process?
 
-This is a public contract because mixing output readers is a common source of deadlocks, lost output, and inconsistent
-diagnostics. Pick one scenario owner for each process.
+Pick one scenario owner for each process. The rationale is described in
+[Output Ownership Rationale](../explanations/output-ownership.md).
 
 ## Ownership by scenario
 
@@ -28,12 +28,5 @@ diagnostics. Pick one scenario owner for each process.
 - Do not use `run` for unbounded log following. Use `listen` and keep listener work bounded.
 - Do not keep a line worker alive after timeout or decoder failure. `lineSession` closes because the protocol state is
   unknown.
-
-## Choosing between similar cases
-
-Use `run` for "finish and return a result". Use `listen` for "process output as it arrives". Use `interactive` when the
-caller owns a custom protocol. Add `Expect` only for prompt matching. Use `lineSession` only for serialized
-request/response line protocols. Use `protocolSession` for adapter-owned framed, multi-line, byte, or typed
-request/response protocols.
 
 Diagnostics observe lifecycle events, but they do not own command output and do not change execution behavior.

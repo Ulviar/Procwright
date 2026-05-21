@@ -1,8 +1,7 @@
-# Release Notes Draft
+# Current Pre-release Status
 
-!!! warning "Draft"
-    These notes describe the current unreleased pre-release baseline. Replace this page with versioned release notes when a
-    public release candidate is cut.
+This page describes the current unreleased baseline. Replace it with versioned release notes when a public release
+candidate is cut.
 
 ## Status
 
@@ -10,10 +9,10 @@
 - Version: `0.0.0-SNAPSHOT`.
 - Java release variants: 17, 21, and 25 from one source tree; default local development target is 25.
 - Public artifact target: Java 17.
-- API stability: pre-1.0; first-RC scenario call shapes are being frozen for `run`, `interactive`, `lineSession`,
-  `protocolSession`, `pooled`, and `pooledProtocol`.
+- API stability: pre-1.0; first-RC scenario call shapes are being frozen for `run`, `interactive`, `expect`,
+  `lineSession`, `protocolSession`, `listen`, `pooled`, and `pooledProtocol`.
 
-## Shipped Behavior In The Current Branch
+## Current Branch Behavior
 
 - Scenario-first command service with `run`, `interactive`, `lineSession`, `listen`, and `pooled` workflows.
 - `Expect` prompt automation over iCLI-owned sessions.
@@ -59,6 +58,8 @@
 - Raw session pooling, stateful affinity pools, generic/core async request API, and a real MCP SDK adapter are not
   included.
 - Machine-dependent benchmark results are research data, not performance guarantees.
+- Documentation toolchain transitive Python dependencies are not hash-pinned yet. They are isolated from runtime
+  artifacts, but this remains a documentation-build supply-chain item until a lock or hash workflow is added.
 
 ## Verification
 

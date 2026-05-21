@@ -20,21 +20,14 @@ cd iCLI
 ./gradlew quickCheck
 ```
 
-Use the broader verification tiers when changing behavior:
+Use broader verification tiers only when changing iCLI itself. They are listed in
+[Compatibility](release/compatibility.md) and [Installation](release/installation.md).
 
-```bash
-./gradlew scenarioCheck
-./gradlew regressionCheck
-./gradlew check
-```
+## After a release candidate is published
 
-Run a specific release variant with the matching JDK:
-
-```bash
-./gradlew check --project-prop=icli.javaRelease=17
-./gradlew check --project-prop=icli.javaRelease=21
-./gradlew check --project-prop=icli.javaRelease=25
-```
+The first public artifact target is GitHub Packages with Java 17 bytecode. Until an RC exists, treat dependency
+coordinates as planned shape, not an available artifact. See [Installation](release/installation.md) for repository and
+authentication details.
 
 ## First scenario
 
@@ -68,5 +61,5 @@ Do not start by assembling process flags. Start by choosing the workflow:
 - `pooled` and `pooledProtocol` for reusable workers;
 - `:icli-integrations` for structured CLI adapters.
 
-The [Scenarios](scenarios/index.md) section gives the decision map. The [How-to Guides](how-to/index.md) section starts
-from common tasks.
+The [How-to Guides](how-to/index.md) section starts from common tasks. [Scenario Contracts](scenarios/index.md) is the
+reference index for the public scenario surface.

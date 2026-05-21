@@ -20,8 +20,10 @@ iCLI is intended for applications that need to call external CLIs without owning
 
 ## Documentation model
 
-The public documentation is organized by user scenarios. Each scenario page points back to compile-tested examples in
-the repository. Low-level runtime details are documented only when they are part of the public contract.
+The public documentation follows a Diataxis-style split: getting started for first learning, how-to guides for concrete
+tasks, reference for contracts and generated API docs, and explanation for rationale. Scenario contracts point back to
+compile-tested examples in the repository. Low-level runtime details are documented only when they are part of the public
+contract.
 
 Internal project context, ADRs, audits, and planning documents live under `context/` and are not a substitute for this
 public documentation.
@@ -30,9 +32,8 @@ public documentation.
 
 - [Getting Started](getting-started.md)
 - [Examples](examples.md)
-- [Scenarios](scenarios/index.md)
 - [How-to Guides](how-to/index.md)
 - [Reference](reference/index.md)
+- [Explanation](explanations/scenario-first.md)
 - [Non-goals](explanations/non-goals.md)
-- [API](api/index.md)
 - [Release](release/index.md)
