@@ -26,7 +26,8 @@ presets, CLI-backed integrations и bounded stress suite проект уже м�
   Javadoc artifacts;
 - CI запускает `check` и `javadoc` на Linux, macOS и Windows;
 - POSIX shell/PTTY fixtures skip-аются на Windows, если сценарий реально требует `sh` или системный PTY provider;
-- release policy, compatibility policy, dependency review, release checklist и migration notes живут в `context/release/`.
+- release policy, compatibility policy, dependency review и release checklist живут в `context/release/`; уроки старой
+  реализации живут в `context/legacy-lessons.md`, а не в фиктивных migration notes.
 
 ## Последствия
 

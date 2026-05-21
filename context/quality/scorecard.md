@@ -37,7 +37,7 @@ core/integrations.
 | Performance/stress | RC baseline | `stressTest` входит в `check`; JMH/comparison остаются research/manual data, не performance guarantee. |
 | Release hardening | RC baseline | License, CI matrix, dependency verification, versioning/compatibility/dependency policies, release checklist, JPMS, Javadocs и public package boundary tests добавлены. |
 | Java release variants | RC baseline | Один source tree собирается с `icli.javaRelease=17/21/25`; threading model скрыта за internal boundary, Java 17 использует fallback без изменения public API. |
-| Fixture/evals | RC baseline | Process fixture и `:icli-test-cli` моделируют success, stderr, large output, timeout, sessions, streaming и нестабильные real-world process behaviors. |
+| Fixture/evals | RC baseline | `:icli-test-cli` моделирует success, stderr, large output, timeout, sessions, streaming и нестабильные real-world process behaviors. |
 | Documentation | RC baseline | Public MkDocs site описывает shipped behavior, содержит scenario/how-to/reference/release pages и включает generated Java API docs. |
 
 ## Принятые стабилизационные решения

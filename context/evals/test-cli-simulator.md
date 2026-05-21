@@ -57,6 +57,11 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 ### Protocol
 
 - `line-repl` — line-oriented REPL с prompt, stderr command, sleep command, multi-line response и controlled exit.
+- `controlled-line-repl` — line REPL с health/reset/pid/hold/noise/stderr-burst control requests для pool/session
+  проверок.
+- `exit-after-read` — процесс читает один request и завершает stdout до ответа.
+- `two-line-delay-repl` — сериализуемые two-line responses с задержкой между строками.
+- `length-line-frame` — length-line framed protocol для произвольных multi-line/binary-style request bodies.
 - `jsonl` — JSON Lines протокол с опционально malformed responses.
 - `content-length` — Content-Length framed protocol с проверкой incomplete frames и malformed response mode.
 
@@ -81,8 +86,8 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 ## Расширение
 
 Новый scenario добавляется только вместе с тестом в `:icli-test-cli:test`. Если scenario нужен для release-relevant
-поведения iCLI, соответствующая проверка должна появиться в `integrationTest`, `stressTest`, `comparisonCheck` или
-другом release gate, а не оставаться только в каталоге симулятора.
+поведения iCLI, соответствующая проверка должна появиться в `integrationTest`, `stressTest` или другом release gate, а
+не оставаться только в каталоге симулятора. `comparisonCheck` допустим только как отдельный research/manual signal.
 
 ## Stress-проверки iCLI
 

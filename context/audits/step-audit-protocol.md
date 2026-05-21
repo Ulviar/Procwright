@@ -18,12 +18,15 @@
 8. Повторить аудит затронутой области после исправлений.
 9. Только после чистого аудита или явно принятых `P3` переходить к следующему шагу.
 
+Audit output не является постоянным контекстом по умолчанию. После завершения шага закрытый отчет удаляется; полезные
+выводы переносятся в ADR, tests, release/quality docs или краткое изменение текущего source-of-truth документа.
+
 ## Что считается достаточной проверкой
 
 - Документальный шаг: Markdown review, context index consistency, аудит документации.
 - API шаг: compile-tested examples или public API surface test.
 - Runtime шаг: unit/integration/stress test для затронутого поведения.
-- Release шаг: `./gradlew check`, `./gradlew javadoc`, `git diff --check`.
+- Release шаг: `./gradlew check`, `./gradlew publicJavaJavadocCheck`, `git diff --check`.
 
 ## Scope gate аудита
 
@@ -36,12 +39,10 @@
   Documentation and Release Maturity Auditor обязателен, если меняются контракты или документы.
 - Release-релевантное изменение: обязательны все три роли.
 
-Текущий план доработок после comparison module относится к архитектурным и runtime/API-wide шагам, поэтому для него
-используются все три постоянные роли, пока шаг не станет явно локальным.
-
 ## Запреты
 
 - Нельзя переходить к следующему шагу при незакрытом `P0`, `P1` или `P2`.
 - Нельзя расширять public API только потому, что внешний backend это поддерживает.
 - Нельзя переносить dependency-specific типы в core API.
 - Нельзя считать текстовое правило выполненным, если его можно выразить тестом или валидатором.
+- Нельзя сохранять raw audit/subagent reports, transcripts или закрытые планы как долгоживущий `context/`.

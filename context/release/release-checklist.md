@@ -7,7 +7,8 @@
 - README описывает только реализованное и протестированное поведение.
 - `context/quality/scorecard.md` не содержит устаревшего статуса по уже завершенным фазам.
 - Все ADR для публичных архитектурных решений добавлены в `context/decisions/`.
-- Migration notes отражают переносимые идеи старой версии и то, что намеренно не переносится.
+- Наследие старой версии сведено к полезным урокам в `context/legacy-lessons.md`; release docs не создают фиктивную
+  миграцию для несуществующей пользовательской базы.
 - Versioning и compatibility policies актуальны для текущего Java/Kotlin baseline.
 - Приняты стабилизационные решения по public API, PTY/platform strategy, publishing strategy и Kotlin generated docs.
 - Approved public API surface зафиксирован в [public-api-baseline.md](public-api-baseline.md) и проверяется exact baseline
@@ -31,17 +32,15 @@
 ./gradlew scenarioCheck
 ./gradlew regressionCheck
 ./gradlew check --rerun-tasks
-./gradlew javadoc --rerun-tasks
+./gradlew publicJavaJavadocCheck --rerun-tasks
 ./gradlew publicDocsCheck
-./gradlew :icli-comparison:comparisonCheck
 ./gradlew releaseCandidateCheck
 git diff --check
 git diff --exit-code
 ```
 
-`check` включает unit, integration, module tests, Kotlin public API KDoc check, bounded stress suite, non-mutating
-comparison regression gate и JMH benchmark compilation/metadata generation. `jmhBenchmarkSmoke`, `jmhBenchmark` и
-`jmhPtyBenchmark` остаются исследовательскими/manual задачами и не являются performance pass/fail gate.
+`check` включает unit, integration, module tests, Kotlin public API KDoc check и bounded stress suite. Comparison/JMH
+tasks остаются исследовательскими/manual задачами и не являются release pass/fail gate.
 
 Назначение уровней описано в [../evals/test-tiers.md](../evals/test-tiers.md). `releaseCandidateCheck` является
 локальным составным gate и требует clean worktree, включая untracked files.
@@ -66,13 +65,12 @@ comparison regression gate и JMH benchmark compilation/metadata generation. `jm
 - terminal/PTY возможности остаются capability/transport boundary;
 - terminal methods остаются только в session-family API, а `run`/`listen` не получают PTY knobs без нового ADR;
 - diagnostics event schema и redaction contract остаются согласованными с [../diagnostics.md](../diagnostics.md);
-- comparison qualitative assessment и ADR остаются согласованными с публичной моделью;
 - security-sensitive invariants имеют regression tests: process-tree shutdown, clean environment, bounded line length,
   expect transcript redaction, JSON depth limit.
 
 ## CI
 
-GitHub Actions workflow должен запускать `./gradlew check` и `./gradlew javadoc` и пройти на:
+GitHub Actions workflow должен запускать `./gradlew check` и `./gradlew publicJavaJavadocCheck` и пройти на:
 
 - Linux;
 - macOS;
@@ -86,7 +84,8 @@ Workflow permissions должны оставаться минимальными,
 ## Перед публикацией
 
 - Версия больше не `0.0.0-SNAPSHOT`.
-- Release notes перечисляют shipped behavior, breaking changes и known limitations.
+- Release notes перечисляют shipped behavior, known limitations и только реальные breaking changes для опубликованных
+  API, если такие появятся.
 - Source и Javadoc artifacts собираются для Java modules.
 - Public MkDocs site собирается в strict mode и включает generated Java API docs.
 - Kotlin public API задокументирован через KDoc в sources artifact и проверяется `:icli-kotlin:kotlinApiDocsCheck`.
@@ -102,3 +101,16 @@ Workflow permissions должны оставаться минимальными,
 
 - Maven Central publishing остается отдельным release-infrastructure step; GitHub Packages является текущим configured
   external artifact target.
+
+## Cut RC через GitHub Release
+
+1. Выбрать SemVer RC tag, например `v0.1.0-rc.1`.
+2. На clean `main` прогнать `./gradlew releaseCandidateCheck --project-prop=icli.javaRelease=17`.
+3. Убедиться, что CI на `main` зеленый для Java 17/21/25 на Linux, macOS и Windows.
+4. Создать GitHub Release из выбранного tag и именно опубликовать его, а не оставить draft-only release.
+5. Проверить, что release workflow передал version без ведущего `v`, запустил Java 17-targeted publish и не использовал
+   `*-SNAPSHOT`.
+6. Проверить, что repository permissions/secrets доступны: `GITHUB_TOKEN` с `packages: write`; signing secrets
+   `SIGNING_KEY`/`SIGNING_PASSWORD`, если release должен быть signed.
+7. После успешного job проверить, что GitHub Packages содержит `com.github.ulviar:icli`,
+   `com.github.ulviar:icli-integrations` и `com.github.ulviar:icli-kotlin` с выбранной версией.

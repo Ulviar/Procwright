@@ -208,6 +208,6 @@
 - Kotlin public API проходит KDoc source check через `:icli-kotlin:kotlinApiDocsCheck`;
 - public package boundaries покрыты tests;
 - LICENSE присутствует в корне репозитория;
-- versioning policy, compatibility policy, dependency review, release checklist и migration notes актуальны;
+- versioning policy, compatibility policy, dependency review, release checklist и legacy lessons актуальны;
 - session shutdown escalation hardening либо закрыт тестом, либо явно принят как release limitation;
 - CI запускает `check` и `javadoc` на Linux, macOS и Windows.

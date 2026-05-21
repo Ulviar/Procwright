@@ -24,8 +24,9 @@ Accepted.
 - `com.github.ulviar.icli.command` — one-shot command model, result model, run invocation, input/output policies и
   command-specific exceptions;
 - `com.github.ulviar.icli.diagnostics` — diagnostic events, listeners, transcript sinks и diagnostic options;
-- `com.github.ulviar.icli.session` — raw interactive session, expect, line session, stream session и pooled line
-  session, потому что эти сценарии разделяют один инвариант владения stdout/stderr;
+- `com.github.ulviar.icli.session` — raw interactive session, expect, line session, protocol session, stream session,
+  pooled line session и pooled protocol session, потому что эти сценарии разделяют инвариант единоличного владения
+  stdin/stdout/stderr и session-family lifecycle;
 - `com.github.ulviar.icli.terminal` — terminal/PTY policy, request, provider, size и signal types;
 - `com.github.ulviar.icli.preset` — scenario presets как пользовательский слой выбора готовых профилей;
 - `com.github.ulviar.icli.internal` допускается только для implementation details, которые не должны появляться в
@@ -37,9 +38,9 @@ Diagnostics runtime dispatcher и schema validator относятся к `intern
 только пользовательские hooks, events и options, а не механизм доставки событий.
 
 Публичные contracts session-сценариев сознательно остаются в одном пакете. Разносить `Expect`, `LineSession`,
-`StreamSession` и `Session` по отдельным публичным подпакетам сейчас вредно: тогда модель сценариев станет технической
-навигацией вместо пользовательского workflow. Stateful реализации при этом вынесены в `internal.session` решением
-[ADR-0015](ADR-0015-jpms-encapsulation.md).
+`ProtocolSession`, `StreamSession`, `Session` и pooled session handles по отдельным публичным подпакетам сейчас вредно:
+тогда модель сценариев станет технической навигацией вместо пользовательского workflow. Stateful реализации при этом
+вынесены в `internal.session` решением [ADR-0015](ADR-0015-jpms-encapsulation.md).
 
 ## Инварианты
 
@@ -62,8 +63,8 @@ Diagnostics runtime dispatcher и schema validator относятся к `intern
 ### Разнести каждый сценарий в отдельный пакет
 
 Отклонено для текущего состояния. Это выглядело бы аккуратно в Javadoc, но нарушило бы важный runtime-инвариант:
-`Session`, `Expect`, `LineSession` и `StreamSession` должны координировать единоличное владение stdout/stderr без
-раскрытия внутренних методов наружу.
+`Session`, `Expect`, `LineSession`, `ProtocolSession` и `StreamSession` должны координировать единоличное владение
+stdin/stdout/stderr без раскрытия внутренних методов наружу.
 
 ### Перенести runtime в `internal` без разделения contracts и implementations
 
