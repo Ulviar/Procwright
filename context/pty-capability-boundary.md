@@ -3,8 +3,8 @@
 ## Назначение
 
 PTY нужен не как отдельный пользовательский сценарий, а как transport capability для сценариев, где terminal меняет
-поведение процесса. Пользователь по-прежнему выбирает workflow (`interactive`, `lineSession`, `pooled`), а не provider,
-платформу или набор PTY-флагов.
+поведение процесса. Пользователь по-прежнему выбирает workflow (`interactive`, `lineSession`,
+`lineSession().pooled()`), а не provider, платформу или набор PTY-флагов.
 
 ## Публичная модель
 

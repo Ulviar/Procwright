@@ -12,11 +12,11 @@ processed while the process is still alive.
 
 ```java
 try (StreamSession stream =
-        tool.listen(call -> call.args("logs", "--follow").onOutput(chunk -> {
+        tool.listen().withArgs("logs", "--follow").onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
             }
-        }))) {
+        }).open()) {
     stream.onExit().join();
 }
 ```

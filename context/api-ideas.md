@@ -29,9 +29,9 @@
 API должен читаться как маленькая библиотека вокруг конкретной CLI-программы:
 
 ```java
-var python = CommandService.forCommand("python");
+var python = Icli.command("python");
 
-CommandResult result = python.run(call -> call.args("--version"));
+CommandResult result = python.run().execute("--version");
 ```
 
 Важно: `run`, `lineSession`, `interactive`, `expect` — это сценарии пользователя. Они должны задавать безопасный
@@ -45,15 +45,15 @@ var command = CommandSpec.builder("python")
         .putEnvironment("PYTHONUTF8", "1")
         .build();
 
-var python = new CommandService(command, RunOptions.defaults());
+var python = Icli.command(command);
 
-CommandResult result = python.run(call -> call.args("--version"));
+CommandResult result = python.run().execute("--version");
 ```
 
 ## One-shot command
 
 ```java
-CommandResult result = service.run(call -> call.args("status", "--short"));
+CommandResult result = service.run().execute("status", "--short");
 
 if (result.succeeded()) {
     System.out.println(result.stdout());
@@ -127,16 +127,18 @@ try (Session session = service.interactive(call -> call.args("-i"));
 
 ## Pooled line sessions
 
-Идея `service.pooled()` возвращается только как узкий line-oriented scenario поверх `LineSession`, без отдельного
-runtime и без lease objects.
+Идея pooled workers возвращается только как nested mode поверх конкретного session-сценария, без отдельного runtime и
+без lease objects.
 
 Первый вариант должен выглядеть как естественное расширение сервиса:
 
 ```java
-try (PooledLineSession pool = service.pooled(pool -> pool
-        .args("repl")
-        .maxSize(4)
-        .warmupSize(1))) {
+try (PooledLineSession pool = service.lineSession()
+        .withArgs("repl")
+        .pooled()
+        .withMaxSize(4)
+        .withWarmupSize(1)
+        .open()) {
     LineResponse result = pool.request("status");
 }
 ```
@@ -149,15 +151,15 @@ Public API не должен включать affinity, lease scope и conversat
 Готовые профили должны быть не runners, а typed builder customizers:
 
 ```java
-service.run(call -> {
-    call.args("env");
-    ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024).accept(call);
-});
+service.run()
+        .withArgs("env")
+        .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
+        .execute();
 ```
 
-Это сохраняет важную идею: пользователь сначала выбирает сценарий (`run`, `listen`, `lineSession`, `pooled`), а preset
-лишь применяет осмысленный набор overrides. Если preset начинает требовать новый lifecycle, state или transport, это уже
-не preset, а кандидат на отдельный сценарий и ADR.
+Это сохраняет важную идею: пользователь сначала выбирает сценарий (`run`, `listen`, `lineSession`,
+`lineSession().pooled()`), а preset лишь применяет осмысленный набор overrides. Если preset начинает требовать новый
+lifecycle, state или transport, это уже не preset, а кандидат на отдельный сценарий и ADR.
 
 ## CLI-backed integrations
 

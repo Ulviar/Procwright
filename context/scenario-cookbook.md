@@ -23,8 +23,8 @@ workflow и не скатиться к ручной сборке process harness
 | Требовать terminal capability | `interactive` + `TerminalPolicy.REQUIRED` | `terminalRequiredSessionScenario` |
 | Читать поток вывода без накопления всего output | `listen` | `listenOnlyStreamingScenario` |
 | Наблюдать lifecycle без раскрытия raw argv/env/output | `DiagnosticsOptions` | `diagnosticsScenario` |
-| Переиспользовать line-oriented workers | `pooled` | `pooledLineSessionScenario` |
-| Переиспользовать typed protocol workers | `pooledProtocol` | `pooledProtocolSessionScenario` |
+| Переиспользовать line-oriented workers | `lineSession().pooled()` | `pooledLineSessionScenario` |
+| Переиспользовать typed protocol workers | `protocolSession(factory).pooled()` | `pooledProtocolSessionScenario` |
 | Взять готовый workflow preset без нового runner | `ScenarioPresets` | `scenarioPresetComposition` |
 | Обернуть CLI как tool adapter | `:icli-integrations` | `oneShotCommandBackedTool` |
 | Общаться с JSON Lines worker | `JsonLineSession` | `jsonLineCommandBackedTool` |
@@ -133,10 +133,11 @@ Compile-tested example:
 - diagnostic transcript bounded;
 - listener failure завершает `StreamSession.onExit()` exceptionally и испускает diagnostics failure events.
 
-## `pooled`
+## Nested pooled scenarios
 
-Используй `pooled`, когда один line-oriented worker дорогой в запуске, но protocol позволяет безопасно переиспользовать
-worker между requests.
+Используй `lineSession().pooled()`, когда один line-oriented worker дорогой в запуске, но protocol позволяет безопасно
+переиспользовать worker между requests. Используй `protocolSession(factory).pooled()`, когда то же требуется для typed
+protocol workers с per-worker adapter state.
 
 Compile-tested examples:
 

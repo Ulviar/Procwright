@@ -41,9 +41,10 @@ The project may still make breaking public API changes before `1.0.0`. Breaking 
 examples, public docs, and release notes.
 
 The current baseline includes a pre-1.0 session API break: session-family handles are sealed interfaces backed by hidden
-iCLI implementations. Create them through `CommandService`; custom handle implementations are not supported.
+iCLI implementations. Create them through `Icli.command(...)` scenario methods; custom handle implementations are not
+supported.
 
-For the first release-candidate baseline, `CommandService` remains the main entry point, `SessionOptions.idleTimeout`
-keeps its caller-visible activity semantics, and the current `ScenarioPresets` set is frozen. The first RC freeze scope
-also covers the scenario call shapes for `run`, `interactive`, `lineSession`, `protocolSession`, `pooled`, and
-`pooledProtocol`.
+For the first release-candidate baseline, `Icli.command(...)` is the recommended entry point, `CommandService` remains
+the reusable command handle, `SessionOptions.idleTimeout` keeps its caller-visible activity semantics, and the current
+`ScenarioPresets` set is frozen. The first RC freeze scope also covers the scenario call shapes for `run`,
+`interactive`, `lineSession`, `protocolSession`, `lineSession().pooled()`, and `protocolSession(factory).pooled()`.

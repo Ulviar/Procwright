@@ -22,6 +22,19 @@ final class ProtocolTranscriptBufferTest {
     }
 
     @Test
+    void transcriptDecoderDoesNotMarkUtf16CodePointSplitAcrossChunksAsMalformed() {
+        ProtocolTranscriptBuffer buffer =
+                new ProtocolTranscriptBuffer(1024, CharsetPolicy.report(StandardCharsets.UTF_16LE));
+        byte[] bytes = "€".getBytes(StandardCharsets.UTF_16LE);
+
+        buffer.appendStream("stdout", bytes, 1);
+        buffer.appendStream("stdout", java.util.Arrays.copyOfRange(bytes, 1, bytes.length), 1);
+
+        assertEquals(false, buffer.snapshot().malformed());
+        assertEquals("stdout: €", buffer.snapshot().text());
+    }
+
+    @Test
     void transcriptDecoderMarksMalformedBytesWithoutThrowing() {
         ProtocolTranscriptBuffer buffer =
                 new ProtocolTranscriptBuffer(1024, CharsetPolicy.report(StandardCharsets.UTF_8));

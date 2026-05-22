@@ -17,9 +17,9 @@ The scenario covers:
 ## Example
 
 ```java
-CommandService git = CommandService.forCommand("git");
+CommandService git = Icli.command("git");
 
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandResult result = git.run().execute("status", "--short");
 
 if (!result.succeeded()) {
     throw result.toException();

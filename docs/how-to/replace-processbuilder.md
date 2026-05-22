@@ -12,7 +12,7 @@ process utility. Start from the workflow the caller needs, not from a method-by-
 | Keep a process open and write/read raw streams. | [`interactive`](../scenarios/interactive.md) | Exposes direct session control and process lifecycle. |
 | Wait for prompts and send replies. | [`interactive`](../scenarios/interactive.md) + [`Expect`](../scenarios/expect.md) | Owns prompt matching, transcript bounds, and timeout/EOF distinction. |
 | Send one line request and read one logical response. | [`lineSession`](../scenarios/line-session.md) | Owns serialized request/response state and closes on protocol uncertainty. |
-| Reuse expensive line workers. | [`pooled`](../scenarios/pooling.md) | Reuses line-session workers with bounded pool and retirement policies. |
+| Reuse expensive line workers. | [`lineSession().pooled()`](../scenarios/pooling.md) | Reuses line-session workers with bounded pool and retirement policies. |
 | Wrap a CLI as a structured adapter. | [`integrations`](../scenarios/integrations.md) | Keeps structured adapter behavior outside the core process runtime. |
 
 ## One-shot commands
@@ -20,9 +20,9 @@ process utility. Start from the workflow the caller needs, not from a method-by-
 Replace ad hoc `ProcessBuilder` plus stream pump code with `run` when the process should finish and return an outcome.
 
 ```java
-CommandService git = CommandService.forCommand("git");
+CommandService git = Icli.command("git");
 
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandResult result = git.run().execute("status", "--short");
 
 if (!result.succeeded()) {
     throw result.toException();
@@ -45,9 +45,9 @@ CommandSpec command = CommandSpec.builder("python")
         .putEnvironment("PYTHONUTF8", "1")
         .build();
 
-CommandService python = new CommandService(command, RunOptions.defaults());
+CommandService python = Icli.command(command);
 
-python.run(call -> call.args("--version"));
+python.run().execute("--version");
 ```
 
 Compile-tested source: `CommandServiceApiExamples.explicitCommandConfiguration`.
@@ -62,11 +62,11 @@ captured result. If not, prefer `listen`.
 
 ```java
 try (StreamSession stream =
-        tool.listen(call -> call.args("logs", "--follow").onOutput(chunk -> {
+        tool.listen().withArgs("logs", "--follow").onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
             }
-        }))) {
+        }).open()) {
     stream.onExit().join();
 }
 ```
@@ -81,7 +81,7 @@ all of it would be the wrong invariant.
 If the old code loops over process output waiting for prompt text, use `Expect` over an interactive session.
 
 ```java
-try (Session session = repl.interactive(call -> call.args("repl"));
+try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
     expect.expectText("ready> ");
     expect.sendLine("status");
@@ -98,7 +98,8 @@ Compile-tested source: `CommandServiceApiExamples.expectScenario`.
 If the old code writes a command line and then waits for one response line, use `lineSession`.
 
 ```java
-try (LineSession session = repl.lineSession(call -> call.args("repl"))) {
+try (LineSession session =
+        repl.lineSession().withArgs("repl").withRequestTimeout(Duration.ofSeconds(2)).open()) {
     LineResponse response = session.request("status");
     if (response.text().isBlank()) {
         throw new IllegalStateException("empty response");

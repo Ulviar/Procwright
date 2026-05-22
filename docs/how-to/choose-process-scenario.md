@@ -64,8 +64,8 @@ See [Automate prompts](automate-prompts.md), [Require a terminal](require-termin
 ## Line-oriented worker
 
 Choose `lineSession` when the process behaves like a request/response worker where one request produces one logical
-response. Choose `pooled` when worker startup is expensive and the protocol can be reset or checked safely between
-requests.
+response. Choose `lineSession().pooled()` when worker startup is expensive and the protocol can be reset or checked
+safely between requests.
 
 See [Talk to a line worker](talk-to-line-worker.md), [Reuse workers](reuse-workers.md), and
 [Line Sessions](../scenarios/line-session.md).
@@ -73,8 +73,8 @@ See [Talk to a line worker](talk-to-line-worker.md), [Reuse workers](reuse-worke
 ## Framed or typed protocol worker
 
 Choose `protocolSession` when requests or responses are multi-line, byte-oriented, content-length framed,
-delimiter-framed, or mapped to domain types. Choose `pooledProtocol` when startup is expensive and reset/health semantics
-are clear.
+delimiter-framed, or mapped to domain types. Choose `protocolSession(factory).pooled()` when startup is expensive and
+reset/health semantics are clear.
 
 See [Protocol Sessions](../scenarios/protocol-session.md), [Reuse workers](reuse-workers.md), and
 [Integrations](../scenarios/integrations.md).

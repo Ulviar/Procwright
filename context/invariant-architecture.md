@@ -6,7 +6,7 @@
 компонуемых объектов, каждый из которых удерживает свой инвариант.
 
 Внешний API при этом должен оставаться scenario-first: пользователь выбирает `run`, `lineSession`, `interactive`,
-`expect`, `listen` или `pooled`, а не ручной набор runtime flags. Scenario layer разворачивается во внутренние policies
+`expect`, `listen` или nested pooled session, а не ручной набор runtime flags. Scenario layer разворачивается во внутренние policies
 и execution plan.
 
 Пользовательский API должен выглядеть простым:
@@ -235,7 +235,8 @@ service.run(call -> call
 десятков специализированных runners.
 
 TerminalPolicy допустим только как scenario-level capability для сценариев, где терминал имеет смысл: `interactive`,
-`lineSession` и `pooled` только как наследованный capability worker-ов `LineSession`. Отдельного pool-level PTY runtime
+`lineSession` и `lineSession().pooled()` только как наследованный capability worker-ов `LineSession`. Отдельного
+pool-level PTY runtime
 нет. PTY provider details, signal quirks и platform-specific transport поведение остаются за transport/SPI границей и
 не становятся public knobs.
 

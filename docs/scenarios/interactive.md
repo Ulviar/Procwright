@@ -14,12 +14,11 @@ The scenario covers:
 ## Example
 
 ```java
-CommandService python = new CommandService(
-        CommandSpec.of("python"),
-        RunOptions.defaults(),
-        SessionOptions.defaults().withIdleTimeout(Duration.ofMinutes(5)));
+CommandService python =
+        Icli.command(CommandSpec.of("python")).withSessionOptions(SessionOptions.defaults()
+                .withIdleTimeout(Duration.ofMinutes(5)));
 
-try (Session session = python.interactive(call -> call.args("-i"))) {
+try (Session session = python.interactive().withArgs("-i").open()) {
     session.sendLine("print(6 * 7)");
 }
 ```

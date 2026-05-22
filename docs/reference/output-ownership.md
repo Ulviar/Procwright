@@ -15,8 +15,8 @@ Pick one scenario owner for each process. The rationale is described in
 | `Expect` | `Expect` helper over a `Session` | Expect/send operations | Bounded transcript. |
 | `lineSession` | Line-session decoder | `request(...)` responses | Bounded transcript and backlog. |
 | `protocolSession` | Protocol adapter decoder | Typed `request(...)` responses | Bounded transcript and output backlog. |
-| `pooled` | Pooled line-session workers | Pool request API | Worker metrics and bounded worker transcripts on failures. |
-| `pooledProtocol` | Pooled protocol-session workers | Pool request API | Worker metrics and bounded worker transcripts on failures. |
+| `lineSession().pooled()` | Pooled line-session workers | Pool request API | Worker metrics and bounded worker transcripts on failures. |
+| `protocolSession(factory).pooled()` | Pooled protocol-session workers | Pool request API | Worker metrics and bounded worker transcripts on failures. |
 | Integrations | Integration adapter | Structured adapter API | Adapter-specific bounded results/errors. |
 
 ## Practical rules

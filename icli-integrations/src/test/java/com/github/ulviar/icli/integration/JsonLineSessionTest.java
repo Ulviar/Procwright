@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.CommandService;
+import com.github.ulviar.icli.Icli;
 import com.github.ulviar.icli.command.CommandSpec;
-import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.SessionOptions;
@@ -77,11 +77,9 @@ final class JsonLineSessionTest {
         CommandSpec command = CommandSpec.builder(javaExecutable())
                 .args("-cp", System.getProperty("java.class.path"), JsonLineFixtureProgram.class.getName())
                 .build();
-        return new CommandService(
-                command,
-                RunOptions.defaults(),
-                SessionOptions.defaults().withIdleTimeout(Duration.ofSeconds(30)),
-                LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
+        return Icli.command(command)
+                .withSessionOptions(SessionOptions.defaults().withIdleTimeout(Duration.ofSeconds(30)))
+                .withLineSessionOptions(LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
     }
 
     private static String javaExecutable() {

@@ -6,18 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.CommandService;
+import com.github.ulviar.icli.Icli;
 import com.github.ulviar.icli.TestCliSupport;
 import com.github.ulviar.icli.command.CapturePolicy;
 import com.github.ulviar.icli.command.CommandExecutionException;
 import com.github.ulviar.icli.command.CommandResult;
-import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.internal.DiagnosticAttributeSchema;
 import com.github.ulviar.icli.session.LineSession;
-import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.Session;
-import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamExit;
 import com.github.ulviar.icli.session.StreamListener;
 import com.github.ulviar.icli.session.StreamOptions;
@@ -306,8 +304,12 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (PooledLineSession pool = service.pooled(
-                call -> call.args("controlled-line-repl").maxSize(1).warmupSize(1))) {
+        try (PooledLineSession pool = service.lineSession()
+                .withArgs("controlled-line-repl")
+                .pooled()
+                .withMaxSize(1)
+                .withWarmupSize(1)
+                .open()) {
             assertEquals("response:hello", pool.request("hello").text());
         }
 
@@ -350,11 +352,6 @@ final class DiagnosticsIntegrationTest {
     }
 
     private static CommandService fixtureService(StreamOptions streamOptions) {
-        return new CommandService(
-                TestCliSupport.command(),
-                RunOptions.defaults(),
-                SessionOptions.defaults(),
-                LineSessionOptions.defaults(),
-                streamOptions);
+        return Icli.command(TestCliSupport.command()).withStreamOptions(streamOptions);
     }
 }

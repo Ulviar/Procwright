@@ -36,7 +36,7 @@ final class PackageBoundaryTest {
 
     private static final Map<String, Set<String>> ALLOWED_DEPENDENCIES = Map.of(
             ROOT,
-            packages("command", "diagnostics", "internal", "internal.session", "session"),
+            packages("command", "diagnostics", "internal", "internal.session", "session", "terminal"),
             ROOT + ".command",
             packages("internal"),
             ROOT + ".diagnostics",

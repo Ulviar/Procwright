@@ -39,9 +39,9 @@ To evaluate a specific Java release variant, run Gradle with the matching JDK an
 The smallest workflow is a one-shot command:
 
 ```java
-CommandService git = CommandService.forCommand("git");
+CommandService git = Icli.command("git");
 
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandResult result = git.run().execute("status", "--short");
 
 if (!result.succeeded()) {
     throw result.toException();
@@ -61,7 +61,7 @@ The example above is compile-tested as `CommandServiceApiExamples.oneShotScenari
 | Talk to a line request/response worker. | `lineSession` |
 | Talk to a framed or typed request/response worker. | `protocolSession` |
 | Follow logs or streaming output. | `listen` |
-| Reuse expensive workers. | `pooled` / `pooledProtocol` |
+| Reuse expensive workers. | `lineSession().pooled()` / `protocolSession(factory).pooled()` |
 | Require terminal capability. | session API + `TerminalPolicy.REQUIRED` |
 | Wrap a CLI as a structured adapter. | `:icli-integrations` |
 

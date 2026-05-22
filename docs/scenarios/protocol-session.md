@@ -18,10 +18,10 @@ Compile-tested source: `CommandServiceApiExamples.protocolSessionScenario`.
 
 ## Pooling
 
-Use `pooledProtocol` when worker startup is expensive and the adapter can prove that a worker is reusable after each
-request. The pool owns acquire, release, retirement, reset, health checks, warmup, and background replenishment.
-The pooled API takes an adapter factory so each worker owns its own protocol state. iCLI serializes factory calls, and
-the adapters returned by the factory do not need to be thread-safe.
+Use `protocolSession(factory).pooled()` when worker startup is expensive and the adapter can prove that a worker is
+reusable after each request. The pool owns acquire, release, retirement, reset, health checks, warmup, and background
+replenishment. The pooled API takes an adapter factory so each worker owns its own protocol state. iCLI serializes
+factory calls, and the adapters returned by the factory do not need to be thread-safe.
 
 Compile-tested source: `CommandServiceApiExamples.pooledProtocolSessionScenario`.
 

@@ -15,7 +15,8 @@ The scenario covers:
 ## Example shape
 
 ```java
-try (LineSession session = repl.lineSession(call -> call.args("repl"))) {
+try (LineSession session =
+        repl.lineSession().withArgs("repl").withRequestTimeout(Duration.ofSeconds(2)).open()) {
     LineResponse response = session.request("status");
     if (response.text().isBlank()) {
         throw new IllegalStateException("empty response");

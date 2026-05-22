@@ -8,18 +8,18 @@ caller still owns command selection and input trust.
 Use direct command specifications and arguments by default:
 
 ```java
-CommandService git = CommandService.forCommand("git");
+CommandService git = Icli.command("git");
 
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandResult result = git.run().execute("status", "--short");
 
 if (!result.succeeded()) {
     throw result.toException();
 }
 ```
 
-Use `CommandSpec.shell(...)` or `CommandService.forShellCommand(...)` only when shell syntax is required. Shell mode
+Use `CommandSpec.shell(...)` or `Icli.shellCommand(...)` only when shell syntax is required. Shell mode
 hands the command string to the operating-system shell. Do not build shell command lines by concatenating untrusted
-input; pass untrusted values as direct argv arguments through `forCommand(...)` and `args(...)`.
+input; pass untrusted values as direct argv arguments through `Icli.command(...)` and scenario arguments.
 
 ## Environment handling
 

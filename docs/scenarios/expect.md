@@ -16,9 +16,9 @@ The scenario covers:
 ## Example
 
 ```java
-CommandService repl = CommandService.forCommand("tool");
+CommandService repl = Icli.command("tool");
 
-try (Session session = repl.interactive(call -> call.args("repl"));
+try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
     expect.expectText("ready> ");
     expect.sendLine("status");

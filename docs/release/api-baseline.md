@@ -16,9 +16,10 @@ The core artifact is the named Java module `com.github.ulviar.icli`. It exports 
 The exact public type set is guarded by `PublicApiSurfaceTest`. New public types require an intentional API baseline
 change, documentation updates, and compile-tested examples when user call shape changes.
 
-The first release-candidate scenario freeze covers `run`, `interactive`, `lineSession`, `protocolSession`, `pooled`, and
-`pooledProtocol`. Generic/core async request orchestration and raw session pooling are outside this baseline; the narrow
-cancellable JSON Lines helper remains part of the optional integrations module.
+The first release-candidate scenario freeze covers `run`, `interactive`, `lineSession`, `protocolSession`,
+`lineSession().pooled()`, and `protocolSession(factory).pooled()`. Generic/core async request orchestration and raw
+session pooling are outside this baseline; the narrow cancellable JSON Lines helper remains part of the optional
+integrations module.
 
 ## Optional modules
 

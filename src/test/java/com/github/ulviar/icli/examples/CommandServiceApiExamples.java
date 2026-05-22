@@ -1,10 +1,10 @@
 package com.github.ulviar.icli.examples;
 
 import com.github.ulviar.icli.CommandService;
+import com.github.ulviar.icli.Icli;
 import com.github.ulviar.icli.command.CapturePolicy;
 import com.github.ulviar.icli.command.CommandResult;
 import com.github.ulviar.icli.command.CommandSpec;
-import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.command.ShutdownPolicy;
 import com.github.ulviar.icli.diagnostics.DiagnosticsOptions;
 import com.github.ulviar.icli.preset.ScenarioPresets;
@@ -12,7 +12,6 @@ import com.github.ulviar.icli.session.Expect;
 import com.github.ulviar.icli.session.ExpectOptions;
 import com.github.ulviar.icli.session.LineResponse;
 import com.github.ulviar.icli.session.LineSession;
-import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
 import com.github.ulviar.icli.session.PooledProtocolSession;
@@ -35,9 +34,9 @@ import java.time.Duration;
 final class CommandServiceApiExamples {
 
     void oneShotScenario() {
-        CommandService git = CommandService.forCommand("git");
+        CommandService git = Icli.command("git");
 
-        CommandResult result = git.run(call -> call.args("status", "--short"));
+        CommandResult result = git.run().execute("status", "--short");
 
         if (!result.succeeded()) {
             throw result.toException();
@@ -50,39 +49,38 @@ final class CommandServiceApiExamples {
                 .putEnvironment("PYTHONUTF8", "1")
                 .build();
 
-        CommandService python = new CommandService(command, RunOptions.defaults());
+        CommandService python = Icli.command(command);
 
-        python.run(call -> call.args("--version"));
+        python.run().execute("--version");
     }
 
     void policyComposition() {
-        CommandService logs = CommandService.forCommand("tool");
+        CommandService logs = Icli.command("tool");
 
-        logs.run(call -> call.args("logs")
-                .timeout(Duration.ofSeconds(30))
-                .capture(CapturePolicy.bounded(128 * 1024))
-                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5))));
+        logs.run()
+                .withArgs("logs")
+                .withTimeout(Duration.ofSeconds(30))
+                .withCapture(CapturePolicy.bounded(128 * 1024))
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)))
+                .execute();
     }
 
     void interactiveScenario() {
-        CommandService python = new CommandService(
-                CommandSpec.of("python"),
-                RunOptions.defaults(),
-                SessionOptions.defaults().withIdleTimeout(Duration.ofMinutes(5)));
+        CommandService python = Icli.command(CommandSpec.of("python"))
+                .withSessionOptions(SessionOptions.defaults().withIdleTimeout(Duration.ofMinutes(5)));
 
-        try (Session session = python.interactive(call -> call.args("-i"))) {
+        try (Session session = python.interactive().withArgs("-i").open()) {
             session.sendLine("print(6 * 7)");
         }
     }
 
     void lineSessionScenario() {
-        CommandService repl = new CommandService(
-                CommandSpec.of("tool"),
-                RunOptions.defaults(),
-                SessionOptions.defaults(),
-                LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
+        CommandService repl = Icli.command(CommandSpec.of("tool"));
 
-        try (LineSession session = repl.lineSession(call -> call.args("repl"))) {
+        try (LineSession session = repl.lineSession()
+                .withArgs("repl")
+                .withRequestTimeout(Duration.ofSeconds(2))
+                .open()) {
             LineResponse response = session.request("status");
             if (response.text().isBlank()) {
                 throw new IllegalStateException("empty response");
@@ -91,9 +89,9 @@ final class CommandServiceApiExamples {
     }
 
     void expectScenario() {
-        CommandService repl = CommandService.forCommand("tool");
+        CommandService repl = Icli.command("tool");
 
-        try (Session session = repl.interactive(call -> call.args("repl"));
+        try (Session session = repl.interactive().withArgs("repl").open();
                 Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
             expect.expectText("ready> ");
             expect.sendLine("status");
@@ -102,28 +100,31 @@ final class CommandServiceApiExamples {
     }
 
     void terminalRequiredSessionScenario() {
-        CommandService shell = CommandService.forCommand("sh");
+        CommandService shell = Icli.command("sh");
 
-        try (Session session = shell.interactive(call -> call.terminal(TerminalPolicy.REQUIRED))) {
+        try (Session session =
+                shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
             session.sendSignal(TerminalSignal.INTERRUPT);
         }
     }
 
     void listenOnlyStreamingScenario() {
-        CommandService tool = CommandService.forCommand("tool");
+        CommandService tool = Icli.command("tool");
 
-        try (StreamSession stream =
-                tool.listen(call -> call.args("logs", "--follow").onOutput(chunk -> {
+        try (StreamSession stream = tool.listen()
+                .withArgs("logs", "--follow")
+                .onOutput(chunk -> {
                     if (chunk.source() == StreamSource.STDERR) {
                         System.err.print(chunk.text());
                     }
-                }))) {
+                })
+                .open()) {
             stream.onExit().join();
         }
     }
 
     void diagnosticsScenario() {
-        CommandService tool = CommandService.forCommand("tool")
+        CommandService tool = Icli.command("tool")
                 .withDiagnostics(DiagnosticsOptions.defaults().withListener(event -> {
                     if (event.attributes().containsKey("exitCode")) {
                         System.out.println(
@@ -131,17 +132,20 @@ final class CommandServiceApiExamples {
                     }
                 }));
 
-        tool.run(call -> call.args("--version"));
+        tool.run().execute("--version");
     }
 
     void pooledLineSessionScenario() {
-        CommandService tool = CommandService.forCommand("tool");
+        CommandService tool = Icli.command("tool");
 
-        try (PooledLineSession pool = tool.pooled(call -> call.args("repl")
-                .maxSize(4)
-                .warmupSize(1)
-                .maxRequestsPerWorker(100)
-                .reset(worker -> worker.request("reset")))) {
+        try (PooledLineSession pool = tool.lineSession()
+                .withArgs("repl")
+                .pooled()
+                .withMaxSize(4)
+                .withWarmupSize(1)
+                .withMaxRequestsPerWorker(100)
+                .withReset(worker -> worker.request("reset"))
+                .open()) {
             LineResponse response = pool.request("status", Duration.ofSeconds(2));
             PooledLineSessionMetrics metrics = pool.metrics();
             if (response.text().isBlank() || metrics.size() > 4) {
@@ -151,13 +155,15 @@ final class CommandServiceApiExamples {
     }
 
     void protocolSessionScenario() {
-        CommandService worker = CommandService.forCommand("tool");
+        CommandService worker = Icli.command("tool");
         ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
 
-        try (ProtocolSession<String, String> session = worker.protocolSession(adapter, call -> call.args("worker")
-                .requestTimeout(Duration.ofSeconds(2))
-                .outputBacklogLimit(128 * 1024)
-                .readiness(ready -> ready.request("ready")))) {
+        try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
+                .withArgs("worker")
+                .withRequestTimeout(Duration.ofSeconds(2))
+                .withOutputBacklogLimit(128 * 1024)
+                .withReadiness(ready -> ready.request("ready"))
+                .open()) {
             String response = session.request("first line\nsecond line");
             if (response.isBlank()) {
                 throw new IllegalStateException("empty response");
@@ -166,14 +172,16 @@ final class CommandServiceApiExamples {
     }
 
     void pooledProtocolSessionScenario() {
-        CommandService worker = CommandService.forCommand("tool");
+        CommandService worker = Icli.command("tool");
 
-        try (PooledProtocolSession<String, String> pool =
-                worker.pooledProtocol(LengthPrefixedTextAdapter::new, call -> call.args("worker")
-                        .maxSize(4)
-                        .warmupSize(1)
-                        .minIdle(1)
-                        .readiness(ready -> ready.request("ready")))) {
+        try (PooledProtocolSession<String, String> pool = worker.protocolSession(LengthPrefixedTextAdapter::new)
+                .withArgs("worker")
+                .withReadiness(ready -> ready.request("ready"))
+                .pooled()
+                .withMaxSize(4)
+                .withWarmupSize(1)
+                .withMinIdle(1)
+                .open()) {
             String response = pool.request("document\nbody", Duration.ofSeconds(2));
             PooledProtocolSessionMetrics metrics = pool.metrics();
             if (response.isBlank() || metrics.size() > 4) {
@@ -183,18 +191,18 @@ final class CommandServiceApiExamples {
     }
 
     void scenarioPresetComposition() {
-        CommandService tool = CommandService.forCommand("tool");
+        CommandService tool = Icli.command("tool");
 
-        tool.run(call -> {
-            call.args("env");
-            ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024)
-                    .accept(call);
-        });
+        tool.run()
+                .withArgs("env")
+                .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
+                .execute();
 
-        try (StreamSession stream = tool.listen(call -> {
-            call.args("logs", "--follow").onOutput(chunk -> System.out.print(chunk.text()));
-            ScenarioPresets.logFollowing(Duration.ZERO).accept(call);
-        })) {
+        try (StreamSession stream = tool.listen()
+                .withArgs("logs", "--follow")
+                .onOutput(chunk -> System.out.print(chunk.text()))
+                .configuredBy(ScenarioPresets.logFollowing(Duration.ZERO))
+                .open()) {
             stream.close();
         }
     }

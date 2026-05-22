@@ -6,14 +6,14 @@ should finish and return a result.
 ## Steps
 
 1. Create a `CommandService` for the executable.
-2. Add per-call arguments in the scenario callback.
+2. Select `run` and add per-call arguments.
 3. Inspect `CommandResult`.
 4. Convert unsuccessful results with `toException()` only when fail-fast flow is useful.
 
 ```java
-CommandService git = CommandService.forCommand("git");
+CommandService git = Icli.command("git");
 
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandResult result = git.run().execute("status", "--short");
 
 if (!result.succeeded()) {
     throw result.toException();

@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.CommandService;
+import com.github.ulviar.icli.Icli;
 import com.github.ulviar.icli.TestCliSupport;
-import com.github.ulviar.icli.command.RunOptions;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -198,11 +198,6 @@ final class StreamScenarioIntegrationTest {
     }
 
     private static CommandService fixtureService(StreamOptions streamOptions) {
-        return new CommandService(
-                TestCliSupport.command(),
-                RunOptions.defaults(),
-                SessionOptions.defaults(),
-                LineSessionOptions.defaults(),
-                streamOptions);
+        return Icli.command(TestCliSupport.command()).withStreamOptions(streamOptions);
     }
 }

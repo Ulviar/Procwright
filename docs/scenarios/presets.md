@@ -8,11 +8,10 @@ Use presets when the scenario is already chosen and the same group of policies a
 ## Example
 
 ```java
-tool.run(call -> {
-    call.args("env");
-    ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024)
-            .accept(call);
-});
+tool.run()
+        .withArgs("env")
+        .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
+        .execute();
 ```
 
 Compile-tested source: `CommandServiceApiExamples.scenarioPresetComposition`.

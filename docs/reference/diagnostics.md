@@ -8,12 +8,15 @@ command behavior.
 Attach diagnostics through `DiagnosticsOptions` on `CommandService`.
 
 ```java
-CommandService tool = CommandService.forCommand("tool")
+CommandService tool = Icli.command("tool")
         .withDiagnostics(DiagnosticsOptions.defaults().withListener(event -> {
             if (event.attributes().containsKey("exitCode")) {
-                System.out.println(event.type() + ":" + event.attributes().get("exitCode"));
+                System.out.println(
+                        event.type() + ":" + event.attributes().get("exitCode"));
             }
         }));
+
+tool.run().execute("--version");
 ```
 
 Compile-tested source: `CommandServiceApiExamples.diagnosticsScenario`.

@@ -1,13 +1,12 @@
 package com.github.ulviar.icli.comparison;
 
 import com.github.ulviar.icli.CommandService;
+import com.github.ulviar.icli.Icli;
 import com.github.ulviar.icli.command.CommandSpec;
-import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.session.LineSessionException;
 import com.github.ulviar.icli.session.LineSessionOptions;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.PooledLineSessionMetrics;
-import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.testcli.TestCli;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -186,8 +185,13 @@ public final class StressComparisonRunner {
         }
         long started = System.nanoTime();
         try (PooledLineSession pool = testCliLineService()
-                .pooled(call ->
-                        call.args("line-repl").maxSize(2).warmupSize(1).acquireTimeout(Duration.ofSeconds(2)))) {
+                .lineSession()
+                .withArgs("line-repl")
+                .pooled()
+                .withMaxSize(2)
+                .withWarmupSize(1)
+                .withAcquireTimeout(Duration.ofSeconds(2))
+                .open()) {
             ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch start = new CountDownLatch(1);
             int timeouts = 0;
@@ -377,11 +381,8 @@ public final class StressComparisonRunner {
     }
 
     private static CommandService testCliLineService() {
-        return new CommandService(
-                commandSpec(testCliCommand()),
-                RunOptions.defaults(),
-                SessionOptions.defaults(),
-                LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
+        return Icli.command(commandSpec(testCliCommand()))
+                .withLineSessionOptions(LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
     }
 
     private static CommandSpec commandSpec(List<String> command) {

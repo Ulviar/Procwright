@@ -10,11 +10,12 @@ candidate is cut.
 - Java release variants: 17, 21, and 25 from one source tree; default local development target is 25.
 - Public artifact target: Java 17.
 - API stability: pre-1.0; first-RC scenario call shapes are being frozen for `run`, `interactive`, `expect`,
-  `lineSession`, `protocolSession`, `listen`, `pooled`, and `pooledProtocol`.
+  `lineSession`, `protocolSession`, `listen`, `lineSession().pooled()`, and `protocolSession(factory).pooled()`.
 
 ## Current Branch Behavior
 
-- Scenario-first command service with `run`, `interactive`, `lineSession`, `listen`, and `pooled` workflows.
+- Scenario-first command service with `run`, `interactive`, `lineSession`, `protocolSession`, `listen`, and nested
+  pooled workflows.
 - `Expect` prompt automation over iCLI-owned sessions.
 - Bounded one-shot capture with typed command results.
 - Timeout and shutdown handling with process-tree cleanup tests.
@@ -37,11 +38,11 @@ candidate is cut.
 
 ## Stabilization Decisions
 
-- `CommandService` remains the main public entry point for the first release-candidate baseline.
+- `Icli.command(...)` is the recommended public entry point; `CommandService` remains the reusable command handle.
 - Convenience one-line shortcut APIs are not added before the first release candidate.
 - `SessionOptions.idleTimeout` keeps its current name and caller-visible activity semantics.
 - The current `ScenarioPresets` set is frozen for the first release-candidate baseline.
-- `protocolSession` and `pooledProtocol` are canonical scenario APIs, not low-level flag bundles.
+- `protocolSession` and nested pooled session APIs are canonical scenario APIs, not low-level flag bundles.
 - Session-family handles are sealed public contracts backed by hidden iCLI implementations.
 - Diagnostics remains best-effort and unordered.
 - Core, integrations, and Kotlin public API type sets are guarded by exact baseline tests.

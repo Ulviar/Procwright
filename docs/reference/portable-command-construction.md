@@ -5,14 +5,14 @@ strings; it is achieved by choosing direct argv by default and making platform b
 
 ## Direct argv is the default
 
-Use `CommandService.forCommand("tool")`, `CommandSpec.of("tool")`, or `CommandSpec.builder("tool")` for direct
+Use `Icli.command("tool")`, `CommandSpec.of("tool")`, or `CommandSpec.builder("tool")` for direct
 execution. Add arguments as separate values with `args(...)`.
 
 Direct argv avoids shell quoting rules and keeps user-provided values from becoming shell syntax.
 
 ## Shell is explicit
 
-Use `CommandService.forShellCommand(...)` or `CommandSpec.shell(...)` only when shell syntax is the actual requirement:
+Use `Icli.shellCommand(...)` or `CommandSpec.shell(...)` only when shell syntax is the actual requirement:
 pipelines, redirects, shell built-ins, command substitution, or platform scripts that must be interpreted by a shell.
 
 Do not build shell command lines by concatenating untrusted input. Prefer direct argv and pass untrusted values as
@@ -31,8 +31,8 @@ iCLI validates and launches the command it is given. It does not currently imple
 
 ## Working directory and environment
 
-Use `CommandSpec` for stable working directory and environment defaults. Use scenario invocation callbacks for
-operation-specific overrides.
+Use `CommandSpec` for stable working directory and environment defaults. Use scenario methods for operation-specific
+overrides.
 
 The default environment policy inherits the current process environment and applies explicit overrides. Use
 `cleanEnvironment()` when reproducibility or isolation matters. On Windows, a very small clean environment may need

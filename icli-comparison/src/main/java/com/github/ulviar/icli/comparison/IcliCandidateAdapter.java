@@ -1,13 +1,13 @@
 package com.github.ulviar.icli.comparison;
 
 import com.github.ulviar.icli.CommandService;
+import com.github.ulviar.icli.Icli;
 import com.github.ulviar.icli.command.CapturePolicy;
 import com.github.ulviar.icli.command.CommandExecutionException;
 import com.github.ulviar.icli.command.CommandInput;
 import com.github.ulviar.icli.command.CommandResult;
 import com.github.ulviar.icli.command.CommandSpec;
 import com.github.ulviar.icli.command.OutputMode;
-import com.github.ulviar.icli.command.RunOptions;
 import com.github.ulviar.icli.integration.CommandBackedTool;
 import com.github.ulviar.icli.integration.ToolCallResult;
 import com.github.ulviar.icli.session.Expect;
@@ -15,7 +15,6 @@ import com.github.ulviar.icli.session.LineResponse;
 import com.github.ulviar.icli.session.LineSession;
 import com.github.ulviar.icli.session.PooledLineSession;
 import com.github.ulviar.icli.session.Session;
-import com.github.ulviar.icli.session.SessionOptions;
 import com.github.ulviar.icli.session.StreamSession;
 import com.github.ulviar.icli.terminal.PtyProvider;
 import com.github.ulviar.icli.terminal.TerminalPolicy;
@@ -186,10 +185,11 @@ final class IcliCandidateAdapter implements CandidateAdapter {
                     Duration.ZERO,
                     "system PTY provider unavailable");
         }
-        try (Session session = new CommandService(
-                        CommandSpec.of("sh"), RunOptions.defaults(), SessionOptions.defaults())
-                .interactive(call -> call.terminal(TerminalPolicy.REQUIRED)
-                        .args("-c", "if [ -t 0 ] && [ -t 1 ]; then echo pty:true; else echo pty:false; fi"))) {
+        try (Session session = Icli.command(CommandSpec.of("sh"))
+                .interactive()
+                .withTerminal(TerminalPolicy.REQUIRED)
+                .withArgs("-c", "if [ -t 0 ] && [ -t 1 ]; then echo pty:true; else echo pty:false; fi")
+                .open()) {
             byte[] output = ProcessSupport.readAllBytesBounded(session.stdout(), timeout, session::close);
             boolean exited = session.onExit()
                             .get(timeout.toMillis(), TimeUnit.MILLISECONDS)
@@ -214,8 +214,13 @@ final class IcliCandidateAdapter implements CandidateAdapter {
 
     CommandOutcome pooled(List<String> command, Duration timeout) {
         long started = System.nanoTime();
-        try (PooledLineSession pool =
-                service(command).pooled(call -> call.maxSize(2).warmupSize(1).acquireTimeout(timeout))) {
+        try (PooledLineSession pool = service(command)
+                .lineSession()
+                .pooled()
+                .withMaxSize(2)
+                .withWarmupSize(1)
+                .withAcquireTimeout(timeout)
+                .open()) {
             String first = pool.request("alpha", timeout).text();
             String second = pool.request("beta", timeout).text();
             String text = first + "\n" + second + "\ncreated:" + pool.metrics().created();
@@ -274,6 +279,6 @@ final class IcliCandidateAdapter implements CandidateAdapter {
         if (command.size() > 1) {
             builder.args(command.subList(1, command.size()));
         }
-        return new CommandService(builder.build(), RunOptions.defaults());
+        return Icli.command(builder.build());
     }
 }

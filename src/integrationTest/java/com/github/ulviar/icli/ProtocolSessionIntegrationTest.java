@@ -94,6 +94,16 @@ final class ProtocolSessionIntegrationTest {
     }
 
     @Test
+    void textCharacterLimitAppliesAcrossMultipleTextReads() {
+        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
+                .protocolSession(new TwoLineTextAdapter(), call -> call.args("controlled-line-repl")
+                        .maxResponseChars(20))
+                .request("multi"));
+
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
+    }
+
+    @Test
     void outputBacklogOverflowIsVisibleWhenAdapterReadsOtherStream() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
                 .protocolSession(new StdoutLineAdapter(16), call -> call.args(
@@ -406,6 +416,21 @@ final class ProtocolSessionIntegrationTest {
         @Override
         public String readResponse(ProtocolReaders readers) {
             return readers.stdout().readLine(maxChars);
+        }
+    }
+
+    private static final class TwoLineTextAdapter implements ProtocolAdapter<String, String> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.writeLine(request);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            ProtocolReader stdout = readers.stdout();
+            return stdout.readLine(32) + "\n" + stdout.readLine(32);
         }
     }
 

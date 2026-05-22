@@ -82,7 +82,7 @@
 
 ## Пул line-сессий
 
-- `pooled` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
+- `lineSession().pooled()` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
 - `warmupSize` заранее создает workers, а `maxSize` ограничивает общий live worker count.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
 - Acquire timeout отличается от request timeout и дает pool-level failure.
@@ -103,7 +103,7 @@
 - `promptAutomationSession` задает idle timeout, terminal policy и UTF-8 text-send charset для raw `interactive`.
 - `logFollowing` задает absolute stream timeout и close-stdin-on-start для `listen`.
 - `terminalRequiredSession` задает terminal-required session preset без отдельного runner.
-- `warmWorkerPool` задает max/warmup size и acquire timeout для `pooled`.
+- `warmWorkerPool` задает max/warmup size и acquire timeout для `lineSession().pooled()`.
 - Невалидные preset policies падают до применения к builder.
 
 ## CLI-backed integrations

@@ -14,9 +14,9 @@ requires terminal control sequences to function.
 ## Example
 
 ```java
-CommandService shell = CommandService.forCommand("sh");
+CommandService shell = Icli.command("sh");
 
-try (Session session = shell.interactive(call -> call.terminal(TerminalPolicy.REQUIRED))) {
+try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
     session.sendSignal(TerminalSignal.INTERRUPT);
 }
 ```

@@ -17,7 +17,7 @@ core/integrations.
 | Область | Статус | Что верно сейчас |
 | --- | --- | --- |
 | Engineering charter | Активно | Качество, инварианты, TDD/evals и документация остаются обязательным стандартом проекта. |
-| Scenario API | RC baseline | Пользователь выбирает `run`, `interactive`, `lineSession`, `protocolSession`, `expect`, `listen`, `pooled` или `pooledProtocol`, а не собирает runtime flags. |
+| Scenario API | RC baseline | Пользователь выбирает `run`, `interactive`, `lineSession`, `protocolSession`, `expect`, `listen`, `lineSession().pooled()` или `protocolSession(factory).pooled()`, а не собирает runtime flags. |
 | Invariant model | RC baseline | `ScenarioProfile + CommandSpec + scenario invocation` разворачиваются в валидированные execution/session plans. |
 | One-shot execution | RC baseline | Direct argv, explicit shell, stdin, cwd/env, charset, timeout, drain, bounded capture и typed result покрыты tests. |
 | Capture policy | RC baseline | Bounded capture и truncation flags реализованы; streaming/discard capture policies не входят в первый RC. |

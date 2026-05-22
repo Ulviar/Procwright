@@ -24,16 +24,19 @@ input.
 - `run`;
 - `interactive`;
 - `lineSession`;
+- `protocolSession`;
 - `listen`;
-- `pooled`.
+- `lineSession().pooled()`;
+- `protocolSession(factory).pooled()`.
 
-Scenario callbacks receive mutable builders, but those builders are drafts. They are resolved into immutable validated
-plans before runtime code launches a process.
+Scenario methods first select the workflow and then expose only configuration relevant to that workflow. Callback-based
+methods remain available as a compatibility and integration bridge, but the primary API shape is scenario object plus
+`with...` configuration.
 
 ## Override precedence
 
-Base command configuration belongs to `CommandSpec`. Per-call or per-session overrides belong to scenario invocation
-builders. The resolver combines both layers before launch.
+Base command configuration belongs to `CommandSpec`. Per-call or per-session overrides belong to scenario objects. The
+resolver combines both layers before launch.
 
 Use base configuration for stable defaults, such as working directory or environment overrides shared by all calls. Use
 scenario invocation callbacks for operation-specific arguments, timeout, capture, listener, terminal, or pooling

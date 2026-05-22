@@ -43,19 +43,19 @@ service.run(call -> call
 Базовый сервис вокруг команды остается хорошей идеей:
 
 ```java
-var python = CommandService.forCommand("python");
+var python = Icli.command("python");
 ```
 
 Дальше пользователь выбирает сценарий:
 
 ```java
-CommandResult version = python.run(call -> call.args("--version"));
+CommandResult version = python.run().execute("--version");
 
-try (LineSession repl = python.lineSession(session -> session.args("-i"))) {
+try (LineSession repl = python.lineSession().withArgs("-i").open()) {
     LineResponse answer = repl.request("print(6 * 7)");
 }
 
-try (Session shell = python.interactive(session -> session.args("-i"))) {
+try (Session shell = python.interactive().withArgs("-i").open()) {
     shell.sendLine("print('ready')");
 }
 ```
@@ -65,8 +65,10 @@ try (Session shell = python.interactive(session -> session.args("-i"))) {
 Терминал остается сценарной потребностью, а не набором платформенных flags:
 
 ```java
-try (Session shell = CommandService.forCommand("sh")
-        .interactive(session -> session.terminal(TerminalPolicy.REQUIRED))) {
+try (Session shell = Icli.command("sh")
+        .interactive()
+        .withTerminal(TerminalPolicy.REQUIRED)
+        .open()) {
     shell.sendSignal(TerminalSignal.INTERRUPT);
 }
 ```
@@ -93,7 +95,7 @@ try (Session shell = CommandService.forCommand("sh")
 Пользовательский пример:
 
 ```java
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandResult result = git.run().execute("status", "--short");
 ```
 
 ### `lineSession`
@@ -114,7 +116,7 @@ Line-oriented request/response workflow для REPL-like процессов.
 Пользовательский пример:
 
 ```java
-try (LineSession python = service.lineSession(call -> call.args("-i"))) {
+try (LineSession python = service.lineSession().withArgs("-i").open()) {
     LineResponse result = python.request("print(6 * 7)");
 }
 ```
@@ -133,7 +135,7 @@ Raw interactive process handle.
 Пользовательский пример:
 
 ```java
-try (Session session = service.interactive(call -> call.args("-i"))) {
+try (Session session = service.interactive().withArgs("-i").open()) {
     session.sendLine("print(6 * 7)");
 }
 ```
@@ -156,7 +158,7 @@ try (Session session = service.interactive(call -> call.args("-i"))) {
 Пользовательский пример:
 
 ```java
-try (Session session = service.interactive(call -> call.args("-i"));
+try (Session session = service.interactive().withArgs("-i").open();
         Expect expect = session.expect()) {
     expect.expectRegex(Pattern.compile("Python .*"));
     expect.sendLine("print(6 * 7)");
@@ -182,18 +184,19 @@ Listen-only streaming workflow для `tail`, `logs --follow` и похожих 
 Пользовательский пример:
 
 ```java
-try (StreamSession logs = service.listen(call -> call
-        .args("logs", "--follow")
+try (StreamSession logs = service.listen()
+        .withArgs("logs", "--follow")
         .onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
             }
-        }))) {
+        })
+        .open()) {
     logs.onExit().join();
 }
 ```
 
-### `pooled`
+### `lineSession().pooled()`
 
 Pooled line-oriented workers для CLI/REPL с дорогим startup.
 
@@ -209,11 +212,13 @@ Pooled line-oriented workers для CLI/REPL с дорогим startup.
 Пользовательский пример:
 
 ```java
-try (PooledLineSession pool = service.pooled(call -> call
-        .args("repl")
-        .maxSize(4)
-        .warmupSize(1)
-        .reset(worker -> worker.request("reset")))) {
+try (PooledLineSession pool = service.lineSession()
+        .withArgs("repl")
+        .pooled()
+        .withMaxSize(4)
+        .withWarmupSize(1)
+        .withReset(worker -> worker.request("reset"))
+        .open()) {
     LineResponse result = pool.request("status");
 }
 ```
@@ -230,7 +235,7 @@ Generic request/response workers для framed, multi-line, byte-oriented или
 - request/response size limits и strict charset decoding дают typed failures;
 - readiness probe выполняется до возврата session.
 
-### `pooledProtocol`
+### `protocolSession(factory).pooled()`
 
 Typed protocol pool для дорогих workers, где adapter и hooks доказывают безопасное переиспользование.
 
@@ -277,14 +282,14 @@ listen
   listener: synchronous chunks with process backpressure
   timeout: optional absolute stream timeout
 
-pooled
+lineSession().pooled()
   worker: existing lineSession
   size: bounded max workers
   acquisition: bounded acquire timeout
   reset/health: explicit hooks through line-session primitive
   shutdown: idle close immediately, leased close after current request
 
-pooledProtocol
+protocolSession(factory).pooled()
   worker: existing protocolSession
   adapter: per-worker adapter factory
   size: bounded max workers + minIdle replenishment
@@ -296,10 +301,11 @@ pooledProtocol
 Пользователь может переопределить части профиля:
 
 ```java
-try (StreamSession stream = service.listen(call -> call
-        .args("logs", "--follow")
-        .timeout(Duration.ofMinutes(2))
-        .onOutput(chunk -> System.out.print(chunk.text())))) {
+try (StreamSession stream = service.listen()
+        .withArgs("logs", "--follow")
+        .withTimeout(Duration.ofMinutes(2))
+        .onOutput(chunk -> System.out.print(chunk.text()))
+        .open()) {
     stream.onExit().join();
 }
 ```
@@ -312,19 +318,20 @@ Preset — это typed customizer существующего scenario builder, 
 все равно выбирает сценарий:
 
 ```java
-service.run(call -> {
-    call.args("env");
-    ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024).accept(call);
-});
+service.run()
+        .withArgs("env")
+        .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
+        .execute();
 ```
 
 Для listen-only workflow:
 
 ```java
-try (StreamSession stream = service.listen(call -> {
-    call.args("logs", "--follow").onOutput(chunk -> System.out.print(chunk.text()));
-    ScenarioPresets.logFollowing(Duration.ZERO).accept(call);
-})) {
+try (StreamSession stream = service.listen()
+        .withArgs("logs", "--follow")
+        .onOutput(chunk -> System.out.print(chunk.text()))
+        .configuredBy(ScenarioPresets.logFollowing(Duration.ZERO))
+        .open()) {
     stream.onExit().join();
 }
 ```
@@ -341,13 +348,13 @@ try (StreamSession stream = service.listen(call -> {
 Снаружи:
 
 ```text
-CommandService.run(...)
-CommandService.lineSession(...)
-CommandService.protocolSession(...)
-CommandService.interactive(...)
-CommandService.listen(...)
-CommandService.pooled(...)
-CommandService.pooledProtocol(...)
+Icli.command(...).run()
+Icli.command(...).lineSession()
+Icli.command(...).protocolSession(...)
+Icli.command(...).interactive()
+Icli.command(...).listen()
+lineSession().pooled()
+protocolSession(factory).pooled()
 Session.expect()
 ```
 
@@ -378,8 +385,8 @@ Scenario-first не означает "класс на каждый use case".
 - `interactive`;
 - `expect`;
 - `listen`;
-- `pooled`;
-- `pooledProtocol`.
+- `lineSession().pooled()`;
+- `protocolSession(factory).pooled()`.
 
 Плохо на раннем этапе:
 
@@ -402,8 +409,9 @@ Invariant-first runtime отвечает на вопрос библиотеки:
 Diagnostics не являются отдельным пользовательским workflow. Это наблюдательный слой поверх сценариев:
 
 - `DiagnosticsOptions` подключаются к `CommandService`;
-- lifecycle events испускают `run`, `interactive`, `lineSession`, `listen` и worker launches внутри `pooled`; `Expect`
-  не испускает отдельные process lifecycle events, потому что работает поверх уже открытой `Session`;
+- lifecycle events испускают `run`, `interactive`, `lineSession`, `protocolSession`, `listen` и worker launches внутри
+  nested pooled сценариев; `Expect` не испускает отдельные process lifecycle events, потому что работает поверх уже
+  открытой `Session`;
 - listener и transcript sink получают structured events асинхронно best-effort;
 - failures listener/sink игнорируются runtime и не меняют результат процесса;
 - `CommandEcho` не содержит environment values и argument values; он публикует executable, argument count,

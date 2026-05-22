@@ -10,13 +10,10 @@ Use `lineSession` when a command stays alive and answers one logical request at 
 4. Treat request timeout or decoder failure as a session-ending event.
 
 ```java
-CommandService repl = new CommandService(
-        CommandSpec.of("tool"),
-        RunOptions.defaults(),
-        SessionOptions.defaults(),
-        LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
+CommandService repl = Icli.command(CommandSpec.of("tool"));
 
-try (LineSession session = repl.lineSession(call -> call.args("repl"))) {
+try (LineSession session =
+        repl.lineSession().withArgs("repl").withRequestTimeout(Duration.ofSeconds(2)).open()) {
     LineResponse response = session.request("status");
     if (response.text().isBlank()) {
         throw new IllegalStateException("empty response");

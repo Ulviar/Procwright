@@ -297,8 +297,8 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
     private final class Writer implements ProtocolWriter {
 
         private final long deadlineNanos;
-        private int writtenBytes;
-        private int writtenChars;
+        private long writtenBytes;
+        private long writtenChars;
 
         private Writer(long deadlineNanos) {
             this.deadlineNanos = deadlineNanos;
@@ -536,11 +536,11 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
 
         private void appendDecoded(CharBuffer output, StringBuilder text, int maxChars) {
             output.flip();
+            int decodedChars = output.remaining();
             text.append(output);
             output.clear();
-            int count = text.length() - budget.chars();
-            if (count > 0) {
-                budget.addChars(count);
+            if (decodedChars > 0) {
+                budget.addChars(decodedChars);
             }
             if (text.length() > maxChars) {
                 throw failure(
@@ -572,8 +572,8 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
 
         private final int maxBytes;
         private final int maxChars;
-        private int bytes;
-        private int chars;
+        private long bytes;
+        private long chars;
 
         private ResponseBudget(int maxBytes, int maxChars) {
             this.maxBytes = maxBytes;
@@ -599,10 +599,6 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
                         null);
             }
         }
-
-        private int chars() {
-            return chars;
-        }
     }
 
     private static String failureMessage(ProtocolSessionException.Reason reason) {
@@ -618,7 +614,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
 
         private final int byteLimit;
         private final ArrayDeque<OutputEvent> events = new ArrayDeque<>();
-        private int pendingBytes;
+        private long pendingBytes;
 
         private OutputQueue(int byteLimit) {
             this.byteLimit = byteLimit;

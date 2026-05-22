@@ -55,7 +55,7 @@ final class ScenarioCookbookCoverageTest {
                 "## `lineSession`",
                 "## `protocolSession`",
                 "## `listen`",
-                "## `pooled`",
+                "## Nested pooled scenarios",
                 "## Диагностика",
                 "## Сценарные presets",
                 "## CLI-backed integrations",

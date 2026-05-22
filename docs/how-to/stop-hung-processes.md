@@ -10,10 +10,12 @@ Use `run` with explicit timeout and shutdown policies when a command can hang or
 4. Read the timeout outcome from `CommandResult`.
 
 ```java
-logs.run(call -> call.args("logs")
-        .timeout(Duration.ofSeconds(30))
-        .capture(CapturePolicy.bounded(128 * 1024))
-        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5))));
+logs.run()
+        .withArgs("logs")
+        .withTimeout(Duration.ofSeconds(30))
+        .withCapture(CapturePolicy.bounded(128 * 1024))
+        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)))
+        .execute();
 ```
 
 Compile-tested source: `CommandServiceApiExamples.policyComposition`.

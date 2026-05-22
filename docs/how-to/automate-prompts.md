@@ -12,7 +12,7 @@ input.
 5. Keep transcript values redacted unless exact values are safe to record.
 
 ```java
-try (Session session = repl.interactive(call -> call.args("repl"));
+try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
     expect.expectText("ready> ");
     expect.sendLine("status");

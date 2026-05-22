@@ -15,8 +15,8 @@
 - `interactive`;
 - `expect`;
 - `listen`;
-- `pooled`;
-- `pooledProtocol`.
+- `lineSession().pooled()`;
+- `protocolSession(factory).pooled()`.
 
 Terminal/PTY — capability внутри `interactive` и `lineSession`, а не отдельный сценарий core. Command-backed tools —
 optional integration layer поверх process scenarios, а не часть core process workflow.
@@ -211,7 +211,7 @@ Listen-only streaming workflow для `tail`, `logs --follow` и похожих 
 - `listen` не является full-output capture API;
 - если нужен completed result с bounded output, используется `run`.
 
-## `pooled` / `pooledProtocol`
+## `lineSession().pooled()` / `protocolSession(factory).pooled()`
 
 Pooled line-oriented или typed protocol workers для CLI/REPL с дорогим startup.
 
@@ -225,7 +225,8 @@ Pooled line-oriented или typed protocol workers для CLI/REPL с дорог
 - `minIdle` и background replenishment держат дорогие workers готовыми без раскрытия leases;
 - acquire timeout отличим от request timeout;
 - reset/health hooks работают через выбранный session type, имеют typed worker handle и ограничены hook timeout;
-- `pooledProtocol` получает serialized factory adapter-ов, чтобы каждый worker владел собственным protocol state;
+- `protocolSession(factory).pooled()` получает serialized factory adapter-ов, чтобы каждый worker владел собственным
+  protocol state;
 - metrics различают acquire wait, request duration без acquire wait, worker startup duration, failed startup count, live
   states и retire reasons;
 - `close()` запрещает новые requests, закрывает idle workers и дает leased workers завершить текущий request.

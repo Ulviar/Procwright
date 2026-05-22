@@ -35,9 +35,9 @@ The smallest iCLI workflow is a one-shot command scenario: choose the command on
 result.
 
 ```java
-CommandService git = CommandService.forCommand("git");
+CommandService git = Icli.command("git");
 
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandResult result = git.run().execute("status", "--short");
 
 if (!result.succeeded()) {
     throw result.toException();
@@ -58,7 +58,7 @@ Do not start by assembling process flags. Start by choosing the workflow:
 - `lineSession` for request/response protocols;
 - `protocolSession` for framed, multi-line, byte, or typed request/response protocols;
 - `listen` for streaming output;
-- `pooled` and `pooledProtocol` for reusable workers;
+- `lineSession().pooled()` and `protocolSession(factory).pooled()` for reusable workers;
 - `:icli-integrations` for structured CLI adapters.
 
 The [How-to Guides](how-to/index.md) section starts from common tasks. [Scenario Contracts](scenarios/index.md) is the

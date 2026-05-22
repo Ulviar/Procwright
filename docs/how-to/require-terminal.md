@@ -10,9 +10,9 @@ Use `interactive` with `TerminalPolicy.REQUIRED` when a command must run with te
 4. Avoid depending on backend-specific PTY types in application code.
 
 ```java
-CommandService shell = CommandService.forCommand("sh");
+CommandService shell = Icli.command("sh");
 
-try (Session session = shell.interactive(call -> call.terminal(TerminalPolicy.REQUIRED))) {
+try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
     session.sendSignal(TerminalSignal.INTERRUPT);
 }
 ```
