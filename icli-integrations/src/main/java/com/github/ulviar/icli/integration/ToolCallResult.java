@@ -74,6 +74,8 @@ public sealed interface ToolCallResult<T> permits ToolCallResult.Success, ToolCa
 
         /**
          * Creates a success result.
+         *
+         * @param payload success payload
          */
         public Success {
             Objects.requireNonNull(payload, "payload");
@@ -105,6 +107,8 @@ public sealed interface ToolCallResult<T> permits ToolCallResult.Success, ToolCa
 
         /**
          * Creates a failure result.
+         *
+         * @param adapterError structured error
          */
         public Failure {
             Objects.requireNonNull(adapterError, "adapterError");

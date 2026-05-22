@@ -55,6 +55,21 @@ public record PooledLineSessionMetrics(
 
     /**
      * Creates a metrics snapshot.
+     *
+     * @param size current live worker count
+     * @param idle current idle worker count
+     * @param leased current leased worker count
+     * @param starting current workers being started
+     * @param retiring current workers being retired
+     * @param created total workers created
+     * @param retired total workers retired
+     * @param completedRequests total public requests completed successfully
+     * @param failedRequests total public requests completed with failure
+     * @param failedStartups total failed worker startups
+     * @param totalAcquireWaitNanos accumulated worker acquire wait time
+     * @param totalRequestDurationNanos accumulated request duration
+     * @param totalWorkerStartupNanos accumulated successful worker startup duration
+     * @param retireReasons retired worker counts by reason
      */
     public PooledLineSessionMetrics {
         requireNonNegative(size, "size");

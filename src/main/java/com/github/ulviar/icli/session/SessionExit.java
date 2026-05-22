@@ -13,6 +13,9 @@ public record SessionExit(OptionalInt exitCode, boolean timedOut) {
 
     /**
      * Creates a session exit state.
+     *
+     * @param exitCode process exit code when available
+     * @param timedOut whether session lifecycle timeout stopped the process
      */
     public SessionExit {
         Objects.requireNonNull(exitCode, "exitCode");

@@ -14,6 +14,11 @@ public record ProtocolTranscript(String text, boolean truncated, boolean malform
 
     /**
      * Creates a protocol transcript snapshot.
+     *
+     * @param text retained transcript text
+     * @param truncated whether older transcript content was discarded
+     * @param malformed whether output contained bytes that were malformed for transcript decoding
+     * @param redacted whether transcript content was intentionally redacted
      */
     public ProtocolTranscript {
         Objects.requireNonNull(text, "text");

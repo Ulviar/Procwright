@@ -108,6 +108,8 @@ public sealed interface JsonValue
 
         /**
          * Creates an object.
+         *
+         * @param members object members
          */
         public JsonObject {
             Objects.requireNonNull(members, "members");
@@ -140,6 +142,8 @@ public sealed interface JsonValue
 
         /**
          * Creates an array.
+         *
+         * @param values array values
          */
         public JsonArray {
             Objects.requireNonNull(values, "values");
@@ -159,6 +163,8 @@ public sealed interface JsonValue
 
         /**
          * Creates a string.
+         *
+         * @param value string value
          */
         public JsonString {
             Objects.requireNonNull(value, "value");
@@ -174,6 +180,8 @@ public sealed interface JsonValue
 
         /**
          * Creates a number.
+         *
+         * @param value decimal value
          */
         public JsonNumber {
             Objects.requireNonNull(value, "value");

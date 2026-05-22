@@ -13,6 +13,9 @@ public record ShutdownPolicy(Duration interruptGrace, Duration killGrace) {
 
     /**
      * Creates a shutdown policy.
+     *
+     * @param interruptGrace time allowed for graceful interruption
+     * @param killGrace time allowed before forceful termination
      */
     public ShutdownPolicy {
         Objects.requireNonNull(interruptGrace, "interruptGrace");

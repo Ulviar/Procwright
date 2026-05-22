@@ -56,6 +56,16 @@ public record CommandResult(
      * <p>This advanced constructor accepts already decoded text alongside the captured bytes. Results produced by iCLI
      * keep those values aligned through the execution charset. Manually created snapshots are responsible for providing
      * consistent text and byte views.
+     *
+     * @param exitCode process exit code when available
+     * @param stdoutBytes captured standard output bytes
+     * @param stderrBytes captured standard error bytes
+     * @param stdout captured standard output
+     * @param stderr captured standard error
+     * @param stdoutTruncated whether stdout exceeded the capture limit
+     * @param stderrTruncated whether stderr exceeded the capture limit
+     * @param timedOut whether timeout supervision stopped the process
+     * @param elapsed elapsed wall-clock time spent running and supervising the command
      */
     public CommandResult {
         Objects.requireNonNull(exitCode, "exitCode");

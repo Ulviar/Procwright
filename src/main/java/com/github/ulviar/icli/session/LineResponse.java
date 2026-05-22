@@ -15,6 +15,10 @@ public record LineResponse(List<String> lines, LineTranscript transcript, Durati
 
     /**
      * Creates a line response.
+     *
+     * @param lines decoded response lines
+     * @param transcript bounded transcript snapshot captured after decoding
+     * @param elapsed elapsed request/response time
      */
     public LineResponse {
         lines = List.copyOf(lines);

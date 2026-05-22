@@ -27,7 +27,7 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - windows-2025
+          - windows-2025-vs2026
 
     steps:
       - name: Checkout
@@ -84,3 +84,110 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+
+  consumer-smoke-github-packages:
+    name: Consumer Smoke GitHub Packages
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    needs: publish-github-packages
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Compile and run external consumer
+        run: |
+          set -euo pipefail
+          release_version="${ICLI_RELEASE_TAG#v}"
+          consumer_dir="${RUNNER_TEMP}/icli-consumer-smoke"
+          mkdir -p "${consumer_dir}/src/main/java/consumer"
+
+          cat > "${consumer_dir}/settings.gradle.kts" <<'EOF'
+          pluginManagement {
+              repositories {
+                  gradlePluginPortal()
+                  mavenCentral()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  maven {
+                      name = "GitHubPackages"
+                      url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
+                      credentials {
+                          username = System.getenv("GITHUB_ACTOR")
+                          password = System.getenv("GITHUB_TOKEN")
+                      }
+                  }
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "icli-consumer-smoke"
+          EOF
+
+          cat > "${consumer_dir}/build.gradle.kts" <<'EOF'
+          plugins {
+              application
+          }
+
+          java {
+              toolchain {
+                  languageVersion.set(JavaLanguageVersion.of(17))
+              }
+          }
+
+          val icliVersion = providers.environmentVariable("ICLI_CONSUMER_VERSION").get()
+
+          dependencies {
+              implementation("com.github.ulviar:icli:$icliVersion")
+              implementation("com.github.ulviar:icli-integrations:$icliVersion")
+              implementation("com.github.ulviar:icli-kotlin:$icliVersion")
+          }
+
+          application {
+              mainClass.set("consumer.ConsumerSmoke")
+          }
+          EOF
+
+          cat > "${consumer_dir}/src/main/java/consumer/ConsumerSmoke.java" <<'EOF'
+          package consumer;
+
+          import com.github.ulviar.icli.Icli;
+          import com.github.ulviar.icli.command.CapturePolicy;
+          import com.github.ulviar.icli.command.CommandSpec;
+          import com.github.ulviar.icli.integration.JsonValue;
+          import com.github.ulviar.icli.kotlin.IcliKotlinKt;
+          import java.util.Map;
+
+          public final class ConsumerSmoke {
+              private ConsumerSmoke() {}
+
+              public static void main(String[] args) {
+                  Object service = Icli.command(CommandSpec.of("java"));
+                  Object capturePolicy = CapturePolicy.bounded(1024);
+                  Object json = JsonValue.object(Map.of("ok", JsonValue.bool(true)));
+                  System.out.println(service.getClass().getName());
+                  System.out.println(capturePolicy.getClass().getName());
+                  System.out.println(json.getClass().getName());
+                  System.out.println(IcliKotlinKt.class.getName());
+              }
+          }
+          EOF
+
+          ICLI_CONSUMER_VERSION="${release_version}" ./gradlew --project-dir "${consumer_dir}" --refresh-dependencies run --no-daemon
+        env:
+          ICLI_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

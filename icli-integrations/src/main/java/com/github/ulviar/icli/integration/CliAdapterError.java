@@ -26,6 +26,10 @@ public record CliAdapterError(String code, String message, JsonValue.JsonObject 
 
     /**
      * Creates an adapter error.
+     *
+     * @param code stable machine-readable error code
+     * @param message human-readable message without raw command payloads
+     * @param details structured metadata
      */
     public CliAdapterError {
         code = requireText(code, "code");

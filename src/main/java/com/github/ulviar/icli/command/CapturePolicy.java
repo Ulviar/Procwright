@@ -24,6 +24,8 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded {
 
         /**
          * Creates a bounded capture policy.
+         *
+         * @param byteLimit maximum number of bytes retained per stream
          */
         public Bounded {
             if (byteLimit <= 0) {

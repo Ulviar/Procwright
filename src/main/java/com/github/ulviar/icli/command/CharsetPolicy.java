@@ -22,6 +22,10 @@ public record CharsetPolicy(
 
     /**
      * Creates a charset policy.
+     *
+     * @param charset text charset
+     * @param malformedInputAction action for malformed byte sequences
+     * @param unmappableCharacterAction action for unmappable byte sequences
      */
     public CharsetPolicy {
         Objects.requireNonNull(charset, "charset");
