@@ -13,8 +13,10 @@ The core artifact is the named Java module `com.github.ulviar.icli`. It exports 
 - `com.github.ulviar.icli.session`
 - `com.github.ulviar.icli.terminal`
 
-The exact public type set is guarded by `PublicApiSurfaceTest`. New public types require an intentional API baseline
-change, documentation updates, and compile-tested examples when user call shape changes.
+The exact public type set is guarded by `PublicApiSurfaceTest`. Public JVM signatures are also compared with the
+machine-readable `0.1.0` baseline in `config/api-compatibility/0.1.0/` by `apiCompatibilityCheck`. New or changed public
+signatures require an intentional API baseline change, documentation updates, and compile-tested examples when user call
+shape changes.
 
 The `0.1.0` scenario baseline covers `run`, `interactive`, `lineSession`, `protocolSession`, `lineSession().pooled()`,
 and `protocolSession(factory).pooled()`. Generic/core async request orchestration and raw session pooling are outside
@@ -23,9 +25,10 @@ this baseline; the narrow cancellable JSON Lines helper remains part of the opti
 ## Optional modules
 
 The integrations artifact exports only `com.github.ulviar.icli.integration`, requires the core module transitively for
-JPMS consumers, and is guarded by `PublicIntegrationApiSurfaceTest`.
+JPMS consumers, and is guarded by `PublicIntegrationApiSurfaceTest` plus the `icli-integrations` signature baseline.
 
-The Kotlin artifact publishes only `com.github.ulviar.icli.kotlin` and is guarded by `PublicKotlinApiSurfaceTest`.
+The Kotlin artifact publishes only `com.github.ulviar.icli.kotlin` and is guarded by `PublicKotlinApiSurfaceTest` plus
+the `icli-kotlin` JVM signature baseline.
 
 ## Compatibility rule
 

@@ -3,6 +3,9 @@
 Public snippets are backed by compile-tested source files. The method names below are used throughout the documentation
 so a reader can find the complete source shape when a page shows only a focused fragment.
 
+Consumer-facing examples are also executed as tests in `:icli-consumer-examples`. They cover the basic public workflows
+without relying on package-private access or unpublished helper APIs.
+
 ## Core examples
 
 Source file in the same checkout or release source tree:
@@ -35,3 +38,16 @@ Source file in the same checkout or release source tree:
 | `jsonLineCommandBackedTool` | JSON Lines tool over `LineSession`. |
 | `cancellableJsonLineCall` | Cancellable JSON Lines request. |
 | `contentLengthFramedJson` | Content-Length framed JSON read/write helpers. |
+
+## Consumer examples
+
+Source file in the same checkout or release source tree:
+`icli-consumer-examples/src/main/java/com/github/ulviar/icli/consumer/examples/ConsumerScenarios.java`
+
+| Example | Demonstrates |
+| --- | --- |
+| `run` | Finite command execution as an external consumer. |
+| `lineSession` | Line-oriented worker session. |
+| `protocolSession` | Typed framed request/response session. |
+| `pooledLineSession` | Worker pooling over line sessions. |
+| `pooledProtocolSession` | Worker pooling over typed protocol sessions. |

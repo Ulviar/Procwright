@@ -1,6 +1,7 @@
 .gradle/
 .kotlin/
-build/
+/build/
+/*/build/
 out/
 *.iml
 .DS_Store

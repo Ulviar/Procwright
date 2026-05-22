@@ -19,3 +19,5 @@ include("icli-integrations")
 include("icli-comparison")
 
 include("icli-test-cli")
+
+include("icli-consumer-examples")

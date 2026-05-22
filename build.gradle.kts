@@ -167,6 +167,8 @@ sourceSets {
         runtimeClasspath += output
         runtimeClasspath += compileClasspath
     }
+
+    val apiCompatibility by creating { java.srcDir("src/apiCompatibility/java") }
 }
 
 configurations.named("integrationTestImplementation") {
@@ -304,7 +306,13 @@ val scenarioCheck =
     tasks.register("scenarioCheck") {
         description = "Runs scenario-level verification across core, Kotlin, and integrations."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(quickCheck, integrationTest, ":icli-kotlin:test", ":icli-integrations:test")
+        dependsOn(
+            quickCheck,
+            integrationTest,
+            ":icli-kotlin:test",
+            ":icli-integrations:test",
+            ":icli-consumer-examples:test",
+        )
     }
 
 val regressionCheck =
@@ -316,10 +324,136 @@ val regressionCheck =
 
 val publicJavaJavadocCheck =
     tasks.register("publicJavaJavadocCheck") {
-        description = "Builds Javadoc for public Java modules."
+        description = "Builds public Java Javadocs and fails on every Javadoc warning."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(tasks.named("javadoc"), ":icli-integrations:javadoc")
+
+        doLast {
+            assertStrictJavadocOptions(
+                layout.buildDirectory.file("tmp/javadoc/javadoc.options").get().asFile,
+                "core",
+            )
+            assertStrictJavadocOptions(
+                project(":icli-integrations")
+                    .layout
+                    .buildDirectory
+                    .file("tmp/javadoc/javadoc.options")
+                    .get()
+                    .asFile,
+                "integrations",
+            )
+        }
     }
+
+fun assertStrictJavadocOptions(optionsFile: File, moduleName: String) {
+    if (!optionsFile.isFile) {
+        throw GradleException("Javadoc options file is missing for $moduleName: $optionsFile")
+    }
+    val options = optionsFile.readText()
+    if (!options.contains("-Werror")) {
+        throw GradleException("publicJavaJavadocCheck must run $moduleName Javadoc with -Werror")
+    }
+}
+
+val apiCompatibilityBaselineVersion = "0.1.0"
+val apiCompatibilityBaselineDir =
+    layout.projectDirectory.dir("config/api-compatibility/$apiCompatibilityBaselineVersion")
+val apiCompatibilityMainClass = "com.github.ulviar.icli.build.ApiCompatibilityCheck"
+
+fun apiCompatibilitySpec(
+    name: String,
+    baselineName: String,
+    roots: FileCollection,
+    classpath: FileCollection,
+    packages: List<String>,
+): String =
+    listOf(
+            name,
+            apiCompatibilityBaselineDir.file(baselineName).asFile.absolutePath,
+            roots.files.joinToString(File.pathSeparator) { it.absolutePath },
+            classpath.files.joinToString(File.pathSeparator) { it.absolutePath },
+            packages.joinToString(","),
+        )
+        .joinToString("|")
+
+fun apiCompatibilitySpecs(): List<String> {
+    val coreJar = files(tasks.named<Jar>("jar").map { it.archiveFile })
+    val integrationsProject = project(":icli-integrations")
+    val integrationsJar = files(integrationsProject.tasks.named<Jar>("jar").map { it.archiveFile })
+    val kotlinProject = project(":icli-kotlin")
+    val kotlinJar = files(kotlinProject.tasks.named<Jar>("jar").map { it.archiveFile })
+
+    return listOf(
+        apiCompatibilitySpec(
+            name = "icli",
+            baselineName = "icli.txt",
+            roots = coreJar,
+            classpath = coreJar,
+            packages =
+                listOf(
+                    "com.github.ulviar.icli",
+                    "com.github.ulviar.icli.command",
+                    "com.github.ulviar.icli.diagnostics",
+                    "com.github.ulviar.icli.preset",
+                    "com.github.ulviar.icli.session",
+                    "com.github.ulviar.icli.terminal",
+                ),
+        ),
+        apiCompatibilitySpec(
+            name = "icli-integrations",
+            baselineName = "icli-integrations.txt",
+            roots = integrationsJar,
+            classpath =
+                integrationsJar +
+                    coreJar +
+                    integrationsProject.configurations.getByName("runtimeClasspath"),
+            packages = listOf("com.github.ulviar.icli.integration"),
+        ),
+        apiCompatibilitySpec(
+            name = "icli-kotlin",
+            baselineName = "icli-kotlin.txt",
+            roots = kotlinJar,
+            classpath =
+                kotlinJar + coreJar + kotlinProject.configurations.getByName("runtimeClasspath"),
+            packages = listOf("com.github.ulviar.icli.kotlin"),
+        ),
+    )
+}
+
+val apiCompatibilityCheck =
+    tasks.register<JavaExec>("apiCompatibilityCheck") {
+        description =
+            "Checks current public JVM signatures against the $apiCompatibilityBaselineVersion API baseline."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(
+            tasks.named(sourceSets["apiCompatibility"].classesTaskName),
+            tasks.named("jar"),
+            ":icli-integrations:jar",
+            ":icli-kotlin:jar",
+        )
+        classpath = sourceSets["apiCompatibility"].runtimeClasspath
+        mainClass.set(apiCompatibilityMainClass)
+        doFirst { setArgs(listOf("check") + apiCompatibilitySpecs()) }
+    }
+
+val writeApiCompatibilityBaseline =
+    tasks.register<JavaExec>("writeApiCompatibilityBaseline") {
+        description =
+            "Writes the $apiCompatibilityBaselineVersion public JVM API baseline from current artifacts."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(
+            tasks.named(sourceSets["apiCompatibility"].classesTaskName),
+            tasks.named("jar"),
+            ":icli-integrations:jar",
+            ":icli-kotlin:jar",
+        )
+        classpath = sourceSets["apiCompatibility"].runtimeClasspath
+        mainClass.set(apiCompatibilityMainClass)
+        outputs.dir(apiCompatibilityBaselineDir)
+        doFirst { setArgs(listOf("write") + apiCompatibilitySpecs()) }
+    }
+
+tasks.check { dependsOn(apiCompatibilityCheck) }
 
 val publicDocsCheck =
     tasks.register<Exec>("publicDocsCheck") {
@@ -381,6 +515,7 @@ val cleanWorkingTreeCheck =
             ":icli-kotlin:check",
             ":icli-integrations:check",
             ":icli-test-cli:check",
+            ":icli-consumer-examples:check",
         )
 
         doLast {
@@ -413,6 +548,7 @@ tasks.register("releaseCandidateCheck") {
         ":icli-kotlin:check",
         ":icli-integrations:check",
         ":icli-test-cli:check",
+        ":icli-consumer-examples:check",
         cleanWorkingTreeCheck,
     )
 }

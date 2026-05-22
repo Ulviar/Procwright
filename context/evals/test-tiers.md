@@ -28,6 +28,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 - value objects, options и builders fail fast;
 - public API surface не получает случайные entry points;
+- `apiCompatibilityCheck` сравнивает public JVM signatures с baseline `0.1.0`;
 - production-owned schemas совпадают с context mirror;
 - helper ownership и boundary tests проверяют изоляцию инвариантов без долгих процессов.
 
@@ -45,6 +46,8 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 - core scenarios запускаются на реальных процессах;
 - `run`, `interactive`, `lineSession`, `expect`, `listen` и module adapters проверяются как workflows;
+- `:icli-consumer-examples:test` выполняет внешние consumer workflows для `run`, `lineSession`, `protocolSession` и
+  pools;
 - Kotlin и integrations modules подтверждают, что optional ergonomics не ломают core философию.
 
 Этот уровень отвечает за вопрос: "пользовательский сценарий действительно работает?"
@@ -78,11 +81,10 @@ Test/eval tiers фиксируют, какие инварианты защища
 Назначение:
 
 - Java public modules собирают Javadoc;
+- `publicJavaJavadocCheck` запускает Javadoc с `-Werror`, поэтому warning является failure, а не ручной заметкой;
 - Kotlin public API имеет KDoc;
 - public MkDocs site собирается в strict mode;
 - documentation maturity проверяется отдельно от runtime behavior.
-
-Javadoc warnings review остается отдельной ручной обязанностью до появления warning-as-error gate.
 
 ### Tier 4: проверка release candidate
 
