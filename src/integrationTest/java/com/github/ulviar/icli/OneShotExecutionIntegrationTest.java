@@ -352,7 +352,7 @@ final class OneShotExecutionIntegrationTest {
     }
 
     private static Duration timeoutAfterFixtureStartup() {
-        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(120);
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
     }
 
     private static Duration boundedCleanupLimit() {

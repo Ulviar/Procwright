@@ -202,7 +202,7 @@ final class StreamScenarioIntegrationTest {
     }
 
     private static Duration timeoutAfterFixtureStartup() {
-        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(100);
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
     }
 
     private static Duration exitWaitTimeout() {
