@@ -139,8 +139,8 @@ final class TestCliStressTest {
         CommandResult result = testCliService()
                 .run(call -> call.args("spawn-child", "--child-scenario=never-exit", "--wait=true")
                         .capture(CapturePolicy.bounded(4 * 1024))
-                        .timeout(Duration.ofSeconds(1))
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(20), Duration.ofMillis(500))));
+                        .timeout(processTreeTimeout())
+                        .shutdown(processTreeShutdown()));
 
         assertTrue(result.timedOut());
         long childPid = parseChildPid(result.stdout());
@@ -152,8 +152,8 @@ final class TestCliStressTest {
         CommandResult result = testCliService()
                 .run(call -> call.args("spawn-tree", "--leaf-scenario=never-exit", "--wait=true")
                         .capture(CapturePolicy.bounded(4 * 1024))
-                        .timeout(Duration.ofSeconds(1))
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(20), Duration.ofMillis(500))));
+                        .timeout(processTreeTimeout())
+                        .shutdown(processTreeShutdown()));
 
         assertTrue(result.timedOut());
         long childPid = parsePid(result.stdout(), "child:");
@@ -338,6 +338,16 @@ final class TestCliStressTest {
 
     private static Duration hangingFlakyTimeout() {
         return isWindows() ? Duration.ofMillis(300) : Duration.ofMillis(80);
+    }
+
+    private static Duration processTreeTimeout() {
+        return isWindows() ? Duration.ofSeconds(5) : Duration.ofSeconds(1);
+    }
+
+    private static ShutdownPolicy processTreeShutdown() {
+        Duration interruptGrace = isWindows() ? Duration.ofMillis(100) : Duration.ofMillis(20);
+        Duration killGrace = isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(500);
+        return ShutdownPolicy.interruptThenKill(interruptGrace, killGrace);
     }
 
     private static ShutdownPolicy hangingFlakyShutdown() {
