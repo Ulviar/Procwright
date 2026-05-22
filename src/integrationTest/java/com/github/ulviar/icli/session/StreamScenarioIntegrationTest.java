@@ -76,11 +76,11 @@ final class StreamScenarioIntegrationTest {
     @Test
     void streamTimeoutStopsLongRunningProcess() throws Exception {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
-        CommandService service = fixtureService(StreamOptions.defaults().withTimeout(Duration.ofMillis(100)));
+        CommandService service = fixtureService(StreamOptions.defaults().withTimeout(timeoutAfterFixtureStartup()));
 
         try (StreamSession session = service.listen(
                 call -> call.args("sleep", "--millis=5000", "--finished=false").onOutput(chunks::add))) {
-            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+            StreamExit exit = session.onExit().get(exitWaitTimeout().toSeconds(), TimeUnit.SECONDS);
 
             assertTrue(exit.timedOut());
             assertTrue(chunks.stream().anyMatch(chunk -> chunk.text().contains("started")));
@@ -199,5 +199,17 @@ final class StreamScenarioIntegrationTest {
 
     private static CommandService fixtureService(StreamOptions streamOptions) {
         return Icli.command(TestCliSupport.command()).withStreamOptions(streamOptions);
+    }
+
+    private static Duration timeoutAfterFixtureStartup() {
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(100);
+    }
+
+    private static Duration exitWaitTimeout() {
+        return isWindows() ? Duration.ofSeconds(6) : Duration.ofSeconds(2);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }

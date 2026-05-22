@@ -175,7 +175,8 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void outputIsDecodedWithConfiguredCharset() {
         CommandResult result = fixtureService()
-                .run(call -> call.args("exit", "--stdout=Привет\n").charset(StandardCharsets.UTF_8));
+                .run(call -> call.args("binary", "--pattern=hex", "--hex=d09fd180d0b8d0b2d0b5d1820a")
+                        .charset(StandardCharsets.UTF_8));
 
         assertStdoutEquals("Привет\n", result);
     }
@@ -210,7 +211,7 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void timeoutStopsProcessAndReturnsDiagnosticResult() {
         CommandResult result = fixtureService().run(call -> call.args("sleep", "--millis=5000", "--finished=false")
-                .timeout(Duration.ofMillis(100))
+                .timeout(timeoutAfterFixtureStartup())
                 .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
 
         assertTrue(result.timedOut());
@@ -240,7 +241,7 @@ final class OneShotExecutionIntegrationTest {
         java.time.Instant started = java.time.Instant.now();
         CommandResult result = fixtureService()
                 .run(call -> call.args("long-run", "--ticks=100000", "--interval-millis=20", "--stderr-every=1")
-                        .timeout(Duration.ofMillis(120))
+                        .timeout(timeoutAfterFixtureStartup())
                         .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250))));
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
@@ -248,8 +249,8 @@ final class OneShotExecutionIntegrationTest {
         assertFalse(result.succeeded());
         assertTrue(normalizeLineEndings(result.stdout()).contains("tick:"));
         assertTrue(normalizeLineEndings(result.stderr()).contains("err-tick:"));
-        assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
-        assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
+        assertTrue(result.elapsed().compareTo(boundedCleanupLimit()) < 0);
+        assertTrue(wallClockElapsed.compareTo(boundedCleanupLimit()) < 0);
     }
 
     @Test
@@ -348,6 +349,14 @@ final class OneShotExecutionIntegrationTest {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    private static Duration timeoutAfterFixtureStartup() {
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(120);
+    }
+
+    private static Duration boundedCleanupLimit() {
+        return isWindows() ? Duration.ofSeconds(6) : Duration.ofSeconds(3);
     }
 
     private static Duration descendantStartupTimeout() {

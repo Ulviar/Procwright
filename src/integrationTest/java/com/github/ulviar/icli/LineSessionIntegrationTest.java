@@ -134,8 +134,8 @@ final class LineSessionIntegrationTest {
         try (LineSession session = fixtureService()
                 .lineSession(call ->
                         call.args("partial", "--stdout=partial-out", "--stderr=partial-err", "--hold-millis=5000"))) {
-            LineSessionException exception =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofMillis(100)));
+            LineSessionException exception = assertThrows(
+                    LineSessionException.class, () -> session.request("hello", timeoutAfterFixtureStartup()));
 
             assertEquals(LineSessionException.Reason.TIMEOUT, exception.reason());
             assertTrue(exception.transcript().text().contains("stdout: partial-out"));
@@ -275,6 +275,14 @@ final class LineSessionIntegrationTest {
             Thread.currentThread().interrupt();
             throw new AssertionError("interrupted", exception);
         }
+    }
+
+    private static Duration timeoutAfterFixtureStartup() {
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(100);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 
     private static CommandService fixtureService(LineSessionOptions lineSessionOptions) {

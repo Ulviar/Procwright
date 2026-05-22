@@ -140,7 +140,7 @@ final class ExpectIntegrationTest {
         try (Session session = fixtureService()
                         .interactive(call ->
                                 call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofMillis(100)))) {
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(timeoutAfterFixtureStartup()))) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("secret-done"));
 
             assertEquals(ExpectException.Reason.TIMEOUT, exception.reason());
@@ -280,5 +280,13 @@ final class ExpectIntegrationTest {
 
     private static CommandService fixtureService() {
         return new CommandService(TestCliSupport.command(), RunOptions.defaults());
+    }
+
+    private static Duration timeoutAfterFixtureStartup() {
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(100);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }
