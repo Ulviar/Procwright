@@ -1,16 +1,32 @@
 # Getting Started
 
-!!! warning "Unreleased baseline"
-    iCLI is not published as a stable release yet. Treat coordinates, package names, and API names as pre-release
-    until the first release candidate is cut.
-
 ## Requirements
 
 - JDK 17, 21, or 25 for the matching release variant. The default local target is 25.
-- Gradle wrapper from this repository for local builds.
-- No stable Maven artifact is published yet.
+- GitHub Packages credentials when consuming the published artifact.
+- Gradle wrapper from this repository only when building iCLI from source.
 
-## Evaluate from source
+## Add the dependency
+
+Published artifacts are available from GitHub Packages:
+
+```kotlin
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull
+            password = providers.gradleProperty("gpr.key").orNull
+        }
+    }
+}
+
+dependencies {
+    implementation("com.github.ulviar:icli:0.1.0")
+}
+```
+
+## Build from source
 
 Clone the repository and run the fast verification tier:
 
@@ -22,12 +38,6 @@ cd iCLI
 
 Use broader verification tiers only when changing iCLI itself. They are listed in
 [Compatibility](release/compatibility.md) and [Installation](release/installation.md).
-
-## After a release candidate is published
-
-The first public artifact target is GitHub Packages with Java 17 bytecode. Until an RC exists, treat dependency
-coordinates as planned shape, not an available artifact. See [Installation](release/installation.md) for repository and
-authentication details.
 
 ## First scenario
 

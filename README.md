@@ -2,9 +2,8 @@
 
 iCLI is a JVM library for safe, scenario-first control of external command-line processes.
 
-The project is not published as a stable release yet. The current version is `0.0.0-SNAPSHOT`, the default development
-target is Java 25, Java 17/21/25 release variants are checked from the same source tree, and the public release artifact
-is intended to target Java 17.
+The first public release is `0.1.0`. Published artifacts target Java 17; Java 17/21/25 release variants are checked from
+the same source tree, and the default local development target is Java 25.
 
 ## Why iCLI exists
 
@@ -23,9 +22,27 @@ iCLI keeps those workflows explicit. The user chooses a scenario, and the librar
 bounded output, timeout and shutdown handling, stream draining, process-tree cleanup, output ownership, diagnostics, and
 redaction-friendly observation.
 
-## Quick Start From Source
+## Installation
 
-There is no stable Maven artifact yet. For now, evaluate iCLI from source:
+Published artifacts are available from GitHub Packages:
+
+```kotlin
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull
+            password = providers.gradleProperty("gpr.key").orNull
+        }
+    }
+}
+
+dependencies {
+    implementation("com.github.ulviar:icli:0.1.0")
+}
+```
+
+To work from source:
 
 ```bash
 git clone https://github.com/Ulviar/iCLI.git

@@ -1,7 +1,7 @@
 # Release
 
-iCLI is currently an unreleased `0.0.0-SNAPSHOT` baseline. Release documentation exists so the first release candidate
-can be evaluated from public docs, generated API docs, README, and release policies without reading internal plans.
+iCLI `0.1.0` is the first public release. Release documentation describes installation, compatibility, public API
+surface, and known limitations for the published artifacts.
 
 Release entry points:
 
@@ -9,4 +9,4 @@ Release entry points:
 - [API baseline](api-baseline.md)
 - [Compatibility](compatibility.md)
 - [Known limitations](known-limitations.md)
-- [Current pre-release status](pre-release-status.md)
+- [Current release status](pre-release-status.md)

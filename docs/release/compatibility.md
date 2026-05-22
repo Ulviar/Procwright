@@ -6,7 +6,7 @@
 - Java bytecode target: selected by `--project-prop=icli.javaRelease=17`, `21`, or `25`; default development target is
   25.
 - Public release artifacts are published only with `--project-prop=icli.javaRelease=17`.
-- Current version: `0.0.0-SNAPSHOT`.
+- Current version: `0.1.0`.
 
 ## Modules
 
@@ -44,7 +44,7 @@ The current baseline includes a pre-1.0 session API break: session-family handle
 iCLI implementations. Create them through `Icli.command(...)` scenario methods; custom handle implementations are not
 supported.
 
-For the first release-candidate baseline, `Icli.command(...)` is the recommended entry point, `CommandService` remains
-the reusable command handle, `SessionOptions.idleTimeout` keeps its caller-visible activity semantics, and the current
-`ScenarioPresets` set is frozen. The first RC freeze scope also covers the scenario call shapes for `run`,
-`interactive`, `lineSession`, `protocolSession`, `lineSession().pooled()`, and `protocolSession(factory).pooled()`.
+For `0.1.0`, `Icli.command(...)` is the recommended entry point, `CommandService` remains the reusable command handle,
+`SessionOptions.idleTimeout` keeps its caller-visible activity semantics, and the current `ScenarioPresets` set is part
+of the public pre-1.0 API. The `0.1.0` compatibility scope covers the scenario call shapes for `run`, `interactive`,
+`lineSession`, `protocolSession`, `lineSession().pooled()`, and `protocolSession(factory).pooled()`.

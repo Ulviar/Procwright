@@ -1,10 +1,10 @@
 # Known Limitations
 
-This page tracks release-relevant limitations for the current pre-release baseline.
+This page tracks release-relevant limitations for the current public baseline.
 
-## Pre-release API
+## Pre-1.0 API
 
-The API is not stable yet. Names, package structure, and option shapes may change before the first release candidate.
+The API is public but still pre-1.0. Names, package structure, and option shapes may change before `1.0.0`.
 
 ## Terminal support
 
@@ -21,9 +21,7 @@ site yet.
 
 ## Publishing
 
-No Maven Central artifact is published from this branch yet. GitHub Packages metadata, signing hooks, Java 17
-publication guards, and SemVer/non-SNAPSHOT remote publish guards are configured, but no stable public version has been
-cut.
+No Maven Central artifact is published yet. GitHub Packages is the current public artifact repository.
 
 ## Java release variants
 

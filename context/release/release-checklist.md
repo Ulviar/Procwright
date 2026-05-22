@@ -1,6 +1,6 @@
 # Релизный checklist
 
-Этот список применяется к первому OSS release candidate и каждому последующему релизу.
+Этот список применяется к публичным релизам iCLI.
 
 ## Перед freeze
 
@@ -17,7 +17,7 @@
 - Gradle wrapper distribution checksum и dependency verification metadata актуальны после каждого изменения
   build/test dependencies.
 - Если documentation toolchain остается без lock/hash-pinned transitive dependencies, этот residual supply-chain risk
-  явно принят в release notes; предпочтительный вариант перед release — добавить lock/hashes workflow.
+  явно принят в public release docs; предпочтительный вариант перед release — добавить lock/hashes workflow.
 - Publishing/signing setup реализован по ADR-0017; remote publish запрещает `*-SNAPSHOT` и non-SemVer version, а
   публичный artifact считается готовым к публикации только после Java 17-targeted local publication check и CI job с
   repository secrets.
@@ -84,12 +84,12 @@ Workflow permissions должны оставаться минимальными,
 ## Перед публикацией
 
 - Версия больше не `0.0.0-SNAPSHOT`.
-- Release notes перечисляют shipped behavior, known limitations и только реальные breaking changes для опубликованных
-  API, если такие появятся.
+- Public release docs перечисляют shipped behavior, known limitations и только реальные breaking changes для
+  опубликованных API, если такие появятся.
 - Source и Javadoc artifacts собираются для Java modules.
 - Public MkDocs site собирается в strict mode и включает generated Java API docs.
 - Kotlin public API задокументирован через KDoc в sources artifact и проверяется `:icli-kotlin:kotlinApiDocsCheck`.
-- Generated Kotlin API docs через Dokka не являются gate первого RC, пока ADR-0019 остается действующим решением.
+- Generated Kotlin API docs через Dokka не являются gate `0.1.x`, пока ADR-0019 остается действующим решением.
 - License file присутствует в корне репозитория.
 - POM metadata соответствует Apache-2.0 license, SCM и planned coordinates.
 - Release job передает non-SNAPSHOT version через `icli.version` из GitHub release tag.
@@ -102,9 +102,9 @@ Workflow permissions должны оставаться минимальными,
 - Maven Central publishing остается отдельным release-infrastructure step; GitHub Packages является текущим configured
   external artifact target.
 
-## Cut RC через GitHub Release
+## Cut Release через GitHub Release
 
-1. Выбрать SemVer RC tag, например `v0.1.0-rc.1`.
+1. Выбрать SemVer tag, например `v0.1.0`.
 2. На clean `main` прогнать `./gradlew releaseCandidateCheck --project-prop=icli.javaRelease=17`.
 3. Убедиться, что CI на `main` зеленый для Java 17/21/25 на Linux, macOS и Windows.
 4. Создать GitHub Release из выбранного tag и именно опубликовать его, а не оставить draft-only release.

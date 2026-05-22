@@ -1,15 +1,14 @@
-# Current Pre-release Status
+# Current Release Status
 
-This page describes the current unreleased baseline. Replace it with versioned release notes when a public release
-candidate is cut.
+This page describes the current public release baseline.
 
 ## Status
 
-- Release type: unreleased pre-release candidate baseline.
-- Version: `0.0.0-SNAPSHOT`.
+- Release type: first public release.
+- Version: `0.1.0`.
 - Java release variants: 17, 21, and 25 from one source tree; default local development target is 25.
 - Public artifact target: Java 17.
-- API stability: pre-1.0; first-RC scenario call shapes are being frozen for `run`, `interactive`, `expect`,
+- API stability: pre-1.0; `0.1.0` scenario call shapes are public for `run`, `interactive`, `expect`,
   `lineSession`, `protocolSession`, `listen`, `lineSession().pooled()`, and `protocolSession(factory).pooled()`.
 
 ## Current Branch Behavior
@@ -39,9 +38,9 @@ candidate is cut.
 ## Stabilization Decisions
 
 - `Icli.command(...)` is the recommended public entry point; `CommandService` remains the reusable command handle.
-- Convenience one-line shortcut APIs are not added before the first release candidate.
+- Convenience one-line shortcut APIs are not part of `0.1.0`.
 - `SessionOptions.idleTimeout` keeps its current name and caller-visible activity semantics.
-- The current `ScenarioPresets` set is frozen for the first release-candidate baseline.
+- The current `ScenarioPresets` set is part of the `0.1.0` baseline.
 - `protocolSession` and nested pooled session APIs are canonical scenario APIs, not low-level flag bundles.
 - Session-family handles are sealed public contracts backed by hidden iCLI implementations.
 - Diagnostics remains best-effort and unordered.
@@ -50,8 +49,7 @@ candidate is cut.
 
 ## Known Limitations
 
-- No stable Maven Central artifact is published yet. GitHub Packages metadata is configured, but no public release
-  artifact has been cut.
+- Maven Central artifact is not published yet. GitHub Packages is the current public artifact repository.
 - Windows ConPTY support is not shipped in the current baseline.
 - Java 17 uses platform-thread fallback for internal background work; Java 21+ may use virtual threads internally.
 - Generated Kotlin API docs are not part of the public site yet; Kotlin public declarations are checked through KDoc in
@@ -64,7 +62,7 @@ candidate is cut.
 
 ## Verification
 
-Use the release-candidate gate before treating a branch as releasable:
+Use the release gate before treating a branch as releasable:
 
 ```bash
 ./gradlew releaseCandidateCheck

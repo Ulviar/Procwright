@@ -10,7 +10,7 @@
 
 ## Поддержка платформ
 
-Обязательная CI-матрица для release candidate:
+Обязательная CI-матрица для публичного релиза:
 
 - Linux latest;
 - macOS latest;
@@ -21,7 +21,7 @@
 Все кроссплатформенные сценарии должны проходить на всех трех платформах. Сценарии, которым нужен POSIX shell или
 system PTY provider, skip-аются через JUnit assumptions, если платформа не предоставляет нужную возможность.
 
-Windows ConPTY provider не входит в первый release-candidate baseline. `TerminalPolicy.REQUIRED` должен давать explicit
+Windows ConPTY provider не входит в baseline `0.1.0`. `TerminalPolicy.REQUIRED` должен давать explicit
 unsupported behavior, если provider недоступен, и не должен silently fallback в pipes.
 
 ## Стабильность публичного API
@@ -39,10 +39,10 @@ unsupported behavior, если provider недоступен, и не долже
 - Core artifact является именованным Java module `com.github.ulviar.icli` и экспортирует только public API packages.
   `com.github.ulviar.icli.internal` и вложенные runtime-пакеты не экспортируются. Integrations module экспортирует только
   `com.github.ulviar.icli.integration` и требует core module.
-- Для первого release-candidate baseline `Icli.command(...)` является рекомендуемой точкой входа, `CommandService`
-  остается reusable command handle, `SessionOptions.idleTimeout` сохраняет caller-visible semantics, а текущий набор
-  `ScenarioPresets` заморожен.
-- Public API freeze scope первого RC включает сценарии `run`, `interactive`, `lineSession`, `protocolSession`,
+- Для baseline `0.1.0` `Icli.command(...)` является рекомендуемой точкой входа, `CommandService` остается reusable
+  command handle, `SessionOptions.idleTimeout` сохраняет caller-visible semantics, а текущий набор `ScenarioPresets`
+  входит в public pre-1.0 API.
+- Public API scope `0.1.0` включает сценарии `run`, `interactive`, `lineSession`, `protocolSession`,
   `lineSession().pooled()` и `protocolSession(factory).pooled()`. Новые сценарии или изменение их caller-visible
   invariants требуют отдельного ADR и baseline test update.
 

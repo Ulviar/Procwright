@@ -2,8 +2,8 @@
 
 iCLI is a JVM library for safe, scenario-first control of external command-line processes.
 
-The project is currently an unreleased `0.0.0-SNAPSHOT` baseline. The documentation describes behavior that is
-implemented and covered by tests in the current branch, but public API names may still change before the first release.
+The current public version is `0.1.0`. Published artifacts target Java 17; Java 17, 21, and 25 source variants are
+checked in CI.
 
 ## What iCLI is for
 

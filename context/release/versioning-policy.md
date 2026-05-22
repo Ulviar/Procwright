@@ -2,11 +2,11 @@
 
 ## Текущий статус
 
-Текущая версия проекта — `0.0.0-SNAPSHOT`. Это предварительный baseline до первого публичного релиза. Артефакт можно
-оценивать как release candidate только после прохождения checklist из [release-checklist.md](release-checklist.md).
+Текущая публичная версия проекта — `0.1.0`. Это первый публичный релиз до `1.0.0`; breaking changes по-прежнему
+допустимы только при осмысленном обновлении public docs, compile-tested examples и релевантных behavior checks.
 
 Root project и optional modules должны иметь одинаковые `group` и `version`. Версия относится ко всему набору
-артефактов текущего release candidate, а не только к core module.
+артефактов текущего публичного release, а не только к core module.
 
 ## До `1.0.0`
 

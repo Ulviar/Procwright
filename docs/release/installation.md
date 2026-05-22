@@ -1,14 +1,12 @@
 # Installation
 
-!!! warning "No stable artifact yet"
-    iCLI is not published as a stable release. The build now has publishing metadata and GitHub Packages configuration,
-    but these coordinates are unavailable until a release candidate is cut through a GitHub release.
+Published artifacts are available from GitHub Packages.
 
-Planned Maven coordinates:
+Core dependency:
 
 ```text
 dependencies {
-    implementation("com.github.ulviar:icli:<version>")
+    implementation("com.github.ulviar:icli:0.1.0")
 }
 ```
 
@@ -16,8 +14,8 @@ Optional modules:
 
 ```text
 dependencies {
-    implementation("com.github.ulviar:icli-kotlin:<version>")
-    implementation("com.github.ulviar:icli-integrations:<version>")
+    implementation("com.github.ulviar:icli-kotlin:0.1.0")
+    implementation("com.github.ulviar:icli-integrations:0.1.0")
 }
 ```
 
@@ -36,7 +34,7 @@ repositories {
 }
 ```
 
-Current local development uses the repository Gradle wrapper:
+Local source development uses the repository Gradle wrapper:
 
 ```bash
 ./gradlew check
@@ -62,8 +60,8 @@ Configured publishing target:
 - credentials are read from `GITHUB_ACTOR` and `GITHUB_TOKEN`;
 - signing uses in-memory `SIGNING_KEY` and `SIGNING_PASSWORD` when present;
 - credentials and signing material are never stored in the repository;
-- remote publication rejects `*-SNAPSHOT` or non-SemVer versions; valid RC tag shapes include `v0.1.0-rc.1` and
-  `0.1.0-rc.1`, and the release job passes `icli.version` from the GitHub release tag;
+- remote publication rejects `*-SNAPSHOT` or non-SemVer versions; the release job passes `icli.version` from the GitHub
+  release tag;
 - the release-only CI job publishes to GitHub Packages with scoped `packages: write` permission after the verification
   matrix passes.
 
@@ -73,5 +71,5 @@ Local publication check:
 ./gradlew publishToMavenLocal --project-prop=icli.javaRelease=17
 ```
 
-Maven Central publication remains a future release-infrastructure step; GitHub Packages is the configured
-external-dependency path after a release candidate is published.
+Maven Central publication remains a future release-infrastructure step; GitHub Packages is the configured public
+external-dependency path.
