@@ -125,6 +125,8 @@
 - `stressTest` входит в `check` и остается bounded по времени.
 - Большой stdout не удерживается целиком при bounded capture и выставляет truncation flag.
 - Большой stderr не блокирует завершение процесса и ограничивается независимо от stdout.
+- Protocol readers должны доказывать response byte/char limits на delimiter/text framing без удержания полного ответа.
+- Transcript/diagnostics retention проверяется через длину сохраненного snapshot, а не через текущий размер heap.
 - Timeout churn из нескольких параллельных процессов завершается без deadlock и возвращает timeout results.
 - One-shot cleanup после timeout имеет bounded wait для stdin/stdout/stderr lifecycle tasks.
 - Быстрый open/close interactive sessions не оставляет lifecycle futures незавершенными.

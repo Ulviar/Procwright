@@ -12,6 +12,8 @@ import java.util.Objects;
 
 final class ProtocolTranscriptBuffer {
 
+    private static final byte[] EMPTY_BYTES = new byte[0];
+
     private final BoundedTranscriptBuffer delegate;
     private final CharsetPolicy charsetPolicy;
     private final Map<String, StreamDecoder> decoders = new HashMap<>();
@@ -23,9 +25,10 @@ final class ProtocolTranscriptBuffer {
     }
 
     synchronized void appendStream(String label, byte[] bytes, int count) {
+        Objects.requireNonNull(label, "label");
         Objects.requireNonNull(bytes, "bytes");
         Objects.checkFromIndexSize(0, count, bytes.length);
-        delegate.appendStream(label, decoder(label).decode(bytes, count));
+        decoder(label).decodeInto(label, bytes, count);
     }
 
     synchronized ProtocolTranscript snapshot() {
@@ -44,49 +47,70 @@ final class ProtocolTranscriptBuffer {
                 .newDecoder()
                 .onMalformedInput(charsetPolicy.malformedInputAction())
                 .onUnmappableCharacter(charsetPolicy.unmappableCharacterAction());
-        private ByteBuffer input = ByteBuffer.allocate(0);
+        private byte[] pending = EMPTY_BYTES;
+        private int pendingCount;
 
-        private String decode(byte[] bytes, int count) {
-            appendInput(bytes, count);
+        private void decodeInto(String label, byte[] bytes, int count) {
+            ByteBuffer input = sourceBuffer(bytes, count);
             CharBuffer output = CharBuffer.allocate(128);
-            StringBuilder text = new StringBuilder(Math.min(count, 128));
             while (true) {
                 CoderResult result = decoder.decode(input, output, false);
-                appendOutput(output, text);
+                appendOutput(label, output);
                 if (result.isOverflow()) {
                     continue;
                 }
                 if (result.isUnderflow()) {
-                    input.compact();
-                    return text.toString();
+                    retainPending(input);
+                    return;
                 }
-                appendReplacement(text);
-                skipMalformedInput(result);
+                appendReplacement(label);
+                skipMalformedInput(input, result);
             }
         }
 
-        private void appendInput(byte[] bytes, int count) {
-            input.flip();
-            ByteBuffer combined = ByteBuffer.allocate(input.remaining() + count);
-            combined.put(input);
+        private ByteBuffer sourceBuffer(byte[] bytes, int count) {
+            if (pendingCount == 0) {
+                return ByteBuffer.wrap(bytes, 0, count);
+            }
+            ByteBuffer combined = ByteBuffer.allocate(pendingCount + count);
+            combined.put(pending, 0, pendingCount);
             combined.put(bytes, 0, count);
             combined.flip();
-            input = combined;
+            pending = EMPTY_BYTES;
+            pendingCount = 0;
+            return combined;
         }
 
-        private void appendOutput(CharBuffer output, StringBuilder text) {
+        private void retainPending(ByteBuffer input) {
+            int remaining = input.remaining();
+            if (remaining == 0) {
+                pending = EMPTY_BYTES;
+                pendingCount = 0;
+                return;
+            }
+            if (pending.length < remaining) {
+                pending = new byte[remaining];
+            }
+            input.get(pending, 0, remaining);
+            pendingCount = remaining;
+        }
+
+        private void appendOutput(String label, CharBuffer output) {
             output.flip();
-            text.append(output);
+            int count = output.remaining();
+            if (count > 0) {
+                delegate.appendStream(label, output.array(), count);
+            }
             output.clear();
         }
 
-        private void skipMalformedInput(CoderResult result) {
+        private void skipMalformedInput(ByteBuffer input, CoderResult result) {
             malformed = true;
             input.position(Math.min(input.limit(), input.position() + result.length()));
         }
 
-        private void appendReplacement(StringBuilder text) {
-            text.append(decoder.replacement());
+        private void appendReplacement(String label) {
+            delegate.appendStream(label, decoder.replacement());
         }
     }
 }

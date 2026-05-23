@@ -41,6 +41,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O> {
 
     private static final String OUTPUT_OWNER = "ProtocolSession";
+    private static final byte[] EMPTY_BYTES = new byte[0];
 
     private final DefaultSession session;
     private final ProtocolAdapter<I, O> adapter;
@@ -370,7 +371,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
         private final OutputQueue output;
         private final long deadlineNanos;
         private final ResponseBudget budget;
-        private byte[] current = new byte[0];
+        private byte[] current = EMPTY_BYTES;
         private int offset;
 
         private Reader(OutputQueue output, long deadlineNanos, ResponseBudget budget) {
@@ -381,9 +382,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
 
         @Override
         public byte readByte() {
-            byte[] one = new byte[1];
-            read(one, 0, 1);
-            return one[0];
+            return (byte) readOneUnsignedByte();
         }
 
         @Override
@@ -402,7 +401,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
                     this.offset += count;
                     copied += count;
                     if (this.offset == current.length) {
-                        current = new byte[0];
+                        current = EMPTY_BYTES;
                         this.offset = 0;
                     }
                     return copied;
@@ -416,6 +415,27 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
                 }
             }
             return copied;
+        }
+
+        private int readOneUnsignedByte() {
+            while (true) {
+                if (offset < current.length) {
+                    budget.addBytes(1);
+                    int value = current[offset++] & 0xff;
+                    if (offset == current.length) {
+                        current = EMPTY_BYTES;
+                        offset = 0;
+                    }
+                    return value;
+                }
+                OutputEvent event = output.take(deadlineNanos);
+                switch (event.kind()) {
+                    case BYTES -> current = event.bytes();
+                    case EOF -> throw eof();
+                    case CLOSED -> throw closed(null);
+                    case FAILURE -> throw failure(event.reason(), failureMessage(event.reason()), event.failure());
+                }
+            }
         }
 
         @Override
@@ -438,7 +458,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
             }
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(Math.min(maxBytes, 8192));
             while (bytes.size() < maxBytes) {
-                byte value = readByte();
+                byte value = (byte) readOneUnsignedByte();
                 bytes.write(value);
                 if (value == delimiter) {
                     return bytes.toByteArray();
@@ -486,7 +506,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
             CharBuffer output = CharBuffer.allocate(128);
             StringBuilder text = new StringBuilder(Math.min(maxChars, 128));
             while (true) {
-                byte value = readByte();
+                byte value = (byte) readOneUnsignedByte();
                 if (!input.hasRemaining()) {
                     input = grow(input);
                 }

@@ -2,6 +2,7 @@ package com.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.ulviar.icli.command.CharsetPolicy;
 import com.github.ulviar.icli.command.RunOptions;
@@ -112,6 +113,20 @@ final class ProtocolSessionIntegrationTest {
                 .request(""));
 
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+    }
+
+    @Test
+    void delimiterReadStopsAtResponseByteLimitAndKeepsTranscriptBounded() {
+        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
+                .protocolSession(new DelimiterBytesAdapter(), call -> call.args(
+                                "burst", "--stdout-bytes=256k", "--stdout-byte=a")
+                        .maxResponseBytes(4096)
+                        .transcriptLimit(128))
+                .request(""));
+
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
+        assertTrue(exception.transcript().truncated());
+        assertTrue(exception.transcript().text().length() <= 128);
     }
 
     @Test
@@ -444,6 +459,19 @@ final class ProtocolSessionIntegrationTest {
         @Override
         public String readResponse(ProtocolReaders readers) {
             throw new IllegalArgumentException("bad response");
+        }
+    }
+
+    private static final class DelimiterBytesAdapter implements ProtocolAdapter<String, byte[]> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.flush();
+        }
+
+        @Override
+        public byte[] readResponse(ProtocolReaders readers) {
+            return readers.stdout().readUntil((byte) '\n', 512 * 1024);
         }
     }
 
