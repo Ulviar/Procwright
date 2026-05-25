@@ -80,8 +80,8 @@ final class PublicDocumentationCoverageTest {
     void publicApiIndexLinksToDiscoverableApiReferences() throws Exception {
         String apiIndex = Files.readString(Path.of("docs/api/index.md"), StandardCharsets.UTF_8);
 
-        assertTrue(apiIndex.contains("https://ulviar.github.io/iCLI/api/java/core/"));
-        assertTrue(apiIndex.contains("https://ulviar.github.io/iCLI/api/java/integrations/"));
+        assertTrue(apiIndex.contains("href=\"./java/core/\""));
+        assertTrue(apiIndex.contains("href=\"./java/integrations/\""));
         assertTrue(apiIndex.contains("../reference/kotlin-api.md"));
     }
 
