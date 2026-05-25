@@ -1,6 +1,6 @@
 # How-to Guides
 
-These guides start from real CLI automation tasks and point to the scenario that owns the required invariants.
+These guides start from real CLI automation tasks and point to the API to use.
 
 ## Guides
 

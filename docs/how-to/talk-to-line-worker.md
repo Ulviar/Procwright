@@ -4,7 +4,8 @@ Use `lineSession` when a command stays alive and answers one logical request at 
 
 ## Steps
 
-1. Configure `LineSessionOptions` for request timeout, transcript limits, and decoder behavior.
+1. Start from `lineSession()` and set request timeout, transcript limits, or decoder behavior only when the defaults do
+   not match the worker protocol.
 2. Open a line session for the worker command.
 3. Send requests through `LineSession.request(...)`.
 4. Treat request timeout or decoder failure as a session-ending event.
@@ -21,7 +22,7 @@ try (LineSession session =
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.lineSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#line-worker).
 
 ## Use this scenario because
 

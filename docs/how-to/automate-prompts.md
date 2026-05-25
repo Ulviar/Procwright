@@ -22,7 +22,7 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.expectScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Use this scenario because
 

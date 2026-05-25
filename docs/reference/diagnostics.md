@@ -19,7 +19,7 @@ CommandService tool = Icli.command("tool")
 tool.run().execute("--version");
 ```
 
-Complete example source: [`CommandServiceApiExamples.diagnosticsScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Event shape
 

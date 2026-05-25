@@ -26,7 +26,7 @@ if (!result.succeeded()) {
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.oneShotScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#one-shot-command).
 
 ## User responsibilities
 
@@ -41,7 +41,7 @@ line parsing surprises and reduces injection risk.
 Use policies for domain decisions instead of booleans. Capture and shutdown policies are examples of invariants that
 belong to value objects, not to ad hoc process code at call sites.
 
-Complete example source: [`CommandServiceApiExamples.policyComposition`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Failure model
 

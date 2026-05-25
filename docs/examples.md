@@ -1,15 +1,8 @@
 # Examples
 
-Public snippets are copied from source files that compile during verification. When a page shows a focused fragment, the
-method name below points to the complete source shape.
-
-Consumer-facing examples live in `icli-consumer-examples`. They cover the basic public workflows without relying on
-package-private access or unpublished helper APIs.
+These examples show the main public workflows without requiring source-code navigation.
 
 ## Core examples
-
-Source file:
-[`CommandServiceApiExamples.java`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java)
 
 ### One-shot command
 
@@ -79,6 +72,27 @@ try (PooledLineSession pool = tool.lineSession()
 }
 ```
 
+### Typed protocol worker pool
+
+```java
+CommandService worker = Icli.command("tool");
+
+try (PooledProtocolSession<String, String> pool = worker.protocolSession(LengthPrefixedTextAdapter::new)
+        .withArgs("worker")
+        .withReadiness(ready -> ready.request("ready"))
+        .pooled()
+        .withMaxSize(4)
+        .withWarmupSize(1)
+        .withMinIdle(1)
+        .open()) {
+    String response = pool.request("document\nbody", Duration.ofSeconds(2));
+    PooledProtocolSessionMetrics metrics = pool.metrics();
+    if (response.isBlank() || metrics.size() > 4) {
+        throw new IllegalStateException("unexpected pooled response");
+    }
+}
+```
+
 | Example | Demonstrates |
 | --- | --- |
 | `oneShotScenario` | Finite command execution with `run` and `CommandResult`. |
@@ -97,8 +111,8 @@ try (PooledLineSession pool = tool.lineSession()
 
 ## Integration examples
 
-Source file:
-[`CommandBackedToolExamples.java`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
+Add the optional integrations artifact before using these APIs. See
+[optional modules](release/installation.md#optional-modules).
 
 ```java
 CommandService service = Icli.command("tool");
@@ -122,8 +136,7 @@ try (LineSession lineSession = service.lineSession(call -> call.args("json-worke
 
 ## Consumer examples
 
-Source file:
-[`ConsumerScenarios.java`](https://github.com/Ulviar/iCLI/blob/main/icli-consumer-examples/src/main/java/io/github/ulviar/icli/consumer/examples/ConsumerScenarios.java)
+`icli-consumer-examples` shows the basic workflows as code compiled from outside the core module.
 
 | Example | Demonstrates |
 | --- | --- |
@@ -132,3 +145,6 @@ Source file:
 | `protocolSession` | Typed framed request/response session. |
 | `pooledLineSession` | Worker pooling over line sessions. |
 | `pooledProtocolSession` | Worker pooling over typed protocol sessions. |
+
+External consumer source:
+[`ConsumerScenarios.java`](https://github.com/Ulviar/iCLI/blob/main/icli-consumer-examples/src/main/java/io/github/ulviar/icli/consumer/examples/ConsumerScenarios.java)

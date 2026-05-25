@@ -1,5 +1,5 @@
 site_name: iCLI
-site_description: Scenario-first JVM library for safe external CLI automation.
+site_description: Scenario-first JVM library for external CLI automation.
 site_url: https://ulviar.github.io/iCLI/
 repo_name: Ulviar/iCLI
 repo_url: https://github.com/Ulviar/iCLI
@@ -73,6 +73,7 @@ nav:
       - Kotlin API: reference/kotlin-api.md
       - Generated API Docs: api/index.md
   - Explanation:
+      - explanations/index.md
       - Scenario-first Design: explanations/scenario-first.md
       - Output Ownership Rationale: explanations/output-ownership.md
       - Process Cleanup Limits: explanations/process-cleanup-limits.md

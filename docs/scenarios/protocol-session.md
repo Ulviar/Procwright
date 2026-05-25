@@ -14,7 +14,7 @@ The scenario covers:
 - bounded transcripts with malformed/truncated markers;
 - process close after protocol failure.
 
-Complete example source: [`CommandServiceApiExamples.protocolSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#framed-protocol-worker).
 
 ## Example
 
@@ -58,6 +58,16 @@ private static final class LengthPrefixedTextAdapter implements ProtocolAdapter<
 }
 ```
 
+For that adapter, one request/response cycle looks like this on stdout/stdin:
+
+```text
+stdin:  22\nfirst line\nsecond line
+stdout: 22\nfirst line\nsecond line
+```
+
+The worker executable is responsible for speaking that protocol. iCLI owns the process and deadlines; the adapter owns
+how one request and one response are framed.
+
 ## Pooling
 
 Use `protocolSession(factory).pooled()` when worker startup is expensive and the adapter can prove that a worker is
@@ -65,7 +75,7 @@ reusable after each request. The pool owns acquire, release, retirement, reset, 
 replenishment. The pooled API takes an adapter factory so each worker owns its own protocol state. iCLI serializes
 factory calls, and the adapters returned by the factory do not need to be thread-safe.
 
-Complete example source: [`CommandServiceApiExamples.pooledProtocolSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#typed-protocol-worker-pool).
 
 ## Adapter Boundary
 

@@ -18,6 +18,8 @@ try (StreamSession stream = tool.listen()
         .onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
+            } else {
+                System.out.print(chunk.text());
             }
         })
         .open()) {
@@ -25,7 +27,7 @@ try (StreamSession stream = tool.listen()
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.listenOnlyStreamingScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Use this scenario because
 

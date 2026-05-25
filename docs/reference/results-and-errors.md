@@ -17,8 +17,7 @@ iCLI keeps process outcomes and runtime failures separate.
 
 `toException()` returns a `CommandException` that preserves the full result.
 
-iCLI-produced results keep captured bytes and decoded text aligned through the execution charset. Prefer results returned
-by iCLI; if a custom adapter creates a `CommandResult` manually, it must keep byte and text views consistent.
+iCLI-produced results keep captured bytes and decoded text aligned through the execution charset.
 
 ## CommandException
 

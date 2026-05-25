@@ -20,7 +20,7 @@ if (!result.succeeded()) {
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.oneShotScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#one-shot-command).
 
 ## Use this scenario because
 

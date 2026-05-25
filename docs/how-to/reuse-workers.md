@@ -31,11 +31,28 @@ try (PooledLineSession pool = tool.lineSession()
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.pooledLineSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#worker-pool).
 
-Typed protocol pool shape is shown in
-[`CommandServiceApiExamples.pooledProtocolSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
-It uses a per-worker adapter factory so adapter state is never shared between workers.
+Typed protocol pools use a per-worker adapter factory so adapter state is never shared between workers.
+
+```java
+CommandService worker = Icli.command("tool");
+
+try (PooledProtocolSession<String, String> pool = worker.protocolSession(LengthPrefixedTextAdapter::new)
+        .withArgs("worker")
+        .withReadiness(ready -> ready.request("ready"))
+        .pooled()
+        .withMaxSize(4)
+        .withWarmupSize(1)
+        .withMinIdle(1)
+        .open()) {
+    String response = pool.request("document\nbody", Duration.ofSeconds(2));
+    PooledProtocolSessionMetrics metrics = pool.metrics();
+    if (response.isBlank() || metrics.size() > 4) {
+        throw new IllegalStateException("unexpected pooled response");
+    }
+}
+```
 
 ## Use this scenario because
 

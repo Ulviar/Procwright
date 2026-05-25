@@ -22,6 +22,7 @@ import io.github.ulviar.icli.session.ProtocolReaders;
 import io.github.ulviar.icli.session.ProtocolSession;
 import io.github.ulviar.icli.session.ProtocolWriter;
 import io.github.ulviar.icli.session.Session;
+import io.github.ulviar.icli.session.SessionExit;
 import io.github.ulviar.icli.session.SessionOptions;
 import io.github.ulviar.icli.session.StreamSession;
 import io.github.ulviar.icli.session.StreamSource;
@@ -30,6 +31,7 @@ import io.github.ulviar.icli.terminal.TerminalSignal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 final class CommandServiceApiExamples {
 
@@ -59,12 +61,15 @@ final class CommandServiceApiExamples {
     void policyComposition() {
         CommandService logs = Icli.command("tool");
 
-        logs.run()
+        CommandResult result = logs.run()
                 .withArgs("logs")
                 .withTimeout(Duration.ofSeconds(30))
                 .withCapture(CapturePolicy.bounded(128 * 1024))
                 .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)))
                 .execute();
+        if (result.timedOut()) {
+            throw result.toException();
+        }
     }
 
     void interactiveScenario() {
@@ -73,6 +78,11 @@ final class CommandServiceApiExamples {
 
         try (Session session = python.interactive().withArgs("-i").open()) {
             session.sendLine("print(6 * 7)");
+            session.closeStdin();
+            SessionExit exit = session.onExit().join();
+            if (exit.timedOut()) {
+                throw new IllegalStateException("session timed out");
+            }
         }
     }
 
@@ -106,7 +116,11 @@ final class CommandServiceApiExamples {
 
         try (Session session =
                 shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
-            session.sendSignal(TerminalSignal.INTERRUPT);
+            session.sendLine("exit");
+            SessionExit exit = session.onExit().join();
+            if (exit.timedOut()) {
+                session.sendSignal(TerminalSignal.INTERRUPT);
+            }
         }
     }
 
@@ -118,10 +132,35 @@ final class CommandServiceApiExamples {
                 .onOutput(chunk -> {
                     if (chunk.source() == StreamSource.STDERR) {
                         System.err.print(chunk.text());
+                    } else {
+                        System.out.print(chunk.text());
                     }
                 })
                 .open()) {
             stream.onExit().join();
+        }
+    }
+
+    void daemonReadinessScenario() throws InterruptedException {
+        CommandService server = Icli.command("tool");
+        AtomicBoolean ready = new AtomicBoolean(false);
+
+        try (StreamSession stream = server.listen()
+                .withArgs("serve")
+                .withTimeout(Duration.ofSeconds(30))
+                .onOutput(chunk -> {
+                    if (chunk.text().contains("ready")) {
+                        ready.set(true);
+                    }
+                })
+                .open()) {
+            long deadlineNanos = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (!ready.get() && System.nanoTime() < deadlineNanos) {
+                Thread.sleep(25);
+            }
+            if (!ready.get()) {
+                throw new IllegalStateException("server did not become ready");
+            }
         }
     }
 

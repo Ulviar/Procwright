@@ -14,8 +14,7 @@ The core artifact is the named Java module `io.github.ulviar.icli`. It exports o
 - `io.github.ulviar.icli.terminal`
 
 The `0.1.0` public Java API is the set of exported packages and types documented by the generated Java API docs. Future
-pre-1.0 releases may change that API, but public call-shape changes should be intentional and reflected in the docs and
-examples.
+pre-1.0 releases may change that API. Public call-shape changes will be documented with updated examples.
 
 The `0.1.0` scenario baseline covers `run`, `interactive`, `lineSession`, `protocolSession`, `lineSession().pooled()`,
 and `protocolSession(factory).pooled()`. Generic/core async request orchestration and raw session pooling are outside
@@ -30,5 +29,5 @@ The Kotlin artifact publishes `io.github.ulviar.icli.kotlin` extensions over the
 
 ## Compatibility rule
 
-Before `1.0.0`, iCLI may still make breaking API changes, but they must be explicit in public docs, examples, and the
-compatibility policy. Internal packages are not compatibility surface.
+Before `1.0.0`, iCLI may still make breaking API changes. Breaking changes will be documented in public docs, examples,
+and the compatibility policy. Internal packages are not compatibility surface.

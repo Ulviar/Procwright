@@ -4,8 +4,6 @@
 
 - Runtime JDK: Java 17 or newer.
 - Public artifact bytecode target: Java 17.
-- Source evaluation can also be run with Java 21 or 25 by passing `--project-prop=icli.javaRelease=21` or `25` while
-  using the matching JDK.
 - Current version: `0.1.0`.
 
 ## Modules
@@ -34,7 +32,7 @@ explicitly when no configured provider is available; they must not silently fall
 
 ## Compatibility before 1.0
 
-The project may still make breaking public API changes before `1.0.0`. Breaking changes should be reflected in examples,
+The project may still make breaking public API changes before `1.0.0`. Breaking changes will be documented in examples,
 public docs, and this compatibility policy.
 
 Session-family handles are sealed interfaces backed by hidden iCLI implementations. Create them through

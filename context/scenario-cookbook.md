@@ -22,6 +22,7 @@ workflow и не скатиться к ручной сборке process harness
 | Делать request/response поверх framed/typed protocol | `protocolSession` | `protocolSessionScenario` |
 | Требовать terminal capability | `interactive` + `TerminalPolicy.REQUIRED` | `terminalRequiredSessionScenario` |
 | Читать поток вывода без накопления всего output | `listen` | `listenOnlyStreamingScenario` |
+| Ждать readiness по output долгоживущего процесса | `listen` + application readiness check | `daemonReadinessScenario` |
 | Наблюдать lifecycle без раскрытия raw argv/env/output | `DiagnosticsOptions` | `diagnosticsScenario` |
 | Переиспользовать line-oriented workers | `lineSession().pooled()` | `pooledLineSessionScenario` |
 | Переиспользовать typed protocol workers | `protocolSession(factory).pooled()` | `pooledProtocolSessionScenario` |
@@ -72,7 +73,7 @@ Compile-tested examples:
 Используй `Expect`, когда процесс ведет prompt-oriented диалог и caller хочет ждать literal/regex output, отправлять
 строки и получать bounded transcript при timeout/EOF.
 
-Compile-tested example:
+Compile-tested examples:
 
 - `expectScenario`
 
@@ -125,6 +126,7 @@ Compile-tested example:
 Compile-tested example:
 
 - `listenOnlyStreamingScenario`
+- `daemonReadinessScenario`
 
 Инварианты:
 

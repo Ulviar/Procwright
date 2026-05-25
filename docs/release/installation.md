@@ -74,20 +74,3 @@ Maven:
     <version>0.1.0</version>
 </dependency>
 ```
-
-## Source evaluation
-
-Local source development uses the repository Gradle wrapper:
-
-```bash
-./gradlew check
-./gradlew publicDocsCheck
-```
-
-To check source compatibility for a specific Java runtime, run Gradle with the matching JDK:
-
-```bash
-./gradlew check --project-prop=icli.javaRelease=17
-./gradlew check --project-prop=icli.javaRelease=21
-./gradlew check --project-prop=icli.javaRelease=25
-```

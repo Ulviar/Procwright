@@ -14,17 +14,23 @@ The scenario covers:
 ## Example
 
 ```java
-try (StreamSession stream =
-        tool.listen().withArgs("logs", "--follow").onOutput(chunk -> {
+CommandService tool = Icli.command("tool");
+
+try (StreamSession stream = tool.listen()
+        .withArgs("logs", "--follow")
+        .onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
+            } else {
+                System.out.print(chunk.text());
             }
-        }).open()) {
+        })
+        .open()) {
     stream.onExit().join();
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.listenOnlyStreamingScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Backpressure
 

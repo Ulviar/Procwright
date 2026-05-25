@@ -6,8 +6,8 @@ Use this guide when you know the shape of the external process but have not chos
 
 Choose `run` for commands such as `git --version`, `docker info`, `java --version`, or a tool-specific `doctor` command.
 
-Keep executable discovery in the application layer for now. iCLI launches commands; it does not currently own PATH
-lookup, Windows extension probing, package-manager installation, or toolchain discovery.
+Keep executable discovery in the application layer. In `0.1.0`, iCLI launches the command it is given; it does not own
+PATH lookup, Windows extension probing, package-manager installation, or toolchain discovery.
 
 Recommended shape:
 
@@ -54,6 +54,8 @@ try (StreamSession stream = tool.listen()
         .onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
+            } else {
+                System.out.print(chunk.text());
             }
         })
         .open()) {
@@ -72,6 +74,29 @@ protocol itself.
 Typical readiness checks are HTTP polling, socket availability, a PID file, a status command, or a known log line. iCLI
 should own stream draining, timeout, shutdown, and diagnostics. The application still owns the domain-specific definition
 of "ready"; iCLI only owns when the probe runs and how the process is closed on readiness failure.
+
+```java
+CommandService server = Icli.command("tool");
+AtomicBoolean ready = new AtomicBoolean(false);
+
+try (StreamSession stream = server.listen()
+        .withArgs("serve")
+        .withTimeout(Duration.ofSeconds(30))
+        .onOutput(chunk -> {
+            if (chunk.text().contains("ready")) {
+                ready.set(true);
+            }
+        })
+        .open()) {
+    long deadlineNanos = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+    while (!ready.get() && System.nanoTime() < deadlineNanos) {
+        Thread.sleep(25);
+    }
+    if (!ready.get()) {
+        throw new IllegalStateException("server did not become ready");
+    }
+}
+```
 
 Do not turn this into a raw background `Process` unless the caller truly wants to own every stream and shutdown detail.
 
@@ -138,6 +163,9 @@ See [Protocol Sessions](../scenarios/protocol-session.md), [Reuse workers](reuse
 
 Choose the optional integrations module when a CLI should be treated as a structured adapter rather than raw process
 text.
+
+Add `io.github.ulviar:icli-integrations` when using these helpers. See
+[optional modules](../release/installation.md#optional-modules).
 
 The adapter layer still builds on core scenarios. It should validate output as untrusted data and keep cancellation,
 diagnostics, and protocol bounds explicit.

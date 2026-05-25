@@ -27,12 +27,15 @@ final class ReferenceApiExamples {
     void policyComposition() {
         CommandService logs = Icli.command("tool");
 
-        logs.run()
+        CommandResult result = logs.run()
                 .withArgs("logs")
                 .withTimeout(Duration.ofSeconds(30))
                 .withCapture(CapturePolicy.bounded(128 * 1024))
                 .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)))
                 .execute();
+        if (result.timedOut()) {
+            throw result.toException();
+        }
     }
 
     void directArgv() {

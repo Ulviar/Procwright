@@ -12,8 +12,19 @@ dependencies {
 }
 ```
 
+Maven:
+
+```xml
+<dependency>
+    <groupId>io.github.ulviar</groupId>
+    <artifactId>icli-kotlin</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
 Use the package `io.github.ulviar.icli.kotlin` for extensions. The module depends on
-`kotlinx-coroutines-core`; Gradle and Maven receive that dependency transitively.
+`kotlinx-coroutines-core`; Gradle and Maven receive that dependency transitively. Full optional-module coordinates are
+listed in [Installation](../release/installation.md#optional-modules).
 
 The examples below use these imports:
 

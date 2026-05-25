@@ -22,7 +22,7 @@ The core one-shot and session scenarios use ordinary process pipes by default.
 Terminal capability is requested through `TerminalPolicy` inside session-family scenarios. The public API exposes
 terminal policy, requested terminal size, terminal control signals, and `PtyProvider`.
 
-Backend-specific PTY library types must not appear in core public signatures.
+Application code does not need backend-specific PTY library classes when it uses the core terminal API.
 
 `0.1.0` does not ship a Windows ConPTY provider. ConPTY support should be added as a separate optional
 provider or runtime-specific artifact without changing the scenario API or adding native dependencies to the core

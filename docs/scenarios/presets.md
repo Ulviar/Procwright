@@ -8,13 +8,15 @@ Use presets when the scenario is already chosen and the same group of policies a
 ## Example
 
 ```java
+CommandService tool = Icli.command("tool");
+
 tool.run()
         .withArgs("env")
         .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
         .execute();
 ```
 
-Complete example source: [`CommandServiceApiExamples.scenarioPresetComposition`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Current preset families
 

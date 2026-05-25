@@ -1,7 +1,9 @@
 # Integrations
 
-The optional `io.github.ulviar:icli-integrations` artifact wraps existing process scenarios as structured integration
-boundaries.
+The optional `io.github.ulviar:icli-integrations` artifact is for code that wants a typed adapter over a CLI instead of
+passing raw process text through the application.
+
+Add the optional module first. See [optional modules](../release/installation.md#optional-modules).
 
 It currently covers:
 
@@ -16,12 +18,7 @@ It currently covers:
 `JsonLineSession.requestAsync` is a narrow cancellable helper in this optional module. It is not the generic/core async
 request API that remains outside `0.1.0`.
 
-Complete example sources:
-
-- [`CommandBackedToolExamples.oneShotCommandBackedTool`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
-- [`CommandBackedToolExamples.jsonLineCommandBackedTool`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
-- [`CommandBackedToolExamples.cancellableJsonLineCall`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
-- [`CommandBackedToolExamples.contentLengthFramedJson`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
+More examples: [Examples](../examples.md#integration-examples).
 
 ## Example
 

@@ -12,6 +12,7 @@ process utility. Start from the workflow the caller needs, not from a method-by-
 | Keep a process open and write/read raw streams. | [`interactive`](../scenarios/interactive.md) | Exposes direct session control and process lifecycle. |
 | Wait for prompts and send replies. | [`interactive`](../scenarios/interactive.md) + [`Expect`](../scenarios/expect.md) | Owns prompt matching, transcript bounds, and timeout/EOF distinction. |
 | Send one line request and read one logical response. | [`lineSession`](../scenarios/line-session.md) | Owns serialized request/response state and closes on protocol uncertainty. |
+| Send framed, multi-line, byte, or typed requests. | [`protocolSession`](../scenarios/protocol-session.md) | Lets a protocol adapter own request framing and response decoding. |
 | Reuse expensive line workers. | [`lineSession().pooled()`](../scenarios/pooling.md) | Reuses line-session workers with bounded pool and retirement policies. |
 | Wrap a CLI as a structured adapter. | [`integrations`](../scenarios/integrations.md) | Keeps structured adapter behavior outside the core process runtime. |
 
@@ -29,7 +30,7 @@ if (!result.succeeded()) {
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.oneShotScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#one-shot-command).
 
 Do not throw away the result too early. `CommandResult` carries exit code, timeout state, stdout/stderr text and bytes,
 truncation flags, and elapsed duration. Convert to an exception only when fail-fast application flow is the right shape.
@@ -52,10 +53,9 @@ CommandService python = Icli.command(command);
 python.run().execute("--version");
 ```
 
-Complete example source: [`CommandServiceApiExamples.explicitCommandConfiguration`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
-This preserves the same split that mature hand-written runners usually grow over time: one reusable command profile,
-many scenario invocations.
+This keeps stable command defaults in one place and leaves operation-specific choices at each scenario invocation.
 
 ## Streaming output
 
@@ -70,6 +70,8 @@ try (StreamSession stream = tool.listen()
         .onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
+            } else {
+                System.out.print(chunk.text());
             }
         })
         .open()) {
@@ -77,7 +79,7 @@ try (StreamSession stream = tool.listen()
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.listenOnlyStreamingScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 Use `run` when the output is part of the completed result. Use `listen` when the output is an event stream and retaining
 all of it would be the wrong invariant.
@@ -97,7 +99,7 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.expectScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 `Expect` owns output matching and transcript bounds. Do not read the raw session output streams at the same time.
 
@@ -119,7 +121,7 @@ try (LineSession session = repl.lineSession()
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.lineSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#line-worker).
 
 On timeout, EOF, decoder failure, or read/write failure, the line session closes. This is intentional: after a failed
 request/response cycle, the protocol state is unknown.

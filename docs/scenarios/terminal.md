@@ -17,16 +17,20 @@ requires terminal control sequences to function.
 CommandService shell = Icli.command("sh");
 
 try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
-    session.sendSignal(TerminalSignal.INTERRUPT);
+    session.sendLine("exit");
+    SessionExit exit = session.onExit().join();
+    if (exit.timedOut()) {
+        session.sendSignal(TerminalSignal.INTERRUPT);
+    }
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.terminalRequiredSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Boundary
 
-The current core API exposes terminal policy, terminal size, terminal control signals, and a narrow `PtyProvider` SPI.
-It does not expose backend-specific PTY library types.
+The current core API exposes terminal policy, terminal size, and terminal control signals. Application code does not
+need backend-specific PTY library classes.
 
 The initial system provider is platform-dependent. Unix-like environments depend on an available system terminal helper
 such as `script(1)`. Windows ConPTY is not shipped as a provider in `0.1.0`.

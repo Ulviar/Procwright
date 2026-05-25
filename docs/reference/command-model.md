@@ -42,9 +42,8 @@ python.run().execute("--version");
 - `lineSession().pooled()`;
 - `protocolSession(factory).pooled()`.
 
-Scenario methods first select the workflow and then expose only configuration relevant to that workflow. Callback-based
-methods remain available as a compatibility and integration bridge, but the primary API shape is scenario object plus
-`with...` configuration.
+Scenario methods first select the workflow and then expose only configuration relevant to that workflow. The primary API
+shape is scenario object plus `with...` configuration.
 
 ## Override precedence
 

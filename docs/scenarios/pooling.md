@@ -38,7 +38,7 @@ try (PooledLineSession pool = tool.lineSession()
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.pooledLineSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#worker-pool).
 
 ## User responsibilities
 
@@ -49,5 +49,5 @@ request unreliable, iCLI retires the worker.
 `protocolSession(factory).pooled()` uses an adapter factory, not a shared adapter instance. iCLI serializes factory
 calls; each worker owns one returned adapter and one process protocol state.
 
-Pooling is intentionally scenario-specific. iCLI has line-session and typed protocol pools, but raw session pooling,
-stateful affinity, and exposed leases are not part of the current surface.
+Pooling is intentionally scenario-specific. iCLI has line-session and typed protocol pools because those scenarios have
+clear request boundaries.

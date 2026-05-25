@@ -1,6 +1,9 @@
 # Wrap a CLI Tool
 
-Use `io.github.ulviar:icli-integrations` when the external CLI should be exposed as a structured tool boundary.
+Use `io.github.ulviar:icli-integrations` when application code should call a small typed adapter instead of spreading
+argv construction, JSON framing, and CLI error mapping across many call sites.
+
+Add the optional module first. See [optional modules](../release/installation.md#optional-modules).
 
 ## Steps
 
@@ -24,7 +27,7 @@ ToolCallResult<String> result = status.call(".");
 result.error().ifPresent(error -> System.err.println(error.code()));
 ```
 
-Complete example source: [`CommandBackedToolExamples.oneShotCommandBackedTool`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java).
+More examples: [Examples](../examples.md#integration-examples).
 
 ## Use this scenario because
 

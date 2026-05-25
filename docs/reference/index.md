@@ -16,12 +16,6 @@ Current reference entry points:
 - [Kotlin API](kotlin-api.md)
 - [Generated API docs](../api/index.md)
 
-## Local API docs
+## API docs
 
-Build Java API docs locally:
-
-```bash
-./gradlew publicJavaJavadocCheck
-```
-
-Kotlin usage and public extensions are documented in [Kotlin API](kotlin-api.md).
+Generated Java API docs and Kotlin usage notes are linked from [Generated API docs](../api/index.md).

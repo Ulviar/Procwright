@@ -3,7 +3,6 @@
 ## Requirements
 
 - JDK 17 or newer. Published artifacts target Java 17.
-- Gradle wrapper from this repository only when building iCLI from source.
 
 ## Add the dependency
 
@@ -42,18 +41,6 @@ Maven:
     <version>0.1.0</version>
 </dependency>
 ```
-
-## Build from source
-
-Clone the repository only when you want to evaluate or modify iCLI itself:
-
-```bash
-git clone https://github.com/Ulviar/iCLI.git
-cd iCLI
-./gradlew quickCheck
-```
-
-Use broader verification tiers only when changing iCLI itself. They are listed in [Compatibility](release/compatibility.md).
 
 ## First scenario
 
@@ -104,7 +91,7 @@ Do not start by assembling process flags. Start by choosing the workflow:
 
 - `run` for finite commands;
 - `interactive` for raw live process control;
-- `Expect` for prompt automation;
+- `interactive` + `Expect` for prompt automation;
 - `lineSession` for request/response protocols;
 - `protocolSession` for framed, multi-line, byte, or typed request/response protocols;
 - `listen` for streaming output;
@@ -113,3 +100,13 @@ Do not start by assembling process flags. Start by choosing the workflow:
 
 The [How-to Guides](how-to/index.md) section starts from common tasks. [Scenario Contracts](scenarios/index.md) is the
 reference index for the public scenario surface.
+
+## Build from source
+
+Clone the repository only when you want to evaluate or modify iCLI itself:
+
+```bash
+git clone https://github.com/Ulviar/iCLI.git
+cd iCLI
+./gradlew quickCheck
+```

@@ -12,15 +12,18 @@ Use `run` with explicit timeout and shutdown policies when a command can hang or
 ```java
 CommandService logs = Icli.command("tool");
 
-logs.run()
+CommandResult result = logs.run()
         .withArgs("logs")
         .withTimeout(Duration.ofSeconds(30))
         .withCapture(CapturePolicy.bounded(128 * 1024))
         .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)))
         .execute();
+if (result.timedOut()) {
+    throw result.toException();
+}
 ```
 
-Complete example source: [`CommandServiceApiExamples.policyComposition`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Use this scenario because
 

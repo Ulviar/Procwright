@@ -1,13 +1,14 @@
 # iCLI
 
-iCLI is a JVM library for scenario-first control of external command-line processes. Its APIs make bounded output,
-timeouts, stream ownership, diagnostics, and best-effort process cleanup explicit for each workflow.
+iCLI is a JVM library for calling external command-line processes through task-shaped APIs. Choose the workflow first:
+run a finite command, automate prompts, talk to a worker, follow output, or reuse warm workers.
 
 The current public version is `0.1.0`. Use Java 17 or newer; published artifacts target Java 17.
 
 If you are new to iCLI, start with one question: what shape does the external process have? A command that exits belongs
-to `run`. A long-lived worker with one line per response belongs to `lineSession`. A framed or typed protocol belongs to
-`protocolSession`. A process that emits output continuously belongs to `listen`.
+to `run`. A raw live process belongs to `interactive`. Prompt automation uses `interactive` + `Expect`. A long-lived
+worker with one line per response belongs to `lineSession`. A framed or typed protocol belongs to `protocolSession`. A
+process that emits output continuously belongs to `listen`.
 
 ## What iCLI is for
 
@@ -55,7 +56,7 @@ This is the smallest scenario: choose a command, choose `run`, execute with argu
 - [Getting Started](getting-started.md) for installation and the first command.
 - [How-to Guides](how-to/index.md) for common CLI automation tasks.
 - [Reference](reference/index.md) for scenario contracts, policies, results, errors, and generated API docs.
-- [Examples](examples.md) for complete source snippets.
+- [Examples](examples.md) for complete usage examples.
 - [Kotlin API](reference/kotlin-api.md) for the optional Kotlin module.
-- [Non-goals](explanations/non-goals.md) for scope boundaries.
+- [Explanations](explanations/index.md) for design rationale and scope boundaries.
 - [Release](release/index.md) for compatibility and limitations.

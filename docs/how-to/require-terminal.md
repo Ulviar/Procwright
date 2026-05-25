@@ -13,11 +13,15 @@ Use `interactive` with `TerminalPolicy.REQUIRED` when a command must run with te
 CommandService shell = Icli.command("sh");
 
 try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
-    session.sendSignal(TerminalSignal.INTERRUPT);
+    session.sendLine("exit");
+    SessionExit exit = session.onExit().join();
+    if (exit.timedOut()) {
+        session.sendSignal(TerminalSignal.INTERRUPT);
+    }
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.terminalRequiredSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Use this scenario because
 

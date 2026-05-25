@@ -1,17 +1,17 @@
 # API Docs
 
-iCLI publishes generated Java API docs with the public site. Kotlin APIs are documented in the Kotlin reference page.
+iCLI publishes generated Java API docs with the public documentation site. Kotlin APIs are documented in the Kotlin
+reference page.
 
 ## Public API entry points
 
-The Java links below work in the built or published documentation site. If you are reading this Markdown file on GitHub,
-build the site locally with `./gradlew publicDocsCheck` and open `build/public-docs/api/index.html`.
-
-- <a href="./java/core/">Core Java API</a>
-- <a href="./java/integrations/">Integrations Java API</a>
+- [Core Java API](https://ulviar.github.io/iCLI/api/java/core/)
+- [Integrations Java API](https://ulviar.github.io/iCLI/api/java/integrations/)
 - [Kotlin API](../reference/kotlin-api.md)
 
 ## Local commands
+
+Use this only when working from a source checkout:
 
 ```bash
 ./gradlew publicDocsCheck

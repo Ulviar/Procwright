@@ -20,10 +20,15 @@ CommandService python =
 
 try (Session session = python.interactive().withArgs("-i").open()) {
     session.sendLine("print(6 * 7)");
+    session.closeStdin();
+    SessionExit exit = session.onExit().join();
+    if (exit.timedOut()) {
+        throw new IllegalStateException("session timed out");
+    }
 }
 ```
 
-Complete example source: [`CommandServiceApiExamples.interactiveScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
+More examples: [Examples](../examples.md#core-examples).
 
 ## Output ownership
 
