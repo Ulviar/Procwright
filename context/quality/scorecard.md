@@ -51,8 +51,8 @@ core/integrations.
 - Expect-level action diagnostics и подробные pool worker lifecycle events отложены.
 - Windows ConPTY provider отложен в optional/runtime-specific future artifact.
 - Kotlin generated docs через Dokka отложены; KDoc coverage check остается release gate.
-- GitHub Packages publishing/signing setup добавлен; Maven Central publication остается отдельным release-infrastructure
-  step.
+- Maven Central publishing/signing setup добавлен; первая публикация ожидает verified namespace и Central Portal
+  credentials.
 
 ## Отложено за пределы первого RC
 
@@ -62,7 +62,7 @@ core/integrations.
 - Real MCP SDK adapter поверх `:icli-integrations`.
 - Windows ConPTY provider.
 - Dokka publication для Kotlin API docs.
-- Maven Central publishing implementation.
+- Automatic Maven Central publish без ручной проверки первого Central Portal deployment.
 - Machine-dependent performance promises.
 - Новые capture policy modes beyond bounded one-shot capture.
 
@@ -71,7 +71,7 @@ core/integrations.
 1. Прогнать полный `./gradlew releaseCandidateCheck` на clean worktree.
 2. Проверить CI на Linux/macOS/Windows.
 3. Подготовить versioned public release notes на основе `docs/release/release-notes.md`.
-4. Cut GitHub release, чтобы release-only CI job опубликовал GitHub Packages artifacts.
+4. Cut GitHub release, чтобы release-only CI job загрузил Central Portal deployment.
 
 ## Что считается прогрессом
 

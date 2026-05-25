@@ -17,7 +17,7 @@ java {
     targetCompatibility = icliJavaVersion
 }
 
-application { mainClass.set("com.github.ulviar.icli.testcli.TestCli") }
+application { mainClass.set("io.github.ulviar.icli.testcli.TestCli") }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"

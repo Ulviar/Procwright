@@ -19,7 +19,7 @@
   явно принят в public release docs; предпочтительный вариант перед release — добавить lock/hashes workflow.
 - Publishing/signing setup реализован по ADR-0017; remote publish запрещает `*-SNAPSHOT` и non-SemVer version, а
   публичный artifact считается готовым к публикации только после Java 17-targeted local publication check и CI job с
-  repository secrets.
+  Central Portal/signing secrets.
 
 ## Локальные проверки
 
@@ -92,14 +92,19 @@ Workflow permissions должны оставаться минимальными,
 - License file присутствует в корне репозитория.
 - POM metadata соответствует Apache-2.0 license, SCM и planned coordinates.
 - Release job передает non-SNAPSHOT version через `icli.version` из GitHub release tag.
+- Central Portal namespace `io.github.ulviar` verified.
+- Repository secrets доступны: `CENTRAL_USERNAME`, `CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_PASSWORD`.
 - Local publication check проходит:
 
 ```bash
 ./gradlew publishToMavenLocal --project-prop=icli.javaRelease=17
 ```
 
-- Maven Central publishing остается отдельным release-infrastructure step; GitHub Packages является текущим configured
-  external artifact target.
+- Signed Central bundle собирается локально или в CI:
+
+```bash
+./gradlew mavenCentralBundle --project-prop=icli.javaRelease=17 --project-prop=icli.version=0.1.0
+```
 
 ## Cut Release через GitHub Release
 
@@ -109,7 +114,8 @@ Workflow permissions должны оставаться минимальными,
 4. Создать GitHub Release из выбранного tag и именно опубликовать его, а не оставить draft-only release.
 5. Проверить, что release workflow передал version без ведущего `v`, запустил Java 17-targeted publish и не использовал
    `*-SNAPSHOT`.
-6. Проверить, что repository permissions/secrets доступны: `GITHUB_TOKEN` с `packages: write`; signing secrets
-   `SIGNING_KEY`/`SIGNING_PASSWORD`, если release должен быть signed.
-7. После успешного job проверить, что GitHub Packages содержит `com.github.ulviar:icli`,
-   `com.github.ulviar:icli-integrations` и `com.github.ulviar:icli-kotlin` с выбранной версией.
+6. Проверить, что release workflow загрузил `USER_MANAGED` deployment в Central Portal.
+7. В Central Portal проверить validation results и вручную нажать Publish.
+8. После публикации проверить, что Maven Central содержит `io.github.ulviar:icli`,
+   `io.github.ulviar:icli-integrations` и `io.github.ulviar:icli-kotlin` с выбранной версией.
+9. Запустить manual GitHub Actions workflow `Consumer Smoke Maven Central` для опубликованной версии.

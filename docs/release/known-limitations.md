@@ -21,7 +21,8 @@ Generated Dokka publication is not part of the current release gate.
 
 ## Publishing
 
-No Maven Central artifact is published yet. GitHub Packages is the current public artifact repository.
+Maven Central publication is configured for the Central Portal, but the first upload requires a verified
+`io.github.ulviar` namespace and Central Portal credentials.
 
 ## Java release variants
 

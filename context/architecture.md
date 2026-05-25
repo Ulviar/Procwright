@@ -41,7 +41,7 @@ scenario-specific execution plan. Это описано в
 - Bounded stress suite как часть `check`.
 - Release hardening: license, cross-platform CI, versioning/compatibility policies, dependency review и release
   checklist.
-- GitHub Packages publishing/signing setup для Java 17-targeted artifacts без runtime impact.
+- Maven Central publishing/signing setup для Java 17-targeted artifacts без runtime impact.
 
 ## Не входит в MVP
 
@@ -52,7 +52,7 @@ scenario-specific execution plan. Это описано в
 - Competitor samples.
 - Централизованная diagnostics bus или logging framework.
 - Отдельный public runner под каждый сценарий.
-- Maven Central publishing implementation.
+- Automatic Maven Central publish без ручной проверки первого Central Portal deployment.
 
 ## Слои
 
@@ -90,10 +90,10 @@ Testing/evals
 ## Пакетная форма ядра
 
 ```text
-com.github.ulviar.icli
+io.github.ulviar.icli
   CommandService
 
-com.github.ulviar.icli.command
+io.github.ulviar.icli.command
   CommandSpec
   CommandResult
   RunOptions
@@ -107,7 +107,7 @@ com.github.ulviar.icli.command
   CommandException
   CommandExecutionException
 
-com.github.ulviar.icli.session
+io.github.ulviar.icli.session
   Session (interface)
   SessionInvocation
   SessionOptions
@@ -154,7 +154,7 @@ com.github.ulviar.icli.session
   PooledProtocolSessionException
   PooledWorkerRetireReason
 
-com.github.ulviar.icli.diagnostics
+io.github.ulviar.icli.diagnostics
   DiagnosticsOptions
   DiagnosticEvent
   DiagnosticEventType
@@ -162,23 +162,23 @@ com.github.ulviar.icli.diagnostics
   DiagnosticTranscriptSink
   CommandEcho
 
-com.github.ulviar.icli.terminal
+io.github.ulviar.icli.terminal
   TerminalPolicy
   TerminalSize
   TerminalSignal
   PtyProvider
   PtyRequest
 
-com.github.ulviar.icli.preset
+io.github.ulviar.icli.preset
   ScenarioPresets
 
-com.github.ulviar.icli.internal
+io.github.ulviar.icli.internal
   runtime, plans, validation and process helpers that must not appear in public signatures
 
-com.github.ulviar.icli.internal.session
+io.github.ulviar.icli.internal.session
   stateful session-family implementations and runtime factories hidden by JPMS exports
 
-com.github.ulviar.icli.kotlin
+io.github.ulviar.icli.kotlin
   runCommand(...)
   runCommandAwait(...)
   openSession(...)
@@ -187,7 +187,7 @@ com.github.ulviar.icli.kotlin
   ListenFlowInvocation
   listenFlow(...)
 
-com.github.ulviar.icli.integration
+io.github.ulviar.icli.integration
   JsonValue
   JsonCodec
   JsonNumbers

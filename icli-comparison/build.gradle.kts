@@ -44,7 +44,7 @@ java {
     targetCompatibility = icliJavaVersion
 }
 
-application { mainClass.set("com.github.ulviar.icli.comparison.ComparisonRunner") }
+application { mainClass.set("io.github.ulviar.icli.comparison.ComparisonRunner") }
 
 configurations.named("jmhImplementation") { extendsFrom(configurations.implementation.get()) }
 
@@ -103,7 +103,7 @@ tasks.register<JavaExec>("stressComparisonReport") {
         "Runs stress comparison scenarios on the reusable test CLI and writes a Markdown report."
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     classpath = sourceSets.main.get().runtimeClasspath
-    mainClass.set("com.github.ulviar.icli.comparison.StressComparisonRunner")
+    mainClass.set("io.github.ulviar.icli.comparison.StressComparisonRunner")
     jvmArgs(comparisonNativeAccessArg)
     args(
         layout.projectDirectory
@@ -135,7 +135,7 @@ tasks.register<JavaExec>("jmhBenchmark") {
         "json",
         "-rff",
         resultFile.get().asFile.absolutePath,
-        "com.github.ulviar.icli.comparison.(OneShot|Streaming|LineSession|Expect|Pooled|ToolObservation).*",
+        "io.github.ulviar.icli.comparison.(OneShot|Streaming|LineSession|Expect|Pooled|ToolObservation).*",
     )
 }
 
@@ -164,7 +164,7 @@ tasks.register<JavaExec>("jmhBenchmarkSmoke") {
         "json",
         "-rff",
         resultFile.get().asFile.absolutePath,
-        "com.github.ulviar.icli.comparison.OneShotProcessBenchmark.success",
+        "io.github.ulviar.icli.comparison.OneShotProcessBenchmark.success",
     )
 }
 
@@ -183,7 +183,7 @@ tasks.register<JavaExec>("jmhPtyBenchmark") {
         "json",
         "-rff",
         resultFile.get().asFile.absolutePath,
-        "com.github.ulviar.icli.comparison.PtyProcessBenchmark",
+        "io.github.ulviar.icli.comparison.PtyProcessBenchmark",
     )
 }
 

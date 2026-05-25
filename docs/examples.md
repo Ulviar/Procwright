@@ -9,7 +9,7 @@ without relying on package-private access or unpublished helper APIs.
 ## Core examples
 
 Source file in the same checkout or release source tree:
-`src/test/java/com/github/ulviar/icli/examples/CommandServiceApiExamples.java`
+`src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java`
 
 ### One-shot command
 
@@ -98,7 +98,7 @@ try (PooledLineSession pool = tool.lineSession()
 ## Integration examples
 
 Source file in the same checkout or release source tree:
-`icli-integrations/src/test/java/com/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java`
+`icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java`
 
 ```java
 try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
@@ -121,7 +121,7 @@ try (LineSession lineSession = service.lineSession(call -> call.args("json-worke
 ## Consumer examples
 
 Source file in the same checkout or release source tree:
-`icli-consumer-examples/src/main/java/com/github/ulviar/icli/consumer/examples/ConsumerScenarios.java`
+`icli-consumer-examples/src/main/java/io/github/ulviar/icli/consumer/examples/ConsumerScenarios.java`
 
 | Example | Demonstrates |
 | --- | --- |

@@ -1,18 +1,18 @@
 # Kotlin API
 
-The `com.github.ulviar:icli-kotlin` artifact is optional. It adds Kotlin ergonomics over the Java core without changing
+The `io.github.ulviar:icli-kotlin` artifact is optional. It adds Kotlin ergonomics over the Java core without changing
 the underlying scenario model.
 
 Add it next to the core dependency:
 
 ```kotlin
 dependencies {
-    implementation("com.github.ulviar:icli:0.1.0")
-    implementation("com.github.ulviar:icli-kotlin:0.1.0")
+    implementation("io.github.ulviar:icli:0.1.0")
+    implementation("io.github.ulviar:icli-kotlin:0.1.0")
 }
 ```
 
-Use the package `com.github.ulviar.icli.kotlin` for extensions.
+Use the package `io.github.ulviar.icli.kotlin` for extensions.
 
 ## Receiver-style command calls
 
@@ -93,7 +93,7 @@ slow collector applies backpressure instead of creating an unbounded queue.
 
 The Kotlin artifact currently publishes:
 
-- top-level extensions in `com.github.ulviar.icli.kotlin.IcliKotlinKt`;
+- top-level extensions in `io.github.ulviar.icli.kotlin.IcliKotlinKt`;
 - `ListenFlowInvocation`, the narrow builder facade used by `listenFlow`.
 
 The exact public type set is guarded by `PublicKotlinApiSurfaceTest`, and public Kotlin declarations must have KDoc via

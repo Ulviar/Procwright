@@ -64,13 +64,13 @@ Publishing/signing setup добавлен для public artifacts:
 - root, `:icli-integrations` и `:icli-kotlin` применяют `maven-publish`;
 - root, `:icli-integrations` и `:icli-kotlin` применяют Gradle `signing`;
 - POM metadata содержит name, description, project URL, Apache-2.0 license, SCM и developer metadata;
-- GitHub Packages credentials читаются только из `GITHUB_ACTOR` и `GITHUB_TOKEN`;
+- Maven Central credentials читаются только из `CENTRAL_USERNAME` и `CENTRAL_PASSWORD`;
 - signing material читается только из `SIGNING_KEY` и `SIGNING_PASSWORD`;
 - publish tasks fail fast, если `icli.javaRelease != 17`;
 - remote publish tasks fail fast для `*-SNAPSHOT` или non-SemVer version; release job передает `icli.version` из GitHub
   release tag;
-- CI smoke проверяет `publishToMavenLocal` на Java 17, а release event может публиковать GitHub Packages artifact через
-  job с `packages: write`.
+- CI smoke проверяет `publishToMavenLocal` на Java 17;
+- release event собирает signed Maven Central bundle и загружает его в Central Portal как `USER_MANAGED` deployment.
 
 Эти плагины являются build-time tooling и не добавляют runtime dependencies в public artifacts. Gradle dependency
 verification metadata должна обновляться при изменении plugin versions или новых build dependencies.
@@ -110,7 +110,8 @@ GitHub Actions workflow использует:
 - `actions/checkout`, pinned to commit SHA;
 - `actions/setup-java` с Temurin JDK 17/21/25 matrix, pinned to commit SHA;
 - минимальные default workflow permissions: `contents: read`;
-- release-only publish job с scoped `packages: write` для GitHub Packages.
+- release-only publish job использует только `contents: read`; Central Portal credentials и signing material передаются
+  через repository secrets.
 
 ## Правило добавления dependency
 

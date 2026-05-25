@@ -49,7 +49,8 @@ This page describes the current public release baseline.
 
 ## Known Limitations
 
-- Maven Central artifact is not published yet. GitHub Packages is the current public artifact repository.
+- Maven Central publication is configured, but the first upload still requires a verified `io.github.ulviar` namespace
+  and Central Portal credentials.
 - Windows ConPTY support is not shipped in the current baseline.
 - Java 17 uses platform-thread fallback for internal background work; Java 21+ may use virtual threads internally.
 - Generated Kotlin Dokka docs are not part of the release gate; Kotlin API is documented in public reference docs and

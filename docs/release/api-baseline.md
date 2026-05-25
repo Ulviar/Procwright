@@ -4,14 +4,14 @@ iCLI treats public API as the exported, documented scenario surface, not as ever
 
 ## Java core
 
-The core artifact is the named Java module `com.github.ulviar.icli`. It exports only these packages:
+The core artifact is the named Java module `io.github.ulviar.icli`. It exports only these packages:
 
-- `com.github.ulviar.icli`
-- `com.github.ulviar.icli.command`
-- `com.github.ulviar.icli.diagnostics`
-- `com.github.ulviar.icli.preset`
-- `com.github.ulviar.icli.session`
-- `com.github.ulviar.icli.terminal`
+- `io.github.ulviar.icli`
+- `io.github.ulviar.icli.command`
+- `io.github.ulviar.icli.diagnostics`
+- `io.github.ulviar.icli.preset`
+- `io.github.ulviar.icli.session`
+- `io.github.ulviar.icli.terminal`
 
 The exact public type set is guarded by `PublicApiSurfaceTest`. Public JVM signatures are also compared with the
 machine-readable `0.1.0` baseline in `config/api-compatibility/0.1.0/` by `apiCompatibilityCheck`. New or changed public
@@ -24,10 +24,10 @@ this baseline; the narrow cancellable JSON Lines helper remains part of the opti
 
 ## Optional modules
 
-The integrations artifact exports only `com.github.ulviar.icli.integration`, requires the core module transitively for
+The integrations artifact exports only `io.github.ulviar.icli.integration`, requires the core module transitively for
 JPMS consumers, and is guarded by `PublicIntegrationApiSurfaceTest` plus the `icli-integrations` signature baseline.
 
-The Kotlin artifact publishes only `com.github.ulviar.icli.kotlin` and is guarded by `PublicKotlinApiSurfaceTest` plus
+The Kotlin artifact publishes only `io.github.ulviar.icli.kotlin` and is guarded by `PublicKotlinApiSurfaceTest` plus
 the `icli-kotlin` JVM signature baseline.
 
 ## Compatibility rule

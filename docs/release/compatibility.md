@@ -10,13 +10,13 @@
 
 ## Modules
 
-- `com.github.ulviar:icli` is the Java core artifact and named module `com.github.ulviar.icli`.
-- `com.github.ulviar:icli-kotlin` is optional Kotlin ergonomics.
-- `com.github.ulviar:icli-integrations` is optional Java integration helpers and named module
-  `com.github.ulviar.icli.integrations`.
+- `io.github.ulviar:icli` is the Java core artifact and named module `io.github.ulviar.icli`.
+- `io.github.ulviar:icli-kotlin` is optional Kotlin ergonomics.
+- `io.github.ulviar:icli-integrations` is optional Java integration helpers and named module
+  `io.github.ulviar.icli.integrations`.
 
 The Java core module has no runtime dependencies outside the JDK and exports only public API packages. The integrations
-module exports only `com.github.ulviar.icli.integration` and requires the core module transitively because its public
+module exports only `io.github.ulviar.icli.integration` and requires the core module transitively because its public
 helpers expose core protocol/session types.
 
 The intended public type set is guarded by exact API baseline tests for the core, integrations, and Kotlin modules. See

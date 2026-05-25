@@ -91,7 +91,7 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 
 ## Stress-проверки iCLI
 
-`src/stressTest/java/com/github/ulviar/icli/TestCliStressTest.java` использует симулятор как реальный child process и
+`src/stressTest/java/io/github/ulviar/icli/TestCliStressTest.java` использует симулятор как реальный child process и
 проверяет:
 
 - параллельные burst-процессы с большими независимыми stdout/stderr и bounded capture;

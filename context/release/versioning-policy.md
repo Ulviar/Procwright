@@ -27,15 +27,15 @@ Root project и optional modules должны иметь одинаковые `g
 
 Публичными считаются типы в пакетах:
 
-- `com.github.ulviar.icli`;
-- `com.github.ulviar.icli.command`;
-- `com.github.ulviar.icli.session`;
-- `com.github.ulviar.icli.diagnostics`;
-- `com.github.ulviar.icli.terminal`;
-- `com.github.ulviar.icli.preset`;
-- `com.github.ulviar.icli.kotlin`;
-- `com.github.ulviar.icli.integration`.
+- `io.github.ulviar.icli`;
+- `io.github.ulviar.icli.command`;
+- `io.github.ulviar.icli.session`;
+- `io.github.ulviar.icli.diagnostics`;
+- `io.github.ulviar.icli.terminal`;
+- `io.github.ulviar.icli.preset`;
+- `io.github.ulviar.icli.kotlin`;
+- `io.github.ulviar.icli.integration`.
 
-Типы в `com.github.ulviar.icli.internal`, hidden runtime support classes, Gradle fixtures, tests и документы в
+Типы в `io.github.ulviar.icli.internal`, hidden runtime support classes, Gradle fixtures, tests и документы в
 `context/` не являются binary compatibility surface. Public package boundary tests должны сканировать весь production
 artifact, а не только ожидаемый package subtree.

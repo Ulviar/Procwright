@@ -11,7 +11,7 @@ iCLI должен быть полезен как process harness для command-
 ## Решение
 
 Добавляем отдельный Gradle-модуль `:icli-integrations` как именованный Java module
-`com.github.ulviar.icli.integrations`.
+`io.github.ulviar.icli.integrations`.
 
 Модуль содержит:
 
@@ -40,7 +40,7 @@ iCLI должен быть полезен как process harness для command-
 - Adapter errors не включают raw stdout/stderr или raw argv/env values.
 - Cancellation должна стать observable `cancelled` outcome, а не случайным timeout/protocol failure.
 - Tool output считается недоверенными данными, а не инструкциями для agent harness.
-- JPMS descriptor экспортирует только `com.github.ulviar.icli.integration` и требует core module.
+- JPMS descriptor экспортирует только `io.github.ulviar.icli.integration` и требует core module.
 
 ## Последствия
 

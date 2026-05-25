@@ -24,21 +24,15 @@ redaction-friendly observation.
 
 ## Installation
 
-Published artifacts are available from GitHub Packages:
+Published releases use Maven Central coordinates:
 
 ```kotlin
 repositories {
-    maven {
-        url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
-        credentials {
-            username = providers.gradleProperty("gpr.user").orNull
-            password = providers.gradleProperty("gpr.key").orNull
-        }
-    }
+    mavenCentral()
 }
 
 dependencies {
-    implementation("com.github.ulviar:icli:0.1.0")
+    implementation("io.github.ulviar:icli:0.1.0")
 }
 ```
 
@@ -92,7 +86,7 @@ Start with the public docs:
 
 ## Modules
 
-- `:` is the Java core module `com.github.ulviar.icli` with no runtime dependencies outside the JDK.
+- `:` is the Java core module `io.github.ulviar.icli` with no runtime dependencies outside the JDK.
 - `:icli-kotlin` is an optional Kotlin ergonomics module.
 - `:icli-integrations` is an optional Java module for structured CLI-backed integration helpers.
 - `:icli-comparison` is a research module for library comparison and benchmarks. It is not a runtime dependency of the

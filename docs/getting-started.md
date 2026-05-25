@@ -3,26 +3,19 @@
 ## Requirements
 
 - JDK 17, 21, or 25 for the matching release variant. The default local target is 25.
-- GitHub Packages credentials when consuming the published artifact.
 - Gradle wrapper from this repository only when building iCLI from source.
 
 ## Add the dependency
 
-Published artifacts are available from GitHub Packages:
+Published releases use Maven Central coordinates:
 
 ```kotlin
 repositories {
-    maven {
-        url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
-        credentials {
-            username = providers.gradleProperty("gpr.user").orNull
-            password = providers.gradleProperty("gpr.key").orNull
-        }
-    }
+    mavenCentral()
 }
 
 dependencies {
-    implementation("com.github.ulviar:icli:0.1.0")
+    implementation("io.github.ulviar:icli:0.1.0")
 }
 ```
 

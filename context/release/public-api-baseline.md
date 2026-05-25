@@ -13,17 +13,17 @@
 
 ## Core module
 
-Модуль `com.github.ulviar.icli` экспортирует только пакеты:
+Модуль `io.github.ulviar.icli` экспортирует только пакеты:
 
-- `com.github.ulviar.icli`;
-- `com.github.ulviar.icli.command`;
-- `com.github.ulviar.icli.diagnostics`;
-- `com.github.ulviar.icli.preset`;
-- `com.github.ulviar.icli.session`;
-- `com.github.ulviar.icli.terminal`.
+- `io.github.ulviar.icli`;
+- `io.github.ulviar.icli.command`;
+- `io.github.ulviar.icli.diagnostics`;
+- `io.github.ulviar.icli.preset`;
+- `io.github.ulviar.icli.session`;
+- `io.github.ulviar.icli.terminal`.
 
 Публичная поверхность core проверяется тестом
-`src/test/java/com/github/ulviar/icli/PublicApiSurfaceTest.java`.
+`src/test/java/io/github/ulviar/icli/PublicApiSurfaceTest.java`.
 
 Эти проверки являются release-relevant guard:
 
@@ -40,12 +40,12 @@ Scenario API baseline `0.1.0` включает `run`, `interactive`, `expect`, `
 
 ## Optional integrations module
 
-Модуль `com.github.ulviar.icli.integrations` экспортирует только пакет
-`com.github.ulviar.icli.integration` и requires core module transitively, потому что публичные helpers возвращают и
+Модуль `io.github.ulviar.icli.integrations` экспортирует только пакет
+`io.github.ulviar.icli.integration` и requires core module transitively, потому что публичные helpers возвращают и
 принимают core protocol/session types.
 
 Публичная поверхность optional integration layer проверяется тестом
-`icli-integrations/src/test/java/com/github/ulviar/icli/integration/PublicIntegrationApiSurfaceTest.java`.
+`icli-integrations/src/test/java/io/github/ulviar/icli/integration/PublicIntegrationApiSurfaceTest.java`.
 JVM signatures проверяются against `config/api-compatibility/0.1.0/icli-integrations.txt`.
 
 Новые public types в этом модуле допустимы только если они остаются тонким layer над scenario-first core и не добавляют
@@ -53,10 +53,10 @@ process-runtime dependency в public artifacts.
 
 ## Optional Kotlin module
 
-Модуль `:icli-kotlin` публикует только package `com.github.ulviar.icli.kotlin`.
+Модуль `:icli-kotlin` публикует только package `io.github.ulviar.icli.kotlin`.
 
 Публичная поверхность Kotlin ergonomics layer проверяется тестом
-`icli-kotlin/src/test/kotlin/com/github/ulviar/icli/kotlin/PublicKotlinApiSurfaceTest.kt`.
+`icli-kotlin/src/test/kotlin/io/github/ulviar/icli/kotlin/PublicKotlinApiSurfaceTest.kt`.
 JVM signatures проверяются against `config/api-compatibility/0.1.0/icli-kotlin.txt`.
 
 Новые Kotlin extensions допустимы только если они не создают второй dialect поверх Java core и сохраняют явный выбор

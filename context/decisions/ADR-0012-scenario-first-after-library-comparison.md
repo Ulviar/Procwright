@@ -53,7 +53,7 @@ process-библиотекой.
 ## Инварианты
 
 - Новый public API должен добавлять или усиливать сценарий, а не только открывать новый низкоуровневый flag.
-- Нельзя переносить dependency-specific types в `com.github.ulviar.icli`.
+- Нельзя переносить dependency-specific types в `io.github.ulviar.icli`.
 - Optional backend может появиться только за narrow port/SPI и должен возвращать те же public results.
 - Если возможность требует внешнего transport, core API описывает capability и structured unavailable result, а не
   конкретную библиотеку.

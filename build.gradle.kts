@@ -1,7 +1,12 @@
+import java.security.MessageDigest
 import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
+import org.gradle.api.publish.plugins.PublishingPlugin
+import org.gradle.api.tasks.Delete
+import org.gradle.api.tasks.bundling.Zip
 import org.gradle.external.javadoc.StandardJavadocDocletOptions
 
 plugins {
@@ -31,6 +36,8 @@ if (icliJavaRelease !in supportedJavaReleases) {
 
 val icliJavaVersion = JavaVersion.toVersion(icliJavaRelease)
 val icliVersion = providers.gradleProperty("icli.version").orElse("0.0.0-SNAPSHOT").get()
+val publicMavenGroup = "io.github.ulviar"
+val mavenCentralBundleRepository = layout.buildDirectory.dir("maven-central/repository")
 val releaseVersionPattern =
     Regex(
         """(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"""
@@ -41,8 +48,24 @@ extra["icliJavaRelease"] = icliJavaRelease
 extra["icliJavaVersion"] = icliJavaVersion
 
 allprojects {
-    group = "com.github.ulviar"
+    group = publicMavenGroup
     version = icliVersion
+
+    plugins.withId("maven-publish") {
+        extensions.configure<PublishingExtension>("publishing") {
+            repositories {
+                maven {
+                    name = "MavenCentralBundle"
+                    url =
+                        rootProject.layout.buildDirectory
+                            .dir("maven-central/repository")
+                            .get()
+                            .asFile
+                            .toURI()
+                }
+            }
+        }
+    }
 
     tasks.withType<Javadoc>().configureEach {
         (options as StandardJavadocDocletOptions).apply {
@@ -119,16 +142,6 @@ publishing {
                         name.set("Ulviar")
                     }
                 }
-            }
-        }
-    }
-    repositories {
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/Ulviar/iCLI")
-            credentials {
-                username = providers.environmentVariable("GITHUB_ACTOR").orNull
-                password = providers.environmentVariable("GITHUB_TOKEN").orNull
             }
         }
     }
@@ -358,7 +371,7 @@ fun assertStrictJavadocOptions(optionsFile: File, moduleName: String) {
 val apiCompatibilityBaselineVersion = "0.1.0"
 val apiCompatibilityBaselineDir =
     layout.projectDirectory.dir("config/api-compatibility/$apiCompatibilityBaselineVersion")
-val apiCompatibilityMainClass = "com.github.ulviar.icli.build.ApiCompatibilityCheck"
+val apiCompatibilityMainClass = "io.github.ulviar.icli.build.ApiCompatibilityCheck"
 
 fun apiCompatibilitySpec(
     name: String,
@@ -391,12 +404,12 @@ fun apiCompatibilitySpecs(): List<String> {
             classpath = coreJar,
             packages =
                 listOf(
-                    "com.github.ulviar.icli",
-                    "com.github.ulviar.icli.command",
-                    "com.github.ulviar.icli.diagnostics",
-                    "com.github.ulviar.icli.preset",
-                    "com.github.ulviar.icli.session",
-                    "com.github.ulviar.icli.terminal",
+                    "io.github.ulviar.icli",
+                    "io.github.ulviar.icli.command",
+                    "io.github.ulviar.icli.diagnostics",
+                    "io.github.ulviar.icli.preset",
+                    "io.github.ulviar.icli.session",
+                    "io.github.ulviar.icli.terminal",
                 ),
         ),
         apiCompatibilitySpec(
@@ -407,7 +420,7 @@ fun apiCompatibilitySpecs(): List<String> {
                 integrationsJar +
                     coreJar +
                     integrationsProject.configurations.getByName("runtimeClasspath"),
-            packages = listOf("com.github.ulviar.icli.integration"),
+            packages = listOf("io.github.ulviar.icli.integration"),
         ),
         apiCompatibilitySpec(
             name = "icli-kotlin",
@@ -415,7 +428,7 @@ fun apiCompatibilitySpecs(): List<String> {
             roots = kotlinJar,
             classpath =
                 kotlinJar + coreJar + kotlinProject.configurations.getByName("runtimeClasspath"),
-            packages = listOf("com.github.ulviar.icli.kotlin"),
+            packages = listOf("io.github.ulviar.icli.kotlin"),
         ),
     )
 }
@@ -502,6 +515,134 @@ val publicDocsCheck =
             }
         }
     }
+
+val publicPublicationProjectPaths = listOf(":", ":icli-integrations", ":icli-kotlin")
+
+val cleanMavenCentralBundleRepository =
+    tasks.register<Delete>("cleanMavenCentralBundleRepository") {
+        description = "Removes the generated Maven Central bundle repository."
+        group = LifecycleBasePlugin.BUILD_GROUP
+        delete(mavenCentralBundleRepository)
+    }
+
+val mavenCentralSigningCheck =
+    tasks.register("mavenCentralSigningCheck") {
+        description = "Verifies that Maven Central signing material is available."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+
+        doLast {
+            val missing =
+                listOf("SIGNING_KEY", "SIGNING_PASSWORD").filter { name ->
+                    providers.environmentVariable(name).orNull.isNullOrBlank()
+                }
+            if (missing.isNotEmpty()) {
+                throw GradleException(
+                    "Maven Central publication requires signing material in environment variables: ${
+                        missing.joinToString()
+                    }"
+                )
+            }
+        }
+    }
+
+val publishMavenCentralBundleRepository =
+    tasks.register("publishMavenCentralBundleRepository") {
+        description = "Publishes all public artifacts into a local Maven Central bundle repository."
+        group = PublishingPlugin.PUBLISH_TASK_GROUP
+        dependsOn(cleanMavenCentralBundleRepository, mavenCentralSigningCheck)
+        publicPublicationProjectPaths.forEach { projectPath ->
+            val publishTask =
+                if (projectPath == ":") {
+                    "publishMavenJavaPublicationToMavenCentralBundleRepository"
+                } else {
+                    "$projectPath:publishMavenJavaPublicationToMavenCentralBundleRepository"
+                }
+            dependsOn(publishTask)
+        }
+    }
+
+gradle.projectsEvaluated {
+    publicPublicationProjectPaths.forEach { projectPath ->
+        val checkedProject = project(projectPath)
+        checkedProject.tasks
+            .matching { task ->
+                task.name == "publishMavenJavaPublicationToMavenCentralBundleRepository"
+            }
+            .configureEach { mustRunAfter(cleanMavenCentralBundleRepository) }
+    }
+}
+
+val writeMavenCentralBundleChecksums =
+    tasks.register("writeMavenCentralBundleChecksums") {
+        description = "Writes Maven Central checksum files and verifies detached signatures."
+        group = LifecycleBasePlugin.BUILD_GROUP
+        dependsOn(publishMavenCentralBundleRepository)
+
+        val repository = mavenCentralBundleRepository
+        inputs.dir(repository)
+        outputs.dir(repository)
+
+        doLast {
+            val repositoryDir = repository.get().asFile
+            val deployedFiles =
+                repositoryDir
+                    .walkTopDown()
+                    .filter { file -> file.isFile }
+                    .filterNot { file -> isMavenCentralChecksum(file) }
+                    .filterNot { file -> file.name.endsWith(".asc") }
+                    .filterNot { file -> file.name.startsWith("maven-metadata.xml") }
+                    .toList()
+
+            if (deployedFiles.isEmpty()) {
+                throw GradleException("Maven Central bundle repository is empty: $repositoryDir")
+            }
+
+            deployedFiles.forEach { file ->
+                val signature = File(file.parentFile, "${file.name}.asc")
+                if (!signature.isFile) {
+                    throw GradleException(
+                        "Maven Central bundle file is missing detached signature: ${
+                            file.relativeTo(repositoryDir)
+                        }"
+                    )
+                }
+                writeChecksum(file, "MD5", "md5")
+                writeChecksum(file, "SHA-1", "sha1")
+                writeChecksum(file, "SHA-256", "sha256")
+                writeChecksum(file, "SHA-512", "sha512")
+            }
+        }
+    }
+
+val mavenCentralBundle =
+    tasks.register<Zip>("mavenCentralBundle") {
+        description = "Builds the signed Maven Central upload bundle."
+        group = PublishingPlugin.PUBLISH_TASK_GROUP
+        dependsOn(writeMavenCentralBundleChecksums)
+        archiveFileName.set("icli-$icliVersion-maven-central-bundle.zip")
+        destinationDirectory.set(layout.buildDirectory.dir("maven-central"))
+        from(mavenCentralBundleRepository) { exclude("**/maven-metadata.xml*") }
+    }
+
+fun isMavenCentralChecksum(file: File): Boolean =
+    listOf(".md5", ".sha1", ".sha256", ".sha512").any { suffix -> file.name.endsWith(suffix) }
+
+fun writeChecksum(file: File, algorithm: String, extension: String) {
+    val digest = MessageDigest.getInstance(algorithm)
+    file.inputStream().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) {
+                break
+            }
+            digest.update(buffer, 0, read)
+        }
+    }
+    File(file.parentFile, "${file.name}.$extension").writeText(digest.digest().toHexString())
+}
+
+fun ByteArray.toHexString(): String = joinToString(separator = "") { byte -> "%02x".format(byte) }
 
 val cleanWorkingTreeCheck =
     tasks.register("cleanWorkingTreeCheck") {
