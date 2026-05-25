@@ -15,8 +15,12 @@ The scenario covers:
 ## Example shape
 
 ```java
-try (LineSession session =
-        repl.lineSession().withArgs("repl").withRequestTimeout(Duration.ofSeconds(2)).open()) {
+CommandService repl = Icli.command(CommandSpec.of("tool"));
+
+try (LineSession session = repl.lineSession()
+        .withArgs("repl")
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .open()) {
     LineResponse response = session.request("status");
     if (response.text().isBlank()) {
         throw new IllegalStateException("empty response");
@@ -24,7 +28,7 @@ try (LineSession session =
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.lineSessionScenario`.
+Complete example source: [`CommandServiceApiExamples.lineSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Failure model
 

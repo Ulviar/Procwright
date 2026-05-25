@@ -12,13 +12,26 @@ dependencies {
 }
 ```
 
-Use the package `io.github.ulviar.icli.kotlin` for extensions.
+Use the package `io.github.ulviar.icli.kotlin` for extensions. The module depends on
+`kotlinx-coroutines-core`; Gradle and Maven receive that dependency transitively.
+
+The examples below use these imports:
+
+```kotlin
+import io.github.ulviar.icli.Icli
+import io.github.ulviar.icli.kotlin.*
+import java.time.Duration
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.runBlocking
+```
 
 ## Receiver-style command calls
 
 `runCommand` keeps the Java `run` scenario but lets the invocation builder be used as a Kotlin receiver.
 
 ```kotlin
+val service = Icli.command("git")
+
 val result = service.runCommand {
     args("status", "--short")
     timeout(Duration.ofSeconds(2))
@@ -33,8 +46,13 @@ Use `runCommandAwait` from coroutines when the caller should not block its corou
 process on an IO dispatcher.
 
 ```kotlin
-val result = service.runCommandAwait {
-    args("--version")
+runBlocking {
+    val service = Icli.command("java")
+    val result = service.runCommandAwait {
+        args("--version")
+    }
+
+    check(result.succeeded())
 }
 ```
 
@@ -43,12 +61,16 @@ val result = service.runCommandAwait {
 `openSession` opens the same raw interactive `Session` as the Java API.
 
 ```kotlin
-service.openSession {
-    args("repl")
-}.use { session ->
-    session.sendLine("status")
-    val exit = session.awaitExit()
-    check(exit.exitCode().isPresent)
+runBlocking {
+    val service = Icli.command("tool")
+
+    service.openSession {
+        args("repl")
+    }.use { session ->
+        session.sendLine("status")
+        val exit = session.awaitExit()
+        check(exit.exitCode().isPresent)
+    }
 }
 ```
 
@@ -60,11 +82,15 @@ shared `onExit()` future or bypass iCLI shutdown policy.
 `requestAwait` runs a line-session request from a coroutine-friendly blocking boundary.
 
 ```kotlin
-service.lineSession { invocation ->
-    invocation.args("line-worker")
-}.use { session ->
-    val response = session.requestAwait("status", Duration.ofSeconds(1))
-    check(response.text().isNotBlank())
+runBlocking {
+    val service = Icli.command("tool")
+
+    service.lineSession { invocation ->
+        invocation.args("line-worker")
+    }.use { session ->
+        val response = session.requestAwait("status", Duration.ofSeconds(1))
+        check(response.text().isNotBlank())
+    }
 }
 ```
 
@@ -76,13 +102,16 @@ and session close after protocol failure.
 `listenFlow` exposes `listen` as a cold `Flow<StreamChunk>`.
 
 ```kotlin
-val chunks = service.listenFlow {
-    args("logs", "--follow")
-    timeout(Duration.ofSeconds(30))
-}
+runBlocking {
+    val service = Icli.command("tool")
+    val chunks = service.listenFlow {
+        args("logs", "--follow")
+        timeout(Duration.ofSeconds(30))
+    }
 
-chunks.collect { chunk ->
-    print(chunk.text())
+    chunks.collect { chunk ->
+        print(chunk.text())
+    }
 }
 ```
 
@@ -91,10 +120,5 @@ slow collector applies backpressure instead of creating an unbounded queue.
 
 ## Public surface
 
-The Kotlin artifact currently publishes:
-
-- top-level extensions in `io.github.ulviar.icli.kotlin.IcliKotlinKt`;
-- `ListenFlowInvocation`, the narrow builder facade used by `listenFlow`.
-
-The exact public type set is guarded by `PublicKotlinApiSurfaceTest`, and public Kotlin declarations must have KDoc via
-`:icli-kotlin:kotlinApiDocsCheck`.
+The Kotlin artifact publishes receiver-style extensions for `CommandService`, suspending helpers for session waits and
+line requests, and `ListenFlowInvocation`, the narrow builder facade used by `listenFlow`.

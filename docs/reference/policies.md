@@ -1,7 +1,7 @@
 # Policies
 
-Policies are value objects or enums that own domain decisions. They keep public API calls from becoming a long list of
-loosely related flags.
+Policies are value objects or enums for decisions that should be explicit at the call site: environment inheritance,
+capture limits, shutdown escalation, output mode, terminal capability, and charset error handling.
 
 ## EnvironmentPolicy
 
@@ -22,6 +22,17 @@ Truncation is reported on `CommandResult` through stdout/stderr truncation flags
 failure, explicit close, and idle-timeout paths where applicable.
 
 The current runtime applies shutdown to the process tree through JDK `ProcessHandle` where the platform permits it.
+
+```java
+CommandService logs = Icli.command("tool");
+
+logs.run()
+        .withArgs("logs")
+        .withTimeout(Duration.ofSeconds(30))
+        .withCapture(CapturePolicy.bounded(128 * 1024))
+        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)))
+        .execute();
+```
 
 ## OutputMode
 

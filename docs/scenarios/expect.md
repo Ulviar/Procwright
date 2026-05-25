@@ -26,7 +26,7 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.expectScenario`.
+Complete example source: [`CommandServiceApiExamples.expectScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Transcript values
 

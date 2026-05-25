@@ -230,7 +230,7 @@ final class DiagnosticsOptionsTest {
         String publicDocs = Files.readString(Path.of("docs/reference/diagnostics.md"), StandardCharsets.UTF_8);
 
         assertTrue(context.contains("не гарантирует ordering"));
-        assertTrue(publicDocs.contains("ordering between callback deliveries is not a cross-thread contract"));
+        assertTrue(publicDocs.replaceAll("\\s+", " ").contains("do not rely on callback order across threads"));
     }
 
     @Test

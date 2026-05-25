@@ -17,6 +17,19 @@ Use `CommandSpec.of("tool")` or `CommandSpec.builder("tool")` for direct argv ex
 Use `CommandSpec.shell(...)` only when shell syntax is required. Do not build shell command strings from untrusted
 input.
 
+```java
+Path projectDir = Path.of(".");
+
+CommandSpec command = CommandSpec.builder("python")
+        .workingDirectory(projectDir)
+        .putEnvironment("PYTHONUTF8", "1")
+        .build();
+
+CommandService python = Icli.command(command);
+
+python.run().execute("--version");
+```
+
 ## CommandService
 
 `CommandService` binds a `CommandSpec` to scenario defaults and launches scenario workflows:

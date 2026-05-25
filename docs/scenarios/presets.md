@@ -14,7 +14,7 @@ tool.run()
         .execute();
 ```
 
-Compile-tested source: `CommandServiceApiExamples.scenarioPresetComposition`.
+Complete example source: [`CommandServiceApiExamples.scenarioPresetComposition`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Current preset families
 

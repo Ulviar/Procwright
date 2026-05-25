@@ -14,7 +14,7 @@ The scenario covers:
 - bounded transcripts with malformed/truncated markers;
 - process close after protocol failure.
 
-Compile-tested source: `CommandServiceApiExamples.protocolSessionScenario`.
+Complete example source: [`CommandServiceApiExamples.protocolSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Example
 
@@ -65,7 +65,7 @@ reusable after each request. The pool owns acquire, release, retirement, reset, 
 replenishment. The pooled API takes an adapter factory so each worker owns its own protocol state. iCLI serializes
 factory calls, and the adapters returned by the factory do not need to be thread-safe.
 
-Compile-tested source: `CommandServiceApiExamples.pooledProtocolSessionScenario`.
+Complete example source: [`CommandServiceApiExamples.pooledProtocolSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Adapter Boundary
 

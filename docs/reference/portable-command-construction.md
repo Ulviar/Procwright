@@ -10,6 +10,16 @@ execution. Add arguments as separate values with `args(...)`.
 
 Direct argv avoids shell quoting rules and keeps user-provided values from becoming shell syntax.
 
+```java
+CommandService git = Icli.command("git");
+
+CommandResult result = git.run().execute("status", "--short");
+
+if (!result.succeeded()) {
+    throw result.toException();
+}
+```
+
 ## Shell is explicit
 
 Use `Icli.shellCommand(...)` or `CommandSpec.shell(...)` only when shell syntax is the actual requirement:
@@ -17,6 +27,12 @@ pipelines, redirects, shell built-ins, command substitution, or platform scripts
 
 Do not build shell command lines by concatenating untrusted input. Prefer direct argv and pass untrusted values as
 arguments.
+
+```java
+CommandService shell = Icli.shellCommand("printf '%s\\n' \"$MESSAGE\"");
+
+shell.run().withEnvironment("MESSAGE", "hello").execute();
+```
 
 ## Platform-specific executable selection
 

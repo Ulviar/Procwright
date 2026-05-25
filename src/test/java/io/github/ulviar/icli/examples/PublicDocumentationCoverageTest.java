@@ -19,6 +19,8 @@ final class PublicDocumentationCoverageTest {
     private static final Path PUBLIC_DOCS = Path.of("docs");
     private static final Path PUBLIC_SCENARIOS = Path.of("docs/scenarios/index.md");
     private static final List<Path> COMPILE_TESTED_EXAMPLE_SOURCES = List.of(
+            Path.of("src/test/java/io/github/ulviar/icli/examples/GettingStartedExample.java"),
+            Path.of("src/test/java/io/github/ulviar/icli/examples/ReferenceApiExamples.java"),
             Path.of("src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java"),
             Path.of(
                     "icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java"));

@@ -24,7 +24,7 @@ try (StreamSession stream =
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.listenOnlyStreamingScenario`.
+Complete example source: [`CommandServiceApiExamples.listenOnlyStreamingScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Backpressure
 

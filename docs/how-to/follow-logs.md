@@ -11,17 +11,21 @@ processed while the process is still alive.
 4. Join `stream.onExit()` or close the session when the caller is done.
 
 ```java
-try (StreamSession stream =
-        tool.listen().withArgs("logs", "--follow").onOutput(chunk -> {
+CommandService tool = Icli.command("tool");
+
+try (StreamSession stream = tool.listen()
+        .withArgs("logs", "--follow")
+        .onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
             }
-        }).open()) {
+        })
+        .open()) {
     stream.onExit().join();
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.listenOnlyStreamingScenario`.
+Complete example source: [`CommandServiceApiExamples.listenOnlyStreamingScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Use this scenario because
 

@@ -1,15 +1,15 @@
 # Examples
 
-Public snippets are backed by compile-tested source files. The method names below are used throughout the documentation
-so a reader can find the complete source shape when a page shows only a focused fragment.
+Public snippets are copied from source files that compile during verification. When a page shows a focused fragment, the
+method name below points to the complete source shape.
 
-Consumer-facing examples are also executed as tests in `:icli-consumer-examples`. They cover the basic public workflows
-without relying on package-private access or unpublished helper APIs.
+Consumer-facing examples live in `icli-consumer-examples`. They cover the basic public workflows without relying on
+package-private access or unpublished helper APIs.
 
 ## Core examples
 
-Source file in the same checkout or release source tree:
-`src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java`
+Source file:
+[`CommandServiceApiExamples.java`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java)
 
 ### One-shot command
 
@@ -97,10 +97,12 @@ try (PooledLineSession pool = tool.lineSession()
 
 ## Integration examples
 
-Source file in the same checkout or release source tree:
-`icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java`
+Source file:
+[`CommandBackedToolExamples.java`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
 
 ```java
+CommandService service = Icli.command("tool");
+
 try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
         JsonLineSession json = JsonLineSession.over(lineSession)) {
     CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
@@ -120,8 +122,8 @@ try (LineSession lineSession = service.lineSession(call -> call.args("json-worke
 
 ## Consumer examples
 
-Source file in the same checkout or release source tree:
-`icli-consumer-examples/src/main/java/io/github/ulviar/icli/consumer/examples/ConsumerScenarios.java`
+Source file:
+[`ConsumerScenarios.java`](https://github.com/Ulviar/iCLI/blob/main/icli-consumer-examples/src/main/java/io/github/ulviar/icli/consumer/examples/ConsumerScenarios.java)
 
 | Example | Demonstrates |
 | --- | --- |

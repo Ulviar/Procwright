@@ -13,10 +13,9 @@ The core artifact is the named Java module `io.github.ulviar.icli`. It exports o
 - `io.github.ulviar.icli.session`
 - `io.github.ulviar.icli.terminal`
 
-The exact public type set is guarded by `PublicApiSurfaceTest`. Public JVM signatures are also compared with the
-machine-readable `0.1.0` baseline in `config/api-compatibility/0.1.0/` by `apiCompatibilityCheck`. New or changed public
-signatures require an intentional API baseline change, documentation updates, and compile-tested examples when user call
-shape changes.
+The `0.1.0` public Java API is the set of exported packages and types documented by the generated Java API docs. Future
+pre-1.0 releases may change that API, but public call-shape changes should be intentional and reflected in the docs and
+examples.
 
 The `0.1.0` scenario baseline covers `run`, `interactive`, `lineSession`, `protocolSession`, `lineSession().pooled()`,
 and `protocolSession(factory).pooled()`. Generic/core async request orchestration and raw session pooling are outside
@@ -24,13 +23,12 @@ this baseline; the narrow cancellable JSON Lines helper remains part of the opti
 
 ## Optional modules
 
-The integrations artifact exports only `io.github.ulviar.icli.integration`, requires the core module transitively for
-JPMS consumers, and is guarded by `PublicIntegrationApiSurfaceTest` plus the `icli-integrations` signature baseline.
+The integrations artifact exports only `io.github.ulviar.icli.integration` and requires the core module transitively for
+JPMS consumers.
 
-The Kotlin artifact publishes only `io.github.ulviar.icli.kotlin` and is guarded by `PublicKotlinApiSurfaceTest` plus
-the `icli-kotlin` JVM signature baseline.
+The Kotlin artifact publishes `io.github.ulviar.icli.kotlin` extensions over the Java core.
 
 ## Compatibility rule
 
-Before `1.0.0`, iCLI may still make breaking API changes, but they must be explicit: update the baseline guard, public
-docs, examples, and the relevant compatibility policy together. Internal packages are not compatibility surface.
+Before `1.0.0`, iCLI may still make breaking API changes, but they must be explicit in public docs, examples, and the
+compatibility policy. Internal packages are not compatibility surface.

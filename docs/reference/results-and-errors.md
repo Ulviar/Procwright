@@ -17,9 +17,8 @@ iCLI keeps process outcomes and runtime failures separate.
 
 `toException()` returns a `CommandException` that preserves the full result.
 
-iCLI-produced results keep captured bytes and decoded text aligned through the execution charset. The public advanced
-constructor is a snapshot escape hatch for tests and adapters; manually created results must provide consistent byte and
-text views.
+iCLI-produced results keep captured bytes and decoded text aligned through the execution charset. Prefer results returned
+by iCLI; if a custom adapter creates a `CommandResult` manually, it must keep byte and text views consistent.
 
 ## CommandException
 

@@ -1,6 +1,7 @@
 package io.github.ulviar.icli.integration.examples;
 
 import io.github.ulviar.icli.CommandService;
+import io.github.ulviar.icli.Icli;
 import io.github.ulviar.icli.command.CommandResult;
 import io.github.ulviar.icli.integration.CommandBackedTool;
 import io.github.ulviar.icli.integration.ContentLengthJsonFrames;
@@ -16,7 +17,9 @@ import java.util.function.Function;
 
 final class CommandBackedToolExamples {
 
-    void oneShotCommandBackedTool(CommandService git) {
+    void oneShotCommandBackedTool() {
+        CommandService git = Icli.command("git");
+
         CommandBackedTool<String, String> status = CommandBackedTool.of(path -> {
             CommandResult result = git.run(call -> call.args("status", "--short", path));
             if (!result.succeeded()) {
@@ -29,7 +32,9 @@ final class CommandBackedToolExamples {
         result.error().ifPresent(error -> System.err.println(error.code()));
     }
 
-    void jsonLineCommandBackedTool(CommandService service) {
+    void jsonLineCommandBackedTool() {
+        CommandService service = Icli.command("tool");
+
         try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
                 JsonLineSession json = JsonLineSession.over(lineSession)) {
             CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(

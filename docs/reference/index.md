@@ -24,9 +24,4 @@ Build Java API docs locally:
 ./gradlew publicJavaJavadocCheck
 ```
 
-Kotlin usage and public extensions are documented in [Kotlin API](kotlin-api.md). Kotlin public declarations are also
-checked for KDoc during module verification:
-
-```bash
-./gradlew :icli-kotlin:check
-```
+Kotlin usage and public extensions are documented in [Kotlin API](kotlin-api.md).

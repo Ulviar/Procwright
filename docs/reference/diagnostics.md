@@ -19,7 +19,7 @@ CommandService tool = Icli.command("tool")
 tool.run().execute("--version");
 ```
 
-Compile-tested source: `CommandServiceApiExamples.diagnosticsScenario`.
+Complete example source: [`CommandServiceApiExamples.diagnosticsScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Event shape
 
@@ -32,8 +32,9 @@ Each `DiagnosticEvent` has the same stable outer shape:
 - `command`: redaction-friendly command echo;
 - `attributes`: event-specific structured attributes.
 
-Use `runId` to correlate lifecycle events for one process. Listener and transcript sink delivery is asynchronous
-best-effort, so ordering between callback deliveries is not a cross-thread contract.
+Use `runId` to correlate lifecycle events for one process. Diagnostic callbacks are delivered asynchronously, so do not
+rely on callback order across threads. If a listener throws, iCLI emits `LISTENER_FAILED` when it can and continues the
+command workflow; listener failure does not turn a successful command into a failed command.
 
 ## Redaction model
 
@@ -56,4 +57,5 @@ terminal policy. It does not expose argument values or environment values.
 | `PROCESS_EXITED` | `timedOut`, optional `exitCode` |
 | `PROCESS_FAILED` | `error` |
 
-Listener and transcript sink delivery is best-effort. Diagnostics failures do not change command results.
+Diagnostics are for observation, not control flow. Do not use a diagnostic listener as the only place that enforces
+application correctness.

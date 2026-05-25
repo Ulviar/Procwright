@@ -23,7 +23,7 @@ try (Session session = python.interactive().withArgs("-i").open()) {
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.interactiveScenario`.
+Complete example source: [`CommandServiceApiExamples.interactiveScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Output ownership
 

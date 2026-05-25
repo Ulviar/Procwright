@@ -12,6 +12,8 @@ input.
 5. Keep transcript values redacted unless exact values are safe to record.
 
 ```java
+CommandService repl = Icli.command("tool");
+
 try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
     expect.expectText("ready> ");
@@ -20,7 +22,7 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.expectScenario`.
+Complete example source: [`CommandServiceApiExamples.expectScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Use this scenario because
 

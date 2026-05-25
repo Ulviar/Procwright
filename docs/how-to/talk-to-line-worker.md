@@ -21,7 +21,7 @@ try (LineSession session =
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.lineSessionScenario`.
+Complete example source: [`CommandServiceApiExamples.lineSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Use this scenario because
 

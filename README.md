@@ -1,9 +1,9 @@
 # iCLI
 
-iCLI is a JVM library for safe, scenario-first control of external command-line processes.
+iCLI is a JVM library for scenario-first control of external command-line processes. Its APIs make bounded output,
+timeouts, stream ownership, diagnostics, and best-effort process cleanup explicit for each workflow.
 
-The first public release is `0.1.0`. Published artifacts target Java 17; Java 17/21/25 release variants are checked from
-the same source tree, and the default local development target is Java 25.
+The first public release is `0.1.0`. Use Java 17 or newer; published artifacts target Java 17.
 
 ## Why iCLI exists
 
@@ -15,7 +15,7 @@ automation usually needs a workflow instead:
 - exchange requests with a line-oriented worker;
 - exchange framed, multi-line, byte, or typed requests with a protocol worker;
 - follow streaming output without retaining everything in memory;
-- reuse warm workers safely;
+- reuse warm workers when the protocol can be reset and checked;
 - wrap an external CLI as a structured integration boundary.
 
 iCLI keeps those workflows explicit. The user chooses a scenario, and the library owns the scenario invariants:
@@ -24,7 +24,9 @@ redaction-friendly observation.
 
 ## Installation
 
-Published releases use Maven Central coordinates:
+Published releases use Maven Central coordinates.
+
+Gradle Kotlin DSL:
 
 ```kotlin
 repositories {
@@ -36,6 +38,28 @@ dependencies {
 }
 ```
 
+Gradle Groovy:
+
+```groovy
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.github.ulviar:icli:0.1.0'
+}
+```
+
+Maven:
+
+```xml
+<dependency>
+    <groupId>io.github.ulviar</groupId>
+    <artifactId>icli</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
 To work from source:
 
 ```bash
@@ -44,22 +68,34 @@ cd iCLI
 ./gradlew quickCheck
 ```
 
-To evaluate a specific Java release variant, run Gradle with the matching JDK and
-`--project-prop=icli.javaRelease=17`, `21`, or `25`.
+Source builds can also be checked with Java 21 or 25; dependency consumers do not need separate coordinates for those
+runtimes.
 
 The smallest workflow is a one-shot command:
 
 ```java
-CommandService git = Icli.command("git");
+import io.github.ulviar.icli.CommandService;
+import io.github.ulviar.icli.Icli;
+import io.github.ulviar.icli.command.CommandResult;
 
-CommandResult result = git.run().execute("status", "--short");
+public final class GettingStartedExample {
 
-if (!result.succeeded()) {
-    throw result.toException();
+    private GettingStartedExample() {}
+
+    public static void main(String[] args) {
+        CommandService java = Icli.command("java");
+
+        CommandResult result = java.run().execute("--version");
+
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+    }
 }
 ```
-
-The example above is compile-tested as `CommandServiceApiExamples.oneShotScenario`.
 
 ## Choose a Scenario
 
@@ -74,7 +110,7 @@ The example above is compile-tested as `CommandServiceApiExamples.oneShotScenari
 | Follow logs or streaming output. | `listen` |
 | Reuse expensive workers. | `lineSession().pooled()` / `protocolSession(factory).pooled()` |
 | Require terminal capability. | session API + `TerminalPolicy.REQUIRED` |
-| Wrap a CLI as a structured adapter. | `:icli-integrations` |
+| Wrap a CLI as a structured adapter. | `io.github.ulviar:icli-integrations` |
 
 Start with the public docs:
 
@@ -82,15 +118,13 @@ Start with the public docs:
 - [How-to Guides](docs/how-to/index.md)
 - [Examples](docs/examples.md)
 - [Reference](docs/reference/index.md)
-- [Release status](docs/release/index.md)
+- [Release](docs/release/index.md)
 
 ## Modules
 
-- `:` is the Java core module `io.github.ulviar.icli` with no runtime dependencies outside the JDK.
-- `:icli-kotlin` is an optional Kotlin ergonomics module.
-- `:icli-integrations` is an optional Java module for structured CLI-backed integration helpers.
-- `:icli-comparison` is a research module for library comparison and benchmarks. It is not a runtime dependency of the
-  public artifacts.
+- `io.github.ulviar:icli` is the Java core module `io.github.ulviar.icli` with no runtime dependencies outside the JDK.
+- `io.github.ulviar:icli-kotlin` is an optional Kotlin ergonomics module.
+- `io.github.ulviar:icli-integrations` is an optional Java module for structured CLI-backed integration helpers.
 
 ## Verification
 
@@ -100,11 +134,7 @@ For source evaluation, run the fast check:
 ./gradlew quickCheck
 ```
 
-The broader verification matrix is documented in [Compatibility](docs/release/compatibility.md) and the contributor
-context under [context/](context/).
-
-Contributor context, ADRs, audits, and release policies live under [context/](context/). They are project memory, not a
-replacement for the public documentation under [docs/](docs/).
+The broader verification matrix is documented in [Compatibility](docs/release/compatibility.md).
 
 ## License
 

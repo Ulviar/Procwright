@@ -1,7 +1,6 @@
 # Choose a Process Scenario
 
-Use this guide when you know the shape of the external process but have not chosen the iCLI scenario yet. The goal is to
-remove hand-written process harnesses without turning iCLI into a bag of flags.
+Use this guide when you know the shape of the external process but have not chosen the iCLI scenario yet.
 
 ## Version or availability probes
 
@@ -16,6 +15,16 @@ Recommended shape:
 - set a short timeout;
 - use bounded capture;
 - convert unsuccessful results with `CommandResult.toException()` when fail-fast flow is wanted.
+
+```java
+CommandService java = Icli.command("java");
+
+CommandResult result = java.run().execute("--version");
+
+if (!result.succeeded()) {
+    throw result.toException();
+}
+```
 
 See [Run a finite command](run-finite-command.md) and [`run`](../scenarios/run.md).
 
@@ -36,6 +45,21 @@ Choose `listen` when the process is a stream source: `tail -f`, `kubectl logs -f
 
 The listener should be bounded and fast. Slow listeners create backpressure on the process pipe instead of unbounded
 memory growth. If the caller needs to stop watching, close the `StreamSession`.
+
+```java
+CommandService tool = Icli.command("tool");
+
+try (StreamSession stream = tool.listen()
+        .withArgs("logs", "--follow")
+        .onOutput(chunk -> {
+            if (chunk.source() == StreamSource.STDERR) {
+                System.err.print(chunk.text());
+            }
+        })
+        .open()) {
+    stream.onExit().join();
+}
+```
 
 See [Follow logs](follow-logs.md) and [Streaming](../scenarios/streaming.md).
 
@@ -65,7 +89,21 @@ See [Automate prompts](automate-prompts.md), [Require a terminal](require-termin
 
 Choose `lineSession` when the process behaves like a request/response worker where one request produces one logical
 response. Choose `lineSession().pooled()` when worker startup is expensive and the protocol can be reset or checked
-safely between requests.
+reliably between requests.
+
+```java
+CommandService repl = Icli.command(CommandSpec.of("tool"));
+
+try (LineSession session = repl.lineSession()
+        .withArgs("repl")
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .open()) {
+    LineResponse response = session.request("status");
+    if (response.text().isBlank()) {
+        throw new IllegalStateException("empty response");
+    }
+}
+```
 
 See [Talk to a line worker](talk-to-line-worker.md), [Reuse workers](reuse-workers.md), and
 [Line Sessions](../scenarios/line-session.md).
@@ -75,6 +113,23 @@ See [Talk to a line worker](talk-to-line-worker.md), [Reuse workers](reuse-worke
 Choose `protocolSession` when requests or responses are multi-line, byte-oriented, content-length framed,
 delimiter-framed, or mapped to domain types. Choose `protocolSession(factory).pooled()` when startup is expensive and
 reset/health semantics are clear.
+
+```java
+CommandService worker = Icli.command("tool");
+ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
+
+try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
+        .withArgs("worker")
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .withOutputBacklogLimit(128 * 1024)
+        .withReadiness(ready -> ready.request("ready"))
+        .open()) {
+    String response = session.request("first line\nsecond line");
+    if (response.isBlank()) {
+        throw new IllegalStateException("empty response");
+    }
+}
+```
 
 See [Protocol Sessions](../scenarios/protocol-session.md), [Reuse workers](reuse-workers.md), and
 [Integrations](../scenarios/integrations.md).
@@ -86,6 +141,19 @@ text.
 
 The adapter layer still builds on core scenarios. It should validate output as untrusted data and keep cancellation,
 diagnostics, and protocol bounds explicit.
+
+```java
+CommandService service = Icli.command("tool");
+
+try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
+        JsonLineSession json = JsonLineSession.over(lineSession)) {
+    CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
+            json, input -> JsonValue.object(Map.of("input", JsonValue.string(input))), Function.identity());
+
+    ToolCallResult<JsonValue> result = tool.call("payload");
+    result.value().ifPresent(System.out::println);
+}
+```
 
 See [Wrap a CLI tool](wrap-cli-tool.md) and [Integrations](../scenarios/integrations.md).
 

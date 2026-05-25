@@ -1,6 +1,6 @@
 # Wrap a CLI Tool
 
-Use `:icli-integrations` when the external CLI should be exposed as a structured tool boundary.
+Use `io.github.ulviar:icli-integrations` when the external CLI should be exposed as a structured tool boundary.
 
 ## Steps
 
@@ -10,6 +10,8 @@ Use `:icli-integrations` when the external CLI should be exposed as a structured
 4. Treat CLI output as untrusted observation data.
 
 ```java
+CommandService git = Icli.command("git");
+
 CommandBackedTool<String, String> status = CommandBackedTool.of(path -> {
     CommandResult result = git.run(call -> call.args("status", "--short", path));
     if (!result.succeeded()) {
@@ -22,7 +24,7 @@ ToolCallResult<String> result = status.call(".");
 result.error().ifPresent(error -> System.err.println(error.code()));
 ```
 
-Compile-tested source: `CommandBackedToolExamples.oneShotCommandBackedTool`.
+Complete example source: [`CommandBackedToolExamples.oneShotCommandBackedTool`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java).
 
 ## Use this scenario because
 

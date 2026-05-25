@@ -23,4 +23,5 @@ When a new option looks like a low-level process flag, it should first be tested
 - What result or failure type exposes it?
 - Can invalid combinations fail before process launch?
 
-If the answer is unclear, the feature belongs in an ADR or internal design note before it becomes public API.
+If the answer is unclear, the feature should stay out of the public API until the scenario, owner, and failure surface
+are clear.

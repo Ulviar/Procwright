@@ -1,9 +1,9 @@
 # iCLI
 
-iCLI is a JVM library for safe, scenario-first control of external command-line processes.
+iCLI is a JVM library for scenario-first control of external command-line processes. Its APIs make bounded output,
+timeouts, stream ownership, diagnostics, and best-effort process cleanup explicit for each workflow.
 
-The current public version is `0.1.0`. Published artifacts target Java 17; Java 17, 21, and 25 source variants are
-checked in CI.
+The current public version is `0.1.0`. Use Java 17 or newer; published artifacts target Java 17.
 
 If you are new to iCLI, start with one question: what shape does the external process have? A command that exits belongs
 to `run`. A long-lived worker with one line per response belongs to `lineSession`. A framed or typed protocol belongs to
@@ -25,12 +25,26 @@ iCLI is intended for applications that need to call external CLIs without owning
 ## First useful call
 
 ```java
-CommandService git = Icli.command("git");
+import io.github.ulviar.icli.CommandService;
+import io.github.ulviar.icli.Icli;
+import io.github.ulviar.icli.command.CommandResult;
 
-CommandResult result = git.run().execute("status", "--short");
+public final class GettingStartedExample {
 
-if (!result.succeeded()) {
-    throw result.toException();
+    private GettingStartedExample() {}
+
+    public static void main(String[] args) {
+        CommandService java = Icli.command("java");
+
+        CommandResult result = java.run().execute("--version");
+
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+    }
 }
 ```
 
@@ -41,7 +55,7 @@ This is the smallest scenario: choose a command, choose `run`, execute with argu
 - [Getting Started](getting-started.md) for installation and the first command.
 - [How-to Guides](how-to/index.md) for common CLI automation tasks.
 - [Reference](reference/index.md) for scenario contracts, policies, results, errors, and generated API docs.
-- [Examples](examples.md) for compile-tested source locations.
+- [Examples](examples.md) for complete source snippets.
 - [Kotlin API](reference/kotlin-api.md) for the optional Kotlin module.
 - [Non-goals](explanations/non-goals.md) for scope boundaries.
 - [Release](release/index.md) for compatibility and limitations.

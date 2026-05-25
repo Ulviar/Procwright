@@ -16,20 +16,20 @@ not part of the contract.
 
 ## Kotlin generated docs
 
-The optional Kotlin module is documented in [Kotlin API](../reference/kotlin-api.md) and checked through KDoc in source.
-Generated Dokka publication is not part of the `0.1.0` release gate.
+The optional Kotlin module is documented in [Kotlin API](../reference/kotlin-api.md). A separate generated Dokka site is
+not published for `0.1.0`.
 
-## Java release variants
+## Java runtime differences
 
-Java 17, 21, and 25 variants build from the same source tree. The Java 17 variant uses platform-thread fallback for
-internal background work, so high-concurrency performance may differ from Java 21/25 runtimes that can use virtual
-threads.
+The public artifacts target Java 17 and run on Java 17 or newer. On Java 21 and newer runtimes, iCLI may use virtual
+threads internally; Java 17 uses a platform-thread fallback for internal background work. High-concurrency performance
+can therefore differ by runtime.
 
 ## Process cleanup limits
 
-One-shot timeout cleanup is covered by the `0.1.0` release gate, including process-tree cleanup through JDK `ProcessHandle`
-descendant tracking. Session close and idle-timeout paths also shut down their owned process, but the release
-contract should not be read as a universal containment guarantee for every process topology.
+One-shot timeout cleanup uses process-tree cleanup through JDK `ProcessHandle` descendant tracking. Session close and
+idle-timeout paths also shut down their owned process, but the public contract should not be read as a universal
+containment guarantee for every process topology.
 
 Detached descendants, inaccessible process handles, platform limitations, or children that deliberately escape the
 parent tree can require caller-side containment. Treat iCLI cleanup as the runtime-owned best effort inside the JDK
@@ -40,7 +40,6 @@ process tree model, not as an OS sandbox.
 - Raw session pooling.
 - Stateful affinity pools.
 - Generic/core async request API.
-- A real MCP SDK adapter.
 - Backend-specific process library APIs in core.
 - Machine-dependent performance promises.
 

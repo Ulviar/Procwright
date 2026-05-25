@@ -29,7 +29,7 @@ if (!result.succeeded()) {
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.oneShotScenario`.
+Complete example source: [`CommandServiceApiExamples.oneShotScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 Do not throw away the result too early. `CommandResult` carries exit code, timeout state, stdout/stderr text and bytes,
 truncation flags, and elapsed duration. Convert to an exception only when fail-fast application flow is the right shape.
@@ -40,6 +40,8 @@ Move stable command-level defaults into `CommandSpec`. Keep operation-specific a
 callback.
 
 ```java
+Path projectDir = Path.of(".");
+
 CommandSpec command = CommandSpec.builder("python")
         .workingDirectory(projectDir)
         .putEnvironment("PYTHONUTF8", "1")
@@ -50,7 +52,7 @@ CommandService python = Icli.command(command);
 python.run().execute("--version");
 ```
 
-Compile-tested source: `CommandServiceApiExamples.explicitCommandConfiguration`.
+Complete example source: [`CommandServiceApiExamples.explicitCommandConfiguration`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 This preserves the same split that mature hand-written runners usually grow over time: one reusable command profile,
 many scenario invocations.
@@ -61,17 +63,21 @@ If the existing code starts background threads to drain stdout and stderr, check
 captured result. If not, prefer `listen`.
 
 ```java
-try (StreamSession stream =
-        tool.listen().withArgs("logs", "--follow").onOutput(chunk -> {
+CommandService tool = Icli.command("tool");
+
+try (StreamSession stream = tool.listen()
+        .withArgs("logs", "--follow")
+        .onOutput(chunk -> {
             if (chunk.source() == StreamSource.STDERR) {
                 System.err.print(chunk.text());
             }
-        }).open()) {
+        })
+        .open()) {
     stream.onExit().join();
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.listenOnlyStreamingScenario`.
+Complete example source: [`CommandServiceApiExamples.listenOnlyStreamingScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 Use `run` when the output is part of the completed result. Use `listen` when the output is an event stream and retaining
 all of it would be the wrong invariant.
@@ -81,6 +87,8 @@ all of it would be the wrong invariant.
 If the existing code loops over process output waiting for prompt text, use `Expect` over an interactive session.
 
 ```java
+CommandService repl = Icli.command("tool");
+
 try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
     expect.expectText("ready> ");
@@ -89,7 +97,7 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.expectScenario`.
+Complete example source: [`CommandServiceApiExamples.expectScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 `Expect` owns output matching and transcript bounds. Do not read the raw session output streams at the same time.
 
@@ -98,8 +106,12 @@ Compile-tested source: `CommandServiceApiExamples.expectScenario`.
 If the existing code writes a command line and then waits for one response line, use `lineSession`.
 
 ```java
-try (LineSession session =
-        repl.lineSession().withArgs("repl").withRequestTimeout(Duration.ofSeconds(2)).open()) {
+CommandService repl = Icli.command(CommandSpec.of("tool"));
+
+try (LineSession session = repl.lineSession()
+        .withArgs("repl")
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .open()) {
     LineResponse response = session.request("status");
     if (response.text().isBlank()) {
         throw new IllegalStateException("empty response");
@@ -107,7 +119,7 @@ try (LineSession session =
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.lineSessionScenario`.
+Complete example source: [`CommandServiceApiExamples.lineSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 On timeout, EOF, decoder failure, or read/write failure, the line session closes. This is intentional: after a failed
 request/response cycle, the protocol state is unknown.

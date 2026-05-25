@@ -17,7 +17,7 @@ try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED)
 }
 ```
 
-Compile-tested source: `CommandServiceApiExamples.terminalRequiredSessionScenario`.
+Complete example source: [`CommandServiceApiExamples.terminalRequiredSessionScenario`](https://github.com/Ulviar/iCLI/blob/main/src/test/java/io/github/ulviar/icli/examples/CommandServiceApiExamples.java).
 
 ## Use this scenario because
 

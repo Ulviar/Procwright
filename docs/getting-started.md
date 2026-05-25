@@ -2,12 +2,14 @@
 
 ## Requirements
 
-- JDK 17, 21, or 25 for the matching release variant. The default local target is 25.
+- JDK 17 or newer. Published artifacts target Java 17.
 - Gradle wrapper from this repository only when building iCLI from source.
 
 ## Add the dependency
 
-Published releases use Maven Central coordinates:
+Published releases use Maven Central coordinates.
+
+Gradle Kotlin DSL:
 
 ```kotlin
 repositories {
@@ -19,9 +21,31 @@ dependencies {
 }
 ```
 
+Gradle Groovy:
+
+```groovy
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.github.ulviar:icli:0.1.0'
+}
+```
+
+Maven:
+
+```xml
+<dependency>
+    <groupId>io.github.ulviar</groupId>
+    <artifactId>icli</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
 ## Build from source
 
-Clone the repository and run the fast verification tier:
+Clone the repository only when you want to evaluate or modify iCLI itself:
 
 ```bash
 git clone https://github.com/Ulviar/iCLI.git
@@ -29,8 +53,7 @@ cd iCLI
 ./gradlew quickCheck
 ```
 
-Use broader verification tiers only when changing iCLI itself. They are listed in
-[Compatibility](release/compatibility.md) and [Installation](release/installation.md).
+Use broader verification tiers only when changing iCLI itself. They are listed in [Compatibility](release/compatibility.md).
 
 ## First scenario
 
@@ -38,16 +61,28 @@ The smallest iCLI workflow is a one-shot command scenario: choose the command on
 result.
 
 ```java
-CommandService git = Icli.command("git");
+import io.github.ulviar.icli.CommandService;
+import io.github.ulviar.icli.Icli;
+import io.github.ulviar.icli.command.CommandResult;
 
-CommandResult result = git.run().execute("status", "--short");
+public final class GettingStartedExample {
 
-if (!result.succeeded()) {
-    throw result.toException();
+    private GettingStartedExample() {}
+
+    public static void main(String[] args) {
+        CommandService java = Icli.command("java");
+
+        CommandResult result = java.run().execute("--version");
+
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+    }
 }
 ```
-
-The compile-tested source for this shape is `CommandServiceApiExamples.oneShotScenario`.
 
 Complete example locations are listed in [Examples](examples.md).
 
@@ -74,7 +109,7 @@ Do not start by assembling process flags. Start by choosing the workflow:
 - `protocolSession` for framed, multi-line, byte, or typed request/response protocols;
 - `listen` for streaming output;
 - `lineSession().pooled()` and `protocolSession(factory).pooled()` for reusable workers;
-- `:icli-integrations` for structured CLI adapters.
+- `io.github.ulviar:icli-integrations` for structured CLI adapters.
 
 The [How-to Guides](how-to/index.md) section starts from common tasks. [Scenario Contracts](scenarios/index.md) is the
 reference index for the public scenario surface.

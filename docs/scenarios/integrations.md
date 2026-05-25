@@ -1,6 +1,7 @@
 # Integrations
 
-The optional `:icli-integrations` module wraps existing process scenarios as structured integration boundaries.
+The optional `io.github.ulviar:icli-integrations` artifact wraps existing process scenarios as structured integration
+boundaries.
 
 It currently covers:
 
@@ -15,16 +16,18 @@ It currently covers:
 `JsonLineSession.requestAsync` is a narrow cancellable helper in this optional module. It is not the generic/core async
 request API that remains outside `0.1.0`.
 
-Compile-tested sources:
+Complete example sources:
 
-- `CommandBackedToolExamples.oneShotCommandBackedTool`
-- `CommandBackedToolExamples.jsonLineCommandBackedTool`
-- `CommandBackedToolExamples.cancellableJsonLineCall`
-- `CommandBackedToolExamples.contentLengthFramedJson`
+- [`CommandBackedToolExamples.oneShotCommandBackedTool`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
+- [`CommandBackedToolExamples.jsonLineCommandBackedTool`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
+- [`CommandBackedToolExamples.cancellableJsonLineCall`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
+- [`CommandBackedToolExamples.contentLengthFramedJson`](https://github.com/Ulviar/iCLI/blob/main/icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java)
 
 ## Example
 
 ```java
+CommandService service = Icli.command("tool");
+
 try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
         JsonLineSession json = JsonLineSession.over(lineSession)) {
     CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
@@ -39,7 +42,7 @@ CLI output is treated as untrusted data. The integration layer does not turn pro
 
 ## Boundary
 
-The module is optional and does not add an MCP SDK dependency. It is a small structured boundary over existing
-`run`, `lineSession`, and `protocolSession` scenarios.
+The module is optional. It is a small structured boundary over existing `run`, `lineSession`, and `protocolSession`
+scenarios.
 
 Adapter errors are structured and should not expose raw argv, environment values, or unbounded output by default.

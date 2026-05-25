@@ -43,7 +43,9 @@ final class CommandServiceApiExamples {
         }
     }
 
-    void explicitCommandConfiguration(Path projectDir) {
+    void explicitCommandConfiguration() {
+        Path projectDir = Path.of(".");
+
         CommandSpec command = CommandSpec.builder("python")
                 .workingDirectory(projectDir)
                 .putEnvironment("PYTHONUTF8", "1")
