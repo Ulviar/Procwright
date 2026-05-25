@@ -14,7 +14,7 @@
 - внутри каждый сценарий разворачивается в валидированные policies и execution plan;
 - пользователь может переопределить детали, но не обязан знать все runtime flags.
 
-Старая версия правильно двигалась в эту сторону. Эту идею надо сохранить.
+Эта идея является текущим API-инвариантом: сначала сценарий, затем scoped configuration.
 
 ## Почему не options-first
 
@@ -78,7 +78,7 @@ try (Session shell = Icli.command("sh")
 Для `lineSession` под PTY decoder должен учитывать terminal echo, CRLF и prompts конкретного процесса; default
 `ResponseDecoder.firstLine()` остается pipe-oriented безопасным default, а не универсальным TTY protocol parser.
 
-## Минимальные сценарии MVP
+## Минимальные сценарии первого релиза
 
 ### `run`
 
@@ -373,7 +373,7 @@ public use case. У каждого сценария может быть свой
 узкий `SessionInvocation`, а line workflow — `LineSessionInvocation`, чтобы не протаскивать неподходящие
 one-shot/raw-session options вроде `input`, `capture` или text-send charset.
 
-## Как не повторить старое разрастание
+## Как удерживать рост API
 
 Scenario-first не означает "класс на каждый use case".
 

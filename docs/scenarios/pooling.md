@@ -15,8 +15,6 @@ The scenario covers:
 - graceful drain;
 - metrics snapshots.
 
-Compile-tested source: `CommandServiceApiExamples.pooledLineSessionScenario`.
-
 For typed protocol workers, see [Protocol Sessions](protocol-session.md).
 
 ## Example

@@ -5,8 +5,8 @@ checked through KDoc in source.
 
 ## Public API entry points
 
-- [Core Java API](https://ulviar.github.io/iCLI/api/java/core/)
-- [Integrations Java API](https://ulviar.github.io/iCLI/api/java/integrations/)
+- <a href="./java/core/">Core Java API</a>
+- <a href="./java/integrations/">Integrations Java API</a>
 - [Kotlin API](../reference/kotlin-api.md)
 
 If you are reading this file directly from the source tree, the generated Java HTML is not stored under `docs/`. Build

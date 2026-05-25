@@ -1,7 +1,6 @@
 # Reference
 
-Reference pages describe public contracts, policies, and release-relevant guarantees. They should stay narrower than
-the scenario guides and should avoid tutorial prose.
+Use reference pages when you need public contracts, policies, and release-relevant guarantees rather than a task guide.
 
 Current reference entry points:
 

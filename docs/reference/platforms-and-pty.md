@@ -23,7 +23,7 @@ terminal policy, requested terminal size, terminal control signals, and `PtyProv
 
 Backend-specific PTY library types must not appear in core public signatures.
 
-The current baseline does not ship a Windows ConPTY provider. ConPTY support should be added as a separate optional
+`0.1.0` does not ship a Windows ConPTY provider. ConPTY support should be added as a separate optional
 provider or runtime-specific artifact without changing the scenario API or adding native dependencies to the core
 module.
 

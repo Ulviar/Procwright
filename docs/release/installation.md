@@ -44,26 +44,3 @@ Build a specific Java release variant with the matching JDK:
 
 Public artifacts must be built with `--project-prop=icli.javaRelease=17`. Java 21 and Java 25 remain checked source
 variants, not separate public coordinates.
-
-## Publishing Status
-
-Configured publishing target:
-
-- Maven Central via the Central Portal upload API;
-- public namespace and coordinates: `io.github.ulviar`;
-- Central Portal credentials are read from `CENTRAL_USERNAME` and `CENTRAL_PASSWORD`;
-- signing uses in-memory `SIGNING_KEY` and `SIGNING_PASSWORD` and is mandatory for Central publication;
-- credentials and signing material are never stored in the repository;
-- remote publication rejects `*-SNAPSHOT` or non-SemVer versions;
-- public artifacts are built with `--project-prop=icli.javaRelease=17`;
-- `mavenCentralBundle` builds a signed Maven repository bundle with checksums;
-- the release-only CI job uploads a `USER_MANAGED` Central Portal deployment after the verification matrix passes.
-
-Local publication check:
-
-```bash
-./gradlew publishToMavenLocal --project-prop=icli.javaRelease=17
-```
-
-Central publication requires a verified `io.github.ulviar` namespace in Sonatype Central Portal before the first release
-can be uploaded successfully.

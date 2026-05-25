@@ -1,6 +1,6 @@
 # Known Limitations
 
-This page tracks release-relevant limitations for the current public baseline.
+This page tracks release-relevant limitations for `0.1.0`.
 
 ## Pre-1.0 API
 
@@ -9,7 +9,7 @@ The API is public but still pre-1.0. Names, package structure, and option shapes
 ## Terminal support
 
 Terminal capability is behind `TerminalPolicy` and `PtyProvider`. The current system provider is platform-dependent.
-Windows ConPTY support is not documented as a shipped provider in this release state.
+Windows ConPTY support is not documented as a shipped provider in `0.1.0`.
 
 Terminal-required scenarios should fail explicitly when no provider is available. Silent fallback to ordinary pipes is
 not part of the contract.
@@ -17,12 +17,7 @@ not part of the contract.
 ## Kotlin generated docs
 
 The optional Kotlin module is documented in [Kotlin API](../reference/kotlin-api.md) and checked through KDoc in source.
-Generated Dokka publication is not part of the current release gate.
-
-## Publishing
-
-Maven Central publication is configured for the Central Portal, but the first upload requires a verified
-`io.github.ulviar` namespace and Central Portal credentials.
+Generated Dokka publication is not part of the `0.1.0` release gate.
 
 ## Java release variants
 
@@ -32,15 +27,15 @@ threads.
 
 ## Process cleanup limits
 
-One-shot timeout cleanup is covered by the release gate, including process-tree cleanup through JDK `ProcessHandle`
-descendant tracking. Session close and idle-timeout paths also shut down their owned process, but the current release
-state should not be read as a universal containment guarantee for every process topology.
+One-shot timeout cleanup is covered by the `0.1.0` release gate, including process-tree cleanup through JDK `ProcessHandle`
+descendant tracking. Session close and idle-timeout paths also shut down their owned process, but the release
+contract should not be read as a universal containment guarantee for every process topology.
 
 Detached descendants, inaccessible process handles, platform limitations, or children that deliberately escape the
 parent tree can require caller-side containment. Treat iCLI cleanup as the runtime-owned best effort inside the JDK
 process tree model, not as an OS sandbox.
 
-## Not in the current MVP
+## Not in 0.1.0
 
 - Raw session pooling.
 - Stateful affinity pools.
@@ -52,8 +47,3 @@ process tree model, not as an OS sandbox.
 The broader scope boundary is described in [Non-goals](../explanations/non-goals.md).
 
 The cleanup boundary is explained in [Process Cleanup Limits](../explanations/process-cleanup-limits.md).
-
-## Documentation scope
-
-Public docs describe implemented and tested behavior only. Internal `context/` documents may discuss future plans that
-are not public guarantees.

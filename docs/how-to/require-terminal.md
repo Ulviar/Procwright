@@ -25,5 +25,5 @@ Terminal capability is part of session-family lifecycle. `run` and `listen` do n
 public API.
 
 Current terminal support is intentionally narrow. Unix-like environments depend on an available system terminal helper
-such as `script(1)`, and Windows ConPTY is not shipped in the current release state. Use `REQUIRED` only when the caller
+such as `script(1)`, and Windows ConPTY is not shipped in `0.1.0`. Use `REQUIRED` only when the caller
 can handle explicit terminal-unavailable failure.

@@ -1,12 +1,12 @@
-# Архитектура MVP
+# Архитектура первого релиза
 
 ## Цель
 
 iCLI — JVM-библиотека для безопасного запуска внешних CLI-программ и управления интерактивными процессами из
 Java/Kotlin приложений.
 
-Первая версия должна доказать надежное process execution ядро. Она не должна сразу повторять всю ширину старого
-проекта.
+Первая версия должна доказать надежное process execution ядро. Новая возможность добавляется только через понятный
+сценарий, владельца инварианта и проверку.
 
 Главный архитектурный принцип описан в [invariant-architecture.md](invariant-architecture.md): широкие возможности
 должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
@@ -17,7 +17,7 @@ Java/Kotlin приложений.
 scenario-specific execution plan. Это описано в
 [scenario-api.md](scenario-api.md).
 
-## Входит в MVP
+## Входит в первый релиз
 
 - One-shot запуск команды.
 - Явная модель команды: executable, args, working directory, environment, shell mode.
@@ -43,7 +43,7 @@ scenario-specific execution plan. Это описано в
   checklist.
 - Maven Central publishing/signing setup для Java 17-targeted artifacts без runtime impact.
 
-## Не входит в MVP
+## Не входит в первый релиз
 
 - Raw session pooling.
 - Stateful conversation affinity.
@@ -58,7 +58,7 @@ scenario-specific execution plan. Это описано в
 
 ```text
 Пользовательский API
-  CommandService / CommandExecutor
+  Icli / CommandService
   scenario methods
   CommandSpec
   CommandResult
@@ -209,7 +209,7 @@ io.github.ulviar.icli.integration
 session-family lifecycle. Подробности зафиксированы в
 [decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md).
 
-## Расширения после MVP
+## Расширения после первого релиза
 
 1. PTY hardening и кроссплатформенная матрица.
 2. Более богатый expect DSL.

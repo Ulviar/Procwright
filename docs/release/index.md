@@ -9,4 +9,3 @@ Release entry points:
 - [API baseline](api-baseline.md)
 - [Compatibility](compatibility.md)
 - [Known limitations](known-limitations.md)
-- [Current release status](pre-release-status.md)

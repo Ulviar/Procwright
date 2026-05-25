@@ -343,4 +343,4 @@ ProcessRuntimeTest.drainsStdoutAndStderrConcurrently
 - явные lifecycle state machines;
 - тесты, закрепляющие каждый инвариант.
 
-Это и должно быть главным архитектурным отличием новой версии от старой.
+Это главный архитектурный критерий для iCLI.

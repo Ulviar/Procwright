@@ -10,7 +10,7 @@
 
 ## Активная карта
 
-- [architecture.md](architecture.md) — границы MVP и слои runtime.
+- [architecture.md](architecture.md) — границы первого релиза и слои runtime.
 - [invariant-architecture.md](invariant-architecture.md) — как изолируются инварианты API и runtime.
 - [scenario-api.md](scenario-api.md) — scenario-first пользовательский язык.
 - [scenario-contracts.md](scenario-contracts.md) — контракты реализованных сценариев.
@@ -36,8 +36,7 @@
 - [release/compatibility-policy.md](release/compatibility-policy.md) — совместимость и platform support.
 - [release/public-api-baseline.md](release/public-api-baseline.md) — intended public surface и API guard.
 - [release/dependency-review.md](release/dependency-review.md) — runtime/build dependency boundary.
-- [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release candidate.
-- [release/release-notes-template.md](release/release-notes-template.md) — template публичных release notes.
+- [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release.
 
 ## Решения и research boundary
 

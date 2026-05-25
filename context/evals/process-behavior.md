@@ -198,7 +198,7 @@
 
 ## Release gate
 
-Первый release candidate не готов, пока выполнены не все условия:
+Первый публичный релиз не готов, пока выполнены не все условия:
 
 - one-shot, streaming, timeout и базовая session группа покрыты тестами;
 - scenario cookbook сверяется с compile-tested examples;
@@ -211,5 +211,5 @@
 - public package boundaries покрыты tests;
 - LICENSE присутствует в корне репозитория;
 - versioning policy, compatibility policy, dependency review и release checklist актуальны;
-- session shutdown escalation hardening либо закрыт тестом, либо явно принят как release limitation;
+- session shutdown escalation hardening либо закрыт тестом, либо явно принят как public limitation;
 - CI запускает `check` и `javadoc` на Linux, macOS и Windows.

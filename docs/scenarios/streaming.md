@@ -11,8 +11,6 @@ The scenario covers:
 - timeout handling;
 - listener-failure propagation through the stream exit future.
 
-Compile-tested source: `CommandServiceApiExamples.listenOnlyStreamingScenario`.
-
 ## Example
 
 ```java

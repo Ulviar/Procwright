@@ -13,7 +13,7 @@ It currently covers:
 - command-backed tool result wrappers.
 
 `JsonLineSession.requestAsync` is a narrow cancellable helper in this optional module. It is not the generic/core async
-request API that remains outside the current baseline.
+request API that remains outside `0.1.0`.
 
 Compile-tested sources:
 

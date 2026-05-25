@@ -33,4 +33,4 @@ the `icli-kotlin` JVM signature baseline.
 ## Compatibility rule
 
 Before `1.0.0`, iCLI may still make breaking API changes, but they must be explicit: update the baseline guard, public
-docs, examples, and release notes together. Internal packages are not compatibility surface.
+docs, examples, and the relevant compatibility policy together. Internal packages are not compatibility surface.

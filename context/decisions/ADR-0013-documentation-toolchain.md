@@ -88,9 +88,8 @@ components, полноценная multi-version/i18n product site модель 
 Минусы:
 
 - появляется Python docs toolchain;
-- release candidate gate требует доступного `uv` и возможности установить docs dependencies с закрепленными top-level
-  versions;
-- transitive Python dependencies остаются отдельным residual supply-chain risk до lock/hashes workflow;
+- release gate требует доступного `uv` и возможности установить docs dependencies из hash-pinned lock;
+- docs toolchain lock нужно обновлять осознанно при изменении top-level requirements;
 - нужно поддерживать синхронизацию публичных scenario pages и compile-tested examples.
 
 ## Проверка

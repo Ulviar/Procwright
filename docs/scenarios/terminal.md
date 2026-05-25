@@ -29,7 +29,7 @@ The current core API exposes terminal policy, terminal size, terminal control si
 It does not expose backend-specific PTY library types.
 
 The initial system provider is platform-dependent. Unix-like environments depend on an available system terminal helper
-such as `script(1)`. Windows ConPTY is not shipped as a provider in the current release state.
+such as `script(1)`. Windows ConPTY is not shipped as a provider in `0.1.0`.
 
 Code that requires a terminal should use `REQUIRED` so unavailable terminal support is visible as a failure instead of
 an accidental pipe fallback. See [Platforms and PTY](../reference/platforms-and-pty.md) for the platform boundary.

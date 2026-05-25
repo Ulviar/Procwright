@@ -35,10 +35,9 @@ isolated environment:
 Эти зависимости не попадают в Gradle runtime/test classpath, не являются частью published artifacts и не должны
 рассматриваться как process-runtime dependency. Их назначение — strict build публичного сайта из `docs/`.
 
-Transitive Python dependencies пока не закреплены `uv.lock`, constraints file или hash-pinned requirements. Это
-остаточный supply-chain риск documentation toolchain; перед публичным release нужно либо добавить lock/hashes workflow,
-либо явно принять этот риск в release notes. Текущий stabilization pass фиксирует риск как известный release item, но не
-добавляет lock/hashes workflow.
+Transitive Python dependencies закреплены в `docs/requirements.lock` с SHA-256 hashes. `publicDocsCheck` использует
+этот lock, а `docs/requirements.txt` остается коротким входным файлом для намеренного обновления top-level docs
+tooling.
 
 ## Kotlin module
 
@@ -115,13 +114,13 @@ GitHub Actions workflow использует:
 
 ## Правило добавления dependency
 
-Новая dependency требует короткого обоснования в ADR или release note, если она:
+Новая dependency требует короткого обоснования в ADR, dependency review или release checklist, если она:
 
 - попадает в runtime classpath публичного артефакта;
 - расширяет public API surface;
 - приносит platform-specific behavior;
 - нужна только для отдельного optional module, но может быть ошибочно воспринята как core dependency.
 
-Если dependency является process-runtime, PTY, expect/prompt automation или другим backend для внешних CLI, release note
-недостаточно. Нужны ADR, обновленный dependency review, отдельная module boundary и обновление
+Если dependency является process-runtime, PTY, expect/prompt automation или другим backend для внешних CLI, одного
+release checklist entry недостаточно. Нужны ADR, обновленный dependency review, отдельная module boundary и обновление
 `ExternalLibraryBoundaryTest`/`externalLibraryBoundaryCheck`.

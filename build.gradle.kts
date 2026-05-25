@@ -475,7 +475,8 @@ val publicDocsCheck =
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(publicJavaJavadocCheck)
 
-        val requirements = layout.projectDirectory.file("docs/requirements.txt")
+        val requirements = layout.projectDirectory.file("docs/requirements.lock")
+        val requirementsSource = layout.projectDirectory.file("docs/requirements.txt")
         val config = layout.projectDirectory.file("mkdocs.yml")
         val output = layout.buildDirectory.dir("public-docs")
         val coreJavadocs = layout.buildDirectory.dir("docs/javadoc")
@@ -483,6 +484,7 @@ val publicDocsCheck =
             project(":icli-integrations").layout.buildDirectory.dir("docs/javadoc")
 
         inputs.file(requirements)
+        inputs.file(requirementsSource)
         inputs.file(config)
         inputs.dir(layout.projectDirectory.dir("docs"))
         inputs.dir(coreJavadocs)
@@ -679,7 +681,7 @@ val cleanWorkingTreeCheck =
     }
 
 tasks.register("releaseCandidateCheck") {
-    description = "Runs the complete local release-candidate verification gate."
+    description = "Runs the complete local release verification gate."
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     dependsOn(
         tasks.named("spotlessCheck"),

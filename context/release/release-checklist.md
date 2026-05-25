@@ -7,7 +7,7 @@
 - README описывает только реализованное и протестированное поведение.
 - `context/quality/scorecard.md` не содержит устаревшего статуса по уже завершенным фазам.
 - Все ADR для публичных архитектурных решений добавлены в `context/decisions/`.
-- Release docs не создают фиктивную миграцию для первого публичного релиза без пользовательской базы.
+- Release docs не создают upgrade-разделы для несуществующих прошлых пользователей.
 - Versioning и compatibility policies актуальны для текущего Java/Kotlin baseline.
 - Приняты стабилизационные решения по public API, PTY/platform strategy, publishing strategy и Kotlin generated docs.
 - Approved public API surface зафиксирован в [public-api-baseline.md](public-api-baseline.md) и проверяется exact baseline
@@ -15,8 +15,7 @@
 - Dependency review не содержит неизвестных runtime dependencies.
 - Gradle wrapper distribution checksum и dependency verification metadata актуальны после каждого изменения
   build/test dependencies.
-- Если documentation toolchain остается без lock/hash-pinned transitive dependencies, этот residual supply-chain risk
-  явно принят в public release docs; предпочтительный вариант перед release — добавить lock/hashes workflow.
+- `docs/requirements.lock` актуален после изменения docs toolchain и используется `publicDocsCheck`.
 - Publishing/signing setup реализован по ADR-0017; remote publish запрещает `*-SNAPSHOT` и non-SemVer version, а
   публичный artifact считается готовым к публикации только после Java 17-targeted local publication check и CI job с
   Central Portal/signing secrets.

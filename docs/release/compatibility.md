@@ -1,6 +1,6 @@
 # Compatibility
 
-## Current baseline
+## 0.1.0 baseline
 
 - Build JDK: 17, 21, or 25 for the matching release variant.
 - Java bytecode target: selected by `--project-prop=icli.javaRelease=17`, `21`, or `25`; default development target is
@@ -32,15 +32,15 @@ Tests for machine-specific capabilities should skip through assumptions when a c
 On Java 21 and newer runtimes, iCLI may use virtual threads internally. Java 17 uses a daemon platform-thread fallback.
 This is an implementation detail, not a public API contract.
 
-Windows ConPTY support is not a shipped provider in the current baseline. Terminal-required workflows must fail
+Windows ConPTY support is not a shipped provider in `0.1.0`. Terminal-required workflows must fail
 explicitly when no configured provider is available; they must not silently fall back to ordinary pipes.
 
 ## Compatibility before 1.0
 
 The project may still make breaking public API changes before `1.0.0`. Breaking changes must update compile-tested
-examples, public docs, and release notes.
+examples, public docs, and the relevant compatibility policy.
 
-The current baseline includes a pre-1.0 session API break: session-family handles are sealed interfaces backed by hidden
+`0.1.0` includes a pre-1.0 session API break: session-family handles are sealed interfaces backed by hidden
 iCLI implementations. Create them through `Icli.command(...)` scenario methods; custom handle implementations are not
 supported.
 

@@ -22,16 +22,6 @@ iCLI is intended for applications that need to call external CLIs without owning
 - reuse warm line-session or typed protocol workers;
 - wrap a CLI as a structured integration boundary.
 
-## Documentation model
-
-The public documentation follows a Diataxis-style split: getting started for first learning, how-to guides for concrete
-tasks, reference for contracts and generated API docs, and explanation for rationale. Scenario contracts point back to
-compile-tested examples in the repository. Low-level runtime details are documented only when they are part of the public
-contract.
-
-Internal project context, ADRs, audits, and planning documents live under `context/` and are not a substitute for this
-public documentation.
-
 ## First useful call
 
 ```java
@@ -48,11 +38,10 @@ This is the smallest scenario: choose a command, choose `run`, execute with argu
 
 ## Main entry points
 
-- [Getting Started](getting-started.md)
-- [Examples](examples.md)
-- [How-to Guides](how-to/index.md)
-- [Reference](reference/index.md)
-- [Kotlin API](reference/kotlin-api.md)
-- [Explanation](explanations/scenario-first.md)
-- [Non-goals](explanations/non-goals.md)
-- [Release](release/index.md)
+- [Getting Started](getting-started.md) for installation and the first command.
+- [How-to Guides](how-to/index.md) for common CLI automation tasks.
+- [Reference](reference/index.md) for scenario contracts, policies, results, errors, and generated API docs.
+- [Examples](examples.md) for compile-tested source locations.
+- [Kotlin API](reference/kotlin-api.md) for the optional Kotlin module.
+- [Non-goals](explanations/non-goals.md) for scope boundaries.
+- [Release](release/index.md) for compatibility and limitations.

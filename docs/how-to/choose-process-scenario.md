@@ -98,4 +98,4 @@ First decide which invariant matters more:
 - use diagnostics when lifecycle observability is needed without exposing raw output.
 
 The current public API does not provide a single "run and tee all output while also returning a full captured result"
-shortcut. That is intentional for the current baseline: output ownership and memory bounds must stay visible.
+shortcut. That is intentional in `0.1.0`: output ownership and memory bounds must stay visible.

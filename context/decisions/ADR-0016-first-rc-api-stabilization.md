@@ -1,30 +1,30 @@
-# ADR-0016: Стабилизация public API перед первым release candidate
+# ADR-0016: Стабилизация public API перед первым релизом
 
 ## Статус
 
-Accepted for the first release-candidate baseline.
+Accepted for the first release baseline.
 
 ## Контекст
 
 После фаз `run`, `interactive`, `lineSession`, `expect`, `listen`, `pooled`, scenario presets, Kotlin ergonomics,
-CLI-backed integrations, документации и release hardening проект готов к API freeze audit. Перед первым release
-candidate нужно решить спорные имена и границы, пока они не стали публичным compatibility debt.
+CLI-backed integrations, документации и release hardening проект готов к API freeze audit. Перед первым релизом нужно
+решить спорные имена и границы, пока они не стали публичным compatibility debt.
 
 ## Решение
 
 ### `CommandService` остается основным entry point
 
-Имя `CommandService` сохраняется для первого release candidate: пользователь создает сервис вокруг базовой команды, а
-затем выбирает сценарий. Альтернативы вроде `CommandExecutor` хуже отражают sessions, streaming, pooling и structured
-integrations.
+Имя `CommandService` сохраняется для первого релиза: пользователь создает сервис вокруг базовой команды, а затем
+выбирает сценарий. Название должно отражать sessions, streaming, pooling и structured integrations, а не только
+one-shot execution.
 
-### Convenience overloads не добавляются перед первым RC
+### Convenience overloads не добавляются перед первым релизом
 
 Минимальная форма остается:
 
 ```java
-CommandService git = CommandService.forCommand("git");
-CommandResult result = git.run(call -> call.args("status", "--short"));
+CommandService git = Icli.command("git");
+CommandResult result = git.run().execute("status", "--short");
 ```
 
 Это оставляет явный выбор сценария и не превращает API в каталог shortcuts. Новые convenience методы допустимы только
@@ -36,7 +36,7 @@ CommandResult result = git.run(call -> call.args("status", "--short"));
 учитываются успешные записи в stdin, закрытие stdin и успешные чтения caller-а из session streams. Выход процесса,
 который пишет данные, но caller их не читает, не обязан сбрасывать этот timeout.
 
-Переименование перед RC не требуется, потому что:
+Переименование перед первым релизом не требуется, потому что:
 
 - текущее имя короткое и согласовано с session lifecycle;
 - Javadoc явно раскрывает семантику;
@@ -45,7 +45,7 @@ CommandResult result = git.run(call -> call.args("status", "--short"));
 
 ### Начальный набор `ScenarioPresets` замораживается
 
-Для первого release candidate сохраняется текущий набор:
+Для первого релиза сохраняется текущий набор:
 
 - `commandAutomation(...)`;
 - `environmentDiagnostics(...)`;
@@ -66,7 +66,7 @@ CommandResult result = git.run(call -> call.args("status", "--short"));
 
 ### Diagnostics остается best-effort unordered
 
-Order-preserving dispatcher не входит в RC. Diagnostics не должен менять поведение execution и не должен блокировать
+Order-preserving dispatcher не входит в первый релиз. Diagnostics не должен менять поведение execution и не должен блокировать
 runtime из-за пользовательского listener-а или transcript sink-а.
 
 ### Expect-level process diagnostics не добавляются
@@ -77,7 +77,7 @@ runtime из-за пользовательского listener-а или transcri
 
 ### Pool worker lifecycle diagnostics откладывается
 
-Первый RC сохраняет локальный `PooledLineSessionMetrics` и service-owned worker launch diagnostics. Отдельные события
+Первый релиз сохраняет локальный `PooledLineSessionMetrics` и service-owned worker launch diagnostics. Отдельные события
 pool worker checkout/reset/retire могут появиться позже, если появится наблюдаемый пользовательский сценарий.
 
 ## Последствия

@@ -70,4 +70,4 @@ JVM signatures проверяются against `config/api-compatibility/0.1.0/ic
 - обновления machine-readable baseline через `./gradlew writeApiCompatibilityBaseline --project-prop=icli.javaRelease=17`;
 - обновления compile-tested examples, если меняется пользовательская форма вызова;
 - обновления публичной документации в `docs/`;
-- обновления release notes или ADR, если изменение является breaking или расширяет сценарную модель.
+- обновления ADR, если изменение является breaking или расширяет сценарную модель.

@@ -86,7 +86,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 - public MkDocs site собирается в strict mode;
 - documentation maturity проверяется отдельно от runtime behavior.
 
-### Tier 4: проверка release candidate
+### Tier 4: проверка release gate
 
 Команда:
 
@@ -98,7 +98,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 - запускает formatting, scenario, regression, module и documentation gates;
 - требует clean Git worktree, включая untracked files;
-- предназначен для состояния после фиксации всех исходников и перед публикацией release candidate.
+- предназначен для состояния после фиксации всех исходников и перед публикацией релиза.
 
 ## Правило развития
 
