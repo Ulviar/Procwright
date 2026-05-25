@@ -59,4 +59,4 @@ This is the smallest scenario: choose a command, choose `run`, execute with argu
 - [Examples](examples.md) for complete usage examples.
 - [Kotlin API](reference/kotlin-api.md) for the optional Kotlin module.
 - [Explanations](explanations/index.md) for design rationale and scope boundaries.
-- [Release](release/index.md) for compatibility and limitations.
+- [Version and Compatibility](release/index.md) for installation, compatibility, and limitations.

@@ -2,16 +2,11 @@ package io.github.ulviar.icli.examples;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 final class PublicDocumentationCoverageTest {
@@ -26,25 +21,19 @@ final class PublicDocumentationCoverageTest {
                     "icli-integrations/src/test/java/io/github/ulviar/icli/integration/examples/CommandBackedToolExamples.java"));
 
     @Test
-    void publicScenarioDocsReferenceEveryCompileTestedCoreExample() throws Exception {
+    void publicScenarioDocsLinkToUserTaskGuides() throws Exception {
         String scenarios = Files.readString(PUBLIC_SCENARIOS, StandardCharsets.UTF_8);
 
-        for (String methodName : coreExampleMethods()) {
-            assertTrue(
-                    scenarios.contains("`" + methodName + "`"),
-                    () -> "public scenario docs must reference compile-tested core example `" + methodName + "`");
+        for (String guide : scenarioUserGuides()) {
+            assertTrue(scenarios.contains(guide), () -> "public scenario docs must link user guide `" + guide + "`");
         }
     }
 
     @Test
-    void publicCoreExampleReferencesResolveToCompileTestedMethods() throws Exception {
-        Set<String> methodNames = coreExampleMethods();
-
-        for (String methodName : documentedCoreExampleReferences()) {
-            assertTrue(
-                    methodNames.contains(methodName),
-                    () -> "public docs reference non-compiled core example `" + methodName + "`");
-        }
+    void publicDocsDoNotExposeCompileTestMethodNamesAsNavigation() throws Exception {
+        assertTrue(
+                documentedCoreExampleMethodReferences().isEmpty(),
+                "public docs should navigate by user tasks, not by compile-tested example method names");
     }
 
     @Test
@@ -111,15 +100,22 @@ final class PublicDocumentationCoverageTest {
         }
     }
 
-    private static Set<String> coreExampleMethods() {
-        return Arrays.stream(CommandServiceApiExamples.class.getDeclaredMethods())
-                .filter(method -> !method.isSynthetic())
-                .map(Method::getName)
-                .collect(Collectors.toUnmodifiableSet());
+    private static List<String> scenarioUserGuides() {
+        return List.of(
+                "../how-to/run-finite-command.md",
+                "../how-to/choose-process-scenario.md#prompt-driven-installer-or-configurator",
+                "../how-to/automate-prompts.md",
+                "../how-to/talk-to-line-worker.md",
+                "../how-to/choose-process-scenario.md#framed-or-typed-protocol-worker",
+                "../how-to/follow-logs.md",
+                "../how-to/reuse-workers.md",
+                "../how-to/require-terminal.md",
+                "../examples.md",
+                "../how-to/wrap-cli-tool.md");
     }
 
-    private static Set<String> documentedCoreExampleReferences() throws Exception {
-        LinkedHashSet<String> names = new LinkedHashSet<>();
+    private static List<String> documentedCoreExampleMethodReferences() throws Exception {
+        ArrayList<String> names = new ArrayList<>();
         try (var paths = Files.walk(PUBLIC_DOCS)) {
             for (Path path :
                     paths.filter(path -> path.toString().endsWith(".md")).toList()) {
@@ -134,7 +130,7 @@ final class PublicDocumentationCoverageTest {
                 }
             }
         }
-        return Set.copyOf(names);
+        return List.copyOf(names);
     }
 
     private static List<String> compileTestedExampleSourceSnapshots() throws Exception {

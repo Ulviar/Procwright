@@ -1,11 +1,10 @@
-# Release
+# Version and Compatibility
 
-iCLI `0.1.0` is the first public release. Release documentation describes installation, compatibility, public API
-surface, and known limitations for the published artifacts.
+These pages help you add iCLI to a project and understand what the current version supports.
 
-Release entry points:
+Entry points:
 
 - [Installation](installation.md)
-- [API baseline](api-baseline.md)
+- [API surface](api-baseline.md)
 - [Compatibility](compatibility.md)
 - [Known limitations](known-limitations.md)

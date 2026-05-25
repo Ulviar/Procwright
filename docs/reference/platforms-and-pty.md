@@ -3,12 +3,9 @@
 iCLI core is built on JDK process APIs and keeps platform-specific terminal behavior behind a narrow capability
 boundary.
 
-## Java baseline
+## Java runtime
 
 iCLI consumers use one public artifact that targets Java 17. Run it on Java 17 or newer.
-
-Source builds can be checked with Java 17, 21, or 25 by running Gradle with the matching JDK and
-`--project-prop=icli.javaRelease=17`, `21`, or `25`.
 
 On Java 21 and newer runtimes, iCLI may use virtual threads behind an internal runtime boundary. The Java 17 variant
 uses daemon platform-thread fallback. The public API does not expose or require a specific threading implementation.

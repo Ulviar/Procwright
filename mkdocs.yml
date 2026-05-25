@@ -7,6 +7,9 @@ edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: build/public-docs
 strict: true
+exclude_docs: |
+  requirements.txt
+  requirements.lock
 
 theme:
   name: material
@@ -78,9 +81,9 @@ nav:
       - Output Ownership Rationale: explanations/output-ownership.md
       - Process Cleanup Limits: explanations/process-cleanup-limits.md
       - Non-goals: explanations/non-goals.md
-  - Release:
+  - Version:
       - release/index.md
       - Installation: release/installation.md
-      - API Baseline: release/api-baseline.md
+      - API Surface: release/api-baseline.md
       - Compatibility: release/compatibility.md
       - Known Limitations: release/known-limitations.md

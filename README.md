@@ -60,17 +60,6 @@ Maven:
 </dependency>
 ```
 
-To work from source:
-
-```bash
-git clone https://github.com/Ulviar/iCLI.git
-cd iCLI
-./gradlew quickCheck
-```
-
-Source builds can also be checked with Java 21 or 25; dependency consumers do not need separate coordinates for those
-runtimes.
-
 The smallest workflow is a one-shot command:
 
 ```java
@@ -125,16 +114,6 @@ Start with the public docs:
 - `io.github.ulviar:icli` is the Java core module `io.github.ulviar.icli` with no runtime dependencies outside the JDK.
 - `io.github.ulviar:icli-kotlin` is an optional Kotlin ergonomics module.
 - `io.github.ulviar:icli-integrations` is an optional Java module for structured CLI-backed integration helpers.
-
-## Verification
-
-For source evaluation, run the fast check:
-
-```bash
-./gradlew quickCheck
-```
-
-The broader verification matrix is documented in [Compatibility](docs/release/compatibility.md).
 
 ## License
 

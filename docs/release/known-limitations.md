@@ -1,6 +1,6 @@
 # Known Limitations
 
-This page tracks release-relevant limitations for `0.1.0`.
+This page lists user-visible limitations in `0.1.0`.
 
 ## Pre-1.0 API
 
@@ -14,10 +14,10 @@ Windows ConPTY support is not shipped in `0.1.0`.
 Terminal-required scenarios should fail explicitly when no provider is available. Silent fallback to ordinary pipes is
 not part of the contract.
 
-## Kotlin generated docs
+## Kotlin reference
 
-The optional Kotlin module is documented in [Kotlin API](../reference/kotlin-api.md). A separate generated Dokka site is
-not published for `0.1.0`.
+The optional Kotlin module is documented in [Kotlin API](../reference/kotlin-api.md). There is no separate Kotlin API
+site in `0.1.0`.
 
 ## Java runtime differences
 
@@ -37,11 +37,11 @@ process tree model, not as an OS sandbox.
 
 ## Not in 0.1.0
 
-- Raw session pooling.
-- Stateful affinity pools.
-- Generic/core async request API.
-- Backend-specific process library APIs in core.
-- Machine-dependent performance promises.
+- Pooling is available for line sessions and typed protocol sessions, not for raw interactive sessions.
+- Worker pools do not pin a specific caller to a specific worker.
+- Core request/session APIs are synchronous.
+- Core APIs do not expose backend-specific process library types.
+- Performance depends on the command, OS, Java runtime, and workload; `0.1.0` does not publish performance guarantees.
 
 The broader scope boundary is described in [Non-goals](../explanations/non-goals.md).
 

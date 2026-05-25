@@ -1,6 +1,6 @@
-# Scenario-first Design
+# Why Scenarios Instead of Flags
 
-iCLI is not a thin wrapper over `ProcessBuilder`. The public API starts with user workflows:
+iCLI is not a thin wrapper over `ProcessBuilder`. The public API starts with the workflow a caller is trying to run:
 
 - finite command execution;
 - live interactive process control;
@@ -10,18 +10,20 @@ iCLI is not a thin wrapper over `ProcessBuilder`. The public API starts with use
 - reusable workers;
 - structured CLI-backed integration boundaries.
 
-Each workflow has different invariants. A timeout in a one-shot command, a request timeout in a line worker, and an
-idle timeout in an interactive session are not the same concept. iCLI keeps these decisions close to the scenario that
-owns them.
+Each workflow needs different behavior. A timeout in a one-shot command, a request timeout in a line worker, and an idle
+timeout in an interactive session are not the same concept. iCLI keeps those settings next to the workflow that uses
+them.
 
-## Design rule
+## What this means for users
 
-When a new option looks like a low-level process flag, it should first be tested against the scenario model:
+Instead of building a large process helper with many optional flags, choose the scenario first:
 
-- Which user workflow needs it?
-- Which invariant owns it?
-- What result or failure type exposes it?
-- Can invalid combinations fail before process launch?
+- use `run` when the process should finish and return a result;
+- use `listen` when output is an event stream;
+- use `interactive` when the caller needs raw process control;
+- add `Expect` when prompt matching owns the session output;
+- use `lineSession` or `protocolSession` when a long-lived worker speaks a request/response protocol;
+- add pooling only when the worker protocol can be reused.
 
-If the answer is unclear, the feature should stay out of the public API until the scenario, owner, and failure surface
-are clear.
+This keeps invalid combinations visible. For example, terminal controls belong to session-family workflows, while full
+captured stdout/stderr belongs to `run`.

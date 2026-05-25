@@ -1,6 +1,6 @@
 # Examples
 
-These examples show the main public workflows without requiring source-code navigation.
+These examples show the main public workflows in one place.
 
 ## Core examples
 
@@ -93,21 +93,12 @@ try (PooledProtocolSession<String, String> pool = worker.protocolSession(LengthP
 }
 ```
 
-| Example | Demonstrates |
-| --- | --- |
-| `oneShotScenario` | Finite command execution with `run` and `CommandResult`. |
-| `explicitCommandConfiguration` | Reusable `CommandSpec` and `CommandService` defaults. |
-| `policyComposition` | Timeout, bounded capture, and shutdown policy composition. |
-| `interactiveScenario` | Raw interactive session lifecycle. |
-| `lineSessionScenario` | Line-oriented request/response workflow. |
-| `expectScenario` | Prompt automation over `Session`. |
-| `terminalRequiredSessionScenario` | Required terminal capability for a session workflow. |
-| `listenOnlyStreamingScenario` | Streaming output through `listen`. |
-| `diagnosticsScenario` | Lifecycle diagnostics through `DiagnosticsOptions`. |
-| `pooledLineSessionScenario` | Warm line-session worker pool. |
-| `protocolSessionScenario` | Framed or typed request/response worker. |
-| `pooledProtocolSessionScenario` | Warm typed protocol worker pool. |
-| `scenarioPresetComposition` | Typed `ScenarioPresets` composition. |
+More task-focused guides:
+
+- [Choose a process scenario](how-to/choose-process-scenario.md)
+- [Run a finite command](how-to/run-finite-command.md)
+- [Talk to a line worker](how-to/talk-to-line-worker.md)
+- [Reuse workers](how-to/reuse-workers.md)
 
 ## Integration examples
 
@@ -127,24 +118,4 @@ try (LineSession lineSession = service.lineSession(call -> call.args("json-worke
 }
 ```
 
-| Example | Demonstrates |
-| --- | --- |
-| `oneShotCommandBackedTool` | One-shot command-backed structured tool. |
-| `jsonLineCommandBackedTool` | JSON Lines tool over `LineSession`. |
-| `cancellableJsonLineCall` | Cancellable JSON Lines request. |
-| `contentLengthFramedJson` | Content-Length framed JSON read/write helpers. |
-
-## Consumer examples
-
-`icli-consumer-examples` shows the basic workflows as code compiled from outside the core module.
-
-| Example | Demonstrates |
-| --- | --- |
-| `run` | Finite command execution as an external consumer. |
-| `lineSession` | Line-oriented worker session. |
-| `protocolSession` | Typed framed request/response session. |
-| `pooledLineSession` | Worker pooling over line sessions. |
-| `pooledProtocolSession` | Worker pooling over typed protocol sessions. |
-
-External consumer source:
-[`ConsumerScenarios.java`](https://github.com/Ulviar/iCLI/blob/main/icli-consumer-examples/src/main/java/io/github/ulviar/icli/consumer/examples/ConsumerScenarios.java)
+More task-focused guide: [Wrap a CLI tool](how-to/wrap-cli-tool.md).

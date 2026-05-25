@@ -1,6 +1,6 @@
 # Compatibility
 
-## 0.1.0 baseline
+## Runtime
 
 - Runtime JDK: Java 17 or newer.
 - Public artifact bytecode target: Java 17.
@@ -8,16 +8,14 @@
 
 ## Modules
 
-- `io.github.ulviar:icli` is the Java core artifact and named module `io.github.ulviar.icli`.
+- `io.github.ulviar:icli` is the Java core artifact.
 - `io.github.ulviar:icli-kotlin` is optional Kotlin ergonomics.
-- `io.github.ulviar:icli-integrations` is optional Java integration helpers and named module
-  `io.github.ulviar.icli.integrations`.
+- `io.github.ulviar:icli-integrations` is optional Java integration helpers.
 
-The Java core module has no runtime dependencies outside the JDK and exports only public API packages. The integrations
-module exports only `io.github.ulviar.icli.integration` and requires the core module transitively because its public
-helpers expose core protocol/session types.
+The Java core module has no runtime dependencies outside the JDK. Optional modules add dependencies only when you use
+those artifacts.
 
-The documented public type set is described in [API Baseline](api-baseline.md).
+The documented public API surface is described in [API Surface](api-baseline.md).
 
 ## Platform behavior
 
@@ -35,10 +33,8 @@ explicitly when no configured provider is available; they must not silently fall
 The project may still make breaking public API changes before `1.0.0`. Breaking changes will be documented in examples,
 public docs, and this compatibility policy.
 
-Session-family handles are sealed interfaces backed by hidden iCLI implementations. Create them through
-`Icli.command(...)` scenario methods; custom handle implementations are not supported.
+Create session-family handles through `Icli.command(...)` scenario methods; custom handle implementations are not
+supported.
 
-For `0.1.0`, `Icli.command(...)` is the recommended entry point, `CommandService` remains the reusable command handle,
-`SessionOptions.idleTimeout` keeps its caller-visible activity semantics, and the current `ScenarioPresets` set is part
-of the public pre-1.0 API. The `0.1.0` compatibility scope covers the scenario call shapes for `run`, `interactive`,
-`lineSession`, `protocolSession`, `lineSession().pooled()`, and `protocolSession(factory).pooled()`.
+For `0.1.0`, `Icli.command(...)` is the recommended entry point and `CommandService` is the reusable command handle. The
+compatibility scope covers the scenario call shapes listed in [API Surface](api-baseline.md).

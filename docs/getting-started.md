@@ -100,13 +100,3 @@ Do not start by assembling process flags. Start by choosing the workflow:
 
 The [How-to Guides](how-to/index.md) section starts from common tasks. [Scenario Contracts](scenarios/index.md) is the
 reference index for the public scenario surface.
-
-## Build from source
-
-Clone the repository only when you want to evaluate or modify iCLI itself:
-
-```bash
-git clone https://github.com/Ulviar/iCLI.git
-cd iCLI
-./gradlew quickCheck
-```
