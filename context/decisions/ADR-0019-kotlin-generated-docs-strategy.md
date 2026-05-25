@@ -7,18 +7,17 @@ Accepted for the first release-candidate baseline.
 ## Контекст
 
 `:icli-kotlin` является optional ergonomics module. Он добавляет Kotlin receiver extensions, suspending wrappers и Flow
-adapter поверх Java core. Core не зависит от Kotlin runtime. Сейчас Kotlin public API проверяется source-level KDoc
-gate, но public site не публикует generated Kotlin API docs.
+adapter поверх Java core. Core не зависит от Kotlin runtime. Kotlin public API проверяется source-level KDoc gate.
 
 Нужно решить, добавлять ли Dokka перед первым RC.
 
 ## Решение
 
-Первый release candidate сохраняет KDoc-only publication model для Kotlin module:
+Первый release candidate не добавляет Dokka в build, но Kotlin API должен быть явно представлен в public docs:
 
 - Kotlin public declarations должны иметь KDoc;
 - `:icli-kotlin:kotlinApiDocsCheck` остается обязательной проверкой;
-- public docs и release pages явно говорят, что generated Kotlin API docs отложены;
+- public docs содержат страницу Kotlin API с artifact, package, extensions и основными usage examples;
 - Dokka не добавляется в текущий build до Kotlin API stabilization.
 
 ## Почему Dokka откладывается
@@ -38,5 +37,5 @@ gate, но public site не публикует generated Kotlin API docs.
 
 Минусы:
 
-- Public site пока не содержит generated Kotlin API docs.
-- Kotlin пользователю нужно читать KDoc в sources artifact и scenario docs.
+- Public site не содержит generated Dokka docs.
+- Kotlin пользователю доступна public reference page, KDoc in sources artifact и scenario docs.

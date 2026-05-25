@@ -7,8 +7,7 @@
 - README описывает только реализованное и протестированное поведение.
 - `context/quality/scorecard.md` не содержит устаревшего статуса по уже завершенным фазам.
 - Все ADR для публичных архитектурных решений добавлены в `context/decisions/`.
-- Наследие старой версии сведено к полезным урокам в `context/legacy-lessons.md`; release docs не создают фиктивную
-  миграцию для несуществующей пользовательской базы.
+- Release docs не создают фиктивную миграцию для первого публичного релиза без пользовательской базы.
 - Versioning и compatibility policies актуальны для текущего Java/Kotlin baseline.
 - Приняты стабилизационные решения по public API, PTY/platform strategy, publishing strategy и Kotlin generated docs.
 - Approved public API surface зафиксирован в [public-api-baseline.md](public-api-baseline.md) и проверяется exact baseline

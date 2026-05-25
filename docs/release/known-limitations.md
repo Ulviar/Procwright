@@ -14,10 +14,10 @@ Windows ConPTY support is not documented as a shipped provider in this release s
 Terminal-required scenarios should fail explicitly when no provider is available. Silent fallback to ordinary pipes is
 not part of the contract.
 
-## Kotlin API docs
+## Kotlin generated docs
 
-The optional Kotlin module has KDoc coverage checks, but generated Dokka publication is not part of the current public
-site yet.
+The optional Kotlin module is documented in [Kotlin API](../reference/kotlin-api.md) and checked through KDoc in source.
+Generated Dokka publication is not part of the current release gate.
 
 ## Publishing
 

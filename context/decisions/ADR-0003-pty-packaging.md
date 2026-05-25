@@ -7,10 +7,10 @@ Accepted for foundation; concrete Phase 7 transport decision is captured in
 
 ## Контекст
 
-PTY нужен для части интерактивных сценариев, но не должен утяжелять первый execution kernel и не должен диктовать
-публичную архитектуру. Старый проект подключал PTY dependency в core слишком рано.
+PTY нужен для части интерактивных сценариев, но не должен утяжелять execution kernel и не должен диктовать публичную
+архитектуру.
 
-Clean rewrite должен сначала стабилизировать:
+iCLI должен сначала стабилизировать:
 
 - command model;
 - one-shot execution;

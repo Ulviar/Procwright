@@ -1,20 +1,23 @@
-# Generated API Docs
+# API Docs
 
-iCLI publishes generated API documentation as part of the release process.
+iCLI publishes Java generated API docs with the public site. Kotlin APIs are documented in the Kotlin reference page and
+checked through KDoc in source.
 
-Current local commands:
+## Public API entry points
+
+- [Core Java API](https://ulviar.github.io/iCLI/api/java/core/)
+- [Integrations Java API](https://ulviar.github.io/iCLI/api/java/integrations/)
+- [Kotlin API](../reference/kotlin-api.md)
+
+If you are reading this file directly from the source tree, the generated Java HTML is not stored under `docs/`. Build
+the public site locally and open `build/public-docs/api/index.html`.
+
+## Local commands
 
 ```bash
 ./gradlew publicDocsCheck
 ./gradlew :icli-kotlin:check
 ```
 
-`publicDocsCheck` builds the MkDocs site and copies generated Java API docs into the public site output:
-
-<ul>
-  <li><a href="java/core/index.html">Core Java API</a></li>
-  <li><a href="java/integrations/index.html">Integrations Java API</a></li>
-</ul>
-
-The optional Kotlin module currently enforces KDoc coverage in source. Generated Kotlin API docs are deliberately
-deferred until the Kotlin API is ready for public stabilization and a focused Dokka setup is added.
+`publicDocsCheck` builds the MkDocs site and copies generated Java API docs into `build/public-docs/api/java/core/` and
+`build/public-docs/api/java/integrations/`.

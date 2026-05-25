@@ -33,7 +33,7 @@ This page describes the current public release baseline.
 - Optional CLI-backed integrations module with JSON, JSON Lines, Content-Length framing, protocol adapters, cancellable
   calls, adapter errors, and command-backed tool wrappers.
 - Bounded stress suite and comparison research module.
-- Public MkDocs documentation and generated Java API docs for core and integrations.
+- Public MkDocs documentation, generated Java API docs for core/integrations, and Kotlin API reference.
 
 ## Stabilization Decisions
 
@@ -52,8 +52,8 @@ This page describes the current public release baseline.
 - Maven Central artifact is not published yet. GitHub Packages is the current public artifact repository.
 - Windows ConPTY support is not shipped in the current baseline.
 - Java 17 uses platform-thread fallback for internal background work; Java 21+ may use virtual threads internally.
-- Generated Kotlin API docs are not part of the public site yet; Kotlin public declarations are checked through KDoc in
-  source.
+- Generated Kotlin Dokka docs are not part of the release gate; Kotlin API is documented in public reference docs and
+  public declarations are checked through KDoc in source.
 - Raw session pooling, stateful affinity pools, generic/core async request API, and a real MCP SDK adapter are not
   included.
 - Machine-dependent benchmark results are research data, not performance guarantees.

@@ -22,6 +22,19 @@ Compile-tested sources:
 - `CommandBackedToolExamples.cancellableJsonLineCall`
 - `CommandBackedToolExamples.contentLengthFramedJson`
 
+## Example
+
+```java
+try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
+        JsonLineSession json = JsonLineSession.over(lineSession)) {
+    CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
+            json, input -> JsonValue.object(Map.of("input", JsonValue.string(input))), Function.identity());
+
+    ToolCallResult<JsonValue> result = tool.call("payload");
+    result.value().ifPresent(System.out::println);
+}
+```
+
 CLI output is treated as untrusted data. The integration layer does not turn process output into instructions.
 
 ## Boundary

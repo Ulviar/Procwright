@@ -61,6 +61,42 @@ final class PublicDocumentationCoverageTest {
         }
     }
 
+    @Test
+    void publicScenarioPagesContainConcreteCodeExamples() throws Exception {
+        try (var paths = Files.list(Path.of("docs/scenarios"))) {
+            for (Path path : paths.filter(path -> path.toString().endsWith(".md"))
+                    .filter(path -> !path.getFileName().toString().equals("index.md"))
+                    .toList()) {
+                String text = Files.readString(path, StandardCharsets.UTF_8);
+
+                assertTrue(
+                        text.contains("```java") || text.contains("```kotlin"),
+                        () -> "scenario page " + path + " must contain a concrete code example");
+            }
+        }
+    }
+
+    @Test
+    void publicApiIndexLinksToDiscoverableApiReferences() throws Exception {
+        String apiIndex = Files.readString(Path.of("docs/api/index.md"), StandardCharsets.UTF_8);
+
+        assertTrue(apiIndex.contains("https://ulviar.github.io/iCLI/api/java/core/"));
+        assertTrue(apiIndex.contains("https://ulviar.github.io/iCLI/api/java/integrations/"));
+        assertTrue(apiIndex.contains("../reference/kotlin-api.md"));
+    }
+
+    @Test
+    void docsAndContextDoNotKeepObsoleteProjectHistoryReferences() throws Exception {
+        for (Path path : documentationAndContextFiles()) {
+            String text = Files.readString(path, StandardCharsets.UTF_8);
+            for (String forbidden : obsoleteProjectHistoryReferences()) {
+                assertTrue(
+                        !text.contains(forbidden),
+                        () -> "obsolete project-history reference `" + forbidden + "` must be removed from " + path);
+            }
+        }
+    }
+
     private static Set<String> coreExampleMethods() {
         return Arrays.stream(CommandServiceApiExamples.class.getDeclaredMethods())
                 .filter(method -> !method.isSynthetic())
@@ -104,6 +140,34 @@ final class PublicDocumentationCoverageTest {
             }
         }
         return List.copyOf(snippets);
+    }
+
+    private static List<Path> documentationAndContextFiles() throws Exception {
+        ArrayList<Path> paths = new ArrayList<>();
+        for (Path root : List.of(Path.of("docs"), Path.of("context"))) {
+            try (var tree = Files.walk(root)) {
+                paths.addAll(tree.filter(Files::isRegularFile)
+                        .filter(path -> path.toString().endsWith(".md"))
+                        .toList());
+            }
+        }
+        paths.add(Path.of("README.md"));
+        paths.add(Path.of("AGENTS.md"));
+        return List.copyOf(paths);
+    }
+
+    private static List<String> obsoleteProjectHistoryReferences() {
+        return List.of(
+                "legacy-lessons",
+                "clean rewrite",
+                "clean-rewrite",
+                "iCLI rewrite",
+                "старый проект",
+                "старого проекта",
+                "старая версия",
+                "старой версии",
+                "старую реализацию",
+                "89c8be");
     }
 
     private static void collectJavaSnippets(Path path, List<Snippet> snippets) throws Exception {

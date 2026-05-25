@@ -57,7 +57,7 @@ many scenario invocations.
 
 ## Streaming output
 
-If the old code starts background threads to drain stdout and stderr, check whether the caller actually needs a final
+If the existing code starts background threads to drain stdout and stderr, check whether the caller actually needs a final
 captured result. If not, prefer `listen`.
 
 ```java
@@ -78,7 +78,7 @@ all of it would be the wrong invariant.
 
 ## Prompt automation
 
-If the old code loops over process output waiting for prompt text, use `Expect` over an interactive session.
+If the existing code loops over process output waiting for prompt text, use `Expect` over an interactive session.
 
 ```java
 try (Session session = repl.interactive().withArgs("repl").open();
@@ -95,7 +95,7 @@ Compile-tested source: `CommandServiceApiExamples.expectScenario`.
 
 ## Line workers
 
-If the old code writes a command line and then waits for one response line, use `lineSession`.
+If the existing code writes a command line and then waits for one response line, use `lineSession`.
 
 ```java
 try (LineSession session =
@@ -118,7 +118,7 @@ request/response cycle, the protocol state is unknown.
   policies that matter to that scenario.
 - Do not keep manual stream pump threads next to `run`, `listen`, `Expect`, or `lineSession`; that would create two
   output owners.
-- Do not use shell command strings just because the old code did. Direct argv is the default; shell is an explicit
+- Do not use shell command strings just because the existing code did. Direct argv is the default; shell is an explicit
   boundary.
 - Do not hide timeout and cleanup in a generic helper. In iCLI these are scenario policies, so the call site can see the
   lifecycle contract.

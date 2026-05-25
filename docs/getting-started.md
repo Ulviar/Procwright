@@ -58,6 +58,18 @@ The compile-tested source for this shape is `CommandServiceApiExamples.oneShotSc
 
 Complete example locations are listed in [Examples](examples.md).
 
+## Mental model
+
+iCLI has three layers that matter to a new user:
+
+- `CommandSpec` describes the executable and stable defaults such as working directory or environment.
+- `CommandService` is the reusable handle around that command.
+- Scenario methods such as `run`, `lineSession`, `protocolSession`, and `listen` choose the workflow and expose only the
+  configuration that is meaningful for that workflow.
+
+This is why most code starts with `Icli.command(...)`: after that, choose the scenario by method name instead of building
+a manual process harness.
+
 ## Choose a scenario
 
 Do not start by assembling process flags. Start by choosing the workflow:

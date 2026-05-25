@@ -6,7 +6,7 @@ Accepted.
 
 ## Контекст
 
-Модуль `:icli-comparison` сравнил iCLI rewrite с JDK `ProcessBuilder`, Apache Commons Exec, ZeroTurnaround zt-exec,
+Модуль `:icli-comparison` сравнил iCLI с JDK `ProcessBuilder`, Apache Commons Exec, ZeroTurnaround zt-exec,
 NuProcess, ExpectIt и Pty4J по сценариям, которые соответствуют целевой пользовательской модели iCLI:
 
 - one-shot command execution;

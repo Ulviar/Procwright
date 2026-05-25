@@ -6,8 +6,8 @@ Accepted for Phase 11.
 
 ## Контекст
 
-Старая версия проекта содержала идею прогретых CLI workers. В clean rewrite эту возможность нельзя возвращать как
-отдельный process runtime: pool должен использовать уже проверенные session primitives и не обходить
+Прогретые CLI workers нельзя добавлять как отдельный process runtime: pool должен использовать уже проверенные session
+primitives и не обходить
 `ScenarioProfile -> ExecutionPlanResolver -> SessionRuntime -> LineSession`.
 
 Первый полезный pooling-срез — line-oriented workers для REPL/daemon-like CLI, где дорогой старт процесса можно

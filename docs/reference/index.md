@@ -14,6 +14,7 @@ Current reference entry points:
 - [Diagnostics](diagnostics.md)
 - [Security](security.md)
 - [Platforms and PTY](platforms-and-pty.md)
+- [Kotlin API](kotlin-api.md)
 - [Generated API docs](../api/index.md)
 
 ## Local API docs
@@ -24,7 +25,8 @@ Build Java API docs locally:
 ./gradlew publicJavaJavadocCheck
 ```
 
-Kotlin public declarations are checked for KDoc during module verification:
+Kotlin usage and public extensions are documented in [Kotlin API](kotlin-api.md). Kotlin public declarations are also
+checked for KDoc during module verification:
 
 ```bash
 ./gradlew :icli-kotlin:check

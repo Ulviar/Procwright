@@ -16,7 +16,7 @@
 - NuProcess `3.0.0` — non-blocking process I/O через native platform APIs.
 - Pty4J `0.13.12` — PTY process library с Linux/macOS/Windows support.
 - ExpectIt `0.9.0` — Expect-style automation поверх потоков процесса.
-- iCLI rewrite — текущий scenario-first API этой ветки.
+- iCLI — текущий scenario-first API.
 
 ## Сценарии
 

@@ -5,6 +5,10 @@ iCLI is a JVM library for safe, scenario-first control of external command-line 
 The current public version is `0.1.0`. Published artifacts target Java 17; Java 17, 21, and 25 source variants are
 checked in CI.
 
+If you are new to iCLI, start with one question: what shape does the external process have? A command that exits belongs
+to `run`. A long-lived worker with one line per response belongs to `lineSession`. A framed or typed protocol belongs to
+`protocolSession`. A process that emits output continuously belongs to `listen`.
+
 ## What iCLI is for
 
 iCLI is intended for applications that need to call external CLIs without owning a custom process harness:
@@ -28,12 +32,27 @@ contract.
 Internal project context, ADRs, audits, and planning documents live under `context/` and are not a substitute for this
 public documentation.
 
+## First useful call
+
+```java
+CommandService git = Icli.command("git");
+
+CommandResult result = git.run().execute("status", "--short");
+
+if (!result.succeeded()) {
+    throw result.toException();
+}
+```
+
+This is the smallest scenario: choose a command, choose `run`, execute with arguments, then inspect a typed result.
+
 ## Main entry points
 
 - [Getting Started](getting-started.md)
 - [Examples](examples.md)
 - [How-to Guides](how-to/index.md)
 - [Reference](reference/index.md)
+- [Kotlin API](reference/kotlin-api.md)
 - [Explanation](explanations/scenario-first.md)
 - [Non-goals](explanations/non-goals.md)
 - [Release](release/index.md)

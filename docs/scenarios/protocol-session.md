@@ -16,6 +16,48 @@ The scenario covers:
 
 Compile-tested source: `CommandServiceApiExamples.protocolSessionScenario`.
 
+## Example
+
+```java
+CommandService worker = Icli.command("tool");
+ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
+
+try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
+        .withArgs("worker")
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .withOutputBacklogLimit(128 * 1024)
+        .withReadiness(ready -> ready.request("ready"))
+        .open()) {
+    String response = session.request("first line\nsecond line");
+    if (response.isBlank()) {
+        throw new IllegalStateException("empty response");
+    }
+}
+```
+
+The adapter owns the protocol framing:
+
+```java
+private static final class LengthPrefixedTextAdapter implements ProtocolAdapter<String, String> {
+
+    @Override
+    public void writeRequest(String request, ProtocolWriter writer) {
+        byte[] body = request.getBytes(StandardCharsets.UTF_8);
+        writer.writeLine(Integer.toString(body.length));
+        writer.write(body);
+        writer.flush();
+    }
+
+    @Override
+    public String readResponse(ProtocolReaders readers) {
+        ProtocolReader stdout = readers.stdout();
+        int length = Integer.parseInt(stdout.readLine(32));
+        byte[] body = stdout.readExactly(length);
+        return new String(body, StandardCharsets.UTF_8);
+    }
+}
+```
+
 ## Pooling
 
 Use `protocolSession(factory).pooled()` when worker startup is expensive and the adapter can prove that a worker is

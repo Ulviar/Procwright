@@ -2,11 +2,8 @@
 
 ## Назначение ветки
 
-Текущий `main` — чистый перезапуск iCLI. Старый код, samples, task dossiers и старая архитектура не являются базой
-для инкрементального рефакторинга.
-
-Старую реализацию можно смотреть в Git history до переписывания `main`; последняя исходная точка старой версии:
-`89c8be60541df2c4aa82b1d7a136a928ff699188`.
+Текущий `main` — актуальная основная линия разработки iCLI. Рабочим источником истины являются текущий код, tests,
+public docs и документы в `context/`.
 
 ## Языковая политика
 
@@ -21,7 +18,6 @@
 - [context/invariant-architecture.md](context/invariant-architecture.md) — инварианты API и runtime.
 - [context/scenario-api.md](context/scenario-api.md) — сценарный пользовательский API.
 - [context/api-ideas.md](context/api-ideas.md) — API-идеи, которые нужно сохранить.
-- [context/legacy-lessons.md](context/legacy-lessons.md) — выводы из старой версии.
 - [context/development-model.md](context/development-model.md) — легкий процесс работы.
 - [context/evals/process-behavior.md](context/evals/process-behavior.md) — поведенческие проверки.
 - [context/audits/standing-auditor-instructions.md](context/audits/standing-auditor-instructions.md) — постоянные
@@ -39,17 +35,16 @@
 - Пользователь выбирает сценарий API, а не набор низкоуровневых flags.
 - Инварианты должны иметь одного владельца: value object, policy, state machine, validator или runtime component.
   Test/eval доказывает инвариант, но не владеет им.
-- API-идеи старого проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
-- Старую реализацию не копировать механически.
+- Базовые API-идеи проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
 - Raw session pooling, stateful affinity, real MCP SDK adapter, samples и machine-dependent benchmarks не входят в
   первый MVP. Optional Kotlin module, pooled line-session scenario, CLI-backed integrations и bounded stress suite
   входят как тонкие layers без отдельного process runtime.
 - Документация описывает только то, что код доказывает тестами.
 - Бесполезную документацию нужно удалять или сжимать до полезного контекста, а не доводить до
   формального совершенства.
-- Исторические данные не хранятся в `context/`: закрытые планы, raw reports, audit reports, transcripts и одноразовые
-  инструкции удаляются после переноса полезных выводов в ADR, тесты, release policy или quality docs. Архивом является
-  Git history.
+- Исторические данные не хранятся в `context/`: закрытые планы, raw reports, audit reports, transcripts,
+  одноразовые инструкции и материалы о прошлых итерациях удаляются после переноса полезных выводов в ADR, tests,
+  release policy или quality docs. Архивом является Git history.
 - Повторяющиеся правила лучше переносить в тесты, валидаторы или ADR.
 - Существенный шаг разработки проходит аудит по постоянным ролям из `context/audits/`.
 - Release-релевантные изменения должны обновлять `context/release/`, README и release gate checks.

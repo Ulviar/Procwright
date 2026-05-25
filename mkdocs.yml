@@ -70,6 +70,7 @@ nav:
       - Diagnostics: reference/diagnostics.md
       - Security: reference/security.md
       - Platforms and PTY: reference/platforms-and-pty.md
+      - Kotlin API: reference/kotlin-api.md
       - Generated API Docs: api/index.md
   - Explanation:
       - Scenario-first Design: explanations/scenario-first.md
