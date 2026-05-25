@@ -54,8 +54,8 @@ public final class DefaultExpect implements Expect {
     public Expect send(String text) {
         Objects.requireNonNull(text, "text");
         try {
-            session.send(text);
             transcript.appendAction("send: " + transcriptValue(text));
+            session.send(text);
             return this;
         } catch (RuntimeException exception) {
             throw failure("Could not send expect text", exception);
@@ -71,8 +71,8 @@ public final class DefaultExpect implements Expect {
     public Expect sendLine(String line) {
         requireLine(line);
         try {
-            session.sendLine(line);
             transcript.appendAction("send line: " + transcriptValue(line));
+            session.sendLine(line);
             return this;
         } catch (RuntimeException exception) {
             throw failure("Could not send expect line", exception);
