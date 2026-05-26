@@ -97,20 +97,4 @@ public final class DiagnosticsOptions {
     public boolean enabled() {
         return listenerEnabled() || transcriptSinkEnabled();
     }
-
-    @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (!(other instanceof DiagnosticsOptions that)) {
-            return false;
-        }
-        return listener.equals(that.listener) && transcriptSink.equals(that.transcriptSink);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(listener, transcriptSink);
-    }
 }

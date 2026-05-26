@@ -21,7 +21,7 @@ final class CommandBackedToolExamples {
         CommandService git = Icli.command("git");
 
         CommandBackedTool<String, String> status = CommandBackedTool.of(path -> {
-            CommandResult result = git.run(call -> call.args("status", "--short", path));
+            CommandResult result = git.run().withArgs("status", "--short", path).execute();
             if (!result.succeeded()) {
                 throw result.toException();
             }
@@ -35,7 +35,8 @@ final class CommandBackedToolExamples {
     void jsonLineCommandBackedTool() {
         CommandService service = Icli.command("tool");
 
-        try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
+        try (LineSession lineSession =
+                        service.lineSession().withArg("json-worker").open();
                 JsonLineSession json = JsonLineSession.over(lineSession)) {
             CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
                     json, input -> JsonValue.object(Map.of("input", JsonValue.string(input))), Function.identity());

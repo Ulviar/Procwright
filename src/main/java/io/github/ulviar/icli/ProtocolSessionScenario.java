@@ -251,6 +251,16 @@ public final class ProtocolSessionScenario<I, O> {
     }
 
     /**
+     * Returns a copy configured by a scenario-specific callback.
+     *
+     * @param configure configuration callback
+     * @return updated scenario
+     */
+    public ProtocolSessionScenario<I, O> configuredBy(Consumer<ProtocolSessionInvocation.Builder<I, O>> configure) {
+        return with(configure);
+    }
+
+    /**
      * Opens one configured protocol session.
      *
      * @return protocol session

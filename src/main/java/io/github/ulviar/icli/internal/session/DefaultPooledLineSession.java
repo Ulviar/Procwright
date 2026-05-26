@@ -202,6 +202,10 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 () -> new PooledLineSessionException(
                         PooledLineSessionException.Reason.HOOK_TIMEOUT, "Pooled line-session health check timed out"),
                 exception -> new PooledLineSessionException(
+                        PooledLineSessionException.Reason.INTERRUPTED,
+                        "Interrupted while waiting for pooled line-session health check",
+                        exception),
+                exception -> new PooledLineSessionException(
                         PooledLineSessionException.Reason.WORKER_FAILED,
                         "Pooled line-session health check failed",
                         exception));
@@ -217,6 +221,10 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 },
                 () -> new PooledLineSessionException(
                         PooledLineSessionException.Reason.HOOK_TIMEOUT, "Pooled line-session reset hook timed out"),
+                exception -> new PooledLineSessionException(
+                        PooledLineSessionException.Reason.INTERRUPTED,
+                        "Interrupted while waiting for pooled line-session reset hook",
+                        exception),
                 exception -> new PooledLineSessionException(
                         PooledLineSessionException.Reason.WORKER_FAILED,
                         "Pooled line-session reset hook failed",
@@ -313,7 +321,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
 
         @Override
         public RuntimeException acquireInterrupted(String message, InterruptedException cause) {
-            return new PooledLineSessionException(PooledLineSessionException.Reason.ACQUIRE_TIMEOUT, message, cause);
+            return new PooledLineSessionException(PooledLineSessionException.Reason.INTERRUPTED, message, cause);
         }
 
         @Override

@@ -1,20 +1,29 @@
 package io.github.ulviar.icli.integration;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.StreamReadConstraints;
+import com.fasterxml.jackson.core.StreamReadFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.DecimalNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Objects;
 
 /**
- * Small JSON codec for integration payloads.
- *
- * <p>The codec is intentionally limited to JSON values represented by {@link JsonValue}. It does not bind iCLI to an
- * external JSON library or protocol stack.
+ * JSON codec for integration payloads represented by {@link JsonValue}.
  */
 public final class JsonCodec {
 
     private static final int DEFAULT_MAX_DEPTH = 256;
+    private static final JsonNodeFactory NODE_FACTORY = JsonNodeFactory.instance;
+    private static final ObjectMapper DEFAULT_MAPPER = mapper(DEFAULT_MAX_DEPTH);
 
     private JsonCodec() {}
 
@@ -38,13 +47,16 @@ public final class JsonCodec {
      * @throws JsonParseException when the input is not one complete JSON value
      */
     public static JsonValue parse(String text, int maxDepth) {
-        Parser parser = new Parser(text, maxDepth);
-        JsonValue value = parser.parseValue();
-        parser.skipWhitespace();
-        if (!parser.exhausted()) {
-            throw parser.error("Unexpected trailing content");
+        Objects.requireNonNull(text, "text");
+        requirePositive(maxDepth, "maxDepth");
+        try {
+            JsonNode node = mapperFor(maxDepth).readValue(text, JsonNode.class);
+            return toJsonValue(node, 0, maxDepth);
+        } catch (JsonProcessingException exception) {
+            throw new JsonParseException(
+                    "Invalid JSON" + locationSuffix(exception.getLocation()) + ": " + exception.getOriginalMessage(),
+                    exception);
         }
-        return value;
     }
 
     /**
@@ -66,85 +78,100 @@ public final class JsonCodec {
      */
     public static String write(JsonValue value, int maxDepth) {
         requirePositive(maxDepth, "maxDepth");
-        StringBuilder builder = new StringBuilder();
-        append(builder, Objects.requireNonNull(value, "value"), 0, maxDepth);
-        return builder.toString();
+        try {
+            return DEFAULT_MAPPER.writeValueAsString(toJsonNode(Objects.requireNonNull(value, "value"), 0, maxDepth));
+        } catch (JsonProcessingException exception) {
+            throw new JsonParseException("Could not write JSON: " + exception.getOriginalMessage(), exception);
+        }
     }
 
-    private static void append(StringBuilder builder, JsonValue value, int depth, int maxDepth) {
+    private static ObjectMapper mapper(int maxDepth) {
+        JsonFactory factory = JsonFactory.builder()
+                .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                .streamReadConstraints(StreamReadConstraints.builder()
+                        .maxNestingDepth(maxDepth)
+                        .build())
+                .build();
+        return JsonMapper.builder(factory)
+                .nodeFactory(NODE_FACTORY)
+                .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .enable(JsonNodeFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                .disable(JsonNodeFeature.STRIP_TRAILING_BIGDECIMAL_ZEROES)
+                .build();
+    }
+
+    private static ObjectMapper mapperFor(int maxDepth) {
+        return maxDepth == DEFAULT_MAX_DEPTH ? DEFAULT_MAPPER : mapper(maxDepth);
+    }
+
+    private static String locationSuffix(JsonLocation location) {
+        if (location == null) {
+            return "";
+        }
+        long offset = location.getCharOffset();
+        if (offset >= 0) {
+            return " at offset " + offset;
+        }
+        return " at line " + location.getLineNr() + ", column " + location.getColumnNr();
+    }
+
+    private static JsonValue toJsonValue(JsonNode node, int depth, int maxDepth) {
+        Objects.requireNonNull(node, "node");
+        if (node.isObject()) {
+            requireDepth(depth, maxDepth);
+            LinkedHashMap<String, JsonValue> members = new LinkedHashMap<>();
+            node.properties()
+                    .forEach(entry -> members.put(entry.getKey(), toJsonValue(entry.getValue(), depth + 1, maxDepth)));
+            return JsonValue.object(members);
+        }
+        if (node.isArray()) {
+            requireDepth(depth, maxDepth);
+            java.util.ArrayList<JsonValue> values = new java.util.ArrayList<>();
+            node.elements().forEachRemaining(element -> values.add(toJsonValue(element, depth + 1, maxDepth)));
+            return JsonValue.array(values);
+        }
+        if (node.isTextual()) {
+            return JsonValue.string(node.textValue());
+        }
+        if (node.isNumber()) {
+            return JsonValue.number(node.decimalValue());
+        }
+        if (node.isBoolean()) {
+            return JsonValue.bool(node.booleanValue());
+        }
+        if (node.isNull()) {
+            return JsonValue.nullValue();
+        }
+        throw new JsonParseException("Unsupported JSON node type: " + node.getNodeType());
+    }
+
+    private static JsonNode toJsonNode(JsonValue value, int depth, int maxDepth) {
         if (value instanceof JsonValue.JsonObject object) {
-            appendObject(builder, object, depth, maxDepth);
-        } else if (value instanceof JsonValue.JsonArray array) {
-            appendArray(builder, array, depth, maxDepth);
-        } else if (value instanceof JsonValue.JsonString string) {
-            appendString(builder, string.value());
-        } else if (value instanceof JsonValue.JsonNumber number) {
-            builder.append(number.value().toString());
-        } else if (value instanceof JsonValue.JsonBoolean bool) {
-            builder.append(bool.value());
-        } else if (value instanceof JsonValue.JsonNull) {
-            builder.append("null");
-        } else {
-            throw new JsonParseException(
-                    "Unsupported JSON value type: " + value.getClass().getName());
+            requireDepth(depth, maxDepth);
+            ObjectNode node = NODE_FACTORY.objectNode();
+            object.members().forEach((name, child) -> node.set(name, toJsonNode(child, depth + 1, maxDepth)));
+            return node;
         }
-    }
-
-    private static void appendObject(StringBuilder builder, JsonValue.JsonObject object, int depth, int maxDepth) {
-        requireDepth(depth, maxDepth);
-        builder.append('{');
-        boolean first = true;
-        for (Map.Entry<String, JsonValue> entry : object.members().entrySet()) {
-            if (!first) {
-                builder.append(',');
-            }
-            appendString(builder, entry.getKey());
-            builder.append(':');
-            append(builder, entry.getValue(), depth + 1, maxDepth);
-            first = false;
+        if (value instanceof JsonValue.JsonArray array) {
+            requireDepth(depth, maxDepth);
+            ArrayNode node = NODE_FACTORY.arrayNode();
+            array.values().forEach(child -> node.add(toJsonNode(child, depth + 1, maxDepth)));
+            return node;
         }
-        builder.append('}');
-    }
-
-    private static void appendArray(StringBuilder builder, JsonValue.JsonArray array, int depth, int maxDepth) {
-        requireDepth(depth, maxDepth);
-        builder.append('[');
-        boolean first = true;
-        for (JsonValue value : array.values()) {
-            if (!first) {
-                builder.append(',');
-            }
-            append(builder, value, depth + 1, maxDepth);
-            first = false;
+        if (value instanceof JsonValue.JsonString string) {
+            return NODE_FACTORY.textNode(string.value());
         }
-        builder.append(']');
-    }
-
-    private static void appendString(StringBuilder builder, String value) {
-        builder.append('"');
-        for (int index = 0; index < value.length(); index++) {
-            char ch = value.charAt(index);
-            switch (ch) {
-                case '"' -> builder.append("\\\"");
-                case '\\' -> builder.append("\\\\");
-                case '\b' -> builder.append("\\b");
-                case '\f' -> builder.append("\\f");
-                case '\n' -> builder.append("\\n");
-                case '\r' -> builder.append("\\r");
-                case '\t' -> builder.append("\\t");
-                default -> {
-                    if (ch < 0x20) {
-                        builder.append("\\u");
-                        String hex = Integer.toHexString(ch);
-                        builder.append("0".repeat(4 - hex.length()));
-                        builder.append(hex);
-                    } else {
-                        builder.append(ch);
-                    }
-                }
-            }
+        if (value instanceof JsonValue.JsonNumber number) {
+            return DecimalNode.valueOf(number.value());
         }
-        builder.append('"');
+        if (value instanceof JsonValue.JsonBoolean bool) {
+            return NODE_FACTORY.booleanNode(bool.value());
+        }
+        if (value instanceof JsonValue.JsonNull) {
+            return NODE_FACTORY.nullNode();
+        }
+        throw new JsonParseException(
+                "Unsupported JSON value type: " + value.getClass().getName());
     }
 
     private static int requirePositive(int value, String name) {
@@ -157,231 +184,6 @@ public final class JsonCodec {
     private static void requireDepth(int depth, int maxDepth) {
         if (depth >= maxDepth) {
             throw new JsonParseException("JSON nesting exceeds maxDepth");
-        }
-    }
-
-    private static final class Parser {
-
-        private final String text;
-        private final int maxDepth;
-        private int index;
-
-        private Parser(String text, int maxDepth) {
-            this.text = Objects.requireNonNull(text, "text");
-            this.maxDepth = requirePositive(maxDepth, "maxDepth");
-        }
-
-        private JsonValue parseValue() {
-            return parseValue(0);
-        }
-
-        private JsonValue parseValue(int depth) {
-            skipWhitespace();
-            if (exhausted()) {
-                throw error("Expected JSON value");
-            }
-            return switch (text.charAt(index)) {
-                case '{' -> parseObject(depth);
-                case '[' -> parseArray(depth);
-                case '"' -> JsonValue.string(parseString());
-                case 't' -> parseLiteral("true", JsonValue.bool(true));
-                case 'f' -> parseLiteral("false", JsonValue.bool(false));
-                case 'n' -> parseLiteral("null", JsonValue.nullValue());
-                default -> parseNumber();
-            };
-        }
-
-        private JsonValue.JsonObject parseObject(int depth) {
-            requireDepth(depth, maxDepth);
-            expect('{');
-            skipWhitespace();
-            LinkedHashMap<String, JsonValue> members = new LinkedHashMap<>();
-            if (peek('}')) {
-                index++;
-                return JsonValue.object(members);
-            }
-            while (true) {
-                skipWhitespace();
-                if (exhausted() || text.charAt(index) != '"') {
-                    throw error("Expected object member name");
-                }
-                String name = parseString();
-                skipWhitespace();
-                expect(':');
-                JsonValue value = parseValue(depth + 1);
-                if (members.putIfAbsent(name, value) != null) {
-                    throw error("Duplicate object member");
-                }
-                skipWhitespace();
-                if (peek('}')) {
-                    index++;
-                    return JsonValue.object(members);
-                }
-                expect(',');
-            }
-        }
-
-        private JsonValue.JsonArray parseArray(int depth) {
-            requireDepth(depth, maxDepth);
-            expect('[');
-            skipWhitespace();
-            ArrayList<JsonValue> values = new ArrayList<>();
-            if (peek(']')) {
-                index++;
-                return JsonValue.array(values);
-            }
-            while (true) {
-                values.add(parseValue(depth + 1));
-                skipWhitespace();
-                if (peek(']')) {
-                    index++;
-                    return JsonValue.array(values);
-                }
-                expect(',');
-            }
-        }
-
-        private String parseString() {
-            expect('"');
-            StringBuilder builder = new StringBuilder();
-            while (!exhausted()) {
-                char ch = text.charAt(index++);
-                if (ch == '"') {
-                    return builder.toString();
-                }
-                if (ch < 0x20) {
-                    throw error("String must not contain unescaped control characters");
-                }
-                if (ch != '\\') {
-                    builder.append(ch);
-                    continue;
-                }
-                if (exhausted()) {
-                    throw error("Incomplete escape sequence");
-                }
-                char escaped = text.charAt(index++);
-                switch (escaped) {
-                    case '"', '\\', '/' -> builder.append(escaped);
-                    case 'b' -> builder.append('\b');
-                    case 'f' -> builder.append('\f');
-                    case 'n' -> builder.append('\n');
-                    case 'r' -> builder.append('\r');
-                    case 't' -> builder.append('\t');
-                    case 'u' -> builder.append(parseUnicodeEscape());
-                    default -> throw error("Invalid escape sequence");
-                }
-            }
-            throw error("Unterminated string");
-        }
-
-        private char parseUnicodeEscape() {
-            if (index + 4 > text.length()) {
-                throw error("Incomplete unicode escape");
-            }
-            int value = 0;
-            for (int offset = 0; offset < 4; offset++) {
-                char ch = text.charAt(index++);
-                int digit = Character.digit(ch, 16);
-                if (digit < 0) {
-                    throw error("Invalid unicode escape");
-                }
-                value = (value << 4) + digit;
-            }
-            return (char) value;
-        }
-
-        private JsonValue parseLiteral(String literal, JsonValue value) {
-            if (!text.startsWith(literal, index)) {
-                throw error("Invalid literal");
-            }
-            index += literal.length();
-            return value;
-        }
-
-        private JsonValue.JsonNumber parseNumber() {
-            int start = index;
-            if (index < text.length() && text.charAt(index) == '-') {
-                index++;
-            }
-            readInteger();
-            if (index < text.length() && text.charAt(index) == '.') {
-                index++;
-                readDigits("Expected fraction digits");
-            }
-            if (index < text.length() && (text.charAt(index) == 'e' || text.charAt(index) == 'E')) {
-                index++;
-                if (index < text.length() && (text.charAt(index) == '+' || text.charAt(index) == '-')) {
-                    index++;
-                }
-                readDigits("Expected exponent digits");
-            }
-            String token = text.substring(start, index);
-            if (!JsonNumbers.isJsonNumber(token)) {
-                throw error("Invalid number");
-            }
-            return JsonValue.number(new BigDecimal(token));
-        }
-
-        private void readInteger() {
-            if (index >= text.length()) {
-                throw error("Expected number");
-            }
-            char first = text.charAt(index);
-            if (first == '0') {
-                index++;
-                if (index < text.length() && Character.isDigit(text.charAt(index))) {
-                    throw error("Invalid leading zero");
-                }
-                return;
-            }
-            if (first >= '1' && first <= '9') {
-                index++;
-                while (index < text.length() && Character.isDigit(text.charAt(index))) {
-                    index++;
-                }
-                return;
-            }
-            throw error("Expected number");
-        }
-
-        private void readDigits(String message) {
-            int start = index;
-            while (index < text.length() && Character.isDigit(text.charAt(index))) {
-                index++;
-            }
-            if (index == start) {
-                throw error(message);
-            }
-        }
-
-        private void expect(char expected) {
-            if (exhausted() || text.charAt(index) != expected) {
-                throw error("Expected '" + expected + "'");
-            }
-            index++;
-        }
-
-        private boolean peek(char expected) {
-            return !exhausted() && text.charAt(index) == expected;
-        }
-
-        private void skipWhitespace() {
-            while (!exhausted()) {
-                char ch = text.charAt(index);
-                if (ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t') {
-                    index++;
-                    continue;
-                }
-                return;
-            }
-        }
-
-        private boolean exhausted() {
-            return index >= text.length();
-        }
-
-        private JsonParseException error(String message) {
-            return new JsonParseException(message + " at offset " + index);
         }
     }
 }

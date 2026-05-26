@@ -53,25 +53,6 @@ final class LineSessionInvocationTest {
     }
 
     @Test
-    void comparesByValue() {
-        LineSessionInvocation left = LineSessionInvocation.builder()
-                .args("repl")
-                .putEnvironment("LC_ALL", "C")
-                .idleTimeout(Duration.ofSeconds(3))
-                .terminal(TerminalPolicy.AUTO)
-                .build();
-        LineSessionInvocation right = LineSessionInvocation.builder()
-                .args("repl")
-                .putEnvironment("LC_ALL", "C")
-                .idleTimeout(Duration.ofSeconds(3))
-                .terminal(TerminalPolicy.AUTO)
-                .build();
-
-        assertEquals(left, right);
-        assertEquals(left.hashCode(), right.hashCode());
-    }
-
-    @Test
     void rejectsInvalidEnvironmentName() {
         LineSessionInvocation.Builder builder = LineSessionInvocation.builder();
 

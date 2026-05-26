@@ -50,25 +50,6 @@ final class StreamInvocationTest {
     }
 
     @Test
-    void comparesByValue() {
-        StreamInvocation left = StreamInvocation.builder()
-                .args("--follow")
-                .putEnvironment("LC_ALL", "C")
-                .timeout(Duration.ofSeconds(3))
-                .keepStdinOpen()
-                .build();
-        StreamInvocation right = StreamInvocation.builder()
-                .args("--follow")
-                .putEnvironment("LC_ALL", "C")
-                .timeout(Duration.ofSeconds(3))
-                .keepStdinOpen()
-                .build();
-
-        assertEquals(left, right);
-        assertEquals(left.hashCode(), right.hashCode());
-    }
-
-    @Test
     void rejectsInvalidEnvironmentNameAndNegativeTimeout() {
         StreamInvocation.Builder builder = StreamInvocation.builder();
 

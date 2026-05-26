@@ -2,7 +2,6 @@ package io.github.ulviar.icli;
 
 import io.github.ulviar.icli.command.CharsetPolicy;
 import io.github.ulviar.icli.command.ShutdownPolicy;
-import io.github.ulviar.icli.session.PooledProtocolSessionInvocation;
 import io.github.ulviar.icli.session.PooledProtocolSessionOptions;
 import io.github.ulviar.icli.session.ProtocolAdapter;
 import io.github.ulviar.icli.session.ProtocolSession;
@@ -29,27 +28,24 @@ public final class ReusableProtocolSessionScenario<I, O> {
 
     private final CommandService service;
     private final Supplier<? extends ProtocolAdapter<I, O>> adapterFactory;
-    private final Consumer<ProtocolSessionInvocation.Builder<I, O>> configure;
-    private final Consumer<PooledProtocolSessionInvocation.Builder<I, O>> configurePooled;
+    private final ProtocolWorkerConfiguration<I, O> configureWorker;
     private final ProtocolSessionOptions options;
 
     ReusableProtocolSessionScenario(
             CommandService service,
             Supplier<? extends ProtocolAdapter<I, O>> adapterFactory,
             ProtocolSessionOptions options) {
-        this(service, adapterFactory, builder -> {}, builder -> {}, options);
+        this(service, adapterFactory, ProtocolWorkerConfiguration.empty(), options);
     }
 
     private ReusableProtocolSessionScenario(
             CommandService service,
             Supplier<? extends ProtocolAdapter<I, O>> adapterFactory,
-            Consumer<ProtocolSessionInvocation.Builder<I, O>> configure,
-            Consumer<PooledProtocolSessionInvocation.Builder<I, O>> configurePooled,
+            ProtocolWorkerConfiguration<I, O> configureWorker,
             ProtocolSessionOptions options) {
         this.service = Objects.requireNonNull(service, "service");
         this.adapterFactory = Objects.requireNonNull(adapterFactory, "adapterFactory");
-        this.configure = Objects.requireNonNull(configure, "configure");
-        this.configurePooled = Objects.requireNonNull(configurePooled, "configurePooled");
+        this.configureWorker = Objects.requireNonNull(configureWorker, "configureWorker");
         this.options = Objects.requireNonNull(options, "options");
     }
 
@@ -60,7 +56,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withArg(String argument) {
-        return withBoth(builder -> builder.arg(argument), builder -> builder.arg(argument));
+        return withWorker(builder -> builder.arg(argument));
     }
 
     /**
@@ -70,7 +66,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withArgs(String... arguments) {
-        return withBoth(builder -> builder.args(arguments), builder -> builder.args(arguments));
+        return withWorker(builder -> builder.args(arguments));
     }
 
     /**
@@ -80,7 +76,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withArgs(Collection<String> arguments) {
-        return withBoth(builder -> builder.args(arguments), builder -> builder.args(arguments));
+        return withWorker(builder -> builder.args(arguments));
     }
 
     /**
@@ -90,9 +86,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withWorkingDirectory(Path workingDirectory) {
-        return withBoth(
-                builder -> builder.workingDirectory(workingDirectory),
-                builder -> builder.workingDirectory(workingDirectory));
+        return withWorker(builder -> builder.workingDirectory(workingDirectory));
     }
 
     /**
@@ -103,7 +97,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withEnvironment(String name, String value) {
-        return withBoth(builder -> builder.putEnvironment(name, value), builder -> builder.putEnvironment(name, value));
+        return withWorker(builder -> builder.putEnvironment(name, value));
     }
 
     /**
@@ -112,9 +106,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withInheritedEnvironment() {
-        return withBoth(
-                ProtocolSessionInvocation.Builder::inheritEnvironment,
-                PooledProtocolSessionInvocation.Builder::inheritEnvironment);
+        return withWorker(ProtocolWorkerConfiguration.ProtocolWorkerConfigurator::inheritEnvironment);
     }
 
     /**
@@ -123,9 +115,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withCleanEnvironment() {
-        return withBoth(
-                ProtocolSessionInvocation.Builder::cleanEnvironment,
-                PooledProtocolSessionInvocation.Builder::cleanEnvironment);
+        return withWorker(ProtocolWorkerConfiguration.ProtocolWorkerConfigurator::cleanEnvironment);
     }
 
     /**
@@ -135,7 +125,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withShutdown(ShutdownPolicy shutdownPolicy) {
-        return withBoth(builder -> builder.shutdown(shutdownPolicy), builder -> builder.shutdown(shutdownPolicy));
+        return withWorker(builder -> builder.shutdown(shutdownPolicy));
     }
 
     /**
@@ -145,7 +135,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withIdleTimeout(Duration idleTimeout) {
-        return withBoth(builder -> builder.idleTimeout(idleTimeout), builder -> builder.idleTimeout(idleTimeout));
+        return withWorker(builder -> builder.idleTimeout(idleTimeout));
     }
 
     /**
@@ -155,7 +145,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withTerminal(TerminalPolicy terminalPolicy) {
-        return withBoth(builder -> builder.terminal(terminalPolicy), builder -> builder.terminal(terminalPolicy));
+        return withWorker(builder -> builder.terminal(terminalPolicy));
     }
 
     /**
@@ -165,7 +155,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withReadiness(Consumer<ProtocolSession<I, O>> readinessProbe) {
-        return withBoth(builder -> builder.readiness(readinessProbe), builder -> builder.readiness(readinessProbe));
+        return withWorker(builder -> builder.readiness(readinessProbe));
     }
 
     /**
@@ -175,9 +165,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withReadinessTimeout(Duration readinessTimeout) {
-        return withBoth(
-                builder -> builder.readinessTimeout(readinessTimeout),
-                builder -> builder.readinessTimeout(readinessTimeout));
+        return withWorker(builder -> builder.readinessTimeout(readinessTimeout));
     }
 
     /**
@@ -267,7 +255,7 @@ public final class ReusableProtocolSessionScenario<I, O> {
      * @return updated scenario
      */
     public ReusableProtocolSessionScenario<I, O> withOptions(ProtocolSessionOptions options) {
-        return new ReusableProtocolSessionScenario<>(service, adapterFactory, configure, configurePooled, options);
+        return new ReusableProtocolSessionScenario<>(service, adapterFactory, configureWorker, options);
     }
 
     /**
@@ -277,7 +265,8 @@ public final class ReusableProtocolSessionScenario<I, O> {
      */
     public PooledProtocolSessionScenario<I, O> pooled() {
         PooledProtocolSessionOptions poolOptions = service.pooledProtocolSessionOptions();
-        return new PooledProtocolSessionScenario<>(service, adapterFactory, configurePooled, options, poolOptions);
+        return new PooledProtocolSessionScenario<>(
+                service, adapterFactory, configureWorker.forPooledWorker(), options, poolOptions);
     }
 
     /**
@@ -287,16 +276,13 @@ public final class ReusableProtocolSessionScenario<I, O> {
      */
     public ProtocolSession<I, O> open() {
         ProtocolSessionInvocation.Builder<I, O> builder = ProtocolSessionInvocation.builder(options);
-        configure.accept(builder);
+        configureWorker.forSingleWorker().accept(builder);
         return service.openProtocolSession(service.createProtocolAdapter(adapterFactory), builder.build());
     }
 
-    private ReusableProtocolSessionScenario<I, O> withBoth(
-            Consumer<ProtocolSessionInvocation.Builder<I, O>> protocolStep,
-            Consumer<PooledProtocolSessionInvocation.Builder<I, O>> pooledStep) {
-        Objects.requireNonNull(protocolStep, "protocolStep");
-        Objects.requireNonNull(pooledStep, "pooledStep");
-        return new ReusableProtocolSessionScenario<>(
-                service, adapterFactory, configure.andThen(protocolStep), configurePooled.andThen(pooledStep), options);
+    private ReusableProtocolSessionScenario<I, O> withWorker(
+            Consumer<ProtocolWorkerConfiguration.ProtocolWorkerConfigurator<I, O>> step) {
+        Objects.requireNonNull(step, "step");
+        return new ReusableProtocolSessionScenario<>(service, adapterFactory, configureWorker.andThen(step), options);
     }
 }

@@ -54,6 +54,8 @@ public final class PooledProtocolSessionException extends RuntimeException {
         STARTUP_FAILED,
         /** Worker health or reset hook did not finish before its deadline. */
         HOOK_TIMEOUT,
+        /** Current thread was interrupted while waiting for pool work. */
+        INTERRUPTED,
         /** Worker lifecycle hook or request handling failed outside normal protocol-session errors. */
         WORKER_FAILED
     }

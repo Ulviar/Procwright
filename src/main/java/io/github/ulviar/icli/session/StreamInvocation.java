@@ -120,37 +120,6 @@ public final class StreamInvocation {
         return listener;
     }
 
-    @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (!(other instanceof StreamInvocation that)) {
-            return false;
-        }
-        return arguments.equals(that.arguments)
-                && Objects.equals(workingDirectory, that.workingDirectory)
-                && environment.equals(that.environment)
-                && environmentPolicy == that.environmentPolicy
-                && Objects.equals(shutdownPolicy, that.shutdownPolicy)
-                && Objects.equals(timeout, that.timeout)
-                && stdinPolicy == that.stdinPolicy
-                && listener.equals(that.listener);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(
-                arguments,
-                workingDirectory,
-                environment,
-                environmentPolicy,
-                shutdownPolicy,
-                timeout,
-                stdinPolicy,
-                listener);
-    }
-
     /**
      * Mutable builder used by listen callbacks.
      */

@@ -12,10 +12,11 @@
 Пользовательский API должен выглядеть простым:
 
 ```java
-CommandResult result = service.run(call -> call
-        .args("--version")
-        .timeout(Duration.ofSeconds(3))
-        .capture(CapturePolicy.bounded(64 * 1024)));
+CommandResult result = service.run()
+        .withArg("--version")
+        .withTimeout(Duration.ofSeconds(3))
+        .withCapture(CapturePolicy.bounded(64 * 1024))
+        .execute();
 ```
 
 Внутри эта запись не должна превращаться в набор случайных флагов. Она должна собираться в валидированный план:
@@ -220,15 +221,16 @@ Transport failures переводятся в типизированные оши
 Широта должна появляться через композицию:
 
 ```java
-service.run(call -> call
-        .args("run")
-        .workingDirectory(dir)
-        .putEnvironment("CI", "true")
-        .input(CommandInput.utf8(payload))
-        .capture(CapturePolicy.bounded(64 * 1024))
-        .shutdown(ShutdownPolicy.interruptThenKill(
+service.run()
+        .withArg("run")
+        .withWorkingDirectory(dir)
+        .withEnvironment("CI", "true")
+        .withInput(CommandInput.utf8(payload))
+        .withCapture(CapturePolicy.bounded(64 * 1024))
+        .withShutdown(ShutdownPolicy.interruptThenKill(
                 Duration.ofSeconds(2),
-                Duration.ofSeconds(5))));
+                Duration.ofSeconds(5)))
+        .execute();
 ```
 
 Это широкий API по возможностям, но не широкий по сущностям. Пользователь комбинирует политики, а не выбирает из

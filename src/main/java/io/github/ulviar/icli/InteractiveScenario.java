@@ -158,6 +158,16 @@ public final class InteractiveScenario {
     }
 
     /**
+     * Returns a copy configured by a scenario-specific callback.
+     *
+     * @param configure configuration callback
+     * @return updated scenario
+     */
+    public InteractiveScenario configuredBy(Consumer<SessionInvocation.Builder> configure) {
+        return with(configure);
+    }
+
+    /**
      * Opens the configured interactive session.
      *
      * @return interactive session

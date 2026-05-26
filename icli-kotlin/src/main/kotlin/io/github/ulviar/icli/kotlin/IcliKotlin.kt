@@ -27,9 +27,7 @@ import kotlinx.coroutines.withContext
 
 /** Runs a one-shot command using a Kotlin receiver-style invocation builder. */
 fun CommandService.runCommand(configure: CommandInvocation.Builder.() -> Unit = {}): CommandResult =
-    run { builder ->
-        builder.configure()
-    }
+    run().configuredBy { builder -> builder.configure() }.execute()
 
 /** Runs a one-shot command from a coroutine-friendly blocking boundary. */
 suspend fun CommandService.runCommandAwait(
@@ -39,7 +37,7 @@ suspend fun CommandService.runCommandAwait(
 /** Opens an interactive session using a Kotlin receiver-style invocation builder. */
 fun CommandService.openSession(
     configure: io.github.ulviar.icli.session.SessionInvocation.Builder.() -> Unit = {}
-): Session = interactive { builder -> builder.configure() }
+): Session = interactive().configuredBy { builder -> builder.configure() }.open()
 
 /** Waits for a raw session to exit without blocking the caller coroutine. */
 suspend fun Session.awaitExit(): SessionExit = onExit().await()
@@ -96,10 +94,13 @@ interface ListenFlowInvocation {
 /** Opens a listen-only streaming session as a cold Flow of output chunks. */
 fun CommandService.listenFlow(configure: ListenFlowInvocation.() -> Unit = {}): Flow<StreamChunk> =
     callbackFlow {
-            val session = listen { builder ->
-                DefaultListenFlowInvocation(builder).configure()
-                builder.onOutput { chunk -> runBlocking { send(chunk) } }
-            }
+            val session =
+                listen()
+                    .configuredBy { builder ->
+                        DefaultListenFlowInvocation(builder).configure()
+                        builder.onOutput { chunk -> runBlocking { send(chunk) } }
+                    }
+                    .open()
             session.onExit().whenComplete { _, throwable ->
                 if (throwable == null) {
                     close()

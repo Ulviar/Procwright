@@ -21,13 +21,15 @@
 Options-first API заставляет пользователя думать как автор process runtime:
 
 ```java
-service.run(call -> call
-        .mergeError(true)
-        .closeStdin(true)
-        .captureStdout(65536)
-        .captureStderr(32768)
-        .bufferBytes(8192)
-        .idleTimeout(Duration.ZERO));
+service.run()
+        .configuredBy(call -> call
+                .mergeError(true)
+                .closeStdin(true)
+                .captureStdout(65536)
+                .captureStderr(32768)
+                .bufferBytes(8192)
+                .idleTimeout(Duration.ZERO))
+        .execute();
 ```
 
 Такой API дает много knobs, но плохо выражает намерение. Пользователь хотел не "набор флагов", а один из сценариев:

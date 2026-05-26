@@ -158,6 +158,7 @@ public record CliAdapterError(String code, String message, JsonValue.JsonObject 
                         case CLOSED -> "pool_closed";
                         case STARTUP_FAILED -> "pool_startup_failed";
                         case HOOK_TIMEOUT -> "pool_hook_timeout";
+                        case INTERRUPTED -> "pool_interrupted";
                         case WORKER_FAILED -> "pool_worker_failed";
                     },
                     "Pooled line-session request failed",
@@ -174,6 +175,7 @@ public record CliAdapterError(String code, String message, JsonValue.JsonObject 
                         case CLOSED -> "pool_closed";
                         case STARTUP_FAILED -> "pool_startup_failed";
                         case HOOK_TIMEOUT -> "pool_hook_timeout";
+                        case INTERRUPTED -> "pool_interrupted";
                         case WORKER_FAILED -> "pool_worker_failed";
                     },
                     "Pooled protocol-session request failed",

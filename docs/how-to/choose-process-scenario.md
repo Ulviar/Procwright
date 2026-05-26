@@ -173,7 +173,7 @@ diagnostics, and protocol bounds explicit.
 ```java
 CommandService service = Icli.command("tool");
 
-try (LineSession lineSession = service.lineSession(call -> call.args("json-worker"));
+try (LineSession lineSession = service.lineSession().withArg("json-worker").open();
         JsonLineSession json = JsonLineSession.over(lineSession)) {
     CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
             json, input -> JsonValue.object(Map.of("input", JsonValue.string(input))), Function.identity());

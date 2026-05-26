@@ -458,41 +458,6 @@ public final class PooledLineSessionOptions {
         return healthCheck;
     }
 
-    @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (!(other instanceof PooledLineSessionOptions that)) {
-            return false;
-        }
-        return maxSize == that.maxSize
-                && warmupSize == that.warmupSize
-                && minIdle == that.minIdle
-                && maxRequestsPerWorker == that.maxRequestsPerWorker
-                && backgroundReplenishment == that.backgroundReplenishment
-                && acquireTimeout.equals(that.acquireTimeout)
-                && hookTimeout.equals(that.hookTimeout)
-                && maxWorkerAge.equals(that.maxWorkerAge)
-                && resetHook.equals(that.resetHook)
-                && healthCheck.equals(that.healthCheck);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(
-                maxSize,
-                warmupSize,
-                minIdle,
-                acquireTimeout,
-                hookTimeout,
-                maxRequestsPerWorker,
-                maxWorkerAge,
-                backgroundReplenishment,
-                resetHook,
-                healthCheck);
-    }
-
     private PooledLineSessionOptions copy(
             int maxSize,
             int warmupSize,

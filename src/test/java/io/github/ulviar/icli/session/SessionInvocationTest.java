@@ -56,25 +56,6 @@ final class SessionInvocationTest {
     }
 
     @Test
-    void comparesByValue() {
-        SessionInvocation left = SessionInvocation.builder()
-                .args("-i")
-                .putEnvironment("LC_ALL", "C")
-                .idleTimeout(Duration.ofSeconds(3))
-                .terminal(TerminalPolicy.AUTO)
-                .build();
-        SessionInvocation right = SessionInvocation.builder()
-                .args("-i")
-                .putEnvironment("LC_ALL", "C")
-                .idleTimeout(Duration.ofSeconds(3))
-                .terminal(TerminalPolicy.AUTO)
-                .build();
-
-        assertEquals(left, right);
-        assertEquals(left.hashCode(), right.hashCode());
-    }
-
-    @Test
     void rejectsInvalidEnvironmentName() {
         SessionInvocation.Builder builder = SessionInvocation.builder();
 

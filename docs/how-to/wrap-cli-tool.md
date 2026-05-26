@@ -16,7 +16,7 @@ Add the optional module first. See [optional modules](../release/installation.md
 CommandService git = Icli.command("git");
 
 CommandBackedTool<String, String> status = CommandBackedTool.of(path -> {
-    CommandResult result = git.run(call -> call.args("status", "--short", path));
+    CommandResult result = git.run().withArgs("status", "--short", path).execute();
     if (!result.succeeded()) {
         throw result.toException();
     }

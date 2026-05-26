@@ -13,4 +13,14 @@ public final class JsonParseException extends IllegalArgumentException {
     public JsonParseException(String message) {
         super(message);
     }
+
+    /**
+     * Creates a parse exception with a cause.
+     *
+     * @param message error message
+     * @param cause error cause
+     */
+    public JsonParseException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

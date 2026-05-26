@@ -1,6 +1,7 @@
 package io.github.ulviar.icli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.ulviar.icli.command.RunOptions;
@@ -9,6 +10,8 @@ import io.github.ulviar.icli.session.PooledLineSessionOptions;
 import io.github.ulviar.icli.session.PooledProtocolSessionOptions;
 import io.github.ulviar.icli.session.SessionOptions;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 final class CommandServiceTest {
@@ -29,14 +32,27 @@ final class CommandServiceTest {
     }
 
     @Test
+    void commandServiceDoesNotExposeDirectConsumerShortcuts() {
+        Set<String> shortcutNames = Set.of("run", "interactive", "lineSession", "protocolSession", "listen");
+
+        assertEquals(
+                0,
+                Arrays.stream(CommandService.class.getMethods())
+                        .filter(method -> shortcutNames.contains(method.getName()))
+                        .filter(method ->
+                                Arrays.stream(method.getParameterTypes()).anyMatch(type -> type.equals(Consumer.class)))
+                        .count());
+    }
+
+    @Test
     void createsServiceForExecutableWithDefaultOptions() {
         CommandService service = CommandService.forCommand("git");
 
         assertEquals("git", service.commandSpec().executable());
         assertEquals(RunOptions.defaults(), service.runOptions());
-        assertEquals(SessionOptions.defaults(), service.sessionOptions());
-        assertEquals(LineSessionOptions.defaults(), service.lineSessionOptions());
-        assertEquals(PooledLineSessionOptions.defaults(), service.pooledLineSessionOptions());
+        assertSame(SessionOptions.defaults(), service.sessionOptions());
+        assertSame(LineSessionOptions.defaults(), service.lineSessionOptions());
+        assertSame(PooledLineSessionOptions.defaults(), service.pooledLineSessionOptions());
         assertEquals(PooledProtocolSessionOptions.defaults(), service.pooledProtocolSessionOptions());
     }
 
@@ -46,35 +62,28 @@ final class CommandServiceTest {
 
         assertEquals("git", service.commandSpec().executable());
         assertEquals(RunOptions.defaults(), service.runOptions());
-        assertEquals(SessionOptions.defaults(), service.sessionOptions());
+        assertSame(SessionOptions.defaults(), service.sessionOptions());
     }
 
     @Test
     void runValidatesConfigurationCallback() {
         CommandService service = CommandService.forCommand("git");
 
-        assertThrows(NullPointerException.class, () -> service.run(null));
+        assertThrows(NullPointerException.class, () -> service.run().configuredBy(null));
     }
 
     @Test
     void interactiveValidatesConfigurationCallback() {
         CommandService service = CommandService.forCommand("git");
 
-        assertThrows(NullPointerException.class, () -> service.interactive(null));
+        assertThrows(NullPointerException.class, () -> service.interactive().configuredBy(null));
     }
 
     @Test
     void lineSessionValidatesConfigurationCallback() {
         CommandService service = CommandService.forCommand("git");
 
-        assertThrows(NullPointerException.class, () -> service.lineSession(null));
-    }
-
-    @Test
-    void pooledValidatesConfigurationCallback() {
-        CommandService service = CommandService.forCommand("git");
-
-        assertThrows(NullPointerException.class, () -> service.pooled(null));
+        assertThrows(NullPointerException.class, () -> service.lineSession().configuredBy(null));
     }
 
     @Test

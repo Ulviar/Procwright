@@ -180,6 +180,10 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
                         PooledProtocolSessionException.Reason.HOOK_TIMEOUT,
                         "Pooled protocol-session health check timed out"),
                 exception -> new PooledProtocolSessionException(
+                        PooledProtocolSessionException.Reason.INTERRUPTED,
+                        "Interrupted while waiting for pooled protocol-session health check",
+                        exception),
+                exception -> new PooledProtocolSessionException(
                         PooledProtocolSessionException.Reason.WORKER_FAILED,
                         "Pooled protocol-session health check failed",
                         exception));
@@ -196,6 +200,10 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
                 () -> new PooledProtocolSessionException(
                         PooledProtocolSessionException.Reason.HOOK_TIMEOUT,
                         "Pooled protocol-session reset hook timed out"),
+                exception -> new PooledProtocolSessionException(
+                        PooledProtocolSessionException.Reason.INTERRUPTED,
+                        "Interrupted while waiting for pooled protocol-session reset hook",
+                        exception),
                 exception -> new PooledProtocolSessionException(
                         PooledProtocolSessionException.Reason.WORKER_FAILED,
                         "Pooled protocol-session reset hook failed",
@@ -286,7 +294,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         @Override
         public RuntimeException acquireInterrupted(String message, InterruptedException cause) {
             return new PooledProtocolSessionException(
-                    PooledProtocolSessionException.Reason.ACQUIRE_TIMEOUT, message, cause);
+                    PooledProtocolSessionException.Reason.INTERRUPTED, message, cause);
         }
 
         @Override

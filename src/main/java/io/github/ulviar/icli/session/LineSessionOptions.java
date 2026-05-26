@@ -265,28 +265,6 @@ public final class LineSessionOptions {
         return responseDecoder;
     }
 
-    @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (!(other instanceof LineSessionOptions that)) {
-            return false;
-        }
-        return transcriptLimit == that.transcriptLimit
-                && stdoutBacklogLimit == that.stdoutBacklogLimit
-                && maxLineChars == that.maxLineChars
-                && requestTimeout.equals(that.requestTimeout)
-                && charsetPolicy.equals(that.charsetPolicy)
-                && responseDecoder.equals(that.responseDecoder);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
-    }
-
     private static Duration requirePositive(Duration duration, String name) {
         Objects.requireNonNull(duration, name);
         if (duration.isZero() || duration.isNegative()) {

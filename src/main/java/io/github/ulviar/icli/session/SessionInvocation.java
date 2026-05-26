@@ -145,41 +145,6 @@ public final class SessionInvocation {
         return Optional.ofNullable(readinessTimeout);
     }
 
-    @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (!(other instanceof SessionInvocation that)) {
-            return false;
-        }
-        return arguments.equals(that.arguments)
-                && Objects.equals(workingDirectory, that.workingDirectory)
-                && environment.equals(that.environment)
-                && environmentPolicy == that.environmentPolicy
-                && Objects.equals(shutdownPolicy, that.shutdownPolicy)
-                && Objects.equals(idleTimeout, that.idleTimeout)
-                && Objects.equals(charset, that.charset)
-                && terminalPolicy == that.terminalPolicy
-                && Objects.equals(readinessProbe, that.readinessProbe)
-                && Objects.equals(readinessTimeout, that.readinessTimeout);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(
-                arguments,
-                workingDirectory,
-                environment,
-                environmentPolicy,
-                shutdownPolicy,
-                idleTimeout,
-                charset,
-                terminalPolicy,
-                readinessProbe,
-                readinessTimeout);
-    }
-
     /**
      * Mutable builder used by interactive-session callbacks.
      */

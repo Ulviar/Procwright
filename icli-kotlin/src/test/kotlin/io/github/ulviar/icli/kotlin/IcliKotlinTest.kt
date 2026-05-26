@@ -79,24 +79,20 @@ class IcliKotlinTest {
 
     @Test
     fun `line session request can be awaited`() = runBlocking {
-        javaService()
-            .lineSession { invocation -> invocation.args(*fixtureArgs("line-repl")) }
-            .use { session ->
-                val response = session.requestAwait("hello", Duration.ofSeconds(1))
+        javaService().lineSession().withArgs(*fixtureArgs("line-repl")).open().use { session ->
+            val response = session.requestAwait("hello", Duration.ofSeconds(1))
 
-                assertEquals(listOf("response:hello"), response.lines())
-            }
+            assertEquals(listOf("response:hello"), response.lines())
+        }
     }
 
     @Test
     fun `stream session exit can be awaited`() = runBlocking {
-        javaService()
-            .listen { invocation -> invocation.args(*fixtureArgs("paired-streams")) }
-            .use { session ->
-                val exit = session.awaitExit()
+        javaService().listen().withArgs(*fixtureArgs("paired-streams")).open().use { session ->
+            val exit = session.awaitExit()
 
-                assertEquals(0, exit.exitCode().orElseThrow())
-            }
+            assertEquals(0, exit.exitCode().orElseThrow())
+        }
     }
 
     @Test
@@ -122,20 +118,18 @@ class IcliKotlinTest {
     @Test
     fun `cancelling stream awaiter does not cancel shared exit future`() {
         runBlocking {
-            javaService()
-                .listen { invocation -> invocation.args(*fixtureArgs("sleep", "5000")) }
-                .use { session ->
-                    val job = async { session.awaitExit() }
+            javaService().listen().withArgs(*fixtureArgs("sleep", "5000")).open().use { session ->
+                val job = async { session.awaitExit() }
 
-                    delay(50)
-                    job.cancelAndJoin()
+                delay(50)
+                job.cancelAndJoin()
 
-                    assertFalse(session.onExit().isCancelled)
-                    assertFalse(session.onExit().isDone)
+                assertFalse(session.onExit().isCancelled)
+                assertFalse(session.onExit().isDone)
 
-                    session.close()
-                    session.onExit().join()
-                }
+                session.close()
+                session.onExit().join()
+            }
         }
     }
 

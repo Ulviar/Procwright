@@ -197,27 +197,6 @@ public final class SessionOptions {
         return terminalSize;
     }
 
-    @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (!(other instanceof SessionOptions that)) {
-            return false;
-        }
-        return idleTimeout.equals(that.idleTimeout)
-                && shutdownPolicy.equals(that.shutdownPolicy)
-                && charset.equals(that.charset)
-                && terminalPolicy == that.terminalPolicy
-                && ptyProvider.equals(that.ptyProvider)
-                && terminalSize.equals(that.terminalSize);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(idleTimeout, shutdownPolicy, charset, terminalPolicy, ptyProvider, terminalSize);
-    }
-
     private static Duration requireNonNegative(Duration duration, String name) {
         Objects.requireNonNull(duration, name);
         if (duration.isNegative()) {

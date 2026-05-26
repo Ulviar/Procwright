@@ -23,7 +23,8 @@ final class JsonLineSessionTest {
 
     @Test
     void sendsAndReceivesOneJsonLine() {
-        try (LineSession lineSession = fixtureService().lineSession(call -> call.arg("echo"));
+        try (LineSession lineSession =
+                        fixtureService().lineSession().withArg("echo").open();
                 JsonLineSession json = JsonLineSession.over(lineSession)) {
             JsonValue request = JsonValue.object(Map.of("command", JsonValue.string("status")));
 
@@ -35,7 +36,8 @@ final class JsonLineSessionTest {
 
     @Test
     void mapsJsonLineToolSuccess() {
-        try (LineSession lineSession = fixtureService().lineSession(call -> call.arg("echo"));
+        try (LineSession lineSession =
+                        fixtureService().lineSession().withArg("echo").open();
                 JsonLineSession json = JsonLineSession.over(lineSession)) {
             CommandBackedTool<String, JsonValue> tool =
                     CommandBackedTool.jsonLine(json, JsonValue::string, value -> value);
@@ -49,7 +51,8 @@ final class JsonLineSessionTest {
 
     @Test
     void malformedJsonResponseFailsAsProtocolError() {
-        try (LineSession lineSession = fixtureService().lineSession(call -> call.arg("malformed"));
+        try (LineSession lineSession =
+                        fixtureService().lineSession().withArg("malformed").open();
                 JsonLineSession json = JsonLineSession.over(lineSession)) {
             JsonParseException exception =
                     assertThrows(JsonParseException.class, () -> json.request(JsonValue.string("payload")));
@@ -60,7 +63,8 @@ final class JsonLineSessionTest {
 
     @Test
     void cancellingAsyncJsonRequestClosesUnderlyingSession() throws Exception {
-        try (LineSession lineSession = fixtureService().lineSession(call -> call.arg("slow"));
+        try (LineSession lineSession =
+                        fixtureService().lineSession().withArg("slow").open();
                 JsonLineSession json = JsonLineSession.over(lineSession)) {
             CancellableCall<JsonValue> call = json.requestAsync(JsonValue.string("payload"), Duration.ofSeconds(10));
 

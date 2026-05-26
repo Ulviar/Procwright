@@ -11,6 +11,7 @@ val icliJavaVersion = rootProject.extra["icliJavaVersion"] as JavaVersion
 
 dependencies {
     api(project(":"))
+    api("com.fasterxml.jackson.core:jackson-databind:2.21.3")
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")

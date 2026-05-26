@@ -20,11 +20,13 @@ final class WorkerHookSupport {
             Duration timeout,
             Supplier<T> hook,
             Supplier<? extends RuntimeException> timedOut,
+            Function<InterruptedException, ? extends RuntimeException> interrupted,
             Function<Throwable, ? extends RuntimeException> failed) {
         Objects.requireNonNull(threadPrefix, "threadPrefix");
         Objects.requireNonNull(timeout, "timeout");
         Objects.requireNonNull(hook, "hook");
         Objects.requireNonNull(timedOut, "timedOut");
+        Objects.requireNonNull(interrupted, "interrupted");
         Objects.requireNonNull(failed, "failed");
 
         CompletableFuture<T> completion = new CompletableFuture<>();
@@ -43,7 +45,7 @@ final class WorkerHookSupport {
         } catch (InterruptedException exception) {
             thread.interrupt();
             Thread.currentThread().interrupt();
-            throw timedOut.get();
+            throw interrupted.apply(exception);
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause();
             if (cause instanceof Error error) {

@@ -256,7 +256,9 @@ public final class DefaultSession implements Session {
                     stop(true);
                     return;
                 }
-                sleepNanos(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(100)));
+                if (!sleepNanos(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(100)))) {
+                    return;
+                }
             }
         });
     }
@@ -398,11 +400,13 @@ public final class DefaultSession implements Session {
         return duration;
     }
 
-    private static void sleepNanos(long nanos) {
+    private static boolean sleepNanos(long nanos) {
         try {
             TimeUnit.NANOSECONDS.sleep(Math.max(1, nanos));
+            return true;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            return false;
         }
     }
 

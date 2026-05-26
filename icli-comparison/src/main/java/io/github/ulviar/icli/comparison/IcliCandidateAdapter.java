@@ -46,15 +46,18 @@ final class IcliCandidateAdapter implements CandidateAdapter {
     public CommandOutcome run(CommandRequest request, int captureLimit) {
         long started = System.nanoTime();
         try {
-            CommandResult result = service(request.command()).run(call -> {
-                call.capture(CapturePolicy.bounded(captureLimit))
-                        .timeout(request.timeout())
-                        .output(OutputMode.SEPARATE);
-                request.environment().forEach(call::putEnvironment);
-                if (request.stdin().length > 0) {
-                    call.input(CommandInput.bytes(request.stdin()));
-                }
-            });
+            CommandResult result = service(request.command())
+                    .run()
+                    .configuredBy(call -> {
+                        call.capture(CapturePolicy.bounded(captureLimit))
+                                .timeout(request.timeout())
+                                .output(OutputMode.SEPARATE);
+                        request.environment().forEach(call::putEnvironment);
+                        if (request.stdin().length > 0) {
+                            call.input(CommandInput.bytes(request.stdin()));
+                        }
+                    })
+                    .execute();
             return new CommandOutcome(
                     result.timedOut() ? OutcomeStatus.TIMEOUT : OutcomeStatus.PASS,
                     result.exitCode(),
@@ -78,23 +81,28 @@ final class IcliCandidateAdapter implements CandidateAdapter {
             BoundedCapture stderr = new BoundedCapture(captureLimit);
             AtomicBoolean observedWhileRunning = new AtomicBoolean();
             AtomicReference<StreamSession> sessionRef = new AtomicReference<>();
-            try (StreamSession session = service(request.command()).listen(call -> {
-                call.timeout(request.timeout()).onOutput(chunk -> {
-                    StreamSession current = sessionRef.get();
-                    if (current == null || !current.onExit().isDone()) {
-                        observedWhileRunning.set(true);
-                    }
-                    try {
-                        switch (chunk.source()) {
-                            case STDOUT -> stdout.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                            case STDERR -> stderr.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        }
-                    } catch (java.io.IOException exception) {
-                        throw new java.io.UncheckedIOException(exception);
-                    }
-                });
-                request.environment().forEach(call::putEnvironment);
-            })) {
+            try (StreamSession session = service(request.command())
+                    .listen()
+                    .configuredBy(call -> {
+                        call.timeout(request.timeout()).onOutput(chunk -> {
+                            StreamSession current = sessionRef.get();
+                            if (current == null || !current.onExit().isDone()) {
+                                observedWhileRunning.set(true);
+                            }
+                            try {
+                                switch (chunk.source()) {
+                                    case STDOUT ->
+                                        stdout.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                                    case STDERR ->
+                                        stderr.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                                }
+                            } catch (java.io.IOException exception) {
+                                throw new java.io.UncheckedIOException(exception);
+                            }
+                        });
+                        request.environment().forEach(call::putEnvironment);
+                    })
+                    .open()) {
                 sessionRef.set(session);
                 session.onExit().get(request.timeout().toMillis() + 500, TimeUnit.MILLISECONDS);
             }
@@ -116,7 +124,7 @@ final class IcliCandidateAdapter implements CandidateAdapter {
     @Override
     public CommandOutcome lineSession(CommandRequest request, Duration requestTimeout) {
         long started = System.nanoTime();
-        try (LineSession session = service(request.command()).lineSession(call -> {})) {
+        try (LineSession session = service(request.command()).lineSession().open()) {
             LineResponse alpha = session.request("alpha", requestTimeout);
             LineResponse beta = session.request("beta", requestTimeout);
             String text = alpha.text() + "\n" + beta.text();
@@ -140,7 +148,10 @@ final class IcliCandidateAdapter implements CandidateAdapter {
     @Override
     public CommandOutcome expectPrompt(CommandRequest request, Duration timeout) {
         long started = System.nanoTime();
-        try (Session session = service(request.command()).interactive(call -> call.idleTimeout(timeout));
+        try (Session session = service(request.command())
+                        .interactive()
+                        .withIdleTimeout(timeout)
+                        .open();
                 Expect expect = session.expect()) {
             expect.expectText("ready> ", timeout).sendLine("status").expectText("accepted:status", timeout);
             return new CommandOutcome(
@@ -245,9 +256,12 @@ final class IcliCandidateAdapter implements CandidateAdapter {
         long started = System.nanoTime();
         CommandBackedTool<String, String> tool = CommandBackedTool.of(mode -> {
             List<String> command = "success".equals(mode) ? successCommand : failureCommand;
-            CommandResult result = service(command).run(call -> call.capture(CapturePolicy.bounded(4096))
-                    .timeout(Duration.ofSeconds(2))
-                    .output(OutputMode.SEPARATE));
+            CommandResult result = service(command)
+                    .run()
+                    .withCapture(CapturePolicy.bounded(4096))
+                    .withTimeout(Duration.ofSeconds(2))
+                    .withOutput(OutputMode.SEPARATE)
+                    .execute();
             if (!result.succeeded()) {
                 throw result.toException();
             }

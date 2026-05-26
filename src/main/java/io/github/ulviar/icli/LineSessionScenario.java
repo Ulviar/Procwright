@@ -234,6 +234,16 @@ public final class LineSessionScenario {
     }
 
     /**
+     * Returns a copy configured by a scenario-specific callback.
+     *
+     * @param configure configuration callback
+     * @return updated scenario
+     */
+    public LineSessionScenario configuredBy(Consumer<LineSessionInvocation.Builder> configure) {
+        return with(configure);
+    }
+
+    /**
      * Branches into pooled line-session mode.
      *
      * @return pooled line-session scenario

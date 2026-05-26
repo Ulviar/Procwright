@@ -35,9 +35,11 @@ final class DiagnosticsIntegrationTest {
                 .withDiagnostics(
                         DiagnosticsOptions.defaults().withListener(recorder).withTranscriptSink(recorder));
 
-        CommandResult result =
-                service.run(call -> call.args("argv-env-cwd", "--env=SECRET_VALUE", "--", "--token", "secret-argument")
-                        .putEnvironment("SECRET_VALUE", "hidden-value"));
+        CommandResult result = service.run()
+                .configuredBy(
+                        call -> call.args("argv-env-cwd", "--env=SECRET_VALUE", "--", "--token", "secret-argument")
+                                .putEnvironment("SECRET_VALUE", "hidden-value"))
+                .execute();
 
         assertTrue(result.succeeded());
         assertTrue(recorder.awaitContains(DiagnosticEventType.COMMAND_PREPARED));
@@ -58,9 +60,11 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        CommandResult result = service.run(call -> call.args("exit", "--stdout=" + "secret-output".repeat(4))
-                .putEnvironment("SECRET_VALUE", "secret-env-value")
-                .capture(CapturePolicy.bounded(8)));
+        CommandResult result = service.run()
+                .configuredBy(call -> call.args("exit", "--stdout=" + "secret-output".repeat(4))
+                        .putEnvironment("SECRET_VALUE", "secret-env-value")
+                        .capture(CapturePolicy.bounded(8)))
+                .execute();
 
         assertTrue(result.stdoutTruncated());
         assertEventsSafe(
@@ -80,9 +84,12 @@ final class DiagnosticsIntegrationTest {
         CommandService timeoutService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(timeoutRecorder));
 
-        CommandResult timeout = timeoutService.run(
-                call -> call.args("sleep", "--millis=5000", "--finished=false", "--", "secret-timeout-arg")
-                        .timeout(Duration.ofMillis(100)));
+        CommandResult timeout = timeoutService
+                .run()
+                .configuredBy(
+                        call -> call.args("sleep", "--millis=5000", "--finished=false", "--", "secret-timeout-arg")
+                                .timeout(Duration.ofMillis(100)))
+                .execute();
 
         assertTrue(timeout.timedOut());
         assertEventsSafe(
@@ -99,7 +106,9 @@ final class DiagnosticsIntegrationTest {
         CommandService missingCommand = CommandService.forCommand("__icli_missing_command_for_diagnostics__")
                 .withDiagnostics(DiagnosticsOptions.defaults().withListener(failureRecorder));
 
-        assertThrows(CommandExecutionException.class, () -> missingCommand.run(call -> call.args("secret-launch-arg")));
+        assertThrows(
+                CommandExecutionException.class,
+                () -> missingCommand.run().withArg("secret-launch-arg").execute());
         assertEventsSafe(
                 failureRecorder,
                 Set.of(DiagnosticEventType.COMMAND_PREPARED, DiagnosticEventType.PROCESS_FAILED),
@@ -112,10 +121,12 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (StreamSession session = service.listen(
-                call -> call.args("exit", "--stdout=secret-stream-output").onOutput(chunk -> {
-                    throw new IllegalStateException("listener failed");
-                }))) {
+        try (StreamSession session = service.listen()
+                .configuredBy(call -> call.args("exit", "--stdout=secret-stream-output")
+                        .onOutput(chunk -> {
+                            throw new IllegalStateException("listener failed");
+                        }))
+                .open()) {
             assertThrows(java.util.concurrent.ExecutionException.class, () -> session.onExit()
                     .get(2, TimeUnit.SECONDS));
         }
@@ -144,8 +155,10 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        CommandResult result = service.run(call ->
-                call.args("burst", "--stdout-bytes=64", "--stdout-byte=x").capture(CapturePolicy.bounded(16)));
+        CommandResult result = service.run()
+                .withArgs("burst", "--stdout-bytes=64", "--stdout-byte=x")
+                .withCapture(CapturePolicy.bounded(16))
+                .execute();
 
         assertTrue(result.stdoutTruncated());
         DiagnosticEvent event = recorder.first(DiagnosticEventType.OUTPUT_TRUNCATED);
@@ -159,9 +172,11 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        CommandResult result = service.run(call -> call.args("sleep", "--millis=5000", "--finished=false")
-                .timeout(Duration.ofMillis(100))
-                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+        CommandResult result = service.run()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withTimeout(Duration.ofMillis(100))
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .execute();
 
         assertTrue(result.timedOut());
         assertTrue(recorder.awaitContains(DiagnosticEventType.TIMEOUT_REACHED));
@@ -178,7 +193,7 @@ final class DiagnosticsIntegrationTest {
                     throw new AssertionError("diagnostics failed");
                 }));
 
-        CommandResult result = service.run(call -> call.args("exit", "--stdout=ok\n"));
+        CommandResult result = service.run().withArgs("exit", "--stdout=ok\n").execute();
 
         assertTrue(result.succeeded());
         assertEquals("ok\n", result.stdout());
@@ -190,8 +205,10 @@ final class DiagnosticsIntegrationTest {
         CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(64))
                 .withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (StreamSession session = service.listen(call ->
-                call.args("burst", "--stdout-bytes=128", "--stdout-byte=x").onOutput(StreamListener.noop()))) {
+        try (StreamSession session = service.listen()
+                .withArgs("burst", "--stdout-bytes=128", "--stdout-byte=x")
+                .onOutput(StreamListener.noop())
+                .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertTrue(exit.diagnostics().truncated());
@@ -203,8 +220,10 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder closeRecorder = new DiagnosticRecorder();
         CommandService closeService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(closeRecorder));
-        try (StreamSession session =
-                closeService.listen(call -> call.args("sleep", "--millis=5000", "--finished=false"))) {
+        try (StreamSession session = closeService
+                .listen()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .open()) {
             session.close();
             session.onExit().get(2, TimeUnit.SECONDS);
         }
@@ -224,8 +243,10 @@ final class DiagnosticsIntegrationTest {
         CommandService service =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (StreamSession session = service.listen(
-                call -> call.args("sleep", "--millis=5000", "--finished=false").timeout(Duration.ofMillis(100)))) {
+        try (StreamSession session = service.listen()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withTimeout(Duration.ofMillis(100))
+                .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertTrue(exit.timedOut());
@@ -239,10 +260,12 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder listenerFailureRecorder = new DiagnosticRecorder();
         CommandService listenerFailureService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(listenerFailureRecorder));
-        try (StreamSession session = listenerFailureService.listen(
-                call -> call.args("exit", "--stdout=boom").onOutput(chunk -> {
+        try (StreamSession session = listenerFailureService
+                .listen()
+                .configuredBy(call -> call.args("exit", "--stdout=boom").onOutput(chunk -> {
                     throw new IllegalStateException("listener failed");
-                }))) {
+                }))
+                .open()) {
             try {
                 session.onExit().get(2, TimeUnit.SECONDS);
             } catch (java.util.concurrent.ExecutionException expected) {
@@ -259,7 +282,7 @@ final class DiagnosticsIntegrationTest {
         CommandService interactiveService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(interactiveRecorder));
 
-        try (Session session = interactiveService.interactive(call -> call.args("exit"))) {
+        try (Session session = interactiveService.interactive().withArg("exit").open()) {
             session.onExit().get(2, TimeUnit.SECONDS);
         }
 
@@ -279,7 +302,8 @@ final class DiagnosticsIntegrationTest {
         CommandService lineService =
                 fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(lineRecorder));
 
-        try (LineSession session = lineService.lineSession(call -> call.args("controlled-line-repl"))) {
+        try (LineSession session =
+                lineService.lineSession().withArg("controlled-line-repl").open()) {
             assertEquals("response:hello", session.request("hello").text());
         }
 

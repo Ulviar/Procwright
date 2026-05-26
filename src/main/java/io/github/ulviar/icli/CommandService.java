@@ -603,7 +603,7 @@ public final class CommandService {
      * @return command result
      * @throws CommandExecutionException when the process cannot be started, supervised, or captured
      */
-    public CommandResult run(Consumer<CommandInvocation.Builder> configure) {
+    CommandResult run(Consumer<CommandInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
 
         CommandInvocation.Builder builder = CommandInvocation.builder();
@@ -622,7 +622,7 @@ public final class CommandService {
      * @return interactive session
      * @throws CommandExecutionException when the process cannot be started or the configured readiness probe fails
      */
-    public Session interactive(Consumer<SessionInvocation.Builder> configure) {
+    Session interactive(Consumer<SessionInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
 
         SessionInvocation.Builder builder = SessionInvocation.builder();
@@ -649,7 +649,7 @@ public final class CommandService {
      * @return line-oriented session
      * @throws CommandExecutionException when the process cannot be started or the configured readiness probe fails
      */
-    public LineSession lineSession(Consumer<LineSessionInvocation.Builder> configure) {
+    LineSession lineSession(Consumer<LineSessionInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
 
         LineSessionInvocation.Builder builder = LineSessionInvocation.builder();
@@ -686,7 +686,7 @@ public final class CommandService {
      * @return protocol session
      * @throws CommandExecutionException when the process cannot be started or the configured readiness probe fails
      */
-    public <I, O> ProtocolSession<I, O> protocolSession(
+    <I, O> ProtocolSession<I, O> protocolSession(
             ProtocolAdapter<I, O> adapter, Consumer<ProtocolSessionInvocation.Builder<I, O>> configure) {
         Objects.requireNonNull(adapter, "adapter");
         Objects.requireNonNull(configure, "configure");
@@ -732,7 +732,7 @@ public final class CommandService {
      * @return streaming session
      * @throws CommandExecutionException when the process cannot be started
      */
-    public StreamSession listen(Consumer<StreamInvocation.Builder> configure) {
+    StreamSession listen(Consumer<StreamInvocation.Builder> configure) {
         Objects.requireNonNull(configure, "configure");
 
         StreamInvocation.Builder builder = StreamInvocation.builder();

@@ -24,8 +24,10 @@ final class StreamScenarioIntegrationTest {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
         CommandService service = fixtureService(StreamOptions.defaults());
 
-        try (StreamSession session = service.listen(
-                call -> call.args("exit", "--stdout=out", "--stderr=err").onOutput(chunks::add))) {
+        try (StreamSession session = service.listen()
+                .withArgs("exit", "--stdout=out", "--stderr=err")
+                .onOutput(chunks::add)
+                .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertEquals(0, exit.exitCode().orElseThrow());
@@ -46,8 +48,10 @@ final class StreamScenarioIntegrationTest {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
         CommandService service = fixtureService(StreamOptions.defaults());
 
-        try (StreamSession session = service.listen(
-                call -> call.args("stdin-echo", "--mode=bytes-count").onOutput(chunks::add))) {
+        try (StreamSession session = service.listen()
+                .withArgs("stdin-echo", "--mode=bytes-count")
+                .onOutput(chunks::add)
+                .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertEquals(0, exit.exitCode().orElseThrow());
@@ -60,8 +64,11 @@ final class StreamScenarioIntegrationTest {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
         CommandService service = fixtureService(StreamOptions.defaults());
 
-        try (StreamSession session = service.listen(call ->
-                call.args("stdin-echo", "--mode=bytes-count").keepStdinOpen().onOutput(chunks::add))) {
+        try (StreamSession session = service.listen()
+                .withArgs("stdin-echo", "--mode=bytes-count")
+                .withOpenStdin()
+                .onOutput(chunks::add)
+                .open()) {
             Thread.sleep(100);
             assertFalse(session.onExit().isDone());
 
@@ -78,8 +85,10 @@ final class StreamScenarioIntegrationTest {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
         CommandService service = fixtureService(StreamOptions.defaults().withTimeout(timeoutAfterFixtureStartup()));
 
-        try (StreamSession session = service.listen(
-                call -> call.args("sleep", "--millis=5000", "--finished=false").onOutput(chunks::add))) {
+        try (StreamSession session = service.listen()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .onOutput(chunks::add)
+                .open()) {
             StreamExit exit = session.onExit().get(exitWaitTimeout().toSeconds(), TimeUnit.SECONDS);
 
             assertTrue(exit.timedOut());
@@ -91,7 +100,9 @@ final class StreamScenarioIntegrationTest {
     void explicitCloseReportsClosedExit() throws Exception {
         CommandService service = fixtureService(StreamOptions.defaults());
 
-        try (StreamSession session = service.listen(call -> call.args("sleep", "--millis=5000", "--finished=false"))) {
+        try (StreamSession session = service.listen()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .open()) {
             session.close();
 
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
@@ -103,10 +114,11 @@ final class StreamScenarioIntegrationTest {
     void listenerFailureCompletesExitExceptionallyWithDiagnostics() {
         CommandService service = fixtureService(StreamOptions.defaults());
 
-        try (StreamSession session =
-                service.listen(call -> call.args("exit", "--stdout=boom").onOutput(chunk -> {
+        try (StreamSession session = service.listen()
+                .configuredBy(call -> call.args("exit", "--stdout=boom").onOutput(chunk -> {
                     throw new IllegalStateException("listener failed");
-                }))) {
+                }))
+                .open()) {
             ExecutionException exception = assertThrows(
                     ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
             StreamException streamException = assertInstanceOf(StreamException.class, exception.getCause());
@@ -121,24 +133,26 @@ final class StreamScenarioIntegrationTest {
         CopyOnWriteArrayList<String> chunks = new CopyOnWriteArrayList<>();
         CommandService service = fixtureService(StreamOptions.defaults());
 
-        try (StreamSession session = service.listen(call -> call.args(
-                        "stream",
-                        "--count=1",
-                        "--stdout-template=out-start",
-                        "--stderr-template=err-start",
-                        "--delay-millis=100")
-                .onOutput(chunk -> {
-                    assertFalse(insideListener.getAndSet(true));
-                    try {
-                        chunks.add(chunk.text());
-                        Thread.sleep(50);
-                    } catch (InterruptedException exception) {
-                        Thread.currentThread().interrupt();
-                        throw new AssertionError("interrupted", exception);
-                    } finally {
-                        insideListener.set(false);
-                    }
-                }))) {
+        try (StreamSession session = service.listen()
+                .configuredBy(call -> call.args(
+                                "stream",
+                                "--count=1",
+                                "--stdout-template=out-start",
+                                "--stderr-template=err-start",
+                                "--delay-millis=100")
+                        .onOutput(chunk -> {
+                            assertFalse(insideListener.getAndSet(true));
+                            try {
+                                chunks.add(chunk.text());
+                                Thread.sleep(50);
+                            } catch (InterruptedException exception) {
+                                Thread.currentThread().interrupt();
+                                throw new AssertionError("interrupted", exception);
+                            } finally {
+                                insideListener.set(false);
+                            }
+                        }))
+                .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertEquals(0, exit.exitCode().orElseThrow());
@@ -151,7 +165,8 @@ final class StreamScenarioIntegrationTest {
     void callerCannotCompleteStreamExitFuture() throws Exception {
         CommandService service = fixtureService(StreamOptions.defaults());
 
-        try (StreamSession session = service.listen(call -> call.args("sleep", "--millis=200"))) {
+        try (StreamSession session =
+                service.listen().withArgs("sleep", "--millis=200").open()) {
             CompletableFuture<StreamExit> callerFuture = session.onExit();
             callerFuture.complete(new StreamExit(
                     java.util.OptionalInt.of(99), false, false, new StreamTranscript("fake", false), Duration.ZERO));
@@ -165,8 +180,9 @@ final class StreamScenarioIntegrationTest {
     void boundedDiagnosticsDoNotStoreEntireOutput() throws Exception {
         CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(64));
 
-        try (StreamSession session =
-                service.listen(call -> call.args("burst", "--stdout-bytes=128", "--stdout-byte=x"))) {
+        try (StreamSession session = service.listen()
+                .withArgs("burst", "--stdout-bytes=128", "--stdout-byte=x")
+                .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertTrue(exit.diagnostics().truncated());
@@ -179,14 +195,16 @@ final class StreamScenarioIntegrationTest {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
         CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(1024));
 
-        try (StreamSession session = service.listen(call -> call.args(
+        try (StreamSession session = service.listen()
+                .withArgs(
                         "burst",
                         "--stdout-first=false",
                         "--stdout-bytes=5",
                         "--stdout-byte=d",
                         "--stderr-bytes=256k",
                         "--stderr-byte=e")
-                .onOutput(chunks::add))) {
+                .onOutput(chunks::add)
+                .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertEquals(0, exit.exitCode().orElseThrow());
