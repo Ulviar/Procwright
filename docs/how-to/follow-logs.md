@@ -27,8 +27,6 @@ try (StreamSession stream = tool.listen()
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Use this scenario because
 
 `listen` drains stdout and stderr while retaining only bounded diagnostics. `run` is a better fit when the caller needs

@@ -21,8 +21,6 @@ try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED)
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Use this scenario because
 
 Terminal capability is part of session-family lifecycle. `run` and `listen` do not expose PTY controls in the current

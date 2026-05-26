@@ -19,8 +19,6 @@ CommandService tool = Icli.command("tool")
 tool.run().execute("--version");
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Event shape
 
 Each `DiagnosticEvent` has the same stable outer shape:

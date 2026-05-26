@@ -56,7 +56,7 @@ This is the smallest scenario: choose a command, choose `run`, execute with argu
 - [Getting Started](getting-started.md) for installation and the first command.
 - [How-to Guides](how-to/index.md) for common CLI automation tasks.
 - [Reference](reference/index.md) for scenario contracts, policies, results, errors, and generated API docs.
-- [Examples](examples.md) for complete usage examples.
+- [Examples](examples.md) for selected scenario snippets.
 - [Kotlin API](reference/kotlin-api.md) for the optional Kotlin module.
 - [Explanations](explanations/index.md) for design rationale and scope boundaries.
 - [Version and Compatibility](release/index.md) for installation, compatibility, and limitations.

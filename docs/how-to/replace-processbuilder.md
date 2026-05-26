@@ -53,7 +53,7 @@ CommandService python = Icli.command(command);
 python.run().execute("--version");
 ```
 
-More examples: [Examples](../examples.md#core-examples).
+Reference: [Command model](../reference/command-model.md).
 
 This keeps stable command defaults in one place and leaves operation-specific choices at each scenario invocation.
 
@@ -79,7 +79,7 @@ try (StreamSession stream = tool.listen()
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
+Task guide: [Follow logs](follow-logs.md).
 
 Use `run` when the output is part of the completed result. Use `listen` when the output is an event stream and retaining
 all of it would be the wrong invariant.
@@ -99,7 +99,7 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
+Task guide: [Automate prompts](automate-prompts.md).
 
 `Expect` owns output matching and transcript bounds. Do not read the raw session output streams at the same time.
 

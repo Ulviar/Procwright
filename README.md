@@ -107,7 +107,7 @@ Start with the public docs:
 - [How-to Guides](docs/how-to/index.md)
 - [Examples](docs/examples.md)
 - [Reference](docs/reference/index.md)
-- [Release](docs/release/index.md)
+- [Version and Compatibility](docs/release/index.md)
 
 ## Modules
 

@@ -1,6 +1,7 @@
 # Examples
 
-These examples show the main public workflows in one place.
+These selected snippets show the main public workflows in one place. Use the how-to guides when you need task steps,
+and the scenario reference when you need exact contracts.
 
 ## Core examples
 

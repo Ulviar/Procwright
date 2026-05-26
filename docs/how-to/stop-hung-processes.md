@@ -23,8 +23,6 @@ if (result.timedOut()) {
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Use this scenario because
 
 Timeout, shutdown escalation, stream draining, and process-tree cleanup are runtime invariants. They should not be

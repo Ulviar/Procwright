@@ -25,8 +25,6 @@ try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED)
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Boundary
 
 The current core API exposes terminal policy, terminal size, and terminal control signals. Application code does not

@@ -26,8 +26,6 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Transcript values
 
 `Expect` records action entries such as send and expect operations, but caller-provided values are redacted by default in

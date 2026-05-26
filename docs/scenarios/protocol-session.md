@@ -14,7 +14,7 @@ The scenario covers:
 - bounded transcripts with malformed/truncated markers;
 - process close after protocol failure.
 
-More examples: [Examples](../examples.md#framed-protocol-worker).
+The example below includes a minimal length-prefixed adapter.
 
 ## Example
 
@@ -75,7 +75,7 @@ reusable after each request. The pool owns acquire, release, retirement, reset, 
 replenishment. The pooled API takes an adapter factory so each worker owns its own protocol state. iCLI serializes
 factory calls, and the adapters returned by the factory do not need to be thread-safe.
 
-More examples: [Examples](../examples.md#typed-protocol-worker-pool).
+Task-oriented pooling steps are in [Reuse workers](../how-to/reuse-workers.md).
 
 ## Adapter Boundary
 

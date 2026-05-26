@@ -41,8 +41,6 @@ line parsing surprises and reduces injection risk.
 Use policies for domain decisions instead of booleans. Capture and shutdown policies are examples of invariants that
 belong to value objects, not to ad hoc process code at call sites.
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Failure model
 
 `CommandResult` represents a process that was launched and supervised to a terminal outcome. Non-zero exit codes remain

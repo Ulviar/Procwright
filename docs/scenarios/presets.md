@@ -16,8 +16,6 @@ tool.run()
         .execute();
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Current preset families
 
 - one-shot command automation;

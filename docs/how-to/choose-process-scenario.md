@@ -156,8 +156,8 @@ try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
 }
 ```
 
-See [Protocol Sessions](../scenarios/protocol-session.md), [Reuse workers](reuse-workers.md), and
-[Integrations](../scenarios/integrations.md).
+The adapter implementation is shown in [Protocol Sessions](../scenarios/protocol-session.md#example). See also
+[Reuse workers](reuse-workers.md) and [Integrations](../scenarios/integrations.md).
 
 ## JSON Lines or Content-Length tool adapter
 

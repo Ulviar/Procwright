@@ -22,8 +22,6 @@ try (Session session = repl.interactive().withArgs("repl").open();
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Use this scenario because
 
 Prompt automation needs output ownership, timeout/EOF distinction, and bounded transcripts. Raw `interactive` would

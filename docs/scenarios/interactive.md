@@ -28,8 +28,6 @@ try (Session session = python.interactive().withArgs("-i").open()) {
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Output ownership
 
 Interactive sessions expose raw stdout and stderr, but iCLI still protects output ownership. The first public raw stream

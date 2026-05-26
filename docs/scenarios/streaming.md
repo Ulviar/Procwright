@@ -30,8 +30,6 @@ try (StreamSession stream = tool.listen()
 }
 ```
 
-More examples: [Examples](../examples.md#core-examples).
-
 ## Backpressure
 
 Listener callbacks are synchronous for a stream session. A slow listener applies process-pipe backpressure instead of
