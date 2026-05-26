@@ -87,6 +87,20 @@ final class CommandServiceTest {
     }
 
     @Test
+    void serviceDefaultReplacementsValidateNulls() {
+        CommandService service = CommandService.forCommand("git");
+
+        assertThrows(NullPointerException.class, () -> service.withRunOptions(null));
+        assertThrows(NullPointerException.class, () -> service.withSessionOptions(null));
+        assertThrows(NullPointerException.class, () -> service.withLineSessionOptions(null));
+        assertThrows(NullPointerException.class, () -> service.withStreamOptions(null));
+        assertThrows(NullPointerException.class, () -> service.withPooledLineSessionOptions(null));
+        assertThrows(NullPointerException.class, () -> service.withProtocolSessionOptions(null));
+        assertThrows(NullPointerException.class, () -> service.withPooledProtocolSessionOptions(null));
+        assertThrows(NullPointerException.class, () -> service.withDiagnostics(null));
+    }
+
+    @Test
     void createsServiceForShellCommandWithDefaultOptions() {
         CommandService service = CommandService.forShellCommand("echo hello");
 
