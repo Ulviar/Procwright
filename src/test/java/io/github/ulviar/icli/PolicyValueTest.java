@@ -12,7 +12,9 @@ import io.github.ulviar.icli.session.ExpectOptions;
 import io.github.ulviar.icli.session.LineSessionOptions;
 import io.github.ulviar.icli.session.PooledLineSessionMetrics;
 import io.github.ulviar.icli.session.PooledLineSessionOptions;
+import io.github.ulviar.icli.session.PooledProtocolSessionMetrics;
 import io.github.ulviar.icli.session.PooledProtocolSessionOptions;
+import io.github.ulviar.icli.session.PooledWorkerRetireReason;
 import io.github.ulviar.icli.session.ProtocolSessionOptions;
 import io.github.ulviar.icli.session.SessionOptions;
 import io.github.ulviar.icli.session.StreamOptions;
@@ -21,6 +23,8 @@ import io.github.ulviar.icli.terminal.TerminalPolicy;
 import io.github.ulviar.icli.terminal.TerminalSize;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.EnumMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 final class PolicyValueTest {
@@ -150,6 +154,10 @@ final class PolicyValueTest {
         assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 2, 0, 2, 0, 0, 0));
         assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 0, 2, 2, 0, 0, 0));
         assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(0, 0, 0, 0, 1, 0, 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledLineSessionMetrics(
+                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
     }
 
     @Test
@@ -190,5 +198,45 @@ final class PolicyValueTest {
                 .withMaxRequestsPerWorker(0));
         assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
                 .withMaxWorkerAge(Duration.ofMillis(-1)));
+    }
+
+    @Test
+    void pooledProtocolSessionMetricsRejectImpossibleSnapshots() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(
+                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
+    }
+
+    @Test
+    void pooledProtocolSessionMetricsSnapshotRetireReasons() {
+        EnumMap<PooledWorkerRetireReason, Long> retireReasons = new EnumMap<>(PooledWorkerRetireReason.class);
+        retireReasons.put(PooledWorkerRetireReason.MAX_REQUESTS, 1L);
+
+        PooledProtocolSessionMetrics metrics =
+                new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, retireReasons);
+        retireReasons.put(PooledWorkerRetireReason.TIMEOUT, 1L);
+
+        assertEquals(Map.of(PooledWorkerRetireReason.MAX_REQUESTS, 1L), metrics.retireReasons());
+        assertThrows(UnsupportedOperationException.class, () -> metrics.retireReasons()
+                .put(PooledWorkerRetireReason.TIMEOUT, 1L));
+        assertThrows(
+                NullPointerException.class,
+                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, null));
     }
 }

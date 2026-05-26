@@ -86,6 +86,7 @@ public record PooledLineSessionMetrics(
         requireNonNegative(totalRequestDurationNanos, "totalRequestDurationNanos");
         requireNonNegative(totalWorkerStartupNanos, "totalWorkerStartupNanos");
         retireReasons = Map.copyOf(Objects.requireNonNull(retireReasons, "retireReasons"));
+        retireReasons.forEach((reason, count) -> requireNonNegative(count, "retireReasonCount"));
         if (idle > size) {
             throw new IllegalArgumentException("idle must not exceed size");
         }

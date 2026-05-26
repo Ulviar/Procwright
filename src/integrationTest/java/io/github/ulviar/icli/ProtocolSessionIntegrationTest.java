@@ -64,6 +64,16 @@ final class ProtocolSessionIntegrationTest {
     }
 
     @Test
+    void requestCharacterLimitIsTypedFailure() {
+        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
+                .protocolSession(new TextLineAdapter(), call -> call.args("controlled-line-repl")
+                        .maxRequestChars(4))
+                .request("hello"));
+
+        assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, exception.reason());
+    }
+
+    @Test
     void responseSizeLimitIsTypedFailure() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
                 .protocolSession(new FramedStringAdapter(), call -> call.args("length-line-frame")
@@ -393,6 +403,21 @@ final class ProtocolSessionIntegrationTest {
             assertEquals("", stdout.readLine(1));
             assertEquals("END", stdout.readLine(8));
             return new String(body, StandardCharsets.UTF_8);
+        }
+    }
+
+    private static final class TextLineAdapter implements ProtocolAdapter<String, String> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.write(request);
+            writer.write("\n");
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return readers.stdout().readLine(64);
         }
     }
 
