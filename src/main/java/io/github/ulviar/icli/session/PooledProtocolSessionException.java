@@ -1,11 +1,12 @@
 package io.github.ulviar.icli.session;
 
+import io.github.ulviar.icli.IcliException;
 import java.util.Objects;
 
 /**
  * Signals a pooled protocol-session failure outside the underlying protocol request itself.
  */
-public final class PooledProtocolSessionException extends RuntimeException {
+public final class PooledProtocolSessionException extends IcliException {
 
     /** Failure reason. */
     private final Reason reason;

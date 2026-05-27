@@ -14,6 +14,9 @@ The `0.1.0` public API is the documented scenario surface:
 - optional integrations helpers
 - optional Kotlin extensions
 
+`IcliException` is the common unchecked base class for failures produced by iCLI. Scenario-specific exceptions remain
+the source of structured data such as command results, reasons, transcripts, diagnostics, and process exit information.
+
 Generated Java API docs are linked from [API Docs](../api/index.md). Kotlin usage is documented in
 [Kotlin API](../reference/kotlin-api.md).
 

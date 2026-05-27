@@ -1,11 +1,12 @@
 package io.github.ulviar.icli.command;
 
+import io.github.ulviar.icli.IcliException;
 import java.util.Objects;
 
 /**
  * Exception view of an unsuccessful command result.
  */
-public final class CommandException extends RuntimeException {
+public final class CommandException extends IcliException {
 
     /** Command result that caused this exception. */
     private final CommandResult result;

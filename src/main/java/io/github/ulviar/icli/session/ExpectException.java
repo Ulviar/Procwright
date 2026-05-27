@@ -1,11 +1,12 @@
 package io.github.ulviar.icli.session;
 
+import io.github.ulviar.icli.IcliException;
 import java.util.Objects;
 
 /**
  * Signals an expect automation failure.
  */
-public final class ExpectException extends RuntimeException {
+public final class ExpectException extends IcliException {
 
     /** Failure reason. */
     private final Reason reason;

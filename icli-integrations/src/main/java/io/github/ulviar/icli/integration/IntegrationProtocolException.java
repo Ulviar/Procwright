@@ -1,11 +1,12 @@
 package io.github.ulviar.icli.integration;
 
+import io.github.ulviar.icli.IcliException;
 import java.util.Objects;
 
 /**
  * Signals an integration protocol framing failure.
  */
-public final class IntegrationProtocolException extends RuntimeException {
+public final class IntegrationProtocolException extends IcliException {
 
     /** Protocol failure reason. */
     private final Reason reason;

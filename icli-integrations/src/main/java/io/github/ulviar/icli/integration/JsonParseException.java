@@ -1,9 +1,11 @@
 package io.github.ulviar.icli.integration;
 
+import io.github.ulviar.icli.IcliException;
+
 /**
  * Signals invalid JSON text.
  */
-public final class JsonParseException extends IllegalArgumentException {
+public final class JsonParseException extends IcliException {
 
     /**
      * Creates a parse exception.

@@ -1,11 +1,12 @@
 package io.github.ulviar.icli.session;
 
+import io.github.ulviar.icli.IcliException;
 import java.util.Objects;
 
 /**
  * Signals a line-oriented request/response failure.
  */
-public final class LineSessionException extends RuntimeException {
+public final class LineSessionException extends IcliException {
 
     /** Failure reason. */
     private final Reason reason;

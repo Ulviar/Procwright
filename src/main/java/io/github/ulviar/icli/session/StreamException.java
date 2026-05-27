@@ -1,11 +1,12 @@
 package io.github.ulviar.icli.session;
 
+import io.github.ulviar.icli.IcliException;
 import java.util.Objects;
 
 /**
  * Signals a streaming-session failure with bounded diagnostics.
  */
-public final class StreamException extends RuntimeException {
+public final class StreamException extends IcliException {
 
     /**
      * Bounded diagnostics captured before the stream failed.

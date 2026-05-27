@@ -1,9 +1,11 @@
 package io.github.ulviar.icli.command;
 
+import io.github.ulviar.icli.IcliException;
+
 /**
  * Signals that the process could not be started, supervised, or captured.
  */
-public final class CommandExecutionException extends RuntimeException {
+public final class CommandExecutionException extends IcliException {
 
     /** Failure reason. */
     private final Reason reason;

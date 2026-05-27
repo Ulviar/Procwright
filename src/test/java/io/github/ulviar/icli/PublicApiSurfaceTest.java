@@ -39,6 +39,7 @@ final class PublicApiSurfaceTest {
     private static final Set<String> PUBLIC_API_TYPES = Set.of(
             "io.github.ulviar.icli.CommandService",
             "io.github.ulviar.icli.Icli",
+            "io.github.ulviar.icli.IcliException",
             "io.github.ulviar.icli.InteractiveScenario",
             "io.github.ulviar.icli.LineSessionScenario",
             "io.github.ulviar.icli.PooledLineSessionScenario",

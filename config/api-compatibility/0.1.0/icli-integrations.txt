@@ -120,11 +120,11 @@ TYPE public abstract interface io.github.ulviar.icli.integration.ToolCallResult<
 TYPE public abstract static interface io.github.ulviar.icli.integration.CommandBackedTool$Handler<I, O>
 TYPE public final class io.github.ulviar.icli.integration.CancellableCall<T>
 TYPE public final class io.github.ulviar.icli.integration.ContentLengthJsonFrames
-TYPE public final class io.github.ulviar.icli.integration.IntegrationProtocolException extends java.lang.RuntimeException
+TYPE public final class io.github.ulviar.icli.integration.IntegrationProtocolException extends io.github.ulviar.icli.IcliException
 TYPE public final class io.github.ulviar.icli.integration.JsonCodec
 TYPE public final class io.github.ulviar.icli.integration.JsonLineSession implements java.lang.AutoCloseable
 TYPE public final class io.github.ulviar.icli.integration.JsonLines
-TYPE public final class io.github.ulviar.icli.integration.JsonParseException extends java.lang.IllegalArgumentException
+TYPE public final class io.github.ulviar.icli.integration.JsonParseException extends io.github.ulviar.icli.IcliException
 TYPE public final class io.github.ulviar.icli.integration.ProtocolAdapters
 TYPE public final record io.github.ulviar.icli.integration.CliAdapterError extends java.lang.Record
 TYPE public static final enum io.github.ulviar.icli.integration.IntegrationProtocolException$Reason extends java.lang.Enum<io.github.ulviar.icli.integration.IntegrationProtocolException$Reason>

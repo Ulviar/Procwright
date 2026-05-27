@@ -1,12 +1,13 @@
 package io.github.ulviar.icli.session;
 
+import io.github.ulviar.icli.IcliException;
 import java.util.Objects;
 import java.util.OptionalInt;
 
 /**
  * Signals a protocol request/response failure.
  */
-public final class ProtocolSessionException extends RuntimeException {
+public final class ProtocolSessionException extends IcliException {
 
     /** Failure reason. */
     private final Reason reason;

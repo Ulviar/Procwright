@@ -2,6 +2,16 @@
 
 iCLI keeps process outcomes and runtime failures separate.
 
+## IcliException
+
+`IcliException` is the common unchecked base class for runtime failures produced by iCLI.
+
+Catch it when application code needs one generic boundary for logging, wrapping, retry classification, or cleanup around
+iCLI calls. Catch a scenario-specific exception when code needs structured details such as a command result, failure
+reason, transcript snapshot, diagnostics, or process exit information.
+
+Non-zero command exits are still represented as `CommandResult` data until application code calls `toException()`.
+
 ## CommandResult
 
 `CommandResult` is the completed one-shot outcome. It contains:
@@ -65,6 +75,12 @@ redacted.
 `PooledLineSessionException` and `PooledProtocolSessionException` report pool-level failures outside the underlying
 request exception. Acquire timeout is distinct from request timeout. Startup failure is distinct from a worker failing
 after it has been leased. Hook timeout reports a bounded health or reset hook that did not finish before its deadline.
+
+## Integration Exceptions
+
+Optional integration helpers also use `IcliException` for failures produced by iCLI adapters. For example,
+`IntegrationProtocolException` reports malformed frames or protocol-level helper failures, and `JsonParseException`
+reports JSON decoding failures in the optional JSON helpers.
 
 ## ExpectException
 

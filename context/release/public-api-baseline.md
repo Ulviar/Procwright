@@ -38,6 +38,11 @@ Scenario API baseline `0.1.0` включает `run`, `interactive`, `expect`, `
 `lineSession().pooled()` и `protocolSession(factory).pooled()`. Generic/core async request API и raw session pooling не
 входят в текущую baseline; узкий cancellable JSON Lines helper остается частью optional integrations module.
 
+`IcliException` входит в baseline как общий unchecked catch boundary для ошибок, произведенных iCLI. Он не заменяет
+сценарные exceptions: structured details остаются в `CommandException`, `CommandExecutionException`,
+`LineSessionException`, `ProtocolSessionException`, pooled/session/stream/expect exceptions и optional integration
+exceptions.
+
 ## Optional integrations module
 
 Модуль `io.github.ulviar.icli.integrations` экспортирует только пакет

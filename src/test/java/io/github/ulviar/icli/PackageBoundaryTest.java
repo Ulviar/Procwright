@@ -38,7 +38,7 @@ final class PackageBoundaryTest {
             ROOT,
             packages("command", "diagnostics", "internal", "internal.session", "session", "terminal"),
             ROOT + ".command",
-            packages("internal"),
+            packages("", "internal"),
             ROOT + ".diagnostics",
             packages("command", "internal", "terminal"),
             ROOT + ".internal",
@@ -48,7 +48,7 @@ final class PackageBoundaryTest {
             ROOT + ".preset",
             packages("command", "session", "terminal"),
             ROOT + ".session",
-            packages("command", "diagnostics", "internal", "internal.session", "terminal"),
+            packages("", "command", "diagnostics", "internal", "internal.session", "terminal"),
             ROOT + ".terminal",
             packages("command", "internal"));
 
@@ -179,7 +179,7 @@ final class PackageBoundaryTest {
     private static Set<String> packages(String... names) {
         TreeSet<String> packages = new TreeSet<>();
         for (String name : names) {
-            packages.add(ROOT + "." + name);
+            packages.add(name.isEmpty() ? ROOT : ROOT + "." + name);
         }
         return packages;
     }
