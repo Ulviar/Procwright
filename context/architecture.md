@@ -1,11 +1,11 @@
-# Архитектура первого релиза
+# Архитектура baseline 0.1.0
 
 ## Цель
 
 iCLI — JVM-библиотека для безопасного запуска внешних CLI-программ и управления интерактивными процессами из
 Java/Kotlin приложений.
 
-Первая версия должна доказать надежное process execution ядро. Новая возможность добавляется только через понятный
+Baseline `0.1.0` должен доказать надежное process execution ядро. Новая возможность добавляется только через понятный
 сценарий, владельца инварианта и проверку.
 
 Главный архитектурный принцип описан в [invariant-architecture.md](invariant-architecture.md): широкие возможности
@@ -17,7 +17,7 @@ Java/Kotlin приложений.
 scenario-specific execution plan. Это описано в
 [scenario-api.md](scenario-api.md).
 
-## Входит в первый релиз
+## Входит в baseline 0.1.0
 
 - One-shot запуск команды.
 - Явная модель команды: executable, args, working directory, environment, shell mode.
@@ -43,7 +43,7 @@ scenario-specific execution plan. Это описано в
   checklist.
 - Maven Central publishing/signing setup для Java 17-targeted artifacts без runtime impact.
 
-## Не входит в первый релиз
+## Не входит в baseline 0.1.0
 
 - Raw session pooling.
 - Stateful conversation affinity.
@@ -209,7 +209,7 @@ io.github.ulviar.icli.integration
 session-family lifecycle. Подробности зафиксированы в
 [decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md).
 
-## Расширения после первого релиза
+## Расширения вне baseline 0.1.0
 
 1. PTY hardening и кроссплатформенная матрица.
 2. Более богатый expect DSL.

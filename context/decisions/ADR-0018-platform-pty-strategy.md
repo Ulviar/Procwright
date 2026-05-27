@@ -1,8 +1,8 @@
-# ADR-0018: Platform и PTY strategy перед первым релизом
+# ADR-0018: Platform и PTY strategy baseline 0.1.0
 
 ## Статус
 
-Accepted for the first release baseline.
+Принято.
 
 ## Контекст
 
@@ -10,11 +10,11 @@ iCLI поддерживает terminal capability через `TerminalPolicy` и
 ConPTY wrappers или других native bindings. Текущий system provider использует platform capability и explicit
 unsupported behavior, если terminal недоступен.
 
-Перед первым релизом нужно решить, пытаться ли включить Windows ConPTY provider в текущий scope.
+Нужно явно зафиксировать, входит ли Windows ConPTY provider в текущий scope.
 
 ## Решение
 
-Первый релиз не включает Windows ConPTY implementation.
+Baseline `0.1.0` не включает Windows ConPTY implementation.
 
 Текущая стратегия:
 
@@ -23,14 +23,15 @@ unsupported behavior, если terminal недоступен.
 - `TerminalPolicy.REQUIRED` не делает silent fallback в pipes;
 - текущий system PTY provider остается platform-dependent capability;
 - POSIX/PTY tests skip-аются через assumptions, если capability недоступна;
-- Windows ConPTY будет проектироваться как отдельный optional artifact или runtime-specific provider после первого релиза.
+- Windows ConPTY будет проектироваться как отдельный optional artifact или runtime-specific provider вне baseline
+  `0.1.0`.
 
 ## Почему не добавляем ConPTY сейчас
 
 - ConPTY требует отдельной native/platform integration strategy.
 - Нельзя ухудшать core dependency story ради одного transport backend.
 - API уже имеет правильную capability boundary; добавление provider не должно менять scenario model.
-- Первый релиз должен стабилизировать contract, а не расширять platform runtime.
+- Baseline `0.1.0` должен стабилизировать contract, а не расширять platform runtime.
 
 ## Последствия
 
@@ -42,5 +43,5 @@ unsupported behavior, если terminal недоступен.
 
 Минусы:
 
-- Windows terminal-required workflows не считаются shipped capability в первом релизе.
+- Windows terminal-required workflows не считаются shipped capability в baseline `0.1.0`.
 - Пользователь Windows получает explicit unsupported behavior для `TerminalPolicy.REQUIRED`, если provider недоступен.

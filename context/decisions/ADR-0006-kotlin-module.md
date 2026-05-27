@@ -2,7 +2,7 @@
 
 ## Статус
 
-Accepted for Phase 10.
+Принято.
 
 ## Контекст
 
@@ -24,7 +24,7 @@ artifact должен оставаться Java library без Kotlin runtime, c
   заменить internal listener.
 
 Java core остается root project и не зависит от Kotlin. Kotlin module зависит от core и `kotlinx-coroutines-core`.
-Kotlin-friendly nullability в этой фазе задается сигнатурами extension API. Аннотации nullability в Java core не
+Kotlin-friendly nullability задается сигнатурами extension API. Аннотации nullability в Java core не
 добавляются, чтобы не вносить новую dependency в core artifact до отдельного решения.
 
 `Session.awaitExit()` и `StreamSession.awaitExit()` не отменяют общий `onExit()` future при cancellation ожидающей

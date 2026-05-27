@@ -1,6 +1,6 @@
 # ADR-0009: CLI-backed integrations как optional module
 
-Статус: принято для фазы 13.
+Статус: принято.
 
 ## Контекст
 

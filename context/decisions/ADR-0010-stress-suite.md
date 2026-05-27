@@ -1,12 +1,12 @@
 # ADR-0010: Bounded stress suite как release gate
 
-Статус: принято для фазы 14.
+Статус: принято.
 
 ## Контекст
 
-После появления one-shot, sessions, streaming, pooling, diagnostics, Kotlin adapters и integration module проекту нужны
-регрессионные проверки, которые ловят deadlocks, unbounded retention и lifecycle races под нагрузкой. При этом stress
-suite не должна превращать обычную разработку в долгий benchmark run.
+One-shot, sessions, streaming, pooling, diagnostics, Kotlin adapters и integration module требуют регрессионных проверок,
+которые ловят deadlocks, unbounded retention и lifecycle races под нагрузкой. При этом stress suite не должна превращать
+обычную разработку в долгий benchmark run.
 
 ## Решение
 
@@ -31,5 +31,5 @@ suite не должна превращать обычную разработку
 
 ## Последствия
 
-`./gradlew check` теперь запускает bounded stress suite. Для более тяжелых benchmark/JMH сценариев нужен отдельный
-будущий слой, чтобы не смешивать deterministic regressions и machine-dependent measurements.
+`./gradlew check` запускает bounded stress suite. Более тяжелые benchmark/JMH сценарии остаются отдельным слоем, чтобы
+не смешивать deterministic regressions и machine-dependent measurements.

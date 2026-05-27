@@ -2,20 +2,20 @@
 
 ## Статус
 
-Принято для фазы 12.
+Принято.
 
 ## Контекст
 
-Фаза 12 должна добавить готовые профили для распространенных задач, но не должна создавать новые подсистемы или
-отдельные runners. Пользовательская идея остается прежней: сначала выбрать сценарий (`run`, `listen`, `lineSession`,
-`interactive`, `pooled`), затем при необходимости применить preset как пакет осмысленных переопределений policy.
+Presets должны закрывать распространенные задачи, но не должны создавать новые подсистемы или отдельные runners.
+Пользователь сначала выбирает сценарий (`run`, `listen`, `lineSession`, `interactive`, `pooled`), затем при
+необходимости применяет preset как пакет осмысленных переопределений policy.
 
 ## Решение
 
 Добавить `ScenarioPresets` — stateless public utility с typed `Consumer<...>` customizers для существующих invocation
 builders.
 
-Первый набор:
+Текущий набор:
 
 - `commandAutomation(...)` для bounded one-shot automation;
 - `environmentDiagnostics(...)` для merged UTF-8 diagnostics output;

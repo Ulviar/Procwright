@@ -21,7 +21,7 @@ fluent configuration и policy/value objects.
 
 - разрастание `runner`, `client`, `processor`, `conversation`, `delegate`;
 - отдельный public facade под каждый сценарий;
-- raw/session pooling, affinity и lease scope в первом релизе;
+- raw/session pooling, affinity и lease scope в baseline `0.1.0`;
 - `Essential` / `Advanced` как публичный маркетинговый слой.
 
 ## Базовый стиль

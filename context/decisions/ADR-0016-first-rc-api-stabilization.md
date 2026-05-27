@@ -1,24 +1,24 @@
-# ADR-0016: Стабилизация public API перед первым релизом
+# ADR-0016: Стабилизация public API baseline 0.1.0
 
 ## Статус
 
-Accepted for the first release baseline.
+Принято.
 
 ## Контекст
 
-После фаз `run`, `interactive`, `lineSession`, `expect`, `listen`, `pooled`, scenario presets, Kotlin ergonomics,
-CLI-backed integrations, документации и release hardening проект готов к API freeze audit. Перед первым релизом нужно
-решить спорные имена и границы, пока они не стали публичным compatibility debt.
+Baseline `0.1.0` фиксирует public API для `run`, `interactive`, `lineSession`, `expect`, `listen`, `pooled`, scenario
+presets, Kotlin ergonomics и CLI-backed integrations. Спорные имена и границы должны быть решены на уровне baseline,
+чтобы не создавать случайный compatibility debt.
 
 ## Решение
 
 ### `CommandService` остается основным entry point
 
-Имя `CommandService` сохраняется для первого релиза: пользователь создает сервис вокруг базовой команды, а затем
+Имя `CommandService` сохраняется в baseline `0.1.0`: пользователь создает сервис вокруг базовой команды, а затем
 выбирает сценарий. Название должно отражать sessions, streaming, pooling и structured integrations, а не только
 one-shot execution.
 
-### Convenience overloads не добавляются перед первым релизом
+### Convenience overloads не входят в baseline 0.1.0
 
 Минимальная форма остается:
 
@@ -36,7 +36,7 @@ CommandResult result = git.run().execute("status", "--short");
 учитываются успешные записи в stdin, закрытие stdin и успешные чтения caller-а из session streams. Выход процесса,
 который пишет данные, но caller их не читает, не обязан сбрасывать этот timeout.
 
-Переименование перед первым релизом не требуется, потому что:
+Переименование не требуется, потому что:
 
 - текущее имя короткое и согласовано с session lifecycle;
 - Javadoc явно раскрывает семантику;
@@ -45,7 +45,7 @@ CommandResult result = git.run().execute("status", "--short");
 
 ### Начальный набор `ScenarioPresets` замораживается
 
-Для первого релиза сохраняется текущий набор:
+В baseline `0.1.0` входит текущий набор:
 
 - `commandAutomation(...)`;
 - `environmentDiagnostics(...)`;
@@ -66,8 +66,8 @@ CommandResult result = git.run().execute("status", "--short");
 
 ### Diagnostics остается best-effort unordered
 
-Order-preserving dispatcher не входит в первый релиз. Diagnostics не должен менять поведение execution и не должен блокировать
-runtime из-за пользовательского listener-а или transcript sink-а.
+Order-preserving dispatcher не входит в baseline `0.1.0`. Diagnostics не должен менять поведение execution и не должен
+блокировать runtime из-за пользовательского listener-а или transcript sink-а.
 
 ### Expect-level process diagnostics не добавляются
 

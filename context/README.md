@@ -10,7 +10,7 @@
 
 ## Активная карта
 
-- [architecture.md](architecture.md) — границы первого релиза и слои runtime.
+- [architecture.md](architecture.md) — границы baseline `0.1.0` и слои runtime.
 - [invariant-architecture.md](invariant-architecture.md) — как изолируются инварианты API и runtime.
 - [scenario-api.md](scenario-api.md) — scenario-first пользовательский язык.
 - [scenario-contracts.md](scenario-contracts.md) — контракты реализованных сценариев.

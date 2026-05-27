@@ -2,15 +2,15 @@
 
 ## Статус
 
-Accepted for Phase 7.
+Принято.
 
 ## Контекст
 
 Часть интерактивных CLI ведет себя иначе без настоящего terminal: REPL могут менять buffering, выводить prompts только
 под TTY, читать control signals через terminal driver или проверять `isatty`.
 
-При этом PTY не должен превращать scenario API в платформенный набор flags. Пользовательская модель остается прежней:
-пользователь выбирает сценарий и терминальную потребность, а runtime выбирает transport.
+При этом PTY не должен превращать scenario API в платформенный набор flags. Пользовательская модель: пользователь
+выбирает сценарий и терминальную потребность, а runtime выбирает transport.
 
 ## Решение
 
@@ -36,7 +36,7 @@ Windows ConPTY фиксируется как explicit unsupported behavior в т
 ## Альтернативы
 
 1. Подключить внешнюю PTY dependency сразу в core.
-   - Отклонено: прежняя версия слишком рано протащила PTY complexity в ядро.
+   - Отклонено: PTY complexity не должна попадать в ядро раньше устойчивой transport boundary.
 2. Спрятать terminal preference только в `SessionOptions`.
    - Отклонено: per-call сценарий должен уметь явно сказать "этому запуску нужен terminal".
 3. Делать PTY только через shell strings.

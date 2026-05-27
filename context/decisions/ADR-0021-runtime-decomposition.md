@@ -50,7 +50,7 @@ plans, открывает runtime wrappers, применяет readiness checks 
 
 - `io.github.ulviar.icli` как root package становится разрешенным dependency для subpackages из-за публичного
   `IcliException`.
-- Protocol internals остаются package-private и не являются SPI; расширяемость для пользователей по-прежнему идет через
+- Protocol internals остаются package-private и не являются SPI; пользовательская расширяемость идет через
   `ProtocolAdapter`.
 
 ## Проверка

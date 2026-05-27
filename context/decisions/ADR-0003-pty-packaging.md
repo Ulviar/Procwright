@@ -2,8 +2,7 @@
 
 ## Статус
 
-Accepted for foundation; concrete Phase 7 transport decision is captured in
-[ADR-0005](ADR-0005-pty-transport.md).
+Принято. Текущий transport contract зафиксирован в [ADR-0005](ADR-0005-pty-transport.md).
 
 ## Контекст
 
@@ -20,19 +19,18 @@ iCLI должен сначала стабилизировать:
 
 ## Решение
 
-В фазе 1 PTY dependency не подключается к core artifact.
+PTY dependency не подключается к core artifact.
 
-Архитектура оставляет место для `PtyProvider` / transport SPI. Конкретный Phase 7 transport выбран отдельным ADR.
+Архитектура оставляет место для `PtyProvider` / transport SPI. Текущий transport выбран отдельным ADR.
 
 ## Последствия
 
 Плюсы:
 
 - core foundation остается легким;
-- PTY quirks не протекают в ранний API;
+- PTY quirks не протекают в core API;
 - можно позже выбрать packaging на основании реальных tests и platform matrix.
 
 Минусы:
 
-- PTY сценарии не будут доступны в ранних фазах;
-- потребуется отдельный integration slice для terminal-required workflows.
+- terminal-required workflows требуют отдельного transport slice.

@@ -2,8 +2,8 @@
 
 ## Текущий статус
 
-Текущая публичная версия проекта — `0.1.0`. Это первый публичный релиз до `1.0.0`; breaking changes по-прежнему
-допустимы только при осмысленном обновлении public docs, compile-tested examples и релевантных behavior checks.
+Текущий release baseline проекта — `0.1.0`. До `1.0.0` breaking changes допустимы только при осмысленном обновлении
+public docs, compile-tested examples и релевантных behavior checks.
 
 Root project и optional modules должны иметь одинаковые `group` и `version`. Версия относится ко всему набору
 артефактов текущего публичного release, а не только к core module.

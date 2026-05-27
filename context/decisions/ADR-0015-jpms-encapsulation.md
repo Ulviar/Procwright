@@ -52,7 +52,7 @@ diagnostics package описывает только пользовательск
   другого package;
 - `Expect.on(Session, ...)` остается public static factory на interface и поэтому public `session` package зависит от
   internal implementation package на уровне bytecode. Это не leak в сигнатурах и закрыто JPMS exports, но это осознанная
-  внутренняя связь ради сохранения прежней пользовательской API-идеи.
+  внутренняя связь ради сохранения scenario-first API.
 
 ## Проверка
 

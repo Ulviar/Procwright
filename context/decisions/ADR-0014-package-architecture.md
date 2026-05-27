@@ -83,7 +83,7 @@ stateful реализации и runtime factories живут в `internal.sessi
 
 Минусы:
 
-- это breaking change для импортов до первого релиза;
+- это breaking change для импортов до baseline `0.1.0`;
 - public session-family handles не являются SPI; sealed contracts делают это compile-time свойством;
 - tests, Kotlin facade, integrations и comparison module должны обновить imports.
 

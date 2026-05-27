@@ -8,9 +8,8 @@ pooled line-session scenario, protocol-session scenario, typed protocol pool, sc
 integrations, bounded stress suite, comparison research module, public MkDocs site и generated Java API docs для
 core/integrations.
 
-Основной roadmap до первого публичного release baseline выполнен. Дальнейшая работа перед публикацией должна быть
-stabilization/release-focused: не расширять сценарии без ADR/eval, не добавлять shortcuts, которые создают второй API
-dialect, и не переносить optional/platform/runtime зависимости в core.
+Дальнейшая работа перед публикацией должна быть stabilization/release-focused: не расширять сценарии без ADR/eval, не
+добавлять shortcuts, которые создают второй API dialect, и не переносить optional/platform/runtime зависимости в core.
 
 ## Release baseline
 
@@ -20,7 +19,7 @@ dialect, и не переносить optional/platform/runtime зависимо
 | Scenario API | Baseline | Пользователь выбирает `run`, `interactive`, `lineSession`, `protocolSession`, `expect`, `listen`, `lineSession().pooled()` или `protocolSession(factory).pooled()`, а не собирает runtime flags. |
 | Invariant model | Baseline | `ScenarioProfile + CommandSpec + scenario invocation` разворачиваются в валидированные execution/session plans. |
 | One-shot execution | Baseline | Direct argv, explicit shell, stdin, cwd/env, charset, timeout, drain, bounded capture и typed result покрыты tests. |
-| Capture policy | Baseline | Bounded capture и truncation flags реализованы; streaming/discard capture policies не входят в первый релиз. |
+| Capture policy | Baseline | Bounded capture и truncation flags реализованы; streaming/discard capture policies не входят в baseline `0.1.0`. |
 | Timeout/shutdown | Baseline | Timeout supervision и process-tree cleanup покрыты integration/stress tests; platform timing остается bounded regression, а не performance guarantee. |
 | Command model | Baseline | Immutable `CommandSpec`, per-call builders, explicit environment policy и result/error model покрыты unit/integration tests. |
 | Interactive session | Baseline | Raw `Session` имеет guarded stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout. |
@@ -32,7 +31,7 @@ dialect, и не переносить optional/platform/runtime зависимо
 | Diagnostics | Baseline | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo, async best-effort unordered delivery и transcript sink покрыты tests/docs. |
 | Kotlin ergonomics | Baseline | Optional `:icli-kotlin` содержит extensions, suspend wrappers и Flow adapter; Java core не зависит от Kotlin; KDoc coverage check включен. |
 | Pooling | Baseline | `PooledLineSession` и `PooledProtocolSession` используют existing session workers, поддерживают max/warmup/minIdle, acquire timeout, bounded reset/health hooks, per-worker protocol adapters, retirement reasons, drain и metrics. |
-| Scenario presets | Baseline | Текущий набор presets заморожен для первого релиза и остается typed builder customizer layer без нового runtime. |
+| Scenario presets | Baseline | Текущий набор presets заморожен для baseline `0.1.0` и остается typed builder customizer layer без нового runtime. |
 | CLI integrations | Baseline | Optional `:icli-integrations` содержит JSON/JSONL, Content-Length framing, protocol adapters, cancellation/error mapping и command-backed tool wrappers без MCP dependency. |
 | Performance/stress | Baseline | `stressTest` входит в `check`; JMH/comparison остаются research/manual data, не performance guarantee. |
 | Release hardening | Baseline | License, CI matrix, dependency verification, versioning/compatibility/dependency policies, release checklist, JPMS, Javadocs и public package boundary tests добавлены. |
@@ -42,8 +41,8 @@ dialect, и не переносить optional/platform/runtime зависимо
 
 ## Принятые стабилизационные решения
 
-- `CommandService` остается главным entry point перед первым релизом.
-- Convenience one-line shortcuts не добавляются перед первым релизом.
+- `CommandService` остается главным entry point baseline `0.1.0`.
+- Convenience one-line shortcuts не входят в baseline `0.1.0`.
 - `SessionOptions.idleTimeout` сохраняет имя и caller-visible activity semantics.
 - Текущий набор `ScenarioPresets` заморожен; новые presets требуют ADR/eval.
 - Session-family handles остаются sealed public non-SPI contracts.
@@ -54,7 +53,7 @@ dialect, и не переносить optional/platform/runtime зависимо
 - Maven Central publishing/signing setup добавлен; первая публикация ожидает verified namespace и Central Portal
   credentials.
 
-## Отложено за пределы первого релиза
+## Отложено за пределы baseline 0.1.0
 
 - Raw session pooling.
 - Generic/core async request API.
@@ -65,12 +64,6 @@ dialect, и не переносить optional/platform/runtime зависимо
 - Automatic Maven Central publish без ручной проверки первого Central Portal deployment.
 - Machine-dependent performance promises.
 - Новые capture policy modes beyond bounded one-shot capture.
-
-## Следующий release-focused шаг
-
-1. Прогнать полный `./gradlew releaseCandidateCheck` на clean worktree.
-2. Проверить CI на Linux/macOS/Windows.
-3. Cut GitHub release, чтобы release-only CI job загрузил Central Portal deployment.
 
 ## Что считается прогрессом
 

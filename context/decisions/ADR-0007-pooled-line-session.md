@@ -2,7 +2,7 @@
 
 ## Статус
 
-Accepted for Phase 11.
+Принято.
 
 ## Контекст
 
@@ -10,7 +10,7 @@ Accepted for Phase 11.
 primitives и не обходить
 `ScenarioProfile -> ExecutionPlanResolver -> SessionRuntime -> LineSession`.
 
-Первый полезный pooling-срез — line-oriented workers для REPL/daemon-like CLI, где дорогой старт процесса можно
+Текущий pooling-срез — line-oriented workers для REPL/daemon-like CLI, где дорогой старт процесса можно
 амортизировать между несколькими request/response вызовами.
 
 ## Решение
@@ -52,6 +52,6 @@ return-to-pool и close. Возврат worker в pool происходит то
 
 Минусы:
 
-- первый pool intentionally line-oriented; raw session pooling и stateful affinity не включены;
+- pool intentionally line-oriented; raw session pooling и stateful affinity не включены;
 - transcript остается worker-lifetime свойством `LineSession`, поэтому reset/health hooks должны учитывать stateful CLI;
 - metrics пока локальные counters, без отдельной diagnostics event model.

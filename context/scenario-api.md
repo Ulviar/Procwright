@@ -80,7 +80,7 @@ try (Session shell = Icli.command("sh")
 Для `lineSession` под PTY decoder должен учитывать terminal echo, CRLF и prompts конкретного процесса; default
 `ResponseDecoder.firstLine()` остается pipe-oriented безопасным default, а не универсальным TTY protocol parser.
 
-## Минимальные сценарии первого релиза
+## Минимальные сценарии baseline 0.1.0
 
 ### `run`
 
