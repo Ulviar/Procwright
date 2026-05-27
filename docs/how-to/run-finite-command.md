@@ -11,7 +11,7 @@ should finish and return a result.
 4. Convert unsuccessful results with `toException()` only when fail-fast flow is useful.
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 
 CommandResult result = git.run().execute("status", "--short");
 

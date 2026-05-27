@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - rewrite/**
   pull_request:
   release:
     types:
@@ -48,19 +47,19 @@ jobs:
 
       - name: Verify Unix
         if: runner.os != 'Windows'
-        run: ./gradlew check publicJavaJavadocCheck --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon
+        run: ./gradlew check publicJavaJavadocCheck --project-prop=procwright.javaRelease=${{ matrix.java-release }} --no-daemon
 
       - name: Verify Windows
         if: runner.os == 'Windows'
-        run: .\gradlew.bat check publicJavaJavadocCheck --project-prop=icli.javaRelease=${{ matrix.java-release }} --no-daemon
+        run: .\gradlew.bat check publicJavaJavadocCheck --project-prop=procwright.javaRelease=${{ matrix.java-release }} --no-daemon
 
       - name: Publication smoke Unix
         if: runner.os != 'Windows' && matrix.java-release == 17
-        run: ./gradlew publishToMavenLocal --project-prop=icli.javaRelease=17 --no-daemon
+        run: ./gradlew publishToMavenLocal --project-prop=procwright.javaRelease=17 --no-daemon
 
       - name: Publication smoke Windows
         if: runner.os == 'Windows' && matrix.java-release == 17
-        run: .\gradlew.bat publishToMavenLocal --project-prop=icli.javaRelease=17 --no-daemon
+        run: .\gradlew.bat publishToMavenLocal --project-prop=procwright.javaRelease=17 --no-daemon
 
   publish-maven-central:
     name: Publish Maven Central
@@ -83,26 +82,26 @@ jobs:
       - name: Build Maven Central bundle
         run: |
           set -euo pipefail
-          release_version="${ICLI_RELEASE_TAG#v}"
-          ./gradlew mavenCentralBundle --project-prop=icli.javaRelease=17 --project-prop=icli.version="$release_version" --no-daemon
+          release_version="${PROCWRIGHT_RELEASE_TAG#v}"
+          ./gradlew mavenCentralBundle --project-prop=procwright.javaRelease=17 --project-prop=procwright.version="$release_version" --no-daemon
         env:
-          ICLI_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PROCWRIGHT_RELEASE_TAG: ${{ github.event.release.tag_name }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
 
       - name: Upload Maven Central deployment
         run: |
           set -euo pipefail
-          release_version="${ICLI_RELEASE_TAG#v}"
-          bundle="build/maven-central/icli-${release_version}-maven-central-bundle.zip"
+          release_version="${PROCWRIGHT_RELEASE_TAG#v}"
+          bundle="build/maven-central/procwright-${release_version}-maven-central-bundle.zip"
           central_token="$(printf "%s:%s" "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 | tr -d '\n')"
           curl --fail-with-body \
             --request POST \
             --header "Authorization: Bearer ${central_token}" \
             --form "bundle=@${bundle}" \
-            "https://central.sonatype.com/api/v1/publisher/upload?name=io.github.ulviar:iCLI:${release_version}&publishingType=USER_MANAGED"
+            "https://central.sonatype.com/api/v1/publisher/upload?name=io.github.ulviar:procwright:${release_version}&publishingType=USER_MANAGED"
         env:
-          ICLI_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PROCWRIGHT_RELEASE_TAG: ${{ github.event.release.tag_name }}
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
 
@@ -126,8 +125,8 @@ jobs:
       - name: Compile and run external consumer
         run: |
           set -euo pipefail
-          release_version="${ICLI_CONSUMER_VERSION}"
-          consumer_dir="${RUNNER_TEMP}/icli-consumer-smoke"
+          release_version="${PROCWRIGHT_CONSUMER_VERSION}"
+          consumer_dir="${RUNNER_TEMP}/procwright-consumer-smoke"
           mkdir -p "${consumer_dir}/src/main/java/consumer"
 
           cat > "${consumer_dir}/settings.gradle.kts" <<'EOF'
@@ -145,7 +144,7 @@ jobs:
               }
           }
 
-          rootProject.name = "icli-consumer-smoke"
+          rootProject.name = "procwright-consumer-smoke"
           EOF
 
           cat > "${consumer_dir}/build.gradle.kts" <<'EOF'
@@ -159,12 +158,12 @@ jobs:
               }
           }
 
-          val icliVersion = providers.environmentVariable("ICLI_CONSUMER_VERSION").get()
+          val procwrightVersion = providers.environmentVariable("PROCWRIGHT_CONSUMER_VERSION").get()
 
           dependencies {
-              implementation("io.github.ulviar:icli:$icliVersion")
-              implementation("io.github.ulviar:icli-integrations:$icliVersion")
-              implementation("io.github.ulviar:icli-kotlin:$icliVersion")
+              implementation("io.github.ulviar:procwright:$procwrightVersion")
+              implementation("io.github.ulviar:procwright-integrations:$procwrightVersion")
+              implementation("io.github.ulviar:procwright-kotlin:$procwrightVersion")
           }
 
           application {
@@ -175,28 +174,28 @@ jobs:
           cat > "${consumer_dir}/src/main/java/consumer/ConsumerSmoke.java" <<'EOF'
           package consumer;
 
-          import io.github.ulviar.icli.Icli;
-          import io.github.ulviar.icli.command.CapturePolicy;
-          import io.github.ulviar.icli.command.CommandSpec;
-          import io.github.ulviar.icli.integration.JsonValue;
-          import io.github.ulviar.icli.kotlin.IcliKotlinKt;
+          import io.github.ulviar.procwright.Procwright;
+          import io.github.ulviar.procwright.command.CapturePolicy;
+          import io.github.ulviar.procwright.command.CommandSpec;
+          import io.github.ulviar.procwright.integration.JsonValue;
+          import io.github.ulviar.procwright.kotlin.ProcwrightKotlinKt;
           import java.util.Map;
 
           public final class ConsumerSmoke {
               private ConsumerSmoke() {}
 
               public static void main(String[] args) {
-                  Object service = Icli.command(CommandSpec.of("java"));
+                  Object service = Procwright.command(CommandSpec.of("java"));
                   Object capturePolicy = CapturePolicy.bounded(1024);
                   Object json = JsonValue.object(Map.of("ok", JsonValue.bool(true)));
                   System.out.println(service.getClass().getName());
                   System.out.println(capturePolicy.getClass().getName());
                   System.out.println(json.getClass().getName());
-                  System.out.println(IcliKotlinKt.class.getName());
+                  System.out.println(ProcwrightKotlinKt.class.getName());
               }
           }
           EOF
 
-          ICLI_CONSUMER_VERSION="${release_version}" ./gradlew --project-dir "${consumer_dir}" --refresh-dependencies run --no-daemon
+          PROCWRIGHT_CONSUMER_VERSION="${release_version}" ./gradlew --project-dir "${consumer_dir}" --refresh-dependencies run --no-daemon
         env:
-          ICLI_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}

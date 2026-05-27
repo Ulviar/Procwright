@@ -1,13 +1,13 @@
 # Results and Errors
 
-iCLI keeps process outcomes and runtime failures separate.
+Procwright keeps process outcomes and runtime failures separate.
 
-## IcliException
+## ProcwrightException
 
-`IcliException` is the common unchecked base class for runtime failures produced by iCLI.
+`ProcwrightException` is the common unchecked base class for runtime failures produced by Procwright.
 
 Catch it when application code needs one generic boundary for logging, wrapping, retry classification, or cleanup around
-iCLI calls. Catch a scenario-specific exception when code needs structured details such as a command result, failure
+Procwright calls. Catch a scenario-specific exception when code needs structured details such as a command result, failure
 reason, transcript snapshot, diagnostics, or process exit information.
 
 Non-zero command exits are still represented as `CommandResult` data until application code calls `toException()`.
@@ -27,7 +27,7 @@ Non-zero command exits are still represented as `CommandResult` data until appli
 
 `toException()` returns a `CommandException` that preserves the full result.
 
-iCLI-produced results keep captured bytes and decoded text aligned through the execution charset.
+Procwright-produced results keep captured bytes and decoded text aligned through the execution charset.
 
 ## CommandException
 
@@ -36,7 +36,7 @@ throw on a non-zero exit or timeout while still preserving the result.
 
 ## CommandExecutionException
 
-`CommandExecutionException` signals that iCLI could not start, supervise, or capture the process as a normal
+`CommandExecutionException` signals that Procwright could not start, supervise, or capture the process as a normal
 `CommandResult`. It carries a stable reason such as launch failure, decode failure, readiness timeout, readiness failure,
 or runtime failure.
 
@@ -78,7 +78,7 @@ after it has been leased. Hook timeout reports a bounded health or reset hook th
 
 ## Integration Exceptions
 
-Optional integration helpers also use `IcliException` for failures produced by iCLI adapters. For example,
+Optional integration helpers also use `ProcwrightException` for failures produced by Procwright adapters. For example,
 `IntegrationProtocolException` reports malformed frames or protocol-level helper failures, and `JsonParseException`
 reports JSON decoding failures in the optional JSON helpers.
 

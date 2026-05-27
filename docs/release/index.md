@@ -1,6 +1,6 @@
 # Version and Compatibility
 
-These pages help you add iCLI to a project and understand what the current version supports.
+These pages help you add Procwright to a project and understand what the current version supports.
 
 Entry points:
 

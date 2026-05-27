@@ -8,7 +8,7 @@ command behavior.
 Attach diagnostics through `DiagnosticsOptions` on `CommandService`.
 
 ```java
-CommandService tool = Icli.command("tool")
+CommandService tool = Procwright.command("tool")
         .withDiagnostics(DiagnosticsOptions.defaults().withListener(event -> {
             if (event.attributes().containsKey("exitCode")) {
                 System.out.println(
@@ -31,7 +31,7 @@ Each `DiagnosticEvent` has the same stable outer shape:
 - `attributes`: event-specific structured attributes.
 
 Use `runId` to correlate lifecycle events for one process. Diagnostic callbacks are delivered asynchronously, so do not
-rely on callback order across threads. If a listener throws, iCLI emits `LISTENER_FAILED` when it can and continues the
+rely on callback order across threads. If a listener throws, Procwright emits `LISTENER_FAILED` when it can and continues the
 command workflow; listener failure does not turn a successful command into a failed command.
 
 ## Redaction model

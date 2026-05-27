@@ -10,14 +10,14 @@ dependencyResolutionManagement {
     repositories { mavenCentral() }
 }
 
-rootProject.name = "icli"
+rootProject.name = "procwright"
 
-include("icli-kotlin")
+include("procwright-kotlin")
 
-include("icli-integrations")
+include("procwright-integrations")
 
-include("icli-comparison")
+include("procwright-comparison")
 
-include("icli-test-cli")
+include("procwright-test-cli")
 
-include("icli-consumer-examples")
+include("procwright-consumer-examples")

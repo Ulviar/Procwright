@@ -9,7 +9,7 @@ Pick one scenario owner for each process. The rationale is described in
 
 | Scenario | stdout/stderr owner | Caller access | Retained output |
 | --- | --- | --- | --- |
-| `run` | iCLI runtime | `CommandResult` after completion | Bounded stdout/stderr bytes and text. |
+| `run` | Procwright runtime | `CommandResult` after completion | Bounded stdout/stderr bytes and text. |
 | `listen` | `StreamSession` listener pipeline | `StreamListener` callbacks while alive | Bounded diagnostics, not full output. |
 | `interactive` | Caller, until a helper claims ownership | Raw session streams and stdin | None unless caller stores it. |
 | `Expect` | `Expect` helper over a `Session` | Expect/send operations | Bounded transcript. |

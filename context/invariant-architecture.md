@@ -345,4 +345,4 @@ ProcessRuntimeTest.drainsStdoutAndStderrConcurrently
 - явные lifecycle state machines;
 - тесты, закрепляющие каждый инвариант.
 
-Это главный архитектурный критерий для iCLI.
+Это главный архитектурный критерий для Procwright.

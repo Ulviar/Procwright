@@ -2,11 +2,11 @@
 
 ## Назначение
 
-Этот каталог фиксирует реальные workflow, под которые проектировался iCLI API, и переводит их в детерминированные
+Этот каталог фиксирует реальные workflow, под которые проектировался Procwright API, и переводит их в детерминированные
 проверки для сравнения библиотек запуска процессов.
 
-Сравнение не должно доказывать, что текущий iCLI лучше остальных. Его задача — показать, какие сценарии каждая
-библиотека закрывает надежно, где API требует ручной сборки harness, и какие свойства нужно сохранить в iCLI.
+Сравнение не должно доказывать, что текущий Procwright лучше остальных. Его задача — показать, какие сценарии каждая
+библиотека закрывает надежно, где API требует ручной сборки harness, и какие свойства нужно сохранить в Procwright.
 
 ## Библиотеки-кандидаты
 
@@ -16,7 +16,7 @@
 - NuProcess `3.0.0` — non-blocking process I/O через native platform APIs.
 - Pty4J `0.13.12` — PTY process library с Linux/macOS/Windows support.
 - ExpectIt `0.9.0` — Expect-style automation поверх потоков процесса.
-- iCLI — текущий scenario-first API.
+- Procwright — текущий scenario-first API.
 
 ## Сценарии
 
@@ -37,6 +37,6 @@
 
 ## Что автоматизировано в текущем модуле
 
-Первый runnable harness покрывает S01-S10. S11 покрывается runnable iCLI scenario и capability status для остальных
-кандидатов. S12 выполняется через optional `:icli-integrations` для iCLI; для остальных библиотек фиксируется, что
+Первый runnable harness покрывает S01-S10. S11 покрывается runnable Procwright scenario и capability status для остальных
+кандидатов. S12 выполняется через optional `:procwright-integrations` для Procwright; для остальных библиотек фиксируется, что
 structured tool observation требует отдельного adapter layer поверх process API.

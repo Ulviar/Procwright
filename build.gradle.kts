@@ -18,24 +18,25 @@ plugins {
 }
 
 val supportedJavaReleases = setOf(17, 21, 25)
-val icliJavaRelease =
+val procwrightJavaRelease =
     providers
-        .gradleProperty("icli.javaRelease")
+        .gradleProperty("procwright.javaRelease")
         .map { value ->
             value.toIntOrNull()
-                ?: throw GradleException("icli.javaRelease must be a number: $value")
+                ?: throw GradleException("procwright.javaRelease must be a number: $value")
         }
         .orElse(25)
         .get()
 
-if (icliJavaRelease !in supportedJavaReleases) {
+if (procwrightJavaRelease !in supportedJavaReleases) {
     throw GradleException(
-        "icli.javaRelease must be one of $supportedJavaReleases, got $icliJavaRelease"
+        "procwright.javaRelease must be one of $supportedJavaReleases, got $procwrightJavaRelease"
     )
 }
 
-val icliJavaVersion = JavaVersion.toVersion(icliJavaRelease)
-val icliVersion = providers.gradleProperty("icli.version").orElse("0.0.0-SNAPSHOT").get()
+val procwrightJavaVersion = JavaVersion.toVersion(procwrightJavaRelease)
+val procwrightVersion =
+    providers.gradleProperty("procwright.version").orElse("0.0.0-SNAPSHOT").get()
 val publicMavenGroup = "io.github.ulviar"
 val mavenCentralBundleRepository = layout.buildDirectory.dir("maven-central/repository")
 val releaseVersionPattern =
@@ -43,13 +44,13 @@ val releaseVersionPattern =
         """(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"""
     )
 
-extra["icliJavaRelease"] = icliJavaRelease
+extra["procwrightJavaRelease"] = procwrightJavaRelease
 
-extra["icliJavaVersion"] = icliJavaVersion
+extra["procwrightJavaVersion"] = procwrightJavaVersion
 
 allprojects {
     group = publicMavenGroup
-    version = icliVersion
+    version = procwrightVersion
 
     plugins.withId("maven-publish") {
         extensions.configure<PublishingExtension>("publishing") {
@@ -78,19 +79,19 @@ allprojects {
 
     tasks.withType<PublishToMavenRepository>().configureEach {
         doFirst {
-            if (icliJavaRelease != 17) {
+            if (procwrightJavaRelease != 17) {
                 throw GradleException(
-                    "Public iCLI artifacts must be published with --project-prop=icli.javaRelease=17"
+                    "Public Procwright artifacts must be published with --project-prop=procwright.javaRelease=17"
                 )
             }
             if (project.version.toString().endsWith("-SNAPSHOT")) {
                 throw GradleException(
-                    "Public iCLI artifacts must not be published with a SNAPSHOT version; set --project-prop=icli.version=<release-version>"
+                    "Public Procwright artifacts must not be published with a SNAPSHOT version; set --project-prop=procwright.version=<release-version>"
                 )
             }
             if (!releaseVersionPattern.matches(project.version.toString())) {
                 throw GradleException(
-                    "Public iCLI artifacts must use a SemVer release version such as 0.1.0 or 0.1.0-rc.1"
+                    "Public Procwright artifacts must use a SemVer release version such as 0.1.0 or 0.1.0-rc.1"
                 )
             }
         }
@@ -98,9 +99,9 @@ allprojects {
 
     tasks.withType<PublishToMavenLocal>().configureEach {
         doFirst {
-            if (icliJavaRelease != 17) {
+            if (procwrightJavaRelease != 17) {
                 throw GradleException(
-                    "Public iCLI artifacts must be published with --project-prop=icli.javaRelease=17"
+                    "Public Procwright artifacts must be published with --project-prop=procwright.javaRelease=17"
                 )
             }
         }
@@ -108,8 +109,8 @@ allprojects {
 }
 
 java {
-    sourceCompatibility = icliJavaVersion
-    targetCompatibility = icliJavaVersion
+    sourceCompatibility = procwrightJavaVersion
+    targetCompatibility = procwrightJavaVersion
     withSourcesJar()
     withJavadocJar()
 }
@@ -118,13 +119,13 @@ publishing {
     publications {
         create<MavenPublication>("mavenJava") {
             from(components["java"])
-            artifactId = "icli"
+            artifactId = "procwright"
             pom {
-                name.set("iCLI")
+                name.set("Procwright")
                 description.set(
                     "Scenario-first JVM library for safe external CLI execution and interactive process workflows."
                 )
-                url.set("https://github.com/Ulviar/iCLI")
+                url.set("https://github.com/Ulviar/Procwright")
                 licenses {
                     license {
                         name.set("Apache License, Version 2.0")
@@ -132,9 +133,9 @@ publishing {
                     }
                 }
                 scm {
-                    connection.set("scm:git:https://github.com/Ulviar/iCLI.git")
-                    developerConnection.set("scm:git:https://github.com/Ulviar/iCLI.git")
-                    url.set("https://github.com/Ulviar/iCLI")
+                    connection.set("scm:git:https://github.com/Ulviar/Procwright.git")
+                    developerConnection.set("scm:git:https://github.com/Ulviar/Procwright.git")
+                    url.set("https://github.com/Ulviar/Procwright")
                 }
                 developers {
                     developer {
@@ -199,13 +200,13 @@ configurations.named("stressTestImplementation") {
 configurations.named("stressTestRuntimeOnly") { extendsFrom(configurations.testRuntimeOnly.get()) }
 
 dependencies {
-    "integrationTestImplementation"(project(":icli-test-cli"))
-    "stressTestImplementation"(project(":icli-test-cli"))
+    "integrationTestImplementation"(project(":procwright-test-cli"))
+    "stressTestImplementation"(project(":procwright-test-cli"))
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release.set(icliJavaRelease)
+    options.release.set(procwrightJavaRelease)
 }
 
 tasks.named<Javadoc>("javadoc") {
@@ -220,7 +221,7 @@ tasks.named<Javadoc>("javadoc") {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-    systemProperty("icli.javaRelease", icliJavaRelease.toString())
+    systemProperty("procwright.javaRelease", procwrightJavaRelease.toString())
 }
 
 val integrationTest =
@@ -243,7 +244,7 @@ val stressTest =
 
 tasks.check { dependsOn(integrationTest, stressTest) }
 
-val publicRuntimeProjects = setOf(project.path, ":icli-kotlin", ":icli-integrations")
+val publicRuntimeProjects = setOf(project.path, ":procwright-kotlin", ":procwright-integrations")
 val comparisonDependencyCoordinates =
     setOf(
         "org.apache.commons:commons-exec",
@@ -286,10 +287,10 @@ val externalLibraryBoundaryCheck =
                         configuration.dependencies.forEach { dependency ->
                             if (
                                 dependency is ProjectDependency &&
-                                    dependency.path == ":icli-comparison"
+                                    dependency.path == ":procwright-comparison"
                             ) {
                                 throw GradleException(
-                                    "Public project ${checkedProject.path} must not depend on :icli-comparison"
+                                    "Public project ${checkedProject.path} must not depend on :procwright-comparison"
                                 )
                             }
                             val coordinate = "${dependency.group}:${dependency.name}"
@@ -306,7 +307,7 @@ val externalLibraryBoundaryCheck =
 
 tasks.check { dependsOn(externalLibraryBoundaryCheck) }
 
-tasks.check { dependsOn(":icli-test-cli:check") }
+tasks.check { dependsOn(":procwright-test-cli:check") }
 
 val quickCheck =
     tasks.register("quickCheck") {
@@ -322,9 +323,9 @@ val scenarioCheck =
         dependsOn(
             quickCheck,
             integrationTest,
-            ":icli-kotlin:test",
-            ":icli-integrations:test",
-            ":icli-consumer-examples:test",
+            ":procwright-kotlin:test",
+            ":procwright-integrations:test",
+            ":procwright-consumer-examples:test",
         )
     }
 
@@ -332,14 +333,19 @@ val regressionCheck =
     tasks.register("regressionCheck") {
         description = "Runs bounded stress and public boundary regression checks."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(scenarioCheck, stressTest, externalLibraryBoundaryCheck, ":icli-test-cli:check")
+        dependsOn(
+            scenarioCheck,
+            stressTest,
+            externalLibraryBoundaryCheck,
+            ":procwright-test-cli:check",
+        )
     }
 
 val publicJavaJavadocCheck =
     tasks.register("publicJavaJavadocCheck") {
         description = "Builds public Java Javadocs and fails on every Javadoc warning."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(tasks.named("javadoc"), ":icli-integrations:javadoc")
+        dependsOn(tasks.named("javadoc"), ":procwright-integrations:javadoc")
 
         doLast {
             assertStrictJavadocOptions(
@@ -347,7 +353,7 @@ val publicJavaJavadocCheck =
                 "core",
             )
             assertStrictJavadocOptions(
-                project(":icli-integrations")
+                project(":procwright-integrations")
                     .layout
                     .buildDirectory
                     .file("tmp/javadoc/javadoc.options")
@@ -371,7 +377,7 @@ fun assertStrictJavadocOptions(optionsFile: File, moduleName: String) {
 val apiCompatibilityBaselineVersion = "0.1.0"
 val apiCompatibilityBaselineDir =
     layout.projectDirectory.dir("config/api-compatibility/$apiCompatibilityBaselineVersion")
-val apiCompatibilityMainClass = "io.github.ulviar.icli.build.ApiCompatibilityCheck"
+val apiCompatibilityMainClass = "io.github.ulviar.procwright.build.ApiCompatibilityCheck"
 
 fun apiCompatibilitySpec(
     name: String,
@@ -391,44 +397,44 @@ fun apiCompatibilitySpec(
 
 fun apiCompatibilitySpecs(): List<String> {
     val coreJar = files(tasks.named<Jar>("jar").map { it.archiveFile })
-    val integrationsProject = project(":icli-integrations")
+    val integrationsProject = project(":procwright-integrations")
     val integrationsJar = files(integrationsProject.tasks.named<Jar>("jar").map { it.archiveFile })
-    val kotlinProject = project(":icli-kotlin")
+    val kotlinProject = project(":procwright-kotlin")
     val kotlinJar = files(kotlinProject.tasks.named<Jar>("jar").map { it.archiveFile })
 
     return listOf(
         apiCompatibilitySpec(
-            name = "icli",
-            baselineName = "icli.txt",
+            name = "procwright",
+            baselineName = "procwright.txt",
             roots = coreJar,
             classpath = coreJar,
             packages =
                 listOf(
-                    "io.github.ulviar.icli",
-                    "io.github.ulviar.icli.command",
-                    "io.github.ulviar.icli.diagnostics",
-                    "io.github.ulviar.icli.preset",
-                    "io.github.ulviar.icli.session",
-                    "io.github.ulviar.icli.terminal",
+                    "io.github.ulviar.procwright",
+                    "io.github.ulviar.procwright.command",
+                    "io.github.ulviar.procwright.diagnostics",
+                    "io.github.ulviar.procwright.preset",
+                    "io.github.ulviar.procwright.session",
+                    "io.github.ulviar.procwright.terminal",
                 ),
         ),
         apiCompatibilitySpec(
-            name = "icli-integrations",
-            baselineName = "icli-integrations.txt",
+            name = "procwright-integrations",
+            baselineName = "procwright-integrations.txt",
             roots = integrationsJar,
             classpath =
                 integrationsJar +
                     coreJar +
                     integrationsProject.configurations.getByName("runtimeClasspath"),
-            packages = listOf("io.github.ulviar.icli.integration"),
+            packages = listOf("io.github.ulviar.procwright.integration"),
         ),
         apiCompatibilitySpec(
-            name = "icli-kotlin",
-            baselineName = "icli-kotlin.txt",
+            name = "procwright-kotlin",
+            baselineName = "procwright-kotlin.txt",
             roots = kotlinJar,
             classpath =
                 kotlinJar + coreJar + kotlinProject.configurations.getByName("runtimeClasspath"),
-            packages = listOf("io.github.ulviar.icli.kotlin"),
+            packages = listOf("io.github.ulviar.procwright.kotlin"),
         ),
     )
 }
@@ -441,8 +447,8 @@ val apiCompatibilityCheck =
         dependsOn(
             tasks.named(sourceSets["apiCompatibility"].classesTaskName),
             tasks.named("jar"),
-            ":icli-integrations:jar",
-            ":icli-kotlin:jar",
+            ":procwright-integrations:jar",
+            ":procwright-kotlin:jar",
         )
         classpath = sourceSets["apiCompatibility"].runtimeClasspath
         mainClass.set(apiCompatibilityMainClass)
@@ -457,8 +463,8 @@ val writeApiCompatibilityBaseline =
         dependsOn(
             tasks.named(sourceSets["apiCompatibility"].classesTaskName),
             tasks.named("jar"),
-            ":icli-integrations:jar",
-            ":icli-kotlin:jar",
+            ":procwright-integrations:jar",
+            ":procwright-kotlin:jar",
         )
         classpath = sourceSets["apiCompatibility"].runtimeClasspath
         mainClass.set(apiCompatibilityMainClass)
@@ -481,7 +487,7 @@ val publicDocsCheck =
         val output = layout.buildDirectory.dir("public-docs")
         val coreJavadocs = layout.buildDirectory.dir("docs/javadoc")
         val integrationJavadocs =
-            project(":icli-integrations").layout.buildDirectory.dir("docs/javadoc")
+            project(":procwright-integrations").layout.buildDirectory.dir("docs/javadoc")
 
         inputs.file(requirements)
         inputs.file(requirementsSource)
@@ -518,7 +524,7 @@ val publicDocsCheck =
         }
     }
 
-val publicPublicationProjectPaths = listOf(":", ":icli-integrations", ":icli-kotlin")
+val publicPublicationProjectPaths = listOf(":", ":procwright-integrations", ":procwright-kotlin")
 
 val cleanMavenCentralBundleRepository =
     tasks.register<Delete>("cleanMavenCentralBundleRepository") {
@@ -621,7 +627,7 @@ val mavenCentralBundle =
         description = "Builds the signed Maven Central upload bundle."
         group = PublishingPlugin.PUBLISH_TASK_GROUP
         dependsOn(writeMavenCentralBundleChecksums)
-        archiveFileName.set("icli-$icliVersion-maven-central-bundle.zip")
+        archiveFileName.set("procwright-$procwrightVersion-maven-central-bundle.zip")
         destinationDirectory.set(layout.buildDirectory.dir("maven-central"))
         from(mavenCentralBundleRepository) { exclude("**/maven-metadata.xml*") }
     }
@@ -655,10 +661,10 @@ val cleanWorkingTreeCheck =
             regressionCheck,
             publicJavaJavadocCheck,
             publicDocsCheck,
-            ":icli-kotlin:check",
-            ":icli-integrations:check",
-            ":icli-test-cli:check",
-            ":icli-consumer-examples:check",
+            ":procwright-kotlin:check",
+            ":procwright-integrations:check",
+            ":procwright-test-cli:check",
+            ":procwright-consumer-examples:check",
         )
 
         doLast {
@@ -688,10 +694,10 @@ tasks.register("releaseCandidateCheck") {
         regressionCheck,
         publicJavaJavadocCheck,
         publicDocsCheck,
-        ":icli-kotlin:check",
-        ":icli-integrations:check",
-        ":icli-test-cli:check",
-        ":icli-consumer-examples:check",
+        ":procwright-kotlin:check",
+        ":procwright-integrations:check",
+        ":procwright-test-cli:check",
+        ":procwright-consumer-examples:check",
         cleanWorkingTreeCheck,
     )
 }
@@ -699,14 +705,14 @@ tasks.register("releaseCandidateCheck") {
 spotless {
     java {
         palantirJavaFormat("2.80.0")
-        target("src/**/*.java", "icli-*/src/**/*.java")
+        target("src/**/*.java", "procwright-*/src/**/*.java")
     }
     kotlin {
         ktfmt("0.58").kotlinlangStyle()
-        target("icli-kotlin/src/**/*.kt")
+        target("procwright-kotlin/src/**/*.kt")
     }
     kotlinGradle {
         ktfmt("0.58").kotlinlangStyle()
-        target("*.gradle.kts", "icli-*/*.gradle.kts")
+        target("*.gradle.kts", "procwright-*/*.gradle.kts")
     }
 }

@@ -6,7 +6,7 @@
 
 ## Контекст
 
-`:icli-kotlin` является optional ergonomics module. Он добавляет Kotlin receiver extensions, suspending wrappers и Flow
+`:procwright-kotlin` является optional ergonomics module. Он добавляет Kotlin receiver extensions, suspending wrappers и Flow
 adapter поверх Java core. Core не зависит от Kotlin runtime. Kotlin public API проверяется source-level KDoc gate.
 
 Нужно решить, добавлять ли Dokka в текущий documentation toolchain.
@@ -16,7 +16,7 @@ adapter поверх Java core. Core не зависит от Kotlin runtime. Ko
 Baseline `0.1.0` не добавляет Dokka в build, но Kotlin API должен быть явно представлен в public docs:
 
 - Kotlin public declarations должны иметь KDoc;
-- `:icli-kotlin:kotlinApiDocsCheck` остается обязательной проверкой;
+- `:procwright-kotlin:kotlinApiDocsCheck` остается обязательной проверкой;
 - public docs содержат страницу Kotlin API с artifact, package, extensions и основными usage examples;
 - Dokka не добавляется в текущий build до Kotlin API stabilization.
 

@@ -1,17 +1,17 @@
 # Portable Command Construction
 
-iCLI keeps command construction explicit. Portability is not achieved by hiding platform differences behind shell
+Procwright keeps command construction explicit. Portability is not achieved by hiding platform differences behind shell
 strings; it is achieved by choosing direct argv by default and making platform boundaries visible.
 
 ## Direct argv is the default
 
-Use `Icli.command("tool")`, `CommandSpec.of("tool")`, or `CommandSpec.builder("tool")` for direct
+Use `Procwright.command("tool")`, `CommandSpec.of("tool")`, or `CommandSpec.builder("tool")` for direct
 execution. Add arguments as separate values with `args(...)`.
 
 Direct argv avoids shell quoting rules and keeps user-provided values from becoming shell syntax.
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 
 CommandResult result = git.run().execute("status", "--short");
 
@@ -22,14 +22,14 @@ if (!result.succeeded()) {
 
 ## Shell is explicit
 
-Use `Icli.shellCommand(...)` or `CommandSpec.shell(...)` only when shell syntax is the actual requirement:
+Use `Procwright.shellCommand(...)` or `CommandSpec.shell(...)` only when shell syntax is the actual requirement:
 pipelines, redirects, shell built-ins, command substitution, or platform scripts that must be interpreted by a shell.
 
 Do not build shell command lines by concatenating untrusted input. Prefer direct argv and pass untrusted values as
 arguments.
 
 ```java
-CommandService shell = Icli.shellCommand("printf '%s\\n' \"$MESSAGE\"");
+CommandService shell = Procwright.shellCommand("printf '%s\\n' \"$MESSAGE\"");
 
 shell.run().withEnvironment("MESSAGE", "hello").execute();
 ```
@@ -41,9 +41,9 @@ The application owns platform-specific executable selection:
 - choose `.cmd` or `.bat` on Windows when the tool only ships as a Windows script;
 - choose POSIX scripts on Unix-like systems when the tool expects POSIX shell behavior;
 - use absolute paths when the surrounding application already resolved a toolchain;
-- keep PATH probing, package-manager lookup, and installation outside the current iCLI core.
+- keep PATH probing, package-manager lookup, and installation outside the current Procwright core.
 
-iCLI validates and launches the command it is given. It does not currently implement a command discovery service.
+Procwright validates and launches the command it is given. It does not currently implement a command discovery service.
 
 ## Working directory and environment
 

@@ -23,7 +23,7 @@ one-shot execution.
 Минимальная форма остается:
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 CommandResult result = git.run().execute("status", "--short");
 ```
 

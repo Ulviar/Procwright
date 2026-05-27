@@ -17,7 +17,7 @@ The scenario covers:
 ## Example
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 
 CommandResult result = git.run().execute("status", "--short");
 
@@ -30,7 +30,7 @@ More examples: [Examples](../examples.md#one-shot-command).
 
 ## User responsibilities
 
-The caller still owns domain interpretation of the exit code. iCLI reports exit code, timeout, stdout, stderr, elapsed
+The caller still owns domain interpretation of the exit code. Procwright reports exit code, timeout, stdout, stderr, elapsed
 time, and truncation flags; it does not decide whether a non-zero exit is acceptable for a particular command.
 
 Choose shell mode only when shell syntax is required. Direct argv is the default API shape because it avoids command
@@ -46,7 +46,7 @@ belong to value objects, not to ad hoc process code at call sites.
 `CommandResult` represents a process that was launched and supervised to a terminal outcome. Non-zero exit codes remain
 results. `CommandResult.toException()` provides an exception view when the application wants fail-fast control flow.
 
-`CommandExecutionException` is reserved for launch, supervision, or capture failures where iCLI could not produce a
+`CommandExecutionException` is reserved for launch, supervision, or capture failures where Procwright could not produce a
 normal command result.
 
 ## Scenario boundary

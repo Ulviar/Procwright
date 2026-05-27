@@ -8,7 +8,7 @@ Use presets when the scenario is already chosen and the same group of policies a
 ## Example
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 tool.run()
         .withArgs("env")

@@ -16,11 +16,11 @@ pooling, presets, CLI-backed integrations и bounded stress suite. Для пуб
 
 - лицензия проекта — Apache License 2.0;
 - root и optional modules наследуют единые `group` и `version`, чтобы релизная версия была версией всего проекта;
-- Java release variants — 17/21/25 через единый source tree и Gradle property `icli.javaRelease`;
-- публичные пакеты стабилизируются на уровне core package family из ADR-0014, `io.github.ulviar.icli.kotlin` и
-  `io.github.ulviar.icli.integration`;
+- Java release variants — 17/21/25 через единый source tree и Gradle property `procwright.javaRelease`;
+- публичные пакеты стабилизируются на уровне core package family из ADR-0014, `io.github.ulviar.procwright.kotlin` и
+  `io.github.ulviar.procwright.integration`;
 - Gradle `check` включает unit, integration, Kotlin, integrations и bounded stress tests;
-- Kotlin public API покрывается KDoc source check в `:icli-kotlin:kotlinApiDocsCheck`; Java modules собирают Javadoc и
+- Kotlin public API покрывается KDoc source check в `:procwright-kotlin:kotlinApiDocsCheck`; Java modules собирают Javadoc и
   Javadoc artifacts;
 - CI запускает `check` и `javadoc` на Linux, macOS и Windows;
 - POSIX shell/PTTY fixtures skip-аются на Windows, если сценарий реально требует `sh` или системный PTY provider;

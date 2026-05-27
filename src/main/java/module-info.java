@@ -1,11 +1,11 @@
 /**
  * Scenario-first command execution and interactive process workflows for JVM applications.
  */
-module io.github.ulviar.icli {
-    exports io.github.ulviar.icli;
-    exports io.github.ulviar.icli.command;
-    exports io.github.ulviar.icli.diagnostics;
-    exports io.github.ulviar.icli.preset;
-    exports io.github.ulviar.icli.session;
-    exports io.github.ulviar.icli.terminal;
+module io.github.ulviar.procwright {
+    exports io.github.ulviar.procwright;
+    exports io.github.ulviar.procwright.command;
+    exports io.github.ulviar.procwright.diagnostics;
+    exports io.github.ulviar.procwright.preset;
+    exports io.github.ulviar.procwright.session;
+    exports io.github.ulviar.procwright.terminal;
 }

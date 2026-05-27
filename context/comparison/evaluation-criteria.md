@@ -33,12 +33,12 @@
 - Документация описывает platform limitations.
 - Видна активность поддержки и свежесть релизов.
 
-## Пригодность для iCLI-задач
+## Пригодность для Procwright-задач
 
 - Закрывает ли библиотека scenario-first API без утечки низкоуровневых flags.
 - Позволяет ли изолировать инварианты в typed objects и state machines.
 - Не тянет ли dependency, которая не нужна core.
-- Может ли быть implementation detail под iCLI, не диктуя public API.
+- Может ли быть implementation detail под Procwright, не диктуя public API.
 
 ## Шкала
 

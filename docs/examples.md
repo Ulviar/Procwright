@@ -8,7 +8,7 @@ and the scenario reference when you need exact contracts.
 ### One-shot command
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 
 CommandResult result = git.run().execute("status", "--short");
 
@@ -20,7 +20,7 @@ if (!result.succeeded()) {
 ### Line worker
 
 ```java
-CommandService repl = Icli.command(CommandSpec.of("tool"));
+CommandService repl = Procwright.command(CommandSpec.of("tool"));
 
 try (LineSession session = repl.lineSession()
         .withArgs("repl")
@@ -36,7 +36,7 @@ try (LineSession session = repl.lineSession()
 ### Framed protocol worker
 
 ```java
-CommandService worker = Icli.command("tool");
+CommandService worker = Procwright.command("tool");
 ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
 
 try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
@@ -55,7 +55,7 @@ try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
 ### Worker pool
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 try (PooledLineSession pool = tool.lineSession()
         .withArgs("repl")
@@ -76,7 +76,7 @@ try (PooledLineSession pool = tool.lineSession()
 ### Typed protocol worker pool
 
 ```java
-CommandService worker = Icli.command("tool");
+CommandService worker = Procwright.command("tool");
 
 try (PooledProtocolSession<String, String> pool = worker.protocolSession(LengthPrefixedTextAdapter::new)
         .withArgs("worker")
@@ -107,7 +107,7 @@ Add the optional integrations artifact before using these APIs. See
 [optional modules](release/installation.md#optional-modules).
 
 ```java
-CommandService service = Icli.command("tool");
+CommandService service = Procwright.command("tool");
 
 try (LineSession lineSession = service.lineSession().withArg("json-worker").open();
         JsonLineSession json = JsonLineSession.over(lineSession)) {

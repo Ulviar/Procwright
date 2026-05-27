@@ -27,7 +27,7 @@ plans, открывает runtime wrappers, применяет readiness checks 
   сессии.
 
 Публичное API не получает новых runtime-конструкторов или SPI из-за этой декомпозиции. Единственное публичное расширение
-в этом решении — общий `IcliException` как catch boundary для ошибок, произведенных iCLI; сценарные exception-типы
+в этом решении — общий `ProcwrightException` как catch boundary для ошибок, произведенных Procwright; сценарные exception-типы
 остаются основным источником structured details.
 
 ## Инварианты
@@ -48,14 +48,14 @@ plans, открывает runtime wrappers, применяет readiness checks 
 
 Минусы:
 
-- `io.github.ulviar.icli` как root package становится разрешенным dependency для subpackages из-за публичного
-  `IcliException`.
+- `io.github.ulviar.procwright` как root package становится разрешенным dependency для subpackages из-за публичного
+  `ProcwrightException`.
 - Protocol internals остаются package-private и не являются SPI; пользовательская расширяемость идет через
   `ProtocolAdapter`.
 
 ## Проверка
 
-- `PublicApiSurfaceTest` фиксирует появление `IcliException` как осознанное public API изменение.
+- `PublicApiSurfaceTest` фиксирует появление `ProcwrightException` как осознанное public API изменение.
 - `PackageBoundaryTest` допускает dependency на root package только как public error boundary.
-- `IcliExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
+- `ProcwrightExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
 - Protocol/session integration tests проверяют behavior через публичные сценарии, а не через internal classes.

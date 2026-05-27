@@ -1,6 +1,6 @@
 # Релизный checklist
 
-Этот список применяется к публичным релизам iCLI.
+Этот список применяется к публичным релизам Procwright.
 
 ## Перед freeze
 
@@ -86,35 +86,35 @@ Workflow permissions должны оставаться минимальными,
   опубликованных API, если такие появятся.
 - Source и Javadoc artifacts собираются для Java modules.
 - Public MkDocs site собирается в strict mode и включает generated Java API docs.
-- Kotlin public API задокументирован через KDoc в sources artifact и проверяется `:icli-kotlin:kotlinApiDocsCheck`.
+- Kotlin public API задокументирован через KDoc в sources artifact и проверяется `:procwright-kotlin:kotlinApiDocsCheck`.
 - Generated Kotlin API docs через Dokka не являются gate `0.1.x`, пока ADR-0019 остается действующим решением.
 - License file присутствует в корне репозитория.
 - POM metadata соответствует Apache-2.0 license, SCM и planned coordinates.
-- Release job передает non-SNAPSHOT version через `icli.version` из GitHub release tag.
+- Release job передает non-SNAPSHOT version через `procwright.version` из GitHub release tag.
 - Central Portal namespace `io.github.ulviar` verified.
 - Repository secrets доступны: `CENTRAL_USERNAME`, `CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_PASSWORD`.
 - Local publication check проходит:
 
 ```bash
-./gradlew publishToMavenLocal --project-prop=icli.javaRelease=17
+./gradlew publishToMavenLocal --project-prop=procwright.javaRelease=17
 ```
 
 - Signed Central bundle собирается локально или в CI:
 
 ```bash
-./gradlew mavenCentralBundle --project-prop=icli.javaRelease=17 --project-prop=icli.version=0.1.0
+./gradlew mavenCentralBundle --project-prop=procwright.javaRelease=17 --project-prop=procwright.version=0.1.0
 ```
 
 ## Cut Release через GitHub Release
 
 1. Выбрать SemVer tag, например `v0.1.0`.
-2. На clean `main` прогнать `./gradlew releaseCandidateCheck --project-prop=icli.javaRelease=17`.
+2. На clean `main` прогнать `./gradlew releaseCandidateCheck --project-prop=procwright.javaRelease=17`.
 3. Убедиться, что CI на `main` зеленый для Java 17/21/25 на Linux, macOS и Windows.
 4. Создать GitHub Release из выбранного tag и именно опубликовать его, а не оставить draft-only release.
 5. Проверить, что release workflow передал version без ведущего `v`, запустил Java 17-targeted publish и не использовал
    `*-SNAPSHOT`.
 6. Проверить, что release workflow загрузил `USER_MANAGED` deployment в Central Portal.
 7. В Central Portal проверить validation results и вручную нажать Publish.
-8. После публикации проверить, что Maven Central содержит `io.github.ulviar:icli`,
-   `io.github.ulviar:icli-integrations` и `io.github.ulviar:icli-kotlin` с выбранной версией.
+8. После публикации проверить, что Maven Central содержит `io.github.ulviar:procwright`,
+   `io.github.ulviar:procwright-integrations` и `io.github.ulviar:procwright-kotlin` с выбранной версией.
 9. Запустить manual GitHub Actions workflow `Consumer Smoke Maven Central` для опубликованной версии.

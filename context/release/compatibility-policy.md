@@ -3,9 +3,9 @@
 ## Базовая runtime-платформа
 
 - Поддерживаемые release targets текущего baseline — Java 17, Java 21 и Java 25.
-- Java-код компилируется с `--release ${icli.javaRelease}`; default target для локальной разработки — 25.
-- Kotlin module компилируется с JVM target, соответствующим `icli.javaRelease`, и остается optional module.
-- На Java 21+ runtime iCLI может использовать virtual threads через внутренний runtime boundary. Java 17 variant
+- Java-код компилируется с `--release ${procwright.javaRelease}`; default target для локальной разработки — 25.
+- Kotlin module компилируется с JVM target, соответствующим `procwright.javaRelease`, и остается optional module.
+- На Java 21+ runtime Procwright может использовать virtual threads через внутренний runtime boundary. Java 17 variant
   использует daemon platform-thread fallback; это не меняет public API contract, но может менять performance profile.
 
 ## Поддержка платформ
@@ -26,20 +26,20 @@ unsupported behavior, если provider недоступен, и не долже
 
 ## Стабильность публичного API
 
-- Core public API живет в пакетах `io.github.ulviar.icli`, `io.github.ulviar.icli.command`,
-  `io.github.ulviar.icli.session`, `io.github.ulviar.icli.diagnostics`, `io.github.ulviar.icli.terminal` и
-  `io.github.ulviar.icli.preset`.
-- Kotlin ergonomics живет в `io.github.ulviar.icli.kotlin`.
-- CLI-backed integration helpers живут в `io.github.ulviar.icli.integration`; artifact `:icli-integrations` является
-  именованным Java module `io.github.ulviar.icli.integrations`.
+- Core public API живет в пакетах `io.github.ulviar.procwright`, `io.github.ulviar.procwright.command`,
+  `io.github.ulviar.procwright.session`, `io.github.ulviar.procwright.diagnostics`, `io.github.ulviar.procwright.terminal` и
+  `io.github.ulviar.procwright.preset`.
+- Kotlin ergonomics живет в `io.github.ulviar.procwright.kotlin`.
+- CLI-backed integration helpers живут в `io.github.ulviar.procwright.integration`; artifact `:procwright-integrations` является
+  именованным Java module `io.github.ulviar.procwright.integrations`.
 - Новые public packages требуют отдельного ADR.
 - Public top-level package surface покрывается tests, которые сканируют весь production artifact, чтобы случайная утечка
   внутреннего пакета была видна до релиза.
 - Точный approved public API surface зафиксирован в [public-api-baseline.md](public-api-baseline.md) и проверяется tests.
-- Core artifact является именованным Java module `io.github.ulviar.icli` и экспортирует только public API packages.
-  `io.github.ulviar.icli.internal` и вложенные runtime-пакеты не экспортируются. Integrations module экспортирует только
-  `io.github.ulviar.icli.integration` и требует core module.
-- Для baseline `0.1.0` `Icli.command(...)` является рекомендуемой точкой входа, `CommandService` остается reusable
+- Core artifact является именованным Java module `io.github.ulviar.procwright` и экспортирует только public API packages.
+  `io.github.ulviar.procwright.internal` и вложенные runtime-пакеты не экспортируются. Integrations module экспортирует только
+  `io.github.ulviar.procwright.integration` и требует core module.
+- Для baseline `0.1.0` `Procwright.command(...)` является рекомендуемой точкой входа, `CommandService` остается reusable
   command handle, `SessionOptions.idleTimeout` сохраняет caller-visible semantics, а текущий набор `ScenarioPresets`
   входит в public pre-1.0 API.
 - Public API scope `0.1.0` включает сценарии `run`, `interactive`, `lineSession`, `protocolSession`,
@@ -56,7 +56,7 @@ Behavioral contract важнее случайной реализации. Для
 - integrations module tests;
 - bounded `stressTest`;
 - Javadocs.
-- `:icli-kotlin:kotlinApiDocsCheck` для KDoc покрытия Kotlin public API.
+- `:procwright-kotlin:kotlinApiDocsCheck` для KDoc покрытия Kotlin public API.
 
 Если поведение меняется, сначала обновляется соответствующий eval в [../evals/process-behavior.md](../evals/process-behavior.md),
 затем тесты и только после этого реализация.

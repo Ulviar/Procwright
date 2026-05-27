@@ -24,7 +24,7 @@ failure, explicit close, and idle-timeout paths where applicable.
 The current runtime applies shutdown to the process tree through JDK `ProcessHandle` where the platform permits it.
 
 ```java
-CommandService logs = Icli.command("tool");
+CommandService logs = Procwright.command("tool");
 
 CommandResult result = logs.run()
         .withArgs("logs")

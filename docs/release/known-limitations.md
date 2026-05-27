@@ -21,7 +21,7 @@ site in `0.1.0`.
 
 ## Java runtime differences
 
-The public artifacts target Java 17 and run on Java 17 or newer. On Java 21 and newer runtimes, iCLI may use virtual
+The public artifacts target Java 17 and run on Java 17 or newer. On Java 21 and newer runtimes, Procwright may use virtual
 threads internally; Java 17 uses a platform-thread fallback for internal background work. High-concurrency performance
 can therefore differ by runtime.
 
@@ -32,7 +32,7 @@ idle-timeout paths also shut down their owned process. This cleanup is not unive
 topology.
 
 Detached descendants, inaccessible process handles, platform limitations, or children that deliberately escape the
-parent tree can require caller-side containment. Treat iCLI cleanup as the runtime-owned best effort inside the JDK
+parent tree can require caller-side containment. Treat Procwright cleanup as the runtime-owned best effort inside the JDK
 process tree model, not as an OS sandbox.
 
 ## Not in 0.1.0

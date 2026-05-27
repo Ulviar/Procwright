@@ -1,6 +1,6 @@
 # Security
 
-iCLI treats external command execution as a trust boundary. The API tries to make safer choices explicit, but the
+Procwright treats external command execution as a trust boundary. The API tries to make safer choices explicit, but the
 caller still owns command selection and input trust.
 
 ## Prefer direct argv
@@ -8,7 +8,7 @@ caller still owns command selection and input trust.
 Use direct command specifications and arguments by default:
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 
 CommandResult result = git.run().execute("status", "--short");
 
@@ -17,9 +17,9 @@ if (!result.succeeded()) {
 }
 ```
 
-Use `CommandSpec.shell(...)` or `Icli.shellCommand(...)` only when shell syntax is required. Shell mode
+Use `CommandSpec.shell(...)` or `Procwright.shellCommand(...)` only when shell syntax is required. Shell mode
 hands the command string to the operating-system shell. Do not build shell command lines by concatenating untrusted
-input; pass untrusted values as direct argv arguments through `Icli.command(...)` and scenario arguments.
+input; pass untrusted values as direct argv arguments through `Procwright.command(...)` and scenario arguments.
 
 ## Environment handling
 
@@ -35,7 +35,7 @@ only when the calling application has a concrete need.
 
 ## Redaction boundaries
 
-iCLI separates bounded retention from sanitization.
+Procwright separates bounded retention from sanitization.
 
 Diagnostics are designed to be redaction-friendly: command echoes avoid raw argv values by default, environment
 diagnostics expose variable names rather than values, and raw stdin/stdout/stderr are not emitted as diagnostic

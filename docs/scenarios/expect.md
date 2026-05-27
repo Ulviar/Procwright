@@ -16,7 +16,7 @@ The scenario covers:
 ## Example
 
 ```java
-CommandService repl = Icli.command("tool");
+CommandService repl = Procwright.command("tool");
 
 try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {

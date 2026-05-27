@@ -6,7 +6,7 @@
 
 ## Контекст
 
-iCLI поддерживает terminal capability через `TerminalPolicy` и `PtyProvider`. Core не должен зависеть от Pty4J,
+Procwright поддерживает terminal capability через `TerminalPolicy` и `PtyProvider`. Core не должен зависеть от Pty4J,
 ConPTY wrappers или других native bindings. Текущий system provider использует platform capability и explicit
 unsupported behavior, если terminal недоступен.
 

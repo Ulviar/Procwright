@@ -2,7 +2,7 @@
 
 ## Цель
 
-iCLI — JVM-библиотека для безопасного запуска внешних CLI-программ и управления интерактивными процессами из
+Procwright — JVM-библиотека для безопасного запуска внешних CLI-программ и управления интерактивными процессами из
 Java/Kotlin приложений.
 
 Baseline `0.1.0` должен доказать надежное process execution ядро. Новая возможность добавляется только через понятный
@@ -58,7 +58,7 @@ scenario-specific execution plan. Это описано в
 
 ```text
 Пользовательский API
-  Icli / CommandService
+  Procwright / CommandService
   scenario methods
   CommandSpec
   CommandResult
@@ -90,10 +90,10 @@ Testing/evals
 ## Пакетная форма ядра
 
 ```text
-io.github.ulviar.icli
+io.github.ulviar.procwright
   CommandService
 
-io.github.ulviar.icli.command
+io.github.ulviar.procwright.command
   CommandSpec
   CommandResult
   RunOptions
@@ -107,7 +107,7 @@ io.github.ulviar.icli.command
   CommandException
   CommandExecutionException
 
-io.github.ulviar.icli.session
+io.github.ulviar.procwright.session
   Session (interface)
   SessionInvocation
   SessionOptions
@@ -154,7 +154,7 @@ io.github.ulviar.icli.session
   PooledProtocolSessionException
   PooledWorkerRetireReason
 
-io.github.ulviar.icli.diagnostics
+io.github.ulviar.procwright.diagnostics
   DiagnosticsOptions
   DiagnosticEvent
   DiagnosticEventType
@@ -162,23 +162,23 @@ io.github.ulviar.icli.diagnostics
   DiagnosticTranscriptSink
   CommandEcho
 
-io.github.ulviar.icli.terminal
+io.github.ulviar.procwright.terminal
   TerminalPolicy
   TerminalSize
   TerminalSignal
   PtyProvider
   PtyRequest
 
-io.github.ulviar.icli.preset
+io.github.ulviar.procwright.preset
   ScenarioPresets
 
-io.github.ulviar.icli.internal
+io.github.ulviar.procwright.internal
   runtime, plans, validation and process helpers that must not appear in public signatures
 
-io.github.ulviar.icli.internal.session
+io.github.ulviar.procwright.internal.session
   stateful session-family implementations and runtime factories hidden by JPMS exports
 
-io.github.ulviar.icli.kotlin
+io.github.ulviar.procwright.kotlin
   runCommand(...)
   runCommandAwait(...)
   openSession(...)
@@ -187,7 +187,7 @@ io.github.ulviar.icli.kotlin
   ListenFlowInvocation
   listenFlow(...)
 
-io.github.ulviar.icli.integration
+io.github.ulviar.procwright.integration
   JsonValue
   JsonCodec
   JsonNumbers
@@ -215,5 +215,5 @@ session-family lifecycle. Подробности зафиксированы в
 2. Более богатый expect DSL.
 3. Более богатый Kotlin DSL поверх optional Kotlin module.
 4. Stateful affinity и raw session pooling поверх nested pooled session APIs.
-5. Реальный MCP SDK adapter отдельным optional module поверх `:icli-integrations`.
+5. Реальный MCP SDK adapter отдельным optional module поверх `:procwright-integrations`.
 6. Machine-dependent benchmarks/JMH после deterministic stress suite.

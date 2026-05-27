@@ -15,7 +15,7 @@ The scenario covers:
 
 ```java
 CommandService python =
-        Icli.command(CommandSpec.of("python")).withSessionOptions(SessionOptions.defaults()
+        Procwright.command(CommandSpec.of("python")).withSessionOptions(SessionOptions.defaults()
                 .withIdleTimeout(Duration.ofMinutes(5)));
 
 try (Session session = python.interactive().withArgs("-i").open()) {
@@ -30,7 +30,7 @@ try (Session session = python.interactive().withArgs("-i").open()) {
 
 ## Output ownership
 
-Interactive sessions expose raw stdout and stderr, but iCLI still protects output ownership. The first public raw stream
+Interactive sessions expose raw stdout and stderr, but Procwright still protects output ownership. The first public raw stream
 operation chooses raw stream mode. A higher-level helper such as `Expect`, `LineSession`, or `StreamSession` must claim
 output before raw stream access starts.
 

@@ -13,8 +13,9 @@ The `0.1.0` public API is the documented scenario surface:
 - `ScenarioPresets`
 - optional integrations helpers
 - optional Kotlin extensions
+- optional Kotlin scenario DSL helpers
 
-`IcliException` is the common unchecked base class for failures produced by iCLI. Scenario-specific exceptions remain
+`ProcwrightException` is the common unchecked base class for failures produced by Procwright. Scenario-specific exceptions remain
 the source of structured data such as command results, reasons, transcripts, diagnostics, and process exit information.
 
 Generated Java API docs are linked from [API Docs](../api/index.md). Kotlin usage is documented in

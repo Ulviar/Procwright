@@ -11,7 +11,7 @@ Use `lineSession` when a command stays alive and answers one logical request at 
 4. Treat request timeout or decoder failure as a session-ending event.
 
 ```java
-CommandService repl = Icli.command(CommandSpec.of("tool"));
+CommandService repl = Procwright.command(CommandSpec.of("tool"));
 
 try (LineSession session =
         repl.lineSession().withArgs("repl").withRequestTimeout(Duration.ofSeconds(2)).open()) {

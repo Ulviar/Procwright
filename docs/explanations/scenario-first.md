@@ -1,6 +1,6 @@
 # Why Scenarios Instead of Flags
 
-iCLI is not a thin wrapper over `ProcessBuilder`. The public API starts with the workflow a caller is trying to run:
+Procwright is not a thin wrapper over `ProcessBuilder`. The public API starts with the workflow a caller is trying to run:
 
 - finite command execution;
 - live interactive process control;
@@ -11,7 +11,7 @@ iCLI is not a thin wrapper over `ProcessBuilder`. The public API starts with the
 - structured CLI-backed integration boundaries.
 
 Each workflow needs different behavior. A timeout in a one-shot command, a request timeout in a line worker, and an idle
-timeout in an interactive session are not the same concept. iCLI keeps those settings next to the workflow that uses
+timeout in an interactive session are not the same concept. Procwright keeps those settings next to the workflow that uses
 them.
 
 ## What this means for users

@@ -1,6 +1,6 @@
 # Wrap a CLI Tool
 
-Use `io.github.ulviar:icli-integrations` when application code should call a small typed adapter instead of spreading
+Use `io.github.ulviar:procwright-integrations` when application code should call a small typed adapter instead of spreading
 argv construction, JSON framing, and CLI error mapping across many call sites.
 
 Add the optional module first. See [optional modules](../release/installation.md#optional-modules).
@@ -13,7 +13,7 @@ Add the optional module first. See [optional modules](../release/installation.md
 4. Treat CLI output as untrusted observation data.
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 
 CommandBackedTool<String, String> status = CommandBackedTool.of(path -> {
     CommandResult result = git.run().withArgs("status", "--short", path).execute();

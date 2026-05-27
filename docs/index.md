@@ -1,18 +1,18 @@
-# iCLI
+# Procwright
 
-iCLI is a JVM library for calling external command-line processes through task-shaped APIs. Choose the workflow first:
+Procwright is a JVM library for calling external command-line processes through task-shaped APIs. Choose the workflow first:
 run a finite command, automate prompts, talk to a worker, follow output, or reuse warm workers.
 
 The current public version is `0.1.0`. Use Java 17 or newer; published artifacts target Java 17.
 
-If you are new to iCLI, start with one question: what shape does the external process have? A command that exits belongs
+If you are new to Procwright, start with one question: what shape does the external process have? A command that exits belongs
 to `run`. A raw live process belongs to `interactive`. Prompt automation uses `interactive` + `Expect`. A long-lived
 worker with one line per response belongs to `lineSession`. A framed or typed protocol belongs to `protocolSession`. A
 process that emits output continuously belongs to `listen`.
 
-## What iCLI is for
+## What Procwright is for
 
-iCLI is intended for applications that need to call external CLIs without owning a custom process harness:
+Procwright is intended for applications that need to call external CLIs without owning a custom process harness:
 
 - run one command and receive a typed result;
 - interact with a long-running process through stdin/stdout;
@@ -26,16 +26,16 @@ iCLI is intended for applications that need to call external CLIs without owning
 ## First useful call
 
 ```java
-import io.github.ulviar.icli.CommandService;
-import io.github.ulviar.icli.Icli;
-import io.github.ulviar.icli.command.CommandResult;
+import io.github.ulviar.procwright.CommandService;
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CommandResult;
 
 public final class GettingStartedExample {
 
     private GettingStartedExample() {}
 
     public static void main(String[] args) {
-        CommandService java = Icli.command("java");
+        CommandService java = Procwright.command("java");
 
         CommandResult result = java.run().execute("--version");
 

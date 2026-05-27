@@ -14,7 +14,7 @@ requires terminal control sequences to function.
 ## Example
 
 ```java
-CommandService shell = Icli.command("sh");
+CommandService shell = Procwright.command("sh");
 
 try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
     session.sendLine("exit");

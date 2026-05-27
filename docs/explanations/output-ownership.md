@@ -1,6 +1,6 @@
 # Output Ownership Rationale
 
-iCLI treats process output as a single-owner resource because mixing readers is a common source of deadlocks, lost bytes,
+Procwright treats process output as a single-owner resource because mixing readers is a common source of deadlocks, lost bytes,
 misordered diagnostics, and inconsistent transcripts.
 
 A finite command, a streaming log follower, a prompt automator, and a request/response worker need different output

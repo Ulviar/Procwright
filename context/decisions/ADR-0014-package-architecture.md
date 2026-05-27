@@ -6,10 +6,10 @@ Accepted.
 
 ## Контекст
 
-Первая реализация Java-ядра выросла в один плоский пакет `io.github.ulviar.icli`. Это мешает читать код,
+Первая реализация Java-ядра выросла в один плоский пакет `io.github.ulviar.procwright`. Это мешает читать код,
 размывает владельцев инвариантов и делает публичную поверхность похожей на список классов, а не на сценарную модель.
 
-При этом пакетное разбиение не должно ломать философию iCLI:
+При этом пакетное разбиение не должно ломать философию Procwright:
 
 - пользователь выбирает сценарий, а не низкоуровневый набор флагов;
 - инварианты должны иметь одного владельца в коде;
@@ -20,18 +20,18 @@ Accepted.
 
 Разделить ядро на пакеты по ответственности:
 
-- `io.github.ulviar.icli` — тонкая facade-точка входа, прежде всего `CommandService`;
-- `io.github.ulviar.icli.command` — one-shot command model, result model, run invocation, input/output policies и
+- `io.github.ulviar.procwright` — тонкая facade-точка входа, прежде всего `CommandService`;
+- `io.github.ulviar.procwright.command` — one-shot command model, result model, run invocation, input/output policies и
   command-specific exceptions;
-- `io.github.ulviar.icli.diagnostics` — diagnostic events, listeners, transcript sinks и diagnostic options;
-- `io.github.ulviar.icli.session` — raw interactive session, expect, line session, protocol session, stream session,
+- `io.github.ulviar.procwright.diagnostics` — diagnostic events, listeners, transcript sinks и diagnostic options;
+- `io.github.ulviar.procwright.session` — raw interactive session, expect, line session, protocol session, stream session,
   pooled line session и pooled protocol session, потому что эти сценарии разделяют инвариант единоличного владения
   stdin/stdout/stderr и session-family lifecycle;
-- `io.github.ulviar.icli.terminal` — terminal/PTY policy, request, provider, size и signal types;
-- `io.github.ulviar.icli.preset` — scenario presets как пользовательский слой выбора готовых профилей;
-- `io.github.ulviar.icli.internal` допускается только для implementation details, которые не должны появляться в
+- `io.github.ulviar.procwright.terminal` — terminal/PTY policy, request, provider, size и signal types;
+- `io.github.ulviar.procwright.preset` — scenario presets как пользовательский слой выбора готовых профилей;
+- `io.github.ulviar.procwright.internal` допускается только для implementation details, которые не должны появляться в
   публичных сигнатурах.
-- `io.github.ulviar.icli.internal.session` содержит stateful реализации session-family сценариев и runtime factories,
+- `io.github.ulviar.procwright.internal.session` содержит stateful реализации session-family сценариев и runtime factories,
   которые не экспортируются JPMS-модулем.
 
 Diagnostics runtime dispatcher и schema validator относятся к `internal`: публичный diagnostics package описывает
@@ -44,7 +44,7 @@ Diagnostics runtime dispatcher и schema validator относятся к `intern
 
 ## Инварианты
 
-- Публичные сигнатуры не должны ссылаться на `io.github.ulviar.icli.internal`.
+- Публичные сигнатуры не должны ссылаться на `io.github.ulviar.procwright.internal`.
 - Runtime-only классы исключаются из пользовательской документации и не рассматриваются как пользовательский API.
 - Направления production-зависимостей между core packages закреплены тестом, а не только описаны в ADR.
 - Public session-family handles являются sealed interfaces; lifecycle state, output ownership и runtime factories живут в

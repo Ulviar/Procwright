@@ -6,7 +6,7 @@ Accepted.
 
 ## Контекст
 
-Независимое scenario testing показало, что iCLI выигрывает за счет scenario-first API, но documentation discoverability
+Независимое scenario testing показало, что Procwright выигрывает за счет scenario-first API, но documentation discoverability
 остается главным риском. Ветка уже содержит русскоязычный `context/` как внутреннюю память проекта, Javadoc artifacts
 для Java modules, KDoc coverage check для Kotlin API и compile-tested examples. Этого недостаточно для пользователя,
 который впервые открывает библиотеку и должен быстро выбрать правильный сценарий.
@@ -52,7 +52,7 @@ runtime-oriented и не превращается в Python/docs pipeline.
 
 ### Только README и Javadocs
 
-Отклонено, потому что iCLI продает не набор классов, а сценарную модель. README слишком мал для scenario cookbook, а
+Отклонено, потому что Procwright продает не набор классов, а сценарную модель. README слишком мал для scenario cookbook, а
 Javadocs плохо объясняют выбор workflow.
 
 ### Docusaurus
@@ -62,7 +62,7 @@ components, полноценная multi-version/i18n product site модель 
 
 ### VitePress
 
-Отклонено как хороший, но не более подходящий вариант для текущей JVM library docs. Vue/Vite stack не дает iCLI
+Отклонено как хороший, но не более подходящий вариант для текущей JVM library docs. Vue/Vite stack не дает Procwright
 очевидного выигрыша над MkDocs Material.
 
 ### Antora + AsciiDoc
@@ -72,7 +72,7 @@ components, полноценная multi-version/i18n product site модель 
 
 ### Sphinx
 
-Отклонено как менее естественный выбор для JVM-библиотеки. Он силен для Python/docstring-oriented проектов, но iCLI
+Отклонено как менее естественный выбор для JVM-библиотеки. Он силен для Python/docstring-oriented проектов, но Procwright
 уже имеет Java/Kotlin-native API docs path.
 
 ## Последствия

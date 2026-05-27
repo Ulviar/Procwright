@@ -13,7 +13,7 @@ request/response protocol. Use `protocolSession(factory).pooled()` for framed, m
 5. Set worker retirement policies such as request limit or age when useful.
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 try (PooledLineSession pool = tool.lineSession()
         .withArgs("repl")
@@ -36,7 +36,7 @@ More examples: [Examples](../examples.md#worker-pool).
 Typed protocol pools use a per-worker adapter factory so adapter state is never shared between workers.
 
 ```java
-CommandService worker = Icli.command("tool");
+CommandService worker = Procwright.command("tool");
 
 try (PooledProtocolSession<String, String> pool = worker.protocolSession(LengthPrefixedTextAdapter::new)
         .withArgs("worker")

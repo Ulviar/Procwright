@@ -29,7 +29,7 @@ fluent configuration и policy/value objects.
 API должен читаться как маленькая библиотека вокруг конкретной CLI-программы:
 
 ```java
-var python = Icli.command("python");
+var python = Procwright.command("python");
 
 CommandResult result = python.run().execute("--version");
 ```
@@ -45,7 +45,7 @@ var command = CommandSpec.builder("python")
         .putEnvironment("PYTHONUTF8", "1")
         .build();
 
-var python = Icli.command(command);
+var python = Procwright.command(command);
 
 CommandResult result = python.run().execute("--version");
 ```

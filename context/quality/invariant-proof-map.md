@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Этот документ связывает ключевые инварианты iCLI с владельцами в коде и проверками. Test/eval доказывает инвариант, но
+Этот документ связывает ключевые инварианты Procwright с владельцами в коде и проверками. Test/eval доказывает инвариант, но
 не владеет им. Владелец должен быть value object, policy, resolver, state machine, validator или runtime component.
 
 ## Core invariants
@@ -16,7 +16,7 @@
 | One-shot output bounded by policy and reports truncation. | `CapturePolicy`, `CapturedOutput`, `ProcessKernel`, `CommandResult`. | `CapturedOutputTest`, `CommandResultTest`, `OneShotExecutionIntegrationTest`, `ProcessStressTest`. |
 | Timeout завершает process tree через shutdown policy. | `RunOptions`, `ShutdownPolicy`, `ProcessLifecycle`, `ProcessKernel`, session runtime. | `OneShotExecutionIntegrationTest`, `ProcessStressTest`, `TestCliStressTest`. |
 | Stdin ownership is explicit and safe. | `CommandInput`, `StdinPolicy`, command/session/stream runtimes. | `OneShotExecutionIntegrationTest`, `InteractiveSessionIntegrationTest`, `StreamScenarioIntegrationTest`. |
-| iCLI-produced runtime failures share one generic catch boundary without losing scenario-specific details. | `IcliException`, scenario-specific exception classes, optional integration exceptions. | `IcliExceptionTest`, `IntegrationExceptionTest`, results/errors docs. |
+| Procwright-produced runtime failures share one generic catch boundary without losing scenario-specific details. | `ProcwrightException`, scenario-specific exception classes, optional integration exceptions. | `ProcwrightExceptionTest`, `IntegrationExceptionTest`, results/errors docs. |
 | Session output ownership cannot be shared by incompatible readers. | `SessionOutputOwnership`, `DefaultSession`, scenario wrappers. | `SessionOutputOwnershipTest`, `ExpectIntegrationTest`, `LineSessionIntegrationTest`, streaming tests. |
 | Raw session lifecycle is idempotent and observable. | `DefaultSession`, `SessionExit`, `SessionOptions`. | `InteractiveSessionIntegrationTest`, Kotlin await tests, diagnostics tests. |
 | Line requests are serialized and cannot interleave responses. | `DefaultLineSession`, `ResponseDecoder`, line request lock/state. | `LineSessionIntegrationTest`, `PooledLineSessionIntegrationTest`, `ProcessStressTest`. |
@@ -36,10 +36,10 @@
 | Pool hooks are bounded and pool metrics separate acquire wait from request duration. | `PooledLineSessionOptions`, `PooledProtocolSessionOptions`, `DefaultPooledLineSession`, `DefaultPooledProtocolSession`, `WorkerHookSupport`. | `PooledLineSessionIntegrationTest`, `ProtocolSessionIntegrationTest`, `PolicyValueTest`. |
 | Pool metrics snapshots cannot represent impossible state. | `PooledLineSessionMetrics`, `PooledProtocolSessionMetrics`. | `PolicyValueTest`, pool integration tests. |
 | Scenario presets do not create runners or bypass builders/resolver. | `ScenarioPresets`. | `ScenarioPresetsTest`, scenario presets docs, ADR-0008. |
-| Kotlin ergonomics do not add Kotlin dependency to Java core. | Gradle module boundaries, `:icli-kotlin`. | `PublicKotlinApiSurfaceTest`, `externalLibraryBoundaryCheck`, dependency review. |
-| CLI integrations do not pull MCP SDK or external process libraries into core. | `:icli-integrations`, module descriptor, dependency review. | `IntegrationModuleDescriptorTest`, `CommandBackedToolTest`, `ExternalLibraryBoundaryTest`. |
+| Kotlin ergonomics do not add Kotlin dependency to Java core. | Gradle module boundaries, `:procwright-kotlin`. | `PublicKotlinApiSurfaceTest`, `externalLibraryBoundaryCheck`, dependency review. |
+| CLI integrations do not pull MCP SDK or external process libraries into core. | `:procwright-integrations`, module descriptor, dependency review. | `IntegrationModuleDescriptorTest`, `CommandBackedToolTest`, `ExternalLibraryBoundaryTest`. |
 | JSON/framing helpers reject malformed or oversized protocol data. | `JsonCodec`, `JsonLines`, `ContentLengthJsonFrames`, `ProtocolAdapters`, `IntegrationProtocolException`. | `JsonCodecTest`, `ContentLengthJsonFramesTest`, `JsonLineSessionTest`, `ProtocolAdaptersTest`. |
-| Test CLI can model unstable real-world process behavior. | `:icli-test-cli` scenario registry and scenario implementations. | `:icli-test-cli:check`, `TestCliStressTest`, `context/evals/test-cli-simulator.md`. |
+| Test CLI can model unstable real-world process behavior. | `:procwright-test-cli` scenario registry and scenario implementations. | `:procwright-test-cli:check`, `TestCliStressTest`, `context/evals/test-cli-simulator.md`. |
 
 ## Release proof gates
 

@@ -1,13 +1,13 @@
 # Platforms and PTY
 
-iCLI core is built on JDK process APIs and keeps platform-specific terminal behavior behind a narrow capability
+Procwright core is built on JDK process APIs and keeps platform-specific terminal behavior behind a narrow capability
 boundary.
 
 ## Java runtime
 
-iCLI consumers use one public artifact that targets Java 17. Run it on Java 17 or newer.
+Procwright consumers use one public artifact that targets Java 17. Run it on Java 17 or newer.
 
-On Java 21 and newer runtimes, iCLI may use virtual threads behind an internal runtime boundary. The Java 17 variant
+On Java 21 and newer runtimes, Procwright may use virtual threads behind an internal runtime boundary. The Java 17 variant
 uses daemon platform-thread fallback. The public API does not expose or require a specific threading implementation.
 
 ## Ordinary process execution

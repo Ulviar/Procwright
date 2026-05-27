@@ -1,8 +1,8 @@
-# Рецепты сценариев iCLI
+# Рецепты сценариев Procwright
 
 ## Назначение
 
-Cookbook показывает, как выбирать сценарий iCLI по пользовательской задаче. Он не заменяет
+Cookbook показывает, как выбирать сценарий Procwright по пользовательской задаче. Он не заменяет
 [scenario-contracts.md](scenario-contracts.md): contracts фиксируют инварианты, а cookbook помогает выбрать правильный
 workflow и не скатиться к ручной сборке process harness.
 
@@ -27,7 +27,7 @@ workflow и не скатиться к ручной сборке process harness
 | Переиспользовать line-oriented workers | `lineSession().pooled()` | `pooledLineSessionScenario` |
 | Переиспользовать typed protocol workers | `protocolSession(factory).pooled()` | `pooledProtocolSessionScenario` |
 | Взять готовый workflow preset без нового runner | `ScenarioPresets` | `scenarioPresetComposition` |
-| Обернуть CLI как tool adapter | `:icli-integrations` | `oneShotCommandBackedTool` |
+| Обернуть CLI как tool adapter | `:procwright-integrations` | `oneShotCommandBackedTool` |
 | Общаться с JSON Lines worker | `JsonLineSession` | `jsonLineCommandBackedTool` |
 | Отменить async JSON Lines call | `CancellableCall` | `cancellableJsonLineCall` |
 | Читать/писать Content-Length JSON frames | `ContentLengthJsonFrames` | `contentLengthFramedJson` |
@@ -187,7 +187,7 @@ Compile-tested example:
 
 ## CLI-backed integrations
 
-Используй `:icli-integrations`, когда внешний CLI нужно поднять на уровень command-backed tool, JSON Lines worker или
+Используй `:procwright-integrations`, когда внешний CLI нужно поднять на уровень command-backed tool, JSON Lines worker или
 Content-Length framed JSON protocol. Этот модуль optional и не меняет core process runtime.
 
 Compile-tested examples:

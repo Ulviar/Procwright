@@ -15,7 +15,7 @@ The scenario covers:
 ## Example shape
 
 ```java
-CommandService repl = Icli.command(CommandSpec.of("tool"));
+CommandService repl = Procwright.command(CommandSpec.of("tool"));
 
 try (LineSession session = repl.lineSession()
         .withArgs("repl")
@@ -35,7 +35,7 @@ More examples: [Examples](../examples.md#line-worker).
 `LineSessionException` exposes a reason and a bounded transcript snapshot. The reason distinguishes request timeout,
 EOF before a complete response, closed session, and read or decoder failure.
 
-After request timeout or failure, the session is closed. iCLI does this because the protocol state may no longer be
+After request timeout or failure, the session is closed. Procwright does this because the protocol state may no longer be
 known.
 
 ## When not to use it

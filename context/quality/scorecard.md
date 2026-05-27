@@ -29,14 +29,14 @@ core/integrations.
 | PTY | Baseline | `TerminalPolicy`, `PtyProvider`, system provider, explicit unsupported behavior, terminal size и terminal signal model покрыты; Windows ConPTY отложен. |
 | Streaming/listen | Baseline | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, покрывает timeout/listener failure. |
 | Diagnostics | Baseline | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo, async best-effort unordered delivery и transcript sink покрыты tests/docs. |
-| Kotlin ergonomics | Baseline | Optional `:icli-kotlin` содержит extensions, suspend wrappers и Flow adapter; Java core не зависит от Kotlin; KDoc coverage check включен. |
+| Kotlin ergonomics | Baseline | Optional `:procwright-kotlin` содержит extensions, Kotlin duration overloads, suspend wrappers, Flow adapter и scenario-scoped DSL helpers; Java core не зависит от Kotlin; KDoc coverage check включен. |
 | Pooling | Baseline | `PooledLineSession` и `PooledProtocolSession` используют existing session workers, поддерживают max/warmup/minIdle, acquire timeout, bounded reset/health hooks, per-worker protocol adapters, retirement reasons, drain и metrics. |
 | Scenario presets | Baseline | Текущий набор presets заморожен для baseline `0.1.0` и остается typed builder customizer layer без нового runtime. |
-| CLI integrations | Baseline | Optional `:icli-integrations` содержит JSON/JSONL, Content-Length framing, protocol adapters, cancellation/error mapping и command-backed tool wrappers без MCP dependency. |
+| CLI integrations | Baseline | Optional `:procwright-integrations` содержит JSON/JSONL, Content-Length framing, protocol adapters, cancellation/error mapping и command-backed tool wrappers без MCP dependency. |
 | Performance/stress | Baseline | `stressTest` входит в `check`; JMH/comparison остаются research/manual data, не performance guarantee. |
 | Release hardening | Baseline | License, CI matrix, dependency verification, versioning/compatibility/dependency policies, release checklist, JPMS, Javadocs и public package boundary tests добавлены. |
-| Java release variants | Baseline | Один source tree собирается с `icli.javaRelease=17/21/25`; threading model скрыта за internal boundary, Java 17 использует fallback без изменения public API. |
-| Fixture/evals | Baseline | `:icli-test-cli` моделирует success, stderr, large output, timeout, sessions, streaming и нестабильные real-world process behaviors. |
+| Java release variants | Baseline | Один source tree собирается с `procwright.javaRelease=17/21/25`; threading model скрыта за internal boundary, Java 17 использует fallback без изменения public API. |
+| Fixture/evals | Baseline | `:procwright-test-cli` моделирует success, stderr, large output, timeout, sessions, streaming и нестабильные real-world process behaviors. |
 | Documentation | Baseline | Public MkDocs site описывает shipped behavior, содержит scenario/how-to/reference/release pages и включает generated Java API docs. |
 
 ## Принятые стабилизационные решения
@@ -58,7 +58,7 @@ core/integrations.
 - Raw session pooling.
 - Generic/core async request API.
 - Stateful affinity pools.
-- Real MCP SDK adapter поверх `:icli-integrations`.
+- Real MCP SDK adapter поверх `:procwright-integrations`.
 - Windows ConPTY provider.
 - Dokka publication для Kotlin API docs.
 - Automatic Maven Central publish без ручной проверки первого Central Portal deployment.

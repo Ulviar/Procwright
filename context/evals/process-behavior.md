@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Этот файл задает минимальный набор оценочных проверок для реализации iCLI. Каждый сценарий должен стать тестом или fixture-case
+Этот файл задает минимальный набор оценочных проверок для реализации Procwright. Каждый сценарий должен стать тестом или fixture-case
 до того, как соответствующее поведение будет считаться готовым.
 
 ## Одноразовые команды
@@ -108,7 +108,7 @@
 
 ## CLI-backed integrations
 
-- Optional `:icli-integrations` module компилируется отдельно от core и не добавляет новый process runtime.
+- Optional `:procwright-integrations` module компилируется отдельно от core и не добавляет новый process runtime.
 - JSON codec round-trips object/array/string/number/boolean/null values и экранирует control characters.
 - JSON parser отклоняет trailing content, invalid numbers и raw unescaped control characters.
 - JSON Lines helper не допускает raw line separators в frame boundary, но сохраняет escaped embedded line separators.
@@ -207,7 +207,7 @@
 - `quickCheck`, `scenarioCheck`, `regressionCheck` и `releaseCandidateCheck` соответствуют
   [test-tiers.md](test-tiers.md);
 - `javadoc` проходит для Java modules;
-- Kotlin public API проходит KDoc source check через `:icli-kotlin:kotlinApiDocsCheck`;
+- Kotlin public API проходит KDoc source check через `:procwright-kotlin:kotlinApiDocsCheck`;
 - public package boundaries покрыты tests;
 - LICENSE присутствует в корне репозитория;
 - versioning policy, compatibility policy, dependency review и release checklist актуальны;

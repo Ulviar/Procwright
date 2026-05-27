@@ -1,6 +1,6 @@
 # Command Model
 
-iCLI separates reusable command configuration from per-scenario invocation details.
+Procwright separates reusable command configuration from per-scenario invocation details.
 
 ## CommandSpec
 
@@ -25,7 +25,7 @@ CommandSpec command = CommandSpec.builder("python")
         .putEnvironment("PYTHONUTF8", "1")
         .build();
 
-CommandService python = Icli.command(command);
+CommandService python = Procwright.command(command);
 
 python.run().execute("--version");
 ```

@@ -1,8 +1,8 @@
-# Контекст iCLI
+# Контекст Procwright
 
 ## Назначение
 
-`context/` содержит только текущие источники правды для iCLI. Это не архив, не журнал работы и не место
+`context/` содержит только текущие источники правды для Procwright. Это не архив, не журнал работы и не место
 для raw research output. Исторические данные восстанавливаются из Git history, если они когда-нибудь понадобятся.
 
 Документ остается в `context/`, только если он помогает принять текущее решение, удерживает архитектурную границу,
@@ -24,7 +24,7 @@
 ## Проверки и качество
 
 - [evals/process-behavior.md](evals/process-behavior.md) — обязательные process behavior checks.
-- [evals/test-cli-simulator.md](evals/test-cli-simulator.md) — назначение `:icli-test-cli`.
+- [evals/test-cli-simulator.md](evals/test-cli-simulator.md) — назначение `:procwright-test-cli`.
 - [evals/test-tiers.md](evals/test-tiers.md) — уровни локальных проверок.
 - [quality/engineering-charter.md](quality/engineering-charter.md) — обязательный стандарт качества.
 - [quality/scorecard.md](quality/scorecard.md) — текущая готовность и known gaps.

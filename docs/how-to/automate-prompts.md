@@ -12,7 +12,7 @@ input.
 5. Keep transcript values redacted unless exact values are safe to record.
 
 ```java
-CommandService repl = Icli.command("tool");
+CommandService repl = Procwright.command("tool");
 
 try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {

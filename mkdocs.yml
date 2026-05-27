@@ -1,8 +1,8 @@
-site_name: iCLI
+site_name: Procwright
 site_description: Scenario-first JVM library for external CLI automation.
-site_url: https://ulviar.github.io/iCLI/
-repo_name: Ulviar/iCLI
-repo_url: https://github.com/Ulviar/iCLI
+site_url: https://ulviar.github.io/Procwright/
+repo_name: Ulviar/Procwright
+repo_url: https://github.com/Ulviar/Procwright
 edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: build/public-docs

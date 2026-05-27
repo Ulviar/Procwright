@@ -10,7 +10,7 @@ Use `run` with explicit timeout and shutdown policies when a command can hang or
 4. Read the timeout outcome from `CommandResult`.
 
 ```java
-CommandService logs = Icli.command("tool");
+CommandService logs = Procwright.command("tool");
 
 CommandResult result = logs.run()
         .withArgs("logs")
@@ -30,4 +30,4 @@ assembled at every call site with custom watcher threads.
 
 Cleanup uses JDK `ProcessHandle` descendant tracking. It covers the process tree visible to the JVM, but it is not an OS
 sandbox: detached children, inaccessible process handles, platform limits, or commands that deliberately escape their
-parent tree may need caller-side containment outside iCLI.
+parent tree may need caller-side containment outside Procwright.

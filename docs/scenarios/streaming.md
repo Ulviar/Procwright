@@ -14,7 +14,7 @@ The scenario covers:
 ## Example
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 try (StreamSession stream = tool.listen()
         .withArgs("logs", "--follow")

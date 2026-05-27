@@ -3,12 +3,12 @@
 ## Назначение
 
 Сравнение библиотек нужно использовать как исследование и источник идей, а не как повод тащить чужую модель в public
-API iCLI. Core остается scenario-first JVM library с минимальными зависимостями и собственными инвариантами вокруг
+API Procwright. Core остается scenario-first JVM library с минимальными зависимостями и собственными инвариантами вокруг
 process lifecycle.
 
 ## Разрешенная область
 
-Внешние process libraries из исследования разрешены только в `:icli-comparison`:
+Внешние process libraries из исследования разрешены только в `:procwright-comparison`:
 
 - Apache Commons Exec;
 - ZeroTurnaround zt-exec;
@@ -21,7 +21,7 @@ process lifecycle.
 
 ## Запрещено
 
-- Добавлять эти зависимости в root module, `:icli-kotlin` или `:icli-integrations`.
+- Добавлять эти зависимости в root module, `:procwright-kotlin` или `:procwright-integrations`.
 - Раскрывать типы этих библиотек в public API, exceptions, options, listeners или builders.
 - Использовать внешний process runtime как обход `ScenarioProfile -> ExecutionPlanResolver -> runtime`.
 - Переносить provider-specific flags в сценарные builders.
@@ -36,18 +36,18 @@ process lifecycle.
 - expect-style matching patterns из ExpectIt;
 - PTY capability isolation из Pty4J.
 
-Переносится только доменная идея, реализованная через собственные scenario contracts и invariant owners iCLI.
+Переносится только доменная идея, реализованная через собственные scenario contracts и invariant owners Procwright.
 
 ## Проверяемый gate
 
 `ExternalLibraryBoundaryTest` проверяет:
 
-- comparison dependencies объявлены только в `icli-comparison/build.gradle.kts`;
+- comparison dependencies объявлены только в `procwright-comparison/build.gradle.kts`;
 - core, Kotlin и integrations sources не импортируют и не используют packages comparison libraries;
-- публичные build files не зависят от `:icli-comparison`.
+- публичные build files не зависят от `:procwright-comparison`.
 
 `externalLibraryBoundaryCheck` дополнительно проверяет resolved runtime classpath публичных модулей (`:`,
-`:icli-kotlin`, `:icli-integrations`) и запрещает comparison dependencies на classpath.
+`:procwright-kotlin`, `:procwright-integrations`) и запрещает comparison dependencies на classpath.
 
 Если будущий optional backend действительно понадобится, сначала нужен ADR, затем новый module boundary и обновление
 этого gate.

@@ -20,7 +20,7 @@ For typed protocol workers, see [Protocol Sessions](protocol-session.md).
 ## Example
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 try (PooledLineSession pool = tool.lineSession()
         .withArgs("repl")
@@ -44,10 +44,10 @@ More examples: [Examples](../examples.md#worker-pool).
 
 The caller owns protocol reuse rules. A worker should be pooled only when reset and health semantics are clear. If a
 request timeout, decoder failure, failed reset, failed health check, request limit, or worker age limit makes another
-request unreliable, iCLI retires the worker.
+request unreliable, Procwright retires the worker.
 
-`protocolSession(factory).pooled()` uses an adapter factory, not a shared adapter instance. iCLI serializes factory
+`protocolSession(factory).pooled()` uses an adapter factory, not a shared adapter instance. Procwright serializes factory
 calls; each worker owns one returned adapter and one process protocol state.
 
-Pooling is intentionally scenario-specific. iCLI has line-session and typed protocol pools because those scenarios have
+Pooling is intentionally scenario-specific. Procwright has line-session and typed protocol pools because those scenarios have
 clear request boundaries.

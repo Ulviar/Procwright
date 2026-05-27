@@ -19,7 +19,7 @@ The example below includes a minimal length-prefixed adapter.
 ## Example
 
 ```java
-CommandService worker = Icli.command("tool");
+CommandService worker = Procwright.command("tool");
 ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
 
 try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
@@ -65,14 +65,14 @@ stdin:  22\nfirst line\nsecond line
 stdout: 22\nfirst line\nsecond line
 ```
 
-The worker executable is responsible for speaking that protocol. iCLI owns the process and deadlines; the adapter owns
+The worker executable is responsible for speaking that protocol. Procwright owns the process and deadlines; the adapter owns
 how one request and one response are framed.
 
 ## Pooling
 
 Use `protocolSession(factory).pooled()` when worker startup is expensive and the adapter can prove that a worker is
 reusable after each request. The pool owns acquire, release, retirement, reset, health checks, warmup, and background
-replenishment. The pooled API takes an adapter factory so each worker owns its own protocol state. iCLI serializes
+replenishment. The pooled API takes an adapter factory so each worker owns its own protocol state. Procwright serializes
 factory calls, and the adapters returned by the factory do not need to be thread-safe.
 
 Task-oriented pooling steps are in [Reuse workers](../how-to/reuse-workers.md).
@@ -80,7 +80,7 @@ Task-oriented pooling steps are in [Reuse workers](../how-to/reuse-workers.md).
 ## Adapter Boundary
 
 The adapter should describe protocol framing, not process lifecycle. It should write exactly one request, flush when the
-protocol requires it, and read exactly one response. iCLI owns the process, deadlines, output pumps, bounded diagnostics,
+protocol requires it, and read exactly one response. Procwright owns the process, deadlines, output pumps, bounded diagnostics,
 and worker retirement after failures.
 
 Use the optional integrations module for common adapter helpers: JSON Lines, delimiter-framed bytes, Content-Length JSON,

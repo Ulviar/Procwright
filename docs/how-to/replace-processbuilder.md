@@ -1,11 +1,11 @@
-# Choose an iCLI Scenario When Replacing ProcessBuilder
+# Choose a Procwright Scenario When Replacing ProcessBuilder
 
 Use this guide when existing code launches external commands with `ProcessBuilder`, `Runtime.exec`, or a small local
 process utility. Start from the workflow the caller needs, not from a method-by-method API mapping.
 
 ## Choose the scenario first
 
-| Existing shape | iCLI scenario | Why |
+| Existing shape | Procwright scenario | Why |
 | --- | --- | --- |
 | Start a command, wait for completion, inspect exit code and output. | [`run`](../scenarios/run.md) | Owns completion, bounded capture, timeout, stderr draining, and typed results. |
 | Start a command and keep reading output while it is alive. | [`listen`](../scenarios/streaming.md) | Owns stream draining without retaining all output. |
@@ -21,7 +21,7 @@ process utility. Start from the workflow the caller needs, not from a method-by-
 Replace ad hoc `ProcessBuilder` plus stream pump code with `run` when the process should finish and return an outcome.
 
 ```java
-CommandService git = Icli.command("git");
+CommandService git = Procwright.command("git");
 
 CommandResult result = git.run().execute("status", "--short");
 
@@ -48,7 +48,7 @@ CommandSpec command = CommandSpec.builder("python")
         .putEnvironment("PYTHONUTF8", "1")
         .build();
 
-CommandService python = Icli.command(command);
+CommandService python = Procwright.command(command);
 
 python.run().execute("--version");
 ```
@@ -63,7 +63,7 @@ If the existing code starts background threads to drain stdout and stderr, check
 captured result. If not, prefer `listen`.
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 try (StreamSession stream = tool.listen()
         .withArgs("logs", "--follow")
@@ -89,7 +89,7 @@ all of it would be the wrong invariant.
 If the existing code loops over process output waiting for prompt text, use `Expect` over an interactive session.
 
 ```java
-CommandService repl = Icli.command("tool");
+CommandService repl = Procwright.command("tool");
 
 try (Session session = repl.interactive().withArgs("repl").open();
         Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
@@ -108,7 +108,7 @@ Task guide: [Automate prompts](automate-prompts.md).
 If the existing code writes a command line and then waits for one response line, use `lineSession`.
 
 ```java
-CommandService repl = Icli.command(CommandSpec.of("tool"));
+CommandService repl = Procwright.command(CommandSpec.of("tool"));
 
 try (LineSession session = repl.lineSession()
         .withArgs("repl")
@@ -128,11 +128,11 @@ request/response cycle, the protocol state is unknown.
 
 ## What not to copy literally
 
-- Do not translate every `ProcessBuilder` setter into a long iCLI callback. Choose the scenario and then set only the
+- Do not translate every `ProcessBuilder` setter into a long Procwright callback. Choose the scenario and then set only the
   policies that matter to that scenario.
 - Do not keep manual stream pump threads next to `run`, `listen`, `Expect`, or `lineSession`; that would create two
   output owners.
 - Do not use shell command strings just because the existing code did. Direct argv is the default; shell is an explicit
   boundary.
-- Do not hide timeout and cleanup in a generic helper. In iCLI these are scenario policies, so the call site can see the
+- Do not hide timeout and cleanup in a generic helper. In Procwright these are scenario policies, so the call site can see the
   lifecycle contract.

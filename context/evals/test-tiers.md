@@ -46,7 +46,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 - core scenarios запускаются на реальных процессах;
 - `run`, `interactive`, `lineSession`, `expect`, `listen` и module adapters проверяются как workflows;
-- `:icli-consumer-examples:test` выполняет внешние consumer workflows для `run`, `lineSession`, `protocolSession` и
+- `:procwright-consumer-examples:test` выполняет внешние consumer workflows для `run`, `lineSession`, `protocolSession` и
   pools;
 - Kotlin и integrations modules подтверждают, что optional ergonomics не ломают core философию.
 
@@ -74,7 +74,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 ```bash
 ./gradlew publicJavaJavadocCheck
-./gradlew :icli-kotlin:kotlinApiDocsCheck
+./gradlew :procwright-kotlin:kotlinApiDocsCheck
 ./gradlew publicDocsCheck
 ```
 

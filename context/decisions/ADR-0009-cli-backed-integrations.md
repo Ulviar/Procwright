@@ -4,14 +4,14 @@
 
 ## Контекст
 
-iCLI должен быть полезен как process harness для command-backed tools и MCP-like адаптеров, но core runtime не должен
+Procwright должен быть полезен как process harness для command-backed tools и MCP-like адаптеров, но core runtime не должен
 становиться agent framework, tool registry или MCP SDK wrapper. Внешние протоколы должны использовать уже существующие
 сценарии `run`, `lineSession`, `interactive`, `listen` и `pooled`.
 
 ## Решение
 
-Добавляем отдельный Gradle-модуль `:icli-integrations` как именованный Java module
-`io.github.ulviar.icli.integrations`.
+Добавляем отдельный Gradle-модуль `:procwright-integrations` как именованный Java module
+`io.github.ulviar.procwright.integrations`.
 
 Модуль содержит:
 
@@ -40,9 +40,9 @@ iCLI должен быть полезен как process harness для command-
 - Adapter errors не включают raw stdout/stderr или raw argv/env values.
 - Cancellation должна стать observable `cancelled` outcome, а не случайным timeout/protocol failure.
 - Tool output считается недоверенными данными, а не инструкциями для agent harness.
-- JPMS descriptor экспортирует только `io.github.ulviar.icli.integration` и требует core module.
+- JPMS descriptor экспортирует только `io.github.ulviar.procwright.integration` и требует core module.
 
 ## Последствия
 
 Core остается меньше и стабильнее: CLI-backed integrations расширяют библиотеку через optional module. Реальный MCP SDK
-adapter можно добавить позже отдельным модулем поверх `:icli-integrations`, не меняя core execution kernel.
+adapter можно добавить позже отдельным модулем поверх `:procwright-integrations`, не меняя core execution kernel.

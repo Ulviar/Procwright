@@ -1,12 +1,12 @@
 # Choose a Process Scenario
 
-Use this guide when you know the shape of the external process but have not chosen the iCLI scenario yet.
+Use this guide when you know the shape of the external process but have not chosen the Procwright scenario yet.
 
 ## Version or availability probes
 
 Choose `run` for commands such as `git --version`, `docker info`, `java --version`, or a tool-specific `doctor` command.
 
-Keep executable discovery in the application layer. In `0.1.0`, iCLI launches the command it is given; it does not own
+Keep executable discovery in the application layer. In `0.1.0`, Procwright launches the command it is given; it does not own
 PATH lookup, Windows extension probing, package-manager installation, or toolchain discovery.
 
 Recommended shape:
@@ -17,7 +17,7 @@ Recommended shape:
 - convert unsuccessful results with `CommandResult.toException()` when fail-fast flow is wanted.
 
 ```java
-CommandService java = Icli.command("java");
+CommandService java = Procwright.command("java");
 
 CommandResult result = java.run().execute("--version");
 
@@ -47,7 +47,7 @@ The listener should be bounded and fast. Slow listeners create backpressure on t
 memory growth. If the caller needs to stop watching, close the `StreamSession`.
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 try (StreamSession stream = tool.listen()
         .withArgs("logs", "--follow")
@@ -71,12 +71,12 @@ Choose `listen` when readiness is an external observation such as HTTP polling o
 `interactive`, `lineSession`, or `protocolSession` readiness probes when readiness can be checked through the worker
 protocol itself.
 
-Typical readiness checks are HTTP polling, socket availability, a PID file, a status command, or a known log line. iCLI
+Typical readiness checks are HTTP polling, socket availability, a PID file, a status command, or a known log line. Procwright
 should own stream draining, timeout, shutdown, and diagnostics. The application still owns the domain-specific definition
-of "ready"; iCLI only owns when the probe runs and how the process is closed on readiness failure.
+of "ready"; Procwright only owns when the probe runs and how the process is closed on readiness failure.
 
 ```java
-CommandService server = Icli.command("tool");
+CommandService server = Procwright.command("tool");
 AtomicBoolean ready = new AtomicBoolean(false);
 
 try (StreamSession stream = server.listen()
@@ -117,7 +117,7 @@ response. Choose `lineSession().pooled()` when worker startup is expensive and t
 reliably between requests.
 
 ```java
-CommandService repl = Icli.command(CommandSpec.of("tool"));
+CommandService repl = Procwright.command(CommandSpec.of("tool"));
 
 try (LineSession session = repl.lineSession()
         .withArgs("repl")
@@ -140,7 +140,7 @@ delimiter-framed, or mapped to domain types. Choose `protocolSession(factory).po
 reset/health semantics are clear.
 
 ```java
-CommandService worker = Icli.command("tool");
+CommandService worker = Procwright.command("tool");
 ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
 
 try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
@@ -164,14 +164,14 @@ The adapter implementation is shown in [Protocol Sessions](../scenarios/protocol
 Choose the optional integrations module when a CLI should be treated as a structured adapter rather than raw process
 text.
 
-Add `io.github.ulviar:icli-integrations` when using these helpers. See
+Add `io.github.ulviar:procwright-integrations` when using these helpers. See
 [optional modules](../release/installation.md#optional-modules).
 
 The adapter layer still builds on core scenarios. It should validate output as untrusted data and keep cancellation,
 diagnostics, and protocol bounds explicit.
 
 ```java
-CommandService service = Icli.command("tool");
+CommandService service = Procwright.command("tool");
 
 try (LineSession lineSession = service.lineSession().withArg("json-worker").open();
         JsonLineSession json = JsonLineSession.over(lineSession)) {

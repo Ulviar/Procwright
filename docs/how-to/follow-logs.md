@@ -11,7 +11,7 @@ processed while the process is still alive.
 4. Join `stream.onExit()` or close the session when the caller is done.
 
 ```java
-CommandService tool = Icli.command("tool");
+CommandService tool = Procwright.command("tool");
 
 try (StreamSession stream = tool.listen()
         .withArgs("logs", "--follow")

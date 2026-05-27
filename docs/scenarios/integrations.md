@@ -1,6 +1,6 @@
 # Integrations
 
-The optional `io.github.ulviar:icli-integrations` artifact is for code that wants a typed adapter over a CLI instead of
+The optional `io.github.ulviar:procwright-integrations` artifact is for code that wants a typed adapter over a CLI instead of
 passing raw process text through the application.
 
 Add the optional module first. See [optional modules](../release/installation.md#optional-modules).
@@ -23,7 +23,7 @@ More examples: [Examples](../examples.md#integration-examples).
 ## Example
 
 ```java
-CommandService service = Icli.command("tool");
+CommandService service = Procwright.command("tool");
 
 try (LineSession lineSession = service.lineSession().withArg("json-worker").open();
         JsonLineSession json = JsonLineSession.over(lineSession)) {

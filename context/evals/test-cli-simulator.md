@@ -2,19 +2,19 @@
 
 ## Назначение
 
-Модуль `:icli-test-cli` содержит отдельное Java CLI-приложение, которое моделирует реальные проблемы CLI-процессов для
-integration, stress, comparison и regression проверок iCLI. Оно не зависит от core, Kotlin, integrations или comparison
+Модуль `:procwright-test-cli` содержит отдельное Java CLI-приложение, которое моделирует реальные проблемы CLI-процессов для
+integration, stress, comparison и regression проверок Procwright. Оно не зависит от core, Kotlin, integrations или comparison
 модулей и не является публичным API библиотеки.
 
 Главная цель — дать тестам один воспроизводимый child process с широким набором problem modes. Это заменяет рост
-разрозненных fixture-программ и позволяет расширять проверки через сценарии, не меняя process runtime iCLI.
+разрозненных fixture-программ и позволяет расширять проверки через сценарии, не меняя process runtime Procwright.
 
 Запуск:
 
 ```bash
-./gradlew :icli-test-cli:run --args='catalog'
-./gradlew :icli-test-cli:run --args='stream --count=10 --delay-millis=25'
-./gradlew :icli-test-cli:run --args='line-repl --prompt="ready> "'
+./gradlew :procwright-test-cli:run --args='catalog'
+./gradlew :procwright-test-cli:run --args='stream --count=10 --delay-millis=25'
+./gradlew :procwright-test-cli:run --args='line-repl --prompt="ready> "'
 ```
 
 ## Инварианты симулятора
@@ -25,7 +25,7 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 - Протокольные сценарии читают stdin и пишут stdout/stderr как реальный дочерний процесс.
 - Non-zero exit, malformed output, partial output и hangs являются штатными моделируемыми результатами, а не ошибками
   самого симулятора.
-- Симулятор не закрепляет философию public API iCLI; он проверяет runtime-реальность, с которой сценарный API должен
+- Симулятор не закрепляет философию public API Procwright; он проверяет runtime-реальность, с которой сценарный API должен
   справляться.
 
 ## Каталог проблем
@@ -85,13 +85,13 @@ integration, stress, comparison и regression проверок iCLI. Оно не
 
 ## Расширение
 
-Новый scenario добавляется только вместе с тестом в `:icli-test-cli:test`. Если scenario нужен для release-relevant
-поведения iCLI, соответствующая проверка должна появиться в `integrationTest`, `stressTest` или другом release gate, а
+Новый scenario добавляется только вместе с тестом в `:procwright-test-cli:test`. Если scenario нужен для release-relevant
+поведения Procwright, соответствующая проверка должна появиться в `integrationTest`, `stressTest` или другом release gate, а
 не оставаться только в каталоге симулятора. `comparisonCheck` допустим только как отдельный research/manual signal.
 
-## Stress-проверки iCLI
+## Stress-проверки Procwright
 
-`src/stressTest/java/io/github/ulviar/icli/TestCliStressTest.java` использует симулятор как реальный child process и
+`src/stressTest/java/io/github/ulviar/procwright/TestCliStressTest.java` использует симулятор как реальный child process и
 проверяет:
 
 - параллельные burst-процессы с большими независимыми stdout/stderr и bounded capture;
