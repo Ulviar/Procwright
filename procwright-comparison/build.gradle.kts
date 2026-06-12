@@ -29,7 +29,7 @@ dependencies {
     implementation("com.zaxxer:nuprocess:3.0.0")
     implementation("org.jetbrains.pty4j:pty4j:0.13.12")
     implementation("net.sf.expectit:expectit-core:0.9.0")
-    implementation("org.slf4j:slf4j-api:2.0.17")
+    implementation("org.slf4j:slf4j-api:2.0.18")
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")

@@ -11,7 +11,7 @@ val procwrightJavaVersion = rootProject.extra["procwrightJavaVersion"] as JavaVe
 
 dependencies {
     api(project(":"))
-    api("com.fasterxml.jackson.core:jackson-databind:2.21.3")
+    api("com.fasterxml.jackson.core:jackson-databind:2.22.0")
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
