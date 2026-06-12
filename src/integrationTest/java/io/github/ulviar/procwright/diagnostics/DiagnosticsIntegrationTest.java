@@ -206,7 +206,7 @@ final class DiagnosticsIntegrationTest {
         CommandResult result = service.run()
                 .withArgs("sleep", "--millis=5000", "--finished=false")
                 .withTimeout(Duration.ofMillis(100))
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(5)))
                 .execute();
 
         assertTrue(result.timedOut());

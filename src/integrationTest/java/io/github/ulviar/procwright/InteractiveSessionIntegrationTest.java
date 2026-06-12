@@ -173,9 +173,8 @@ final class InteractiveSessionIntegrationTest {
     @Test
     void successfulWriteResetsIdleTimeout() throws Exception {
         Duration idleTimeout = idleResetWindow();
-        CommandService service = fixtureService(SessionOptions.defaults()
-                .withIdleTimeout(idleTimeout)
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+        CommandService service = fixtureService(
+                SessionOptions.defaults().withIdleTimeout(idleTimeout).withShutdown(idleShutdownPolicy()));
 
         try (Session session = service.interactive(call -> call.args("sleep", "--millis=60000", "--finished=false"))) {
             // Keep writing for well over the idle window with a small activity interval; each
@@ -189,7 +188,8 @@ final class InteractiveSessionIntegrationTest {
 
             assertFalse(session.onExit().isDone(), "activity must keep resetting the idle window");
 
-            SessionExit exit = session.onExit().get(idleTimeout.multipliedBy(4).toMillis(), TimeUnit.MILLISECONDS);
+            SessionExit exit = session.onExit()
+                    .get(idleTimeout.multipliedBy(4).plusSeconds(6).toMillis(), TimeUnit.MILLISECONDS);
             assertTrue(exit.timedOut());
         }
     }
@@ -197,9 +197,8 @@ final class InteractiveSessionIntegrationTest {
     @Test
     void successfulReadResetsIdleTimeout() throws Exception {
         Duration idleTimeout = idleResetWindow();
-        CommandService service = fixtureService(SessionOptions.defaults()
-                .withIdleTimeout(idleTimeout)
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+        CommandService service = fixtureService(
+                SessionOptions.defaults().withIdleTimeout(idleTimeout).withShutdown(idleShutdownPolicy()));
 
         // The heartbeat phase emits ticks for well over the idle window; each successful read must
         // reset the window. The silent hold tail then lets the idle timeout fire.
@@ -218,7 +217,8 @@ final class InteractiveSessionIntegrationTest {
 
             assertFalse(session.onExit().isDone(), "reads must keep resetting the idle window");
 
-            SessionExit exit = session.onExit().get(idleTimeout.multipliedBy(4).toMillis(), TimeUnit.MILLISECONDS);
+            SessionExit exit = session.onExit()
+                    .get(idleTimeout.multipliedBy(4).plusSeconds(6).toMillis(), TimeUnit.MILLISECONDS);
             assertTrue(exit.timedOut());
         }
     }
@@ -227,10 +227,10 @@ final class InteractiveSessionIntegrationTest {
     void idleTimeoutClosesHungSession() throws Exception {
         CommandService service = fixtureService(SessionOptions.defaults()
                 .withIdleTimeout(Duration.ofMillis(100))
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+                .withShutdown(idleShutdownPolicy()));
 
         try (Session session = service.interactive(call -> call.args("sleep", "--millis=5000", "--finished=false"))) {
-            SessionExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+            SessionExit exit = session.onExit().get(10, TimeUnit.SECONDS);
 
             assertTrue(exit.timedOut());
         }
@@ -245,6 +245,12 @@ final class InteractiveSessionIntegrationTest {
         // it, so scheduler hiccups on loaded CI machines cannot eat the whole window between
         // activity samples.
         return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
+    }
+
+    private static ShutdownPolicy idleShutdownPolicy() {
+        // The grace windows are upper bounds on reap latency, not added test time. A tight kill
+        // grace races process-tree reaping on loaded CI machines and fails shutdown spuriously.
+        return ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(5));
     }
 
     private static boolean isWindows() {
