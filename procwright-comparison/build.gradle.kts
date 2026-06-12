@@ -31,7 +31,7 @@ dependencies {
     implementation("net.sf.expectit:expectit-core:0.9.0")
     implementation("org.slf4j:slf4j-api:2.0.18")
 
-    testImplementation(platform("org.junit:junit-bom:6.0.0"))
+    testImplementation(platform("org.junit:junit-bom:6.1.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
