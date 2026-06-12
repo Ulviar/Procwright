@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an improvement or a new capability for Procwright
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >-
+        What problem are you trying to solve? What does the library currently
+        make hard or impossible?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed scenario or API shape
+      description: >-
+        Sketch how you would like the API to look, e.g. a new scenario, a new
+        option on an existing scenario, or a code sample of the desired usage.
+      render: java
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >-
+        Other approaches you considered, including workarounds with the
+        current API or other libraries.

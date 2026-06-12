@@ -1,0 +1,19 @@
+# Dependabot configuration.
+#
+# Reminder for Gradle dependency bumps: this project uses Gradle dependency
+# verification, so every dependency update must regenerate
+# gradle/verification-metadata.xml before merging:
+#
+#   ./gradlew --write-verification-metadata sha256 check --refresh-dependencies
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
