@@ -43,7 +43,8 @@ integration, stress, comparison и regression проверок Procwright. Он�
 ### Output
 
 - `stream` — interleaved stdout/stderr chunks, задержки, flush boundaries, optional newline.
-- `long-run` — bounded heartbeat output для long-running/slow-consumer проверок.
+- `long-run` — bounded heartbeat output для long-running/slow-consumer проверок; `--hold-millis` добавляет тихий
+  живой хвост после heartbeats для idle-timeout проверок.
 - `burst` — большие независимые burst-потоки stdout/stderr для deadlock и bounded capture проверок.
 - `partial` — незавершенные stdout/stderr без newline.
 - `binary` — raw bytes, включая NUL, `0xff`, диапазоны и hex-patterns.
@@ -58,7 +59,8 @@ integration, stress, comparison и regression проверок Procwright. Он�
 
 - `line-repl` — line-oriented REPL с prompt, stderr command, sleep command, multi-line response и controlled exit.
 - `controlled-line-repl` — line REPL с health/reset/pid/hold/noise/stderr-burst control requests для pool/session
-  проверок.
+  проверок; `malformed-utf8` пишет сырой невалидный UTF-8 байт, `split-utf8` разрезает multi-byte codepoint по границе
+  flush для strict-charset и incremental-decoder проверок.
 - `exit-after-read` — процесс читает один request и завершает stdout до ответа.
 - `two-line-delay-repl` — сериализуемые two-line responses с задержкой между строками.
 - `length-line-frame` — length-line framed protocol для произвольных multi-line/binary-style request bodies.
@@ -102,4 +104,5 @@ integration, stress, comparison и regression проверок Procwright. Он�
 - long-running stream с медленным listener и backpressure;
 - repeated child-spawn loop;
 - параллельные mixed CPU/memory/output load-процессы;
-- pooled line-session под смешанной нагрузкой успешных requests и request timeouts.
+- pooled line-session под смешанной нагрузкой успешных requests и request timeouts;
+- pooled protocol-session под смешанной нагрузкой успешных requests и request timeouts с retire таймаутнувших workers.

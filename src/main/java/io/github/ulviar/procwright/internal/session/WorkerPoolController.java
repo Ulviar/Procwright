@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.DurationSupport;
@@ -305,6 +307,11 @@ final class WorkerPoolController<S> {
     private void replenishIfNeeded() {
         if (!options.backgroundReplenishment() || options.minIdle() == 0) {
             return;
+        }
+        synchronized (lock) {
+            if (closing || idle.size() >= options.minIdle() || size >= options.maxSize()) {
+                return;
+            }
         }
         Threading.start(replenishThreadPrefix, this::replenishOnce);
     }

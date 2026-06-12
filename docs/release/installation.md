@@ -2,6 +2,11 @@
 
 Published releases are consumed from Maven Central. Use Java 17 or newer; public artifacts target Java 17.
 
+!!! note "Not yet on Maven Central"
+    `0.1.0` is not yet available on Maven Central; publication is pending. Until then, build from source and install
+    the artifacts into your local repository with `./gradlew publishToMavenLocal`, then resolve the coordinates below
+    from `mavenLocal()`.
+
 ## Core dependency
 
 Gradle Kotlin DSL:

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
@@ -41,7 +43,8 @@ public final class StreamOptions {
     }
 
     /**
-     * Returns default stream options.
+     * Returns default stream options: timeout disabled ({@link Duration#ZERO}), shutdown
+     * {@code interruptThenKill(2 s, 5 s)}, charset UTF-8, and a 65,536-character diagnostic window.
      *
      * @return default stream options
      */

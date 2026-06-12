@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,6 +73,70 @@ final class ExecutionPlanResolverTest {
         CommandSpec spec = CommandSpec.shell("echo hello");
         CommandInvocation invocation =
                 CommandInvocation.builder().args("unexpected").build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExecutionPlanResolver.resolve(ScenarioProfile.run(RunOptions.defaults()), spec, invocation));
+    }
+
+    @Test
+    void resolvesZeroTimeoutAsDisabledRunTimeout() {
+        CommandSpec spec = CommandSpec.of("tool");
+        CommandInvocation invocation =
+                CommandInvocation.builder().timeout(Duration.ZERO).build();
+
+        ExecutionPlan plan =
+                ExecutionPlanResolver.resolve(ScenarioProfile.run(RunOptions.defaults()), spec, invocation);
+
+        assertEquals(Duration.ZERO, plan.timeout());
+    }
+
+    @Test
+    void resolvesDiscardAndFileCapturePolicies() {
+        CommandSpec spec = CommandSpec.of("tool");
+
+        ExecutionPlan discard = ExecutionPlanResolver.resolve(
+                ScenarioProfile.run(RunOptions.defaults()),
+                spec,
+                CommandInvocation.builder().capture(CapturePolicy.discard()).build());
+        ExecutionPlan separate = ExecutionPlanResolver.resolve(
+                ScenarioProfile.run(RunOptions.defaults()),
+                spec,
+                CommandInvocation.builder()
+                        .capture(CapturePolicy.toPath(Path.of("out.log"), Path.of("err.log")))
+                        .build());
+        ExecutionPlan merged = ExecutionPlanResolver.resolve(
+                ScenarioProfile.run(RunOptions.defaults()),
+                spec,
+                CommandInvocation.builder()
+                        .capture(CapturePolicy.toPath(Path.of("all.log")))
+                        .output(OutputMode.MERGED)
+                        .build());
+
+        assertEquals(CapturePolicy.discard(), discard.capturePolicy());
+        assertEquals(CapturePolicy.toPath(Path.of("out.log"), Path.of("err.log")), separate.capturePolicy());
+        assertEquals(CapturePolicy.toPath(Path.of("all.log")), merged.capturePolicy());
+    }
+
+    @Test
+    void rejectsMergedFileCaptureWithSeparateOutputMode() {
+        CommandSpec spec = CommandSpec.of("tool");
+        CommandInvocation invocation = CommandInvocation.builder()
+                .capture(CapturePolicy.toPath(Path.of("all.log")))
+                .build();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ExecutionPlanResolver.resolve(ScenarioProfile.run(RunOptions.defaults()), spec, invocation));
+    }
+
+    @Test
+    void rejectsTwoFileCaptureWithMergedOutputMode() {
+        CommandSpec spec = CommandSpec.of("tool");
+        CommandInvocation invocation = CommandInvocation.builder()
+                .capture(CapturePolicy.toPath(Path.of("out.log"), Path.of("err.log")))
+                .output(OutputMode.MERGED)
+                .build();
 
         assertThrows(
                 IllegalArgumentException.class,

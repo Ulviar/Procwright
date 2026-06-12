@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.diagnostics;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -225,12 +227,16 @@ final class DiagnosticsOptionsTest {
     }
 
     @Test
-    void diagnosticsContractsDocumentBestEffortUnorderedDelivery() throws Exception {
+    void diagnosticsContractsDocumentPerDestinationOrderedDelivery() throws Exception {
         String context = Files.readString(Path.of("context/diagnostics.md"), StandardCharsets.UTF_8);
         String publicDocs = Files.readString(Path.of("docs/reference/diagnostics.md"), StandardCharsets.UTF_8);
 
+        assertTrue(context.contains("доставляются каждому получателю последовательно"));
         assertTrue(context.contains("не гарантирует ordering"));
-        assertTrue(publicDocs.replaceAll("\\s+", " ").contains("do not rely on callback order across threads"));
+        assertTrue(publicDocs.replaceAll("\\s+", " ").contains("each recipient receives its events in emission order"));
+        assertTrue(publicDocs
+                .replaceAll("\\s+", " ")
+                .contains("ordering between the listener and the transcript sink is not coordinated"));
     }
 
     @Test

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
@@ -26,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -44,12 +47,22 @@ public final class DefaultLineSession implements LineSession {
     private final BlockingQueue<StdoutEvent> stdoutEvents;
     private final ReentrantLock requestLock = new ReentrantLock();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicReference<TerminalFailure> terminalFailure = new AtomicReference<>();
+
+    /**
+     * Guards stdout event publication against the close transition. Invariant: once {@link StdoutEvent#closed()} has
+     * been published, the queue contains exactly that event and the pump publishes nothing afterwards, so a concurrent
+     * reader can neither lose the CLOSED event nor observe stale LINE events behind it.
+     */
+    private final Object stdoutEventLock = new Object();
+
+    private boolean closedEventPublished;
 
     public DefaultLineSession(DefaultSession session, LineSessionOptions options) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
         this.transcript = new BoundedTranscriptBuffer(options.transcriptLimit());
-        this.stdoutEvents = new ArrayBlockingQueue<>(options.stdoutBacklogLimit());
+        this.stdoutEvents = new ArrayBlockingQueue<>(options.stdoutBacklogLines());
         this.session.claimOutputOwner(OUTPUT_OWNER);
         startPumps();
     }
@@ -86,6 +99,7 @@ public final class DefaultLineSession implements LineSession {
             return new LineResponse(lines, lineTranscript(), Duration.between(started, Instant.now()));
         } catch (LineSessionException exception) {
             if (exception.reason() != LineSessionException.Reason.CLOSED) {
+                recordTerminalFailure(exception.reason(), exception.getMessage(), exception);
                 closePreserving(exception);
             }
             throw exception;
@@ -123,8 +137,11 @@ public final class DefaultLineSession implements LineSession {
     private void closeWithEvent(boolean publishClosed) {
         if (closed.compareAndSet(false, true)) {
             if (publishClosed) {
-                stdoutEvents.clear();
-                stdoutEvents.offer(StdoutEvent.closed());
+                synchronized (stdoutEventLock) {
+                    stdoutEvents.clear();
+                    stdoutEvents.offer(StdoutEvent.closed());
+                    closedEventPublished = true;
+                }
             }
             session.close();
         }
@@ -181,7 +198,11 @@ public final class DefaultLineSession implements LineSession {
                 currentLine.setLength(0);
             } else {
                 currentLine.append(value);
-                if (currentLine.length() > options.maxLineChars()) {
+                // A single trailing '\r' may still turn out to be a CRLF terminator, so the limit tolerates exactly
+                // one pending '\r' beyond maxLineChars until the next character resolves it.
+                int maxLineChars = options.maxLineChars();
+                boolean pendingCarriageReturn = value == '\r' && currentLine.length() == maxLineChars + 1;
+                if (currentLine.length() > maxLineChars && !pendingCarriageReturn) {
                     offerStdoutEvent(StdoutEvent.failure(
                             LineSessionException.Reason.RESPONSE_TOO_LARGE,
                             new CommandExecutionException("Line-session stdout line exceeds maxLineChars")));
@@ -194,14 +215,33 @@ public final class DefaultLineSession implements LineSession {
     }
 
     private void offerStdoutEvent(StdoutEvent event) {
-        if (stdoutEvents.offer(event)) {
-            return;
+        boolean overflow = false;
+        synchronized (stdoutEventLock) {
+            if (closedEventPublished) {
+                return;
+            }
+            if (event.kind() == Kind.FAILURE) {
+                recordTerminalFailure(event.reason(), failureMessage(event.reason()), event.failure());
+            }
+            if (!stdoutEvents.offer(event)) {
+                CommandExecutionException failure =
+                        new CommandExecutionException("Line-session stdout backlog overflow");
+                recordTerminalFailure(
+                        LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW,
+                        failureMessage(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW),
+                        failure);
+                stdoutEvents.clear();
+                stdoutEvents.offer(StdoutEvent.failure(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW, failure));
+                overflow = true;
+            }
         }
-        stdoutEvents.clear();
-        stdoutEvents.offer(StdoutEvent.failure(
-                LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW,
-                new CommandExecutionException("Line-session stdout backlog overflow")));
-        closeQuietly();
+        if (overflow) {
+            closeQuietly();
+        }
+    }
+
+    private void recordTerminalFailure(LineSessionException.Reason reason, String message, Throwable cause) {
+        terminalFailure.compareAndSet(null, new TerminalFailure(reason, message, cause));
     }
 
     private List<String> decode(ResponseReader reader) {
@@ -239,6 +279,12 @@ public final class DefaultLineSession implements LineSession {
                     LineSessionException.Reason.FAILURE, "Interrupted while writing line-session stdin", exception);
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause();
+            if (cause instanceof ProcessExitedException processExited) {
+                throw failure(
+                        LineSessionException.Reason.PROCESS_EXITED,
+                        "Line-session process exited before the request could be written",
+                        processExited);
+            }
             if (cause instanceof IllegalStateException illegalState) {
                 throw closed(illegalState);
             }
@@ -256,8 +302,20 @@ public final class DefaultLineSession implements LineSession {
 
     private void ensureOpen() {
         if (closed.get()) {
-            throw closed(null);
+            throw closedOrTerminal();
         }
+    }
+
+    private LineSessionException closedOrTerminal() {
+        TerminalFailure failure = terminalFailure.get();
+        if (failure == null) {
+            return closed(null);
+        }
+        return new LineSessionException(
+                failure.reason(),
+                lineTranscript(),
+                "Line session was closed by an earlier failure: " + failure.message(),
+                failure.cause());
     }
 
     private void closePreserving(LineSessionException exception) {
@@ -417,5 +475,13 @@ public final class DefaultLineSession implements LineSession {
         EOF,
         CLOSED,
         FAILURE
+    }
+
+    private record TerminalFailure(LineSessionException.Reason reason, String message, Throwable cause) {
+
+        private TerminalFailure {
+            Objects.requireNonNull(reason, "reason");
+            Objects.requireNonNull(message, "message");
+        }
     }
 }

@@ -1,5 +1,8 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.command;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
@@ -8,6 +11,10 @@ import java.util.OptionalInt;
 
 /**
  * Completed one-shot command result.
+ *
+ * <p>For streams that were discarded or redirected to files through {@link CapturePolicy#discard()} or
+ * {@link CapturePolicy#toPath}, the text and byte accessors return empty values and the truncation flags stay
+ * {@code false}; exit code, {@link #timedOut()}, and {@link #elapsed()} are reported as usual.
  *
  * @param exitCode process exit code when available
  * @param stdoutBytes captured standard output bytes
@@ -33,15 +40,31 @@ public record CommandResult(
     /**
      * Creates a completed command result without truncation or timeout metadata.
      *
+     * <p>The byte views are produced by encoding the provided text as UTF-8 regardless of the charset the command
+     * actually produced. Use {@link #CommandResult(int, String, String, Charset)} when the output charset differs.
+     *
      * @param exitCode process exit code
      * @param stdout captured standard output
      * @param stderr captured standard error
      */
     public CommandResult(int exitCode, String stdout, String stderr) {
+        this(exitCode, stdout, stderr, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Creates a completed command result without truncation or timeout metadata, encoding the byte views with the
+     * provided charset.
+     *
+     * @param exitCode process exit code
+     * @param stdout captured standard output
+     * @param stderr captured standard error
+     * @param charset charset used to derive the stdout and stderr byte views from the text
+     */
+    public CommandResult(int exitCode, String stdout, String stderr, Charset charset) {
         this(
                 OptionalInt.of(exitCode),
-                requireText(stdout, "stdout").getBytes(StandardCharsets.UTF_8),
-                requireText(stderr, "stderr").getBytes(StandardCharsets.UTF_8),
+                requireText(stdout, "stdout").getBytes(Objects.requireNonNull(charset, "charset")),
+                requireText(stderr, "stderr").getBytes(charset),
                 requireText(stdout, "stdout"),
                 requireText(stderr, "stderr"),
                 false,
@@ -82,6 +105,9 @@ public record CommandResult(
     /**
      * Returns a copy of captured standard output bytes.
      *
+     * <p>The accessor clones the backing array on every call. Cache the returned array when repeatedly accessing
+     * large outputs.
+     *
      * @return captured standard output bytes
      */
     @Override
@@ -91,6 +117,9 @@ public record CommandResult(
 
     /**
      * Returns a copy of captured standard error bytes.
+     *
+     * <p>The accessor clones the backing array on every call. Cache the returned array when repeatedly accessing
+     * large outputs.
      *
      * @return captured standard error bytes
      */

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
@@ -31,6 +33,19 @@ import java.util.function.Supplier;
 
 /**
  * Entry point for scenario-first command workflows.
+ *
+ * <p>A service binds one base command to scenario defaults and exposes the scenario catalog: {@link #run()},
+ * {@link #interactive()}, {@link #lineSession()}, {@link #protocolSession(ProtocolAdapter)}, and {@link #listen()}.
+ * Services are immutable; {@code with*Options(...)} methods return updated copies.
+ *
+ * <pre>{@code
+ * CommandService git = CommandService.forCommand("git");
+ *
+ * CommandResult result = git.run().execute("status", "--short");
+ * if (!result.succeeded()) {
+ *     throw result.toException();
+ * }
+ * }</pre>
  */
 public final class CommandService {
 
@@ -230,6 +245,16 @@ public final class CommandService {
      */
     public static CommandService forCommand(String executable) {
         return new CommandService(CommandSpec.of(executable), RunOptions.defaults());
+    }
+
+    /**
+     * Creates a service from an explicit command specification using default run options.
+     *
+     * @param commandSpec base command specification
+     * @return command service
+     */
+    public static CommandService forCommand(CommandSpec commandSpec) {
+        return new CommandService(java.util.Objects.requireNonNull(commandSpec, "commandSpec"), RunOptions.defaults());
     }
 
     /**

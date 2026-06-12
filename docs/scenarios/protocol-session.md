@@ -7,6 +7,7 @@ The scenario covers:
 
 - multi-line, byte, or typed requests;
 - deadline-aware stdin writing and stdout/stderr reading;
+- bounded unread output per stream (see [Output backlog](#output-backlog));
 - one in-flight request per worker;
 - request timeout, acquire timeout in pools, and readiness timeout as separate failures;
 - strict or replacing charset decoding;
@@ -67,6 +68,13 @@ stdout: 22\nfirst line\nsecond line
 
 The worker executable is responsible for speaking that protocol. Procwright owns the process and deadlines; the adapter owns
 how one request and one response are framed.
+
+## Output backlog
+
+`withOutputBacklogLimit(bytes)` bounds pending unread output. The limit counts bytes and applies to each stream
+independently, with asymmetric overflow semantics. Stdout is the protocol stream: unread stdout beyond the limit fails
+the session with `ProtocolSessionException` reason `OUTPUT_BACKLOG_OVERFLOW`. Stderr never fails the session: its
+oldest pending bytes beyond the limit are dropped, and adapters that read stderr still see up to the limit.
 
 ## Pooling
 

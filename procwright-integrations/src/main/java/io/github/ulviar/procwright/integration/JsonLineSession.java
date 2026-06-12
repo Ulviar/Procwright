@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.integration;
 
 import io.github.ulviar.procwright.session.LineResponse;
@@ -5,8 +7,14 @@ import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.LineTranscript;
 import io.github.ulviar.procwright.session.SessionExit;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -17,12 +25,18 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class JsonLineSession implements AutoCloseable {
 
-    private static final AtomicLong THREAD_SEQUENCE = new AtomicLong();
+    private static final AtomicLong SESSION_SEQUENCE = new AtomicLong();
 
     private final LineSession session;
+    private final String workerThreadName;
+    private final Object lock = new Object();
+    private final Set<CompletableFuture<JsonValue>> pendingCompletions = ConcurrentHashMap.newKeySet();
+    private ExecutorService asyncExecutor;
+    private boolean closed;
 
     private JsonLineSession(LineSession session) {
         this.session = Objects.requireNonNull(session, "session");
+        this.workerThreadName = "procwright-json-line-session-" + SESSION_SEQUENCE.getAndIncrement();
     }
 
     /**
@@ -59,7 +73,11 @@ public final class JsonLineSession implements AutoCloseable {
     }
 
     /**
-     * Sends one JSON request asynchronously on a background task.
+     * Sends one JSON request asynchronously on the session-owned worker.
+     *
+     * <p>Asynchronous requests run on one lazily started daemon worker thread per session, so concurrent calls queue
+     * in submission order instead of racing on the serialized line session. The worker stops when the session closes.
+     * After {@link #close()}, the returned call completes exceptionally with {@link IllegalStateException}.
      *
      * <p>Calling {@link CancellableCall#cancel()} closes the underlying line session. This intentionally maps
      * cancellation to the same lifecycle path used by line-session failures instead of leaving a half-decoded protocol
@@ -73,13 +91,21 @@ public final class JsonLineSession implements AutoCloseable {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(timeout, "timeout");
         CompletableFuture<JsonValue> completion = new CompletableFuture<>();
-        startTask("procwright-json-line-request-", () -> {
-            try {
-                completion.complete(request(request, timeout));
-            } catch (Throwable throwable) {
-                completion.completeExceptionally(throwable);
+        synchronized (lock) {
+            if (closed) {
+                completion.completeExceptionally(new IllegalStateException("JSON line session is closed"));
+                return new CancellableCall<>(completion, this::close);
             }
-        });
+            pendingCompletions.add(completion);
+            completion.whenComplete((value, throwable) -> pendingCompletions.remove(completion));
+            executorForRequests().execute(() -> {
+                try {
+                    completion.complete(request(request, timeout));
+                } catch (Throwable throwable) {
+                    completion.completeExceptionally(throwable);
+                }
+            });
+        }
         return new CancellableCall<>(completion, this::close);
     }
 
@@ -103,10 +129,38 @@ public final class JsonLineSession implements AutoCloseable {
 
     /**
      * Closes the underlying line session.
+     *
+     * <p>Pending asynchronous calls complete exceptionally with {@link CancellationException} and the session worker
+     * thread stops. Closing an already closed session has no further effect beyond delegating to the line session.
      */
     @Override
     public void close() {
+        ExecutorService executor;
+        List<CompletableFuture<JsonValue>> pending;
+        synchronized (lock) {
+            closed = true;
+            executor = asyncExecutor;
+            asyncExecutor = null;
+            pending = List.copyOf(pendingCompletions);
+        }
+        for (CompletableFuture<JsonValue> completion : pending) {
+            completion.completeExceptionally(new CancellationException("JSON line session closed"));
+        }
+        if (executor != null) {
+            executor.shutdownNow();
+        }
         session.close();
+    }
+
+    private ExecutorService executorForRequests() {
+        if (asyncExecutor == null) {
+            asyncExecutor = Executors.newSingleThreadExecutor(task -> {
+                Thread thread = new Thread(task, workerThreadName);
+                thread.setDaemon(true);
+                return thread;
+            });
+        }
+        return asyncExecutor;
     }
 
     private static JsonValue parseSingleResponseLine(LineResponse response) {
@@ -115,11 +169,5 @@ public final class JsonLineSession implements AutoCloseable {
             throw new JsonParseException("Expected exactly one JSON response line");
         }
         return JsonLines.parseLine(response.lines().get(0));
-    }
-
-    private static void startTask(String namePrefix, Runnable task) {
-        Thread thread = new Thread(task, namePrefix + THREAD_SEQUENCE.getAndIncrement());
-        thread.setDaemon(true);
-        thread.start();
     }
 }

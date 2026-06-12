@@ -2,7 +2,7 @@
 
 ## Статус
 
-Accepted.
+Accepted, updated 2026-06-12 after the hash-pinned docs lock workflow landed.
 
 ## Контекст
 
@@ -29,11 +29,11 @@ Accepted.
 - Dokka как будущий generated Kotlin API reference, когда Kotlin public API стабилизируется для публикации.
 
 Публичный docs source живет в `docs/`, конфигурация — в `mkdocs.yml`, Python docs dependencies — в
-`docs/requirements.txt`.
+`docs/requirements.txt` (top-level versions) и `docs/requirements.lock` (hash-pinned transitive lock).
 
-Gradle получает отдельный gate `publicDocsCheck`, который запускает MkDocs в strict mode через docs requirements с
-закрепленными top-level versions. Release candidate gate включает этот шаг, но обычный `check` остается
-runtime-oriented и не превращается в Python/docs pipeline.
+Gradle получает отдельный gate `publicDocsCheck`, который запускает MkDocs в strict mode и устанавливает docs
+toolchain только из hash-pinned `docs/requirements.lock`. Release candidate gate включает этот шаг, но обычный `check`
+остается runtime-oriented и не превращается в Python/docs pipeline.
 
 ## Инварианты
 
@@ -44,9 +44,11 @@ runtime-oriented и не превращается в Python/docs pipeline.
 - `context/` не публикуется как пользовательская документация без редакторской переработки.
 - Javadoc/KDoc остаются частью public API discipline, а не заменой scenario docs.
 - Документационный framework не должен требовать React/MDX или frontend runtime, пока нет доказанной потребности.
-- Transitive Python docs dependencies пока не зафиксированы lockfile или hash-pinned constraints; это остаточный
-  supply-chain риск documentation toolchain, не runtime artifact. Перед публичным release следует либо добавить lock
-  workflow, либо явно принять этот риск в release checklist.
+- Обновление 2026-06-12: transitive Python docs dependencies зафиксированы hash-pinned lockfile
+  `docs/requirements.lock`, который генерируется через
+  `uv pip compile docs/requirements.txt --generate-hashes`; `publicDocsCheck` устанавливает docs toolchain только из
+  этого lock. Остаточный supply-chain риск закрывается осознанным обновлением lock при изменении
+  `docs/requirements.txt`.
 
 ## Отклоненные варианты
 

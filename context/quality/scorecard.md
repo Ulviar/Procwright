@@ -18,17 +18,17 @@ core/integrations.
 | Engineering charter | Активно | Качество, инварианты, TDD/evals и документация остаются обязательным стандартом проекта. |
 | Scenario API | Baseline | Пользователь выбирает `run`, `interactive`, `lineSession`, `protocolSession`, `expect`, `listen`, `lineSession().pooled()` или `protocolSession(factory).pooled()`, а не собирает runtime flags. |
 | Invariant model | Baseline | `ScenarioProfile + CommandSpec + scenario invocation` разворачиваются в валидированные execution/session plans. |
-| One-shot execution | Baseline | Direct argv, explicit shell, stdin, cwd/env, charset, timeout, drain, bounded capture и typed result покрыты tests. |
-| Capture policy | Baseline | Bounded capture и truncation flags реализованы; streaming/discard capture policies не входят в baseline `0.1.0`. |
+| One-shot execution | Baseline | Direct argv, explicit shell, stdin (bytes/`fromPath`), cwd/env, charset, timeout (`ZERO` = отключен), drain, bounded/file/discard capture и typed result покрыты tests. |
+| Capture policy | Baseline | Bounded capture с truncation flags, redirect-to-file (`CapturePolicy.toPath`) и `discard` реализованы и покрыты tests; in-memory streaming listener для `run` не входит в baseline `0.1.0`. |
 | Timeout/shutdown | Baseline | Timeout supervision и process-tree cleanup покрыты integration/stress tests; platform timing остается bounded regression, а не performance guarantee. |
 | Command model | Baseline | Immutable `CommandSpec`, per-call builders, explicit environment policy и result/error model покрыты unit/integration tests. |
 | Interactive session | Baseline | Raw `Session` имеет guarded stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout. |
 | Line session | Baseline | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, bounded line length, EOF/timeout distinction и stderr drain. |
 | Protocol session | Baseline | `ProtocolSession` сериализует framed/typed request/response через adapter, поддерживает readiness, strict charset, request/response limits, bounded transcript и typed failure taxonomy. |
-| Expect helper | Baseline | Literal/regex matching, send/sendLine, bounded transcript, redacted action values и failure messages, ANSI filter и EOF/timeout distinction покрыты tests. |
+| Expect helper | Baseline | Literal/regex matching, match extraction (`ExpectMatch` с capture groups), send/sendLine, bounded transcript, redacted action values и failure messages, ANSI filter и EOF/timeout distinction покрыты tests. |
 | PTY | Baseline | `TerminalPolicy`, `PtyProvider`, system provider, explicit unsupported behavior, terminal size и terminal signal model покрыты; Windows ConPTY отложен. |
 | Streaming/listen | Baseline | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, покрывает timeout/listener failure. |
-| Diagnostics | Baseline | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo, async best-effort unordered delivery и transcript sink покрыты tests/docs. |
+| Diagnostics | Baseline | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo, async best-effort delivery с per-run порядком для каждого получателя и transcript sink покрыты tests/docs. |
 | Kotlin ergonomics | Baseline | Optional `:procwright-kotlin` содержит extensions, Kotlin duration overloads, suspend wrappers, Flow adapter и scenario-scoped DSL helpers; Java core не зависит от Kotlin; KDoc coverage check включен. |
 | Pooling | Baseline | `PooledLineSession` и `PooledProtocolSession` используют existing session workers, поддерживают max/warmup/minIdle, acquire timeout, bounded reset/health hooks, per-worker protocol adapters, retirement reasons, drain и metrics. |
 | Scenario presets | Baseline | Текущий набор presets заморожен для baseline `0.1.0` и остается typed builder customizer layer без нового runtime. |
@@ -46,7 +46,8 @@ core/integrations.
 - `SessionOptions.idleTimeout` сохраняет имя и caller-visible activity semantics.
 - Текущий набор `ScenarioPresets` заморожен; новые presets требуют ADR/eval.
 - Session-family handles остаются sealed public non-SPI contracts.
-- Diagnostics delivery остается async best-effort unordered.
+- Diagnostics delivery остается async best-effort; события одного run приходят каждому получателю по порядку, ordering
+  между получателями не гарантируется.
 - Expect-level action diagnostics и подробные pool worker lifecycle events отложены.
 - Windows ConPTY provider отложен в optional/runtime-specific future artifact.
 - Kotlin generated docs через Dokka отложены; KDoc coverage check остается release gate.
@@ -63,7 +64,7 @@ core/integrations.
 - Dokka publication для Kotlin API docs.
 - Automatic Maven Central publish без ручной проверки первого Central Portal deployment.
 - Machine-dependent performance promises.
-- Новые capture policy modes beyond bounded one-shot capture.
+- In-memory streaming capture listener для one-shot `run` (redirect-to-file и discard уже в baseline).
 
 ## Что считается прогрессом
 

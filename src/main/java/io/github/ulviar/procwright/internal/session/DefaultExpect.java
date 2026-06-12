@@ -1,15 +1,19 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.Expect;
 import io.github.ulviar.procwright.session.ExpectException;
+import io.github.ulviar.procwright.session.ExpectMatch;
 import io.github.ulviar.procwright.session.ExpectOptions;
 import io.github.ulviar.procwright.session.ExpectTranscriptValues;
 import io.github.ulviar.procwright.session.LineTranscript;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,6 +31,7 @@ public final class DefaultExpect implements Expect {
 
     private final DefaultSession session;
     private final ExpectOptions options;
+    private final Charset charset;
     private final BoundedTranscriptBuffer transcript;
     private final int matchBufferLimit;
     private final StringBuilder output = new StringBuilder();
@@ -39,6 +44,8 @@ public final class DefaultExpect implements Expect {
     public DefaultExpect(DefaultSession session, ExpectOptions options) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
+        // Reads must match session writes by default; an explicit ExpectOptions charset takes precedence.
+        this.charset = options.charsetFor(session.charset());
         this.transcript = new BoundedTranscriptBuffer(options.transcriptLimit());
         this.matchBufferLimit = options.matchBufferLimit();
         this.session.claimOutputOwner(OUTPUT_OWNER);
@@ -97,6 +104,28 @@ public final class DefaultExpect implements Expect {
      * @return this helper
      */
     public Expect expectText(String text, Duration timeout) {
+        expectTextMatch(text, timeout);
+        return this;
+    }
+
+    /**
+     * Waits for literal text using the default timeout and returns the match result.
+     *
+     * @param text expected text
+     * @return match result
+     */
+    public ExpectMatch expectTextMatch(String text) {
+        return expectTextMatch(text, options.timeout());
+    }
+
+    /**
+     * Waits for literal text and returns the match result.
+     *
+     * @param text expected text
+     * @param timeout match timeout
+     * @return match result
+     */
+    public ExpectMatch expectTextMatch(String text, Duration timeout) {
         Objects.requireNonNull(text, "text");
         transcript.appendAction("expect text: " + transcriptValue(text));
         long deadlineNanos = deadlineFromNow(requirePositive(timeout, "timeout"));
@@ -105,8 +134,9 @@ public final class DefaultExpect implements Expect {
                 throwIfFailed();
                 int index = output.indexOf(text, cursor);
                 if (index >= 0) {
+                    String before = output.substring(cursor, index);
                     cursor = index + text.length();
-                    return this;
+                    return new ExpectMatch(text, java.util.List.of(), before);
                 }
                 waitForMore(deadlineNanos, expectedMessage("Expected text not found", text));
             }
@@ -131,6 +161,28 @@ public final class DefaultExpect implements Expect {
      * @return this helper
      */
     public Expect expectRegex(Pattern pattern, Duration timeout) {
+        expectRegexMatch(pattern, timeout);
+        return this;
+    }
+
+    /**
+     * Waits for a regular expression match using the default timeout and returns the match result.
+     *
+     * @param pattern expected pattern
+     * @return match result
+     */
+    public ExpectMatch expectRegexMatch(Pattern pattern) {
+        return expectRegexMatch(pattern, options.timeout());
+    }
+
+    /**
+     * Waits for a regular expression match and returns the match result.
+     *
+     * @param pattern expected pattern
+     * @param timeout match timeout
+     * @return match result
+     */
+    public ExpectMatch expectRegexMatch(Pattern pattern, Duration timeout) {
         Objects.requireNonNull(pattern, "pattern");
         transcript.appendAction("expect regex: " + transcriptValue(pattern.pattern()));
         long deadlineNanos = deadlineFromNow(requirePositive(timeout, "timeout"));
@@ -140,12 +192,23 @@ public final class DefaultExpect implements Expect {
                 Matcher matcher = pattern.matcher(output);
                 matcher.region(cursor, output.length());
                 if (matcher.find()) {
+                    String before = output.substring(cursor, matcher.start());
+                    ExpectMatch match = new ExpectMatch(matcher.group(), groupsOf(matcher), before);
                     cursor = matcher.end();
-                    return this;
+                    return match;
                 }
                 waitForMore(deadlineNanos, expectedMessage("Expected regex not found", pattern.pattern()));
             }
         }
+    }
+
+    private static java.util.List<String> groupsOf(Matcher matcher) {
+        java.util.ArrayList<String> groups = new java.util.ArrayList<>(matcher.groupCount());
+        for (int index = 1; index <= matcher.groupCount(); index++) {
+            String group = matcher.group(index);
+            groups.add(group == null ? "" : group);
+        }
+        return groups;
     }
 
     /**
@@ -180,7 +243,7 @@ public final class DefaultExpect implements Expect {
     }
 
     private void pump(String streamName, InputStream stream, boolean matchable) {
-        try (Reader reader = new InputStreamReader(stream, options.charset())) {
+        try (Reader reader = new InputStreamReader(stream, charset)) {
             char[] buffer = new char[1024];
             int count;
             while ((count = reader.read(buffer)) >= 0) {

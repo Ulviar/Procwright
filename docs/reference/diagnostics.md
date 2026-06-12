@@ -30,8 +30,10 @@ Each `DiagnosticEvent` has the same stable outer shape:
 - `command`: redaction-friendly command echo;
 - `attributes`: event-specific structured attributes.
 
-Use `runId` to correlate lifecycle events for one process. Diagnostic callbacks are delivered asynchronously, so do not
-rely on callback order across threads. If a listener throws, Procwright emits `LISTENER_FAILED` when it can and continues the
+Use `runId` to correlate lifecycle events for one process. Diagnostic delivery is asynchronous and best-effort: it
+never blocks the command workflow. Within one run, each recipient receives its events in emission order — the listener
+sees events in order, and the transcript sink sees events in order — but ordering between the listener and the
+transcript sink is not coordinated. If a listener throws, Procwright emits `LISTENER_FAILED` when it can and continues the
 command workflow; listener failure does not turn a successful command into a failed command.
 
 ## Redaction model

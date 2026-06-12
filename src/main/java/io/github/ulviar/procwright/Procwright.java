@@ -1,11 +1,26 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import io.github.ulviar.procwright.command.CommandSpec;
-import io.github.ulviar.procwright.command.RunOptions;
-import java.util.Objects;
 
 /**
  * Static entry point for scenario-first command workflows.
+ *
+ * <p>Each factory returns an immutable {@link CommandService} bound to one base command. The service exposes the
+ * scenario catalog: one-shot {@code run()}, raw {@code interactive()} sessions, line-oriented {@code lineSession()},
+ * typed {@code protocolSession(...)}, and listen-only {@code listen()} streaming.
+ *
+ * <pre>{@code
+ * CommandResult result = Procwright.command("git")
+ *         .run()
+ *         .withTimeout(Duration.ofSeconds(10))
+ *         .execute("status", "--short");
+ *
+ * if (!result.succeeded()) {
+ *     throw result.toException();
+ * }
+ * }</pre>
  */
 public final class Procwright {
 
@@ -28,7 +43,7 @@ public final class Procwright {
      * @return command service
      */
     public static CommandService command(CommandSpec commandSpec) {
-        return new CommandService(Objects.requireNonNull(commandSpec, "commandSpec"), RunOptions.defaults());
+        return CommandService.forCommand(commandSpec);
     }
 
     /**

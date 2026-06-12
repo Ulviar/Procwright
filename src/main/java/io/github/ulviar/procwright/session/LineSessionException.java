@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.ProcwrightException;
@@ -77,6 +79,8 @@ public final class LineSessionException extends ProcwrightException {
         RESPONSE_TOO_LARGE,
         /** Stdout produced more pending response data than the session allows. */
         STDOUT_BACKLOG_OVERFLOW,
+        /** Process exited before the request could be written. */
+        PROCESS_EXITED,
         /** Custom response decoder failed. */
         DECODER_FAILED,
         /** Output could not be read or another runtime path failed. */

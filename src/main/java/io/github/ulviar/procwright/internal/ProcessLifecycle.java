@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
@@ -9,9 +11,11 @@ import java.io.InputStream;
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public final class ProcessLifecycle {
@@ -19,6 +23,11 @@ public final class ProcessLifecycle {
     private ProcessLifecycle() {}
 
     public static Process start(LaunchPlan plan) {
+        return start(plan, StdioConfig.pipes());
+    }
+
+    public static Process start(LaunchPlan plan, StdioConfig stdio) {
+        Objects.requireNonNull(stdio, "stdio");
         ProcessBuilder builder = new ProcessBuilder(plan.command());
         plan.workingDirectory().ifPresent(path -> builder.directory(path.toFile()));
         if (plan.environmentPolicy() == EnvironmentPolicy.CLEAN) {
@@ -26,6 +35,9 @@ public final class ProcessLifecycle {
         }
         builder.environment().putAll(plan.environment());
         builder.redirectErrorStream(plan.outputMode() == OutputMode.MERGED);
+        builder.redirectInput(stdio.stdin());
+        builder.redirectOutput(stdio.stdout());
+        builder.redirectError(stdio.stderr());
 
         try {
             return builder.start();
@@ -37,12 +49,67 @@ public final class ProcessLifecycle {
         }
     }
 
+    /**
+     * Waits for process completion.
+     *
+     * @param process watched process
+     * @param timeout maximum wait, or {@link Duration#ZERO} to wait indefinitely
+     * @return whether the process exited within the timeout
+     */
     public static boolean waitFor(Process process, Duration timeout) {
         try {
+            if (timeout.isZero()) {
+                process.waitFor();
+                return true;
+            }
             return process.waitFor(DurationSupport.saturatedNanos(timeout), TimeUnit.NANOSECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             destroyTreeForcibly(process, descendantsOf(process));
+            throw new CommandExecutionException("Interrupted while waiting for command completion", exception);
+        }
+    }
+
+    /**
+     * Waits for process completion while periodically snapshotting live descendants.
+     *
+     * <p>Descendants of an exited process are no longer discoverable through {@link Process#descendants()} because the
+     * operating system reparents them, so cleanup paths that may run after exit need a snapshot taken while the
+     * process was still alive.
+     *
+     * <p>A {@link Duration#ZERO} timeout disables the deadline: the wait continues until the process exits on its
+     * own. This is the single owner of the "zero means no timeout" semantics shared by run, idle, and stream
+     * timeouts.
+     *
+     * @param process watched process
+     * @param timeout maximum wait, or {@link Duration#ZERO} to wait indefinitely
+     * @param descendantsSnapshot receives the most recent descendants snapshot taken while the process was alive
+     * @return whether the process exited within the timeout
+     */
+    public static boolean waitFor(
+            Process process, Duration timeout, AtomicReference<Set<ProcessHandle>> descendantsSnapshot) {
+        Objects.requireNonNull(descendantsSnapshot, "descendantsSnapshot");
+        boolean unbounded = timeout.isZero();
+        long deadlineNanos = unbounded ? 0 : DurationSupport.deadlineFromNow(timeout);
+        long pollNanos = TimeUnit.MILLISECONDS.toNanos(100);
+        try {
+            while (true) {
+                if (process.isAlive()) {
+                    descendantsSnapshot.set(descendantsOf(process));
+                }
+                long remainingNanos = unbounded ? pollNanos : deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    return false;
+                }
+                if (process.waitFor(Math.min(remainingNanos, pollNanos), TimeUnit.NANOSECONDS)) {
+                    return true;
+                }
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            Set<ProcessHandle> descendants = snapshotOrEmpty(descendantsSnapshot);
+            descendants.addAll(descendantsOf(process));
+            destroyTreeForcibly(process, descendants);
             throw new CommandExecutionException("Interrupted while waiting for command completion", exception);
         }
     }
@@ -71,10 +138,32 @@ public final class ProcessLifecycle {
     }
 
     public static void forceStop(Process process, Duration timeout) {
-        if (!process.isAlive()) {
+        forceStop(process, Set.of(), timeout);
+    }
+
+    /**
+     * Forcefully stops the process tree, including known descendants captured while the process was still alive.
+     *
+     * <p>The known-descendants snapshot covers descendants that survive their parent: once the launched process has
+     * exited they are reparented and invisible to {@link Process#descendants()}, yet they can keep inherited output
+     * pipes open.
+     *
+     * @param process launched process
+     * @param knownDescendants descendants snapshot taken while the process was alive
+     * @param timeout maximum cleanup wait
+     */
+    public static void forceStop(Process process, Set<ProcessHandle> knownDescendants, Duration timeout) {
+        Set<ProcessHandle> descendants = new LinkedHashSet<>();
+        for (ProcessHandle known : knownDescendants) {
+            if (known.isAlive()) {
+                descendants.add(known);
+                descendants.addAll(descendantsOf(known));
+            }
+        }
+        descendants.addAll(descendantsOf(process));
+        if (!process.isAlive() && descendants.isEmpty()) {
             return;
         }
-        Set<ProcessHandle> descendants = descendantsOf(process);
         destroyTreeForcibly(process, descendants);
         closeStdinQuietly(process);
         if (!waitForTree(process, descendants, timeout)) {
@@ -104,6 +193,19 @@ public final class ProcessLifecycle {
         } catch (UnsupportedOperationException exception) {
             return new LinkedHashSet<>();
         }
+    }
+
+    private static Set<ProcessHandle> descendantsOf(ProcessHandle handle) {
+        try {
+            return handle.descendants().collect(Collectors.toCollection(LinkedHashSet::new));
+        } catch (UnsupportedOperationException exception) {
+            return new LinkedHashSet<>();
+        }
+    }
+
+    private static Set<ProcessHandle> snapshotOrEmpty(AtomicReference<Set<ProcessHandle>> snapshot) {
+        Set<ProcessHandle> handles = snapshot.get();
+        return handles == null ? new LinkedHashSet<>() : new LinkedHashSet<>(handles);
     }
 
     private static void destroyDescendants(Set<ProcessHandle> descendants) {

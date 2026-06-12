@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.integration;
 
 import io.github.ulviar.procwright.command.CommandException;
@@ -110,6 +112,7 @@ public record CliAdapterError(String code, String message, JsonValue.JsonObject 
                         case DECODE_ERROR -> "line_decode_error";
                         case RESPONSE_TOO_LARGE -> "line_response_too_large";
                         case STDOUT_BACKLOG_OVERFLOW -> "line_stdout_backlog_overflow";
+                        case PROCESS_EXITED -> "line_process_exited";
                         case DECODER_FAILED -> "line_decoder_failed";
                         case FAILURE -> "line_failure";
                     },

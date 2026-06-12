@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.diagnostics;
 
 import java.util.Objects;
@@ -25,7 +27,8 @@ public final class DiagnosticsOptions {
     }
 
     /**
-     * Returns default no-op diagnostics options.
+     * Returns default no-op diagnostics options: a no-op listener and a no-op transcript sink, so no diagnostic
+     * events or transcripts are delivered.
      *
      * @return default diagnostics options
      */

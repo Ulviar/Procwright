@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
@@ -25,7 +27,7 @@ public sealed interface ScenarioProfile
         Objects.requireNonNull(options, "options");
         return new Run(
                 StdinPolicy.closed(),
-                bounded(options.capturePolicy()),
+                options.capturePolicy(),
                 options.shutdownPolicy(),
                 options.timeout(),
                 options.charsetPolicy(),
@@ -54,16 +56,9 @@ public sealed interface ScenarioProfile
                 TerminalPolicy.DISABLED);
     }
 
-    private static CapturePolicy.Bounded bounded(CapturePolicy capturePolicy) {
-        if (capturePolicy instanceof CapturePolicy.Bounded bounded) {
-            return bounded;
-        }
-        throw new IllegalArgumentException("run scenario currently requires bounded capture");
-    }
-
     record Run(
             StdinPolicy stdin,
-            CapturePolicy.Bounded capturePolicy,
+            CapturePolicy capturePolicy,
             ShutdownPolicy shutdownPolicy,
             Duration timeout,
             CharsetPolicy charsetPolicy,

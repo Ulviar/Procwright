@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
@@ -22,7 +24,7 @@ public final class LineSessionOptions {
 
     private final Duration requestTimeout;
     private final int transcriptLimit;
-    private final int stdoutBacklogLimit;
+    private final int stdoutBacklogLines;
     private final int maxLineChars;
     private final CharsetPolicy charsetPolicy;
     private final ResponseDecoder responseDecoder;
@@ -32,20 +34,20 @@ public final class LineSessionOptions {
      *
      * @param requestTimeout default request timeout
      * @param transcriptLimit maximum retained transcript characters
-     * @param stdoutBacklogLimit maximum pending stdout response lines
+     * @param stdoutBacklogLines maximum pending stdout response lines
      * @param charset line protocol charset
      * @param responseDecoder default response decoder
      */
     public LineSessionOptions(
             Duration requestTimeout,
             int transcriptLimit,
-            int stdoutBacklogLimit,
+            int stdoutBacklogLines,
             Charset charset,
             ResponseDecoder responseDecoder) {
         this(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                stdoutBacklogLines,
                 DEFAULT_MAX_LINE_CHARS,
                 CharsetPolicy.replace(charset),
                 responseDecoder);
@@ -56,7 +58,7 @@ public final class LineSessionOptions {
      *
      * @param requestTimeout default request timeout
      * @param transcriptLimit maximum retained transcript characters
-     * @param stdoutBacklogLimit maximum pending stdout response lines
+     * @param stdoutBacklogLines maximum pending stdout response lines
      * @param maxLineChars maximum retained characters for one unterminated stdout line
      * @param charset line protocol charset
      * @param responseDecoder default response decoder
@@ -64,14 +66,14 @@ public final class LineSessionOptions {
     public LineSessionOptions(
             Duration requestTimeout,
             int transcriptLimit,
-            int stdoutBacklogLimit,
+            int stdoutBacklogLines,
             int maxLineChars,
             Charset charset,
             ResponseDecoder responseDecoder) {
         this(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                stdoutBacklogLines,
                 maxLineChars,
                 CharsetPolicy.replace(charset),
                 responseDecoder);
@@ -82,7 +84,7 @@ public final class LineSessionOptions {
      *
      * @param requestTimeout default request timeout
      * @param transcriptLimit maximum retained transcript characters
-     * @param stdoutBacklogLimit maximum pending stdout response lines
+     * @param stdoutBacklogLines maximum pending stdout response lines
      * @param maxLineChars maximum retained characters for one unterminated stdout line
      * @param charsetPolicy line protocol charset policy
      * @param responseDecoder default response decoder
@@ -90,7 +92,7 @@ public final class LineSessionOptions {
     public LineSessionOptions(
             Duration requestTimeout,
             int transcriptLimit,
-            int stdoutBacklogLimit,
+            int stdoutBacklogLines,
             int maxLineChars,
             CharsetPolicy charsetPolicy,
             ResponseDecoder responseDecoder) {
@@ -99,10 +101,10 @@ public final class LineSessionOptions {
             throw new IllegalArgumentException("transcriptLimit must be positive");
         }
         this.transcriptLimit = transcriptLimit;
-        if (stdoutBacklogLimit <= 0) {
-            throw new IllegalArgumentException("stdoutBacklogLimit must be positive");
+        if (stdoutBacklogLines <= 0) {
+            throw new IllegalArgumentException("stdoutBacklogLines must be positive");
         }
-        this.stdoutBacklogLimit = stdoutBacklogLimit;
+        this.stdoutBacklogLines = stdoutBacklogLines;
         if (maxLineChars <= 0) {
             throw new IllegalArgumentException("maxLineChars must be positive");
         }
@@ -112,7 +114,9 @@ public final class LineSessionOptions {
     }
 
     /**
-     * Returns default line-session options.
+     * Returns default line-session options: request timeout 5 seconds, transcript limit 65,536 characters, stdout
+     * backlog 1024 pending lines, maximum line length 1,048,576 characters, charset policy
+     * {@code CharsetPolicy.replace(UTF-8)}, and {@code ResponseDecoder.firstLine()}.
      *
      * @return default line-session options
      */
@@ -128,7 +132,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withRequestTimeout(Duration requestTimeout) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLines, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -139,18 +143,20 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withTranscriptLimit(int transcriptLimit) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLines, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
      * Returns a copy with a different stdout backlog limit.
      *
-     * @param stdoutBacklogLimit maximum pending stdout response lines
+     * <p>The limit counts pending response lines, not bytes.
+     *
+     * @param stdoutBacklogLines maximum pending stdout response lines
      * @return updated options
      */
-    public LineSessionOptions withStdoutBacklogLimit(int stdoutBacklogLimit) {
+    public LineSessionOptions withStdoutBacklogLines(int stdoutBacklogLines) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLines, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -161,7 +167,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withMaxLineChars(int maxLineChars) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLines, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -174,7 +180,7 @@ public final class LineSessionOptions {
         return new LineSessionOptions(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                stdoutBacklogLines,
                 maxLineChars,
                 CharsetPolicy.replace(charset),
                 responseDecoder);
@@ -188,7 +194,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withCharsetPolicy(CharsetPolicy charsetPolicy) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLines, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -199,7 +205,7 @@ public final class LineSessionOptions {
      */
     public LineSessionOptions withResponseDecoder(ResponseDecoder responseDecoder) {
         return new LineSessionOptions(
-                requestTimeout, transcriptLimit, stdoutBacklogLimit, maxLineChars, charsetPolicy, responseDecoder);
+                requestTimeout, transcriptLimit, stdoutBacklogLines, maxLineChars, charsetPolicy, responseDecoder);
     }
 
     /**
@@ -223,10 +229,12 @@ public final class LineSessionOptions {
     /**
      * Returns the maximum pending stdout response lines.
      *
-     * @return stdout backlog limit
+     * <p>The limit counts lines, not bytes.
+     *
+     * @return stdout backlog limit in lines
      */
-    public int stdoutBacklogLimit() {
-        return stdoutBacklogLimit;
+    public int stdoutBacklogLines() {
+        return stdoutBacklogLines;
     }
 
     /**

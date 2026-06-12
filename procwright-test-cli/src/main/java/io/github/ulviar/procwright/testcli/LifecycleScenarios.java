@@ -1,9 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.testcli;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,9 +49,13 @@ final class LifecycleScenarios {
         CliOptions options = context.options();
         OutputStream stdout = context.stdout();
         long hookDelayMillis = options.longValue("hook-delay-millis", 1000);
+        // Optional side channel: a parent that terminates this process usually loses its stdout
+        // pipe before the hook output arrives, so the hook can also record progress in a file.
+        String hookFile = options.string("hook-file", "");
         Runtime.getRuntime()
                 .addShutdownHook(new Thread(
-                        () -> runShutdownHook(context, stdout, hookDelayMillis), "procwright-test-cli-shutdown-hook"));
+                        () -> runShutdownHook(context, stdout, hookDelayMillis, hookFile),
+                        "procwright-test-cli-shutdown-hook"));
 
         context.stdoutLine(options.string("started-text", "started"));
         long runMillis = options.longValue("run-millis", -1);
@@ -72,10 +79,18 @@ final class LifecycleScenarios {
         }
 
         ProcessBuilder builder = new ProcessBuilder(command);
-        builder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+        builder.redirectOutput(
+                options.bool("inherit-output", false)
+                        ? ProcessBuilder.Redirect.INHERIT
+                        : ProcessBuilder.Redirect.DISCARD);
         builder.redirectError(ProcessBuilder.Redirect.DISCARD);
         Process child = builder.start();
+        String pidFile = options.string("pid-file", "");
+        if (!pidFile.isEmpty()) {
+            Files.writeString(Path.of(pidFile), Long.toString(child.pid()));
+        }
         context.stdoutLine("child:" + child.pid());
+        context.sleepMillis(options.longValue("linger-millis", 0));
         if (options.bool("wait", false)) {
             context.stdoutLine("child-exit:" + child.waitFor());
         }
@@ -143,17 +158,30 @@ final class LifecycleScenarios {
         return options.integer("exit-code", 0);
     }
 
-    private static void runShutdownHook(ScenarioContext context, OutputStream stdout, long hookDelayMillis) {
+    private static void runShutdownHook(
+            ScenarioContext context, OutputStream stdout, long hookDelayMillis, String hookFile) {
         try {
             stdout.write("shutdown-hook:start\n".getBytes(context.charset()));
             stdout.flush();
+            appendHookMarker(hookFile, "shutdown-hook:start\n");
             Thread.sleep(hookDelayMillis);
             stdout.write("shutdown-hook:end\n".getBytes(context.charset()));
             stdout.flush();
+            appendHookMarker(hookFile, "shutdown-hook:end\n");
         } catch (IOException exception) {
             throw new RuntimeException(exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void appendHookMarker(String hookFile, String marker) throws IOException {
+        if (!hookFile.isEmpty()) {
+            Files.writeString(
+                    Path.of(hookFile),
+                    marker,
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.APPEND);
         }
     }
 

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
@@ -9,6 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 public final class DiagnosticEmitter {
@@ -21,6 +25,8 @@ public final class DiagnosticEmitter {
     private final String scenario;
     private final CommandEcho command;
     private final boolean enabled;
+    private final SerialDelivery listenerDelivery = new SerialDelivery("procwright-diagnostics-listener-");
+    private final SerialDelivery transcriptDelivery = new SerialDelivery("procwright-diagnostics-transcript-");
 
     private DiagnosticEmitter(
             DiagnosticsOptions options, String runId, String scenario, CommandEcho command, boolean enabled) {
@@ -66,10 +72,10 @@ public final class DiagnosticEmitter {
         DiagnosticEvent event = new DiagnosticEvent(
                 type, runId, Instant.now(), scenario, command, DiagnosticAttributeSchema.validate(type, attributes));
         if (options.listenerEnabled()) {
-            Threading.start("procwright-diagnostics-listener-", () -> deliverListener(event));
+            listenerDelivery.submit(() -> deliverListener(event));
         }
         if (options.transcriptSinkEnabled()) {
-            Threading.start("procwright-diagnostics-transcript-", () -> deliverTranscript(event));
+            transcriptDelivery.submit(() -> deliverTranscript(event));
         }
     }
 
@@ -101,5 +107,45 @@ public final class DiagnosticEmitter {
         attributes.put(firstName, firstValue);
         attributes.put(secondName, secondValue);
         return attributes;
+    }
+
+    /**
+     * Per-destination sequential asynchronous delivery.
+     *
+     * <p>Events for one emitter are delivered to one destination in submission order without blocking the emitting
+     * thread. A single drainer runs at a time and exits as soon as the queue is empty, so no idle thread outlives a
+     * run; bursts within a run reuse one drainer instead of starting one thread per event.
+     */
+    private static final class SerialDelivery {
+
+        private final String threadPrefix;
+        private final ConcurrentLinkedQueue<Runnable> tasks = new ConcurrentLinkedQueue<>();
+        private final AtomicBoolean draining = new AtomicBoolean();
+
+        private SerialDelivery(String threadPrefix) {
+            this.threadPrefix = Objects.requireNonNull(threadPrefix, "threadPrefix");
+        }
+
+        void submit(Runnable task) {
+            tasks.add(task);
+            if (draining.compareAndSet(false, true)) {
+                Threading.start(threadPrefix, this::drain);
+            }
+        }
+
+        private void drain() {
+            while (true) {
+                Runnable task;
+                while ((task = tasks.poll()) != null) {
+                    task.run();
+                }
+                draining.set(false);
+                // A submitter that raced the shutdown either re-acquired the drain flag itself or left a task behind
+                // for this thread to claim again.
+                if (tasks.isEmpty() || !draining.compareAndSet(false, true)) {
+                    return;
+                }
+            }
+        }
     }
 }

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
@@ -23,10 +25,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Generic request/response workflow over an interactive process.
+ *
+ * <p>The two output streams have asymmetric backlog semantics: stdout is the protocol stream, so unread stdout beyond
+ * the backlog limit is a typed session failure, while stderr is diagnostic, so unread stderr is retained in the
+ * bounded transcript and a bounded queue that drops its oldest bytes instead of failing the session.
  *
  * @param <I> request type
  * @param <O> response type
@@ -42,6 +49,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
     private final ProtocolOutputQueue stderr;
     private final ReentrantLock requestLock = new ReentrantLock();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicReference<TerminalFailure> terminalFailure = new AtomicReference<>();
     private final ProtocolRuntimeFailures failures = new ProtocolRuntimeFailures() {
         @Override
         public ProtocolSessionException timeout(Throwable cause) {
@@ -71,8 +79,9 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
         this.adapter = Objects.requireNonNull(adapter, "adapter");
         this.options = Objects.requireNonNull(options, "options");
         this.transcript = new ProtocolTranscriptBuffer(options.transcriptLimit(), options.charsetPolicy());
-        this.stdout = new ProtocolOutputQueue(options.stdoutBacklogLimit());
-        this.stderr = new ProtocolOutputQueue(options.stdoutBacklogLimit());
+        this.stdout = new ProtocolOutputQueue(options.outputBacklogLimit(), ProtocolOutputQueue.OverflowPolicy.STRICT);
+        this.stderr =
+                new ProtocolOutputQueue(options.outputBacklogLimit(), ProtocolOutputQueue.OverflowPolicy.DROP_OLDEST);
         this.session.claimOutputOwner(OUTPUT_OWNER);
         startPumps();
     }
@@ -94,6 +103,7 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
             return readResponse(deadlineNanos);
         } catch (ProtocolSessionException exception) {
             if (exception.reason() != ProtocolSessionException.Reason.CLOSED) {
+                recordTerminalFailure(exception.reason(), exception.getMessage(), exception);
                 closePreserving(exception);
             }
             throw exception;
@@ -185,6 +195,12 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
                 throw failure(
                         ProtocolSessionException.Reason.BROKEN_PIPE, "Could not write protocol request", ioException);
             }
+            if (cause instanceof ProcessExitedException processExited) {
+                throw failure(
+                        ProtocolSessionException.Reason.PROCESS_EXITED,
+                        "Protocol process exited before the request could be written",
+                        processExited);
+            }
             if (cause instanceof IllegalStateException illegalState) {
                 throw closed(illegalState);
             }
@@ -211,8 +227,25 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
 
     private void ensureOpen() {
         if (closed.get()) {
-            throw closed(null);
+            throw closedOrTerminal();
         }
+    }
+
+    private ProtocolSessionException closedOrTerminal() {
+        TerminalFailure failure = terminalFailure.get();
+        if (failure == null) {
+            return closed(null);
+        }
+        return new ProtocolSessionException(
+                failure.reason(),
+                protocolTranscript(),
+                exitCodeSnapshot(),
+                "Protocol session was closed by an earlier failure: " + failure.message(),
+                failure.cause());
+    }
+
+    private void recordTerminalFailure(ProtocolSessionException.Reason reason, String message, Throwable cause) {
+        terminalFailure.compareAndSet(null, new TerminalFailure(reason, message, cause));
     }
 
     private ProtocolSessionException timeout(Throwable cause) {
@@ -291,7 +324,11 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
     }
 
     private void failOutputBacklogOverflow() {
-        CommandExecutionException failure = new CommandExecutionException("Protocol output backlog overflow");
+        // Only the strict stdout queue can overflow; the failure is published to both queues so an adapter blocked on
+        // either stream observes the same typed terminal failure.
+        CommandExecutionException failure = new CommandExecutionException("Protocol stdout backlog overflow");
+        recordTerminalFailure(
+                ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "Protocol output backlog overflow", failure);
         stdout.failAndClear(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, failure);
         stderr.failAndClear(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, failure);
     }
@@ -311,4 +348,12 @@ public final class DefaultProtocolSession<I, O> implements ProtocolSession<I, O>
     }
 
     private record Readers(ProtocolReader stdout, ProtocolReader stderr) implements ProtocolReaders {}
+
+    private record TerminalFailure(ProtocolSessionException.Reason reason, String message, Throwable cause) {
+
+        private TerminalFailure {
+            Objects.requireNonNull(reason, "reason");
+            Objects.requireNonNull(message, "message");
+        }
+    }
 }

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.command;
 
 import java.nio.charset.Charset;
@@ -38,7 +40,7 @@ public final class RunOptions {
      *
      * @param capturePolicy default capture policy
      * @param shutdownPolicy default shutdown policy
-     * @param timeout default timeout
+     * @param timeout default timeout, or {@link Duration#ZERO} to disable it
      * @param charset default output charset
      * @param outputMode default output mode
      */
@@ -56,7 +58,7 @@ public final class RunOptions {
      *
      * @param capturePolicy default capture policy
      * @param shutdownPolicy default shutdown policy
-     * @param timeout default timeout
+     * @param timeout default timeout, or {@link Duration#ZERO} to disable it
      * @param charsetPolicy default output charset policy
      * @param outputMode default output mode
      */
@@ -74,12 +76,76 @@ public final class RunOptions {
     }
 
     /**
-     * Returns the default one-shot run options.
+     * Returns the default one-shot run options: timeout 30 seconds, capture {@code bounded(1 MiB)} per stream,
+     * shutdown {@code interruptThenKill(2 s, 5 s)}, charset policy {@code CharsetPolicy.replace(UTF-8)}, and output
+     * mode {@link OutputMode#SEPARATE}.
      *
      * @return default run options
      */
     public static RunOptions defaults() {
         return DEFAULTS;
+    }
+
+    /**
+     * Returns a copy with a different default timeout.
+     *
+     * <p>Overrides the 30-second default. {@link Duration#ZERO} disables the run timeout: the process is awaited
+     * until it exits on its own, while the shutdown policy still applies on failure paths. Negative values are
+     * rejected.
+     *
+     * @param timeout run timeout, or {@link Duration#ZERO} to disable it
+     * @return updated options
+     */
+    public RunOptions withTimeout(Duration timeout) {
+        return new RunOptions(capturePolicy, shutdownPolicy, timeout, charsetPolicy, outputMode);
+    }
+
+    /**
+     * Returns a copy with a different default capture policy.
+     *
+     * <p>Overrides the default {@code CapturePolicy.bounded(1 MiB)} per-stream in-memory capture.
+     *
+     * @param capturePolicy capture policy
+     * @return updated options
+     */
+    public RunOptions withCapture(CapturePolicy capturePolicy) {
+        return new RunOptions(capturePolicy, shutdownPolicy, timeout, charsetPolicy, outputMode);
+    }
+
+    /**
+     * Returns a copy with a different default shutdown policy.
+     *
+     * <p>Overrides the default {@code ShutdownPolicy.interruptThenKill(2 s, 5 s)} escalation.
+     *
+     * @param shutdownPolicy shutdown policy
+     * @return updated options
+     */
+    public RunOptions withShutdown(ShutdownPolicy shutdownPolicy) {
+        return new RunOptions(capturePolicy, shutdownPolicy, timeout, charsetPolicy, outputMode);
+    }
+
+    /**
+     * Returns a copy with a different default output charset policy.
+     *
+     * <p>Overrides the default {@code CharsetPolicy.replace(UTF-8)} forgiving decoding.
+     *
+     * @param charsetPolicy output charset policy
+     * @return updated options
+     */
+    public RunOptions withCharsetPolicy(CharsetPolicy charsetPolicy) {
+        return new RunOptions(capturePolicy, shutdownPolicy, timeout, charsetPolicy, outputMode);
+    }
+
+    /**
+     * Returns a copy with a different default output mode.
+     *
+     * <p>Overrides the default {@link OutputMode#SEPARATE} independent stream capture.
+     *
+     * @param outputMode output mode
+     * @return updated options
+     */
+    public RunOptions withOutputMode(OutputMode outputMode) {
+        return new RunOptions(capturePolicy, shutdownPolicy, timeout, charsetPolicy, outputMode);
     }
 
     /**
@@ -103,7 +169,7 @@ public final class RunOptions {
     /**
      * Returns the default timeout.
      *
-     * @return timeout
+     * @return timeout, or {@link Duration#ZERO} when the run timeout is disabled
      */
     public Duration timeout() {
         return timeout;

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.integration;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;

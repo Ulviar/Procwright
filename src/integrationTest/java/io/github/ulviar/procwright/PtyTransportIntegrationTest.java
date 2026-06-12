@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -109,7 +111,7 @@ final class PtyTransportIntegrationTest {
                         .args("-c", "if [ -t 0 ] && [ -t 1 ]; then echo mode:tty; else echo mode:pipe; fi"));
                 BufferedReader stdout =
                         new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
-            assertEquals("mode:tty", readUntil(stdout, "mode:"));
+            assertEquals("mode:tty", readUntil(session, stdout, "mode:"));
             assertEquals(0, session.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
         }
     }
@@ -133,11 +135,11 @@ final class PtyTransportIntegrationTest {
                                         "if [ -t 0 ] && [ -t 1 ]; then echo mode:tty; else echo mode:pipe; fi; read line; echo got:$line"));
                 BufferedReader stdout =
                         new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
-            assertEquals("mode:tty", readUntil(stdout, "mode:"));
+            assertEquals("mode:tty", readUntil(session, stdout, "mode:"));
 
             session.sendLine("hello");
 
-            assertEquals("got:hello", readUntil(stdout, "got:"));
+            assertEquals("got:hello", readUntil(session, stdout, "got:"));
         }
     }
 
@@ -157,8 +159,8 @@ final class PtyTransportIntegrationTest {
                         call.terminal(TerminalPolicy.REQUIRED).args("-c", "echo size:${COLUMNS}x${LINES}; stty size"));
                 BufferedReader stdout =
                         new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
-            assertEquals("size:100x40", readUntil(stdout, "size:"));
-            assertEquals("40 100", readUntil(stdout, "40 "));
+            assertEquals("size:100x40", readUntil(session, stdout, "size:"));
+            assertEquals("40 100", readUntil(session, stdout, "40 "));
             assertEquals(0, session.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
         }
     }
@@ -205,35 +207,54 @@ final class PtyTransportIntegrationTest {
                         .args("-c", "trap 'echo interrupted; exit 0' INT; echo ready; while :; do sleep 1; done"));
                 BufferedReader stdout =
                         new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
-            assertEquals("ready", readUntil(stdout, "ready"));
+            assertEquals("ready", readUntil(session, stdout, "ready"));
 
             session.sendSignal(TerminalSignal.INTERRUPT);
 
-            assertTrue(readUntilContaining(stdout, "interrupted").contains("interrupted"));
+            assertTrue(readUntilContaining(session, stdout, "interrupted").contains("interrupted"));
             assertEquals(0, session.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
         }
     }
 
-    private static String readUntil(BufferedReader reader, String prefix) throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
-        String line;
-        while (System.nanoTime() < deadline && (line = reader.readLine()) != null) {
-            if (line.startsWith(prefix)) {
-                return line;
-            }
-        }
-        throw new AssertionError("missing line with prefix " + prefix);
+    private static String readUntil(Session session, BufferedReader reader, String prefix) throws Exception {
+        return readUntilMatch(session, reader, line -> line.startsWith(prefix), "line with prefix " + prefix);
     }
 
-    private static String readUntilContaining(BufferedReader reader, String text) throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
-        String line;
-        while (System.nanoTime() < deadline && (line = reader.readLine()) != null) {
-            if (line.contains(text)) {
-                return line;
+    private static String readUntilContaining(Session session, BufferedReader reader, String text) throws Exception {
+        return readUntilMatch(session, reader, line -> line.contains(text), "line containing " + text);
+    }
+
+    private static String readUntilMatch(
+            Session session, BufferedReader reader, java.util.function.Predicate<String> matcher, String description)
+            throws Exception {
+        // The deadline must preempt a blocked readLine(), so the read runs on a worker thread and
+        // a timeout closes the session to unblock it (mirrors ProcessStressTest.readUntil).
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "procwright-pty-read-until");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            java.util.concurrent.Future<String> match = executor.submit(() -> {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (matcher.test(line)) {
+                        return line;
+                    }
+                }
+                throw new AssertionError("missing " + description);
+            });
+            try {
+                return match.get(5, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException exception) {
+                session.close();
+                match.cancel(true);
+                throw new AssertionError("timed out waiting for " + description, exception);
             }
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
-        throw new AssertionError("missing line containing " + text);
     }
 
     private static void assumePosixShellAvailable() {

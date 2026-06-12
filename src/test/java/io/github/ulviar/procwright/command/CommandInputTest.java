@@ -1,7 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.command;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.charset.StandardCharsets;
@@ -43,5 +46,28 @@ final class CommandInputTest {
         assertThrows(NullPointerException.class, () -> CommandInput.text(null, StandardCharsets.UTF_8));
         assertThrows(NullPointerException.class, () -> CommandInput.text("x", null));
         assertThrows(NullPointerException.class, () -> CommandInput.bytes(null));
+        assertThrows(NullPointerException.class, () -> CommandInput.fromPath(null));
+    }
+
+    @Test
+    void pathInputExposesPathAndCarriesNoBytes() {
+        CommandInput input = CommandInput.fromPath(java.nio.file.Path.of("stdin.bin"));
+
+        assertEquals(java.nio.file.Path.of("stdin.bin"), input.path().orElseThrow());
+        assertThrows(IllegalStateException.class, input::copyBytes);
+    }
+
+    @Test
+    void inMemoryInputHasNoPath() {
+        assertEquals(java.util.Optional.empty(), CommandInput.utf8("x").path());
+    }
+
+    @Test
+    void comparesPathInputsByPath() {
+        assertEquals(
+                CommandInput.fromPath(java.nio.file.Path.of("a")), CommandInput.fromPath(java.nio.file.Path.of("a")));
+        assertNotEquals(
+                CommandInput.fromPath(java.nio.file.Path.of("a")), CommandInput.fromPath(java.nio.file.Path.of("b")));
+        assertNotEquals(CommandInput.fromPath(java.nio.file.Path.of("a")), CommandInput.bytes(new byte[0]));
     }
 }

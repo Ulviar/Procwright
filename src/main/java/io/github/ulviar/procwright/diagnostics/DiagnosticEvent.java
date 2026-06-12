@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.diagnostics;
 
 import io.github.ulviar.procwright.internal.CommandValidation;

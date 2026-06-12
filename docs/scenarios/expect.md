@@ -6,6 +6,7 @@ expression matches.
 The scenario covers:
 
 - literal and regex matching against stdout;
+- match results (`expectTextMatch`, `expectRegexMatch`) with matched text, capture groups, and preceding output;
 - stderr draining into the bounded transcript;
 - bounded transcript and match buffer limits;
 - send and send-line helpers;
@@ -31,6 +32,9 @@ try (Session session = repl.interactive().withArgs("repl").open();
 `Expect` records action entries such as send and expect operations, but caller-provided values are redacted by default in
 transcripts and failure messages. Use verbatim transcript values only for non-secret automation where diagnostics require
 exact prompt or input text.
+
+Match results returned by `expectTextMatch` and `expectRegexMatch` are not redacted: they carry live process output
+that the caller explicitly asked for. See [Read the matched output](../how-to/automate-prompts.md#read-the-matched-output).
 
 ## User responsibilities
 

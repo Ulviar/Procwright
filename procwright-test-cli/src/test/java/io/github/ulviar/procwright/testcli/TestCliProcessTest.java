@@ -1,9 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.testcli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -64,6 +67,20 @@ final class TestCliProcessTest {
 
         assertEquals(0, run.exitCode());
         assertEquals("started\nshutdown-hook:start\nshutdown-hook:end\n", run.stdout());
+    }
+
+    @Test
+    void shutdownHookScenarioCanRecordHookProgressInFile() throws Exception {
+        Path hookFile = Files.createTempFile("procwright-test-cli-hook", ".txt");
+        try {
+            ProcessRun run = runProcess(
+                    "", "shutdown-hook", "--run-millis=0", "--hook-delay-millis=1", "--hook-file=" + hookFile);
+
+            assertEquals(0, run.exitCode());
+            assertEquals("shutdown-hook:start\nshutdown-hook:end\n", Files.readString(hookFile));
+        } finally {
+            Files.deleteIfExists(hookFile);
+        }
     }
 
     private static ProcessRun runProcess(String stdin, String... args) throws Exception {

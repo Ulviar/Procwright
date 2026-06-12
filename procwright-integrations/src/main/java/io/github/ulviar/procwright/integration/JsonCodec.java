@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.integration;
 
 import com.fasterxml.jackson.core.JsonFactory;
@@ -85,6 +87,39 @@ public final class JsonCodec {
         }
     }
 
+    /**
+     * Converts one {@link JsonValue} into a Jackson tree node.
+     *
+     * <p>This is the bridge for callers that already use Jackson {@code ObjectMapper} pipelines. Numbers become
+     * {@code DecimalNode} values backed by the original {@link java.math.BigDecimal}, so precision and scale are
+     * preserved exactly. Object member insertion order is preserved. The default nesting limit of {@link #parse(String)}
+     * applies.
+     *
+     * @param value JSON value
+     * @return equivalent Jackson tree node
+     * @throws JsonParseException when nesting exceeds the default depth limit
+     */
+    public static JsonNode toJackson(JsonValue value) {
+        return toJsonNode(Objects.requireNonNull(value, "value"), 0, DEFAULT_MAX_DEPTH);
+    }
+
+    /**
+     * Converts one Jackson tree node into a {@link JsonValue}.
+     *
+     * <p>This is the bridge for callers that build payloads with their own Jackson {@code ObjectMapper}. All numeric
+     * node types convert to {@link java.math.BigDecimal}-backed numbers without loss for integral and decimal values;
+     * floating-point nodes use their shortest decimal representation. Object member order is preserved. The default
+     * nesting limit of {@link #parse(String)} applies.
+     *
+     * @param node Jackson tree node
+     * @return equivalent JSON value
+     * @throws JsonParseException when the node contains non-finite numbers, binary, POJO, or missing nodes, or when
+     *     nesting exceeds the default depth limit
+     */
+    public static JsonValue fromJackson(JsonNode node) {
+        return toJsonValue(Objects.requireNonNull(node, "node"), 0, DEFAULT_MAX_DEPTH);
+    }
+
     private static ObjectMapper mapper(int maxDepth) {
         JsonFactory factory = JsonFactory.builder()
                 .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
@@ -134,6 +169,9 @@ public final class JsonCodec {
             return JsonValue.string(node.textValue());
         }
         if (node.isNumber()) {
+            if ((node.isDouble() || node.isFloat()) && !Double.isFinite(node.doubleValue())) {
+                throw new JsonParseException("Non-finite JSON number is not representable: " + node.asText());
+            }
             return JsonValue.number(node.decimalValue());
         }
         if (node.isBoolean()) {

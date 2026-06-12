@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.integration;
 
 import java.io.BufferedReader;
@@ -17,6 +19,12 @@ final class JsonLineFixtureProgram {
             }
             switch (mode) {
                 case "echo" -> System.out.println(line);
+                case "echo-loop" -> {
+                    while (line != null) {
+                        System.out.println(line);
+                        line = reader.readLine();
+                    }
+                }
                 case "malformed" -> System.out.println("{bad");
                 case "slow" -> {
                     Thread.sleep(5000);

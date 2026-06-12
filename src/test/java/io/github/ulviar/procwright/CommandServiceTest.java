@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,6 +56,22 @@ final class CommandServiceTest {
         assertSame(LineSessionOptions.defaults(), service.lineSessionOptions());
         assertSame(PooledLineSessionOptions.defaults(), service.pooledLineSessionOptions());
         assertEquals(PooledProtocolSessionOptions.defaults(), service.pooledProtocolSessionOptions());
+    }
+
+    @Test
+    void createsServiceFromCommandSpecWithDefaultOptions() {
+        io.github.ulviar.procwright.command.CommandSpec spec = io.github.ulviar.procwright.command.CommandSpec.builder(
+                        "git")
+                .args("--no-pager")
+                .build();
+
+        CommandService service = CommandService.forCommand(spec);
+
+        assertSame(spec, service.commandSpec());
+        assertEquals(RunOptions.defaults(), service.runOptions());
+        assertThrows(
+                NullPointerException.class,
+                () -> CommandService.forCommand((io.github.ulviar.procwright.command.CommandSpec) null));
     }
 
     @Test

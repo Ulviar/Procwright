@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.examples;
 
 import io.github.ulviar.procwright.CommandService;
@@ -6,6 +8,8 @@ import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
+import io.github.ulviar.procwright.session.Expect;
+import io.github.ulviar.procwright.session.ExpectMatch;
 import java.nio.file.Path;
 import java.time.Duration;
 
@@ -52,5 +56,15 @@ final class ReferenceApiExamples {
         CommandService shell = Procwright.shellCommand("printf '%s\\n' \"$MESSAGE\"");
 
         shell.run().withEnvironment("MESSAGE", "hello").execute();
+    }
+
+    void expectMatchExtraction(Expect expect) {
+        ExpectMatch match = expect.expectRegexMatch(java.util.regex.Pattern.compile("version (\\d+\\.\\d+)"));
+        String version = match.groups().get(0);
+        String beforeMatch = match.before();
+
+        if (version.isEmpty() || beforeMatch.isEmpty()) {
+            throw new IllegalStateException("unexpected empty match data");
+        }
     }
 }

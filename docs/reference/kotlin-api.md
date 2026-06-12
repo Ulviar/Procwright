@@ -100,9 +100,7 @@ shared `onExit()` future or bypass Procwright shutdown policy.
 runBlocking {
     val service = Procwright.command("tool")
 
-    service.lineSession { invocation ->
-        invocation.args("line-worker")
-    }.use { session ->
+    service.lineSession().withArgs("line-worker").open().use { session ->
         val response = session.requestAwait("status", Duration.ofSeconds(1))
         check(response.text().isNotBlank())
     }
@@ -111,6 +109,10 @@ runBlocking {
 
 The same line-session invariants still apply: one request at a time, bounded transcript diagnostics, request timeout,
 and session close after protocol failure.
+
+`requestAwait` is also available for typed `ProtocolSession` workers and for pooled workers (`PooledLineSession` and
+`PooledProtocolSession`), each with a `kotlin.time.Duration` overload. Omitting the timeout uses the session or worker
+default request timeout.
 
 ## Pooled line-session DSL
 
@@ -191,4 +193,5 @@ slow collector applies backpressure instead of creating an unbounded queue.
 ## Public surface
 
 The Kotlin artifact publishes receiver-style extensions for `CommandService`, suspending helpers for session waits and
-line requests, Kotlin duration overloads, `listenFlow`, pooled line-session DSL scopes, and `protocolAdapter` DSL scopes.
+for line, protocol, and pooled requests, Kotlin duration overloads, `listenFlow`, pooled line-session DSL scopes, and
+`protocolAdapter` DSL scopes.

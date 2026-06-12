@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,6 +45,46 @@ final class PolicyValueTest {
     }
 
     @Test
+    void discardCaptureIsAValueObject() {
+        assertEquals(CapturePolicy.discard(), CapturePolicy.discard());
+        assertEquals(CapturePolicy.discard().hashCode(), CapturePolicy.discard().hashCode());
+    }
+
+    @Test
+    void toPathCaptureRejectsNullAndBlankPaths() {
+        assertThrows(NullPointerException.class, () -> CapturePolicy.toPath(null));
+        assertThrows(NullPointerException.class, () -> CapturePolicy.toPath(null, java.nio.file.Path.of("err")));
+        assertThrows(NullPointerException.class, () -> CapturePolicy.toPath(java.nio.file.Path.of("out"), null));
+        assertThrows(IllegalArgumentException.class, () -> CapturePolicy.toPath(java.nio.file.Path.of("")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CapturePolicy.toPath(java.nio.file.Path.of("out"), java.nio.file.Path.of("")));
+    }
+
+    @Test
+    void toPathCaptureRejectsIdenticalStdoutAndStderrTargets() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CapturePolicy.toPath(java.nio.file.Path.of("same.log"), java.nio.file.Path.of("same.log")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CapturePolicy.toPath(
+                        java.nio.file.Path.of("dir/../same.log"), java.nio.file.Path.of("same.log")));
+    }
+
+    @Test
+    void toPathCaptureDistinguishesMergedAndSeparateForms() {
+        CapturePolicy.ToPath merged = CapturePolicy.toPath(java.nio.file.Path.of("all.log"));
+        CapturePolicy.ToPath separate =
+                CapturePolicy.toPath(java.nio.file.Path.of("out.log"), java.nio.file.Path.of("err.log"));
+
+        assertEquals(true, merged.merged());
+        assertEquals(java.util.Optional.empty(), merged.stderr());
+        assertEquals(false, separate.merged());
+        assertEquals(java.nio.file.Path.of("err.log"), separate.stderr().orElseThrow());
+    }
+
+    @Test
     void shutdownPolicyRejectsNegativeGracePeriods() {
         assertThrows(
                 IllegalArgumentException.class,
@@ -84,7 +126,7 @@ final class PolicyValueTest {
         assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
                 .withTranscriptLimit(0));
         assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
-                .withStdoutBacklogLimit(0));
+                .withStdoutBacklogLines(0));
         assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
                 .withMaxLineChars(0));
     }
@@ -167,7 +209,7 @@ final class PolicyValueTest {
         assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
                 .withTranscriptLimit(0));
         assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
-                .withStdoutBacklogLimit(0));
+                .withOutputBacklogLimit(0));
         assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
                 .withMaxRequestBytes(0));
         assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()

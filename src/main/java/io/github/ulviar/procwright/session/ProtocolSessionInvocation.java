@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
@@ -192,7 +194,7 @@ public final class ProtocolSessionInvocation<I, O> {
             ProtocolSessionOptions defaults = Objects.requireNonNull(options, "options");
             requestTimeout = defaults.requestTimeout();
             transcriptLimit = defaults.transcriptLimit();
-            stdoutBacklogLimit = defaults.stdoutBacklogLimit();
+            stdoutBacklogLimit = defaults.outputBacklogLimit();
             maxRequestBytes = defaults.maxRequestBytes();
             maxRequestChars = defaults.maxRequestChars();
             maxResponseBytes = defaults.maxResponseBytes();

@@ -1,5 +1,8 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal;
 
+import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.OutputMode;
@@ -11,11 +14,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public final class ProcessKernel {
@@ -42,9 +47,11 @@ public final class ProcessKernel {
         DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
                 plan.diagnosticsOptions(), "run", () -> CommandEchoSupport.from(plan.launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
+        CapturePolicy.Bounded boundedCapture =
+                plan.capturePolicy() instanceof CapturePolicy.Bounded bounded ? bounded : null;
         Process process;
         try {
-            process = ProcessLifecycle.start(plan.launchPlan());
+            process = ProcessLifecycle.start(plan.launchPlan(), stdioConfig(plan));
         } catch (RuntimeException exception) {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_FAILED,
@@ -55,20 +62,22 @@ public final class ProcessKernel {
         ExecutorService executor = null;
         RuntimeException primaryFailure = null;
         PendingResult pendingResult = null;
+        AtomicReference<Set<ProcessHandle>> liveDescendants = new AtomicReference<>();
         try {
             postStartHook.accept(process);
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_STARTED,
                     DiagnosticEmitter.attributes("pid", Long.toString(process.pid())));
             executor = Threading.newTaskExecutor("procwright-output-pump-");
-            Future<CapturedOutput> stdout =
-                    executor.submit(() -> CapturedOutput.capture(process.getInputStream(), plan.capturePolicy()));
-            Future<CapturedOutput> stderr = plan.outputMode() == OutputMode.MERGED
+            Future<CapturedOutput> stdout = boundedCapture == null
                     ? null
-                    : executor.submit(() -> CapturedOutput.capture(process.getErrorStream(), plan.capturePolicy()));
+                    : executor.submit(() -> CapturedOutput.capture(process.getInputStream(), boundedCapture));
+            Future<CapturedOutput> stderr = boundedCapture == null || plan.outputMode() == OutputMode.MERGED
+                    ? null
+                    : executor.submit(() -> CapturedOutput.capture(process.getErrorStream(), boundedCapture));
             Future<?> stdin = startStdinWriter(process, plan.stdin(), executor);
 
-            boolean timedOut = !waitFor(process, plan.timeout());
+            boolean timedOut = !ProcessLifecycle.waitFor(process, plan.timeout(), liveDescendants);
             OptionalInt exitCode;
             if (timedOut) {
                 diagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
@@ -85,25 +94,19 @@ public final class ProcessKernel {
                 awaitStdin(stdin);
             }
 
-            CapturedOutput stdoutOutput = await(stdout, timedOut);
-            CapturedOutput stderrOutput = stderr == null ? CapturedOutput.empty() : await(stderr, timedOut);
+            CapturedOutput stdoutOutput = stdout == null ? CapturedOutput.empty() : await(stdout, timedOut, exitCode);
+            CapturedOutput stderrOutput = stderr == null ? CapturedOutput.empty() : await(stderr, timedOut, exitCode);
             if (stdoutOutput.truncated()) {
                 diagnostics.emit(
                         DiagnosticEventType.OUTPUT_TRUNCATED,
                         DiagnosticEmitter.attributes(
-                                "source",
-                                "stdout",
-                                "limitBytes",
-                                Integer.toString(plan.capturePolicy().byteLimit())));
+                                "source", "stdout", "limitBytes", Integer.toString(boundedCapture.byteLimit())));
             }
             if (stderrOutput.truncated()) {
                 diagnostics.emit(
                         DiagnosticEventType.OUTPUT_TRUNCATED,
                         DiagnosticEmitter.attributes(
-                                "source",
-                                "stderr",
-                                "limitBytes",
-                                Integer.toString(plan.capturePolicy().byteLimit())));
+                                "source", "stderr", "limitBytes", Integer.toString(boundedCapture.byteLimit())));
             }
             diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, exitAttributes(exitCode, timedOut));
 
@@ -130,7 +133,7 @@ public final class ProcessKernel {
                         DiagnosticEmitter.attributes("reason", "failure"),
                         exception);
             }
-            forceStopAfterFailure(process, exception);
+            forceStopAfterFailure(process, knownDescendants(liveDescendants), exception);
             throw exception;
         } finally {
             if (executor != null) {
@@ -148,12 +151,60 @@ public final class ProcessKernel {
         return pendingResult.toCommandResult(Duration.between(started, Instant.now()));
     }
 
+    private static StdioConfig stdioConfig(ExecutionPlan plan) {
+        return new StdioConfig(stdinRedirect(plan.stdin()), stdoutRedirect(plan), stderrRedirect(plan));
+    }
+
+    private static ProcessBuilder.Redirect stdinRedirect(StdinPolicy stdin) {
+        if (stdin.mode() != StdinPolicy.Mode.INPUT) {
+            return ProcessBuilder.Redirect.PIPE;
+        }
+        return stdin.input()
+                .path()
+                .map(path -> {
+                    if (!java.nio.file.Files.isRegularFile(path)) {
+                        throw new CommandExecutionException(
+                                CommandExecutionException.Reason.LAUNCH_FAILED,
+                                "Stdin source file does not exist or is not a regular file: " + path);
+                    }
+                    return ProcessBuilder.Redirect.from(path.toFile());
+                })
+                .orElse(ProcessBuilder.Redirect.PIPE);
+    }
+
+    private static ProcessBuilder.Redirect stdoutRedirect(ExecutionPlan plan) {
+        if (plan.capturePolicy() instanceof CapturePolicy.Discard) {
+            return ProcessBuilder.Redirect.DISCARD;
+        }
+        if (plan.capturePolicy() instanceof CapturePolicy.ToPath toPath) {
+            return ProcessBuilder.Redirect.to(toPath.stdout().toFile());
+        }
+        return ProcessBuilder.Redirect.PIPE;
+    }
+
+    private static ProcessBuilder.Redirect stderrRedirect(ExecutionPlan plan) {
+        // With OutputMode.MERGED the stderr redirect is ignored by ProcessBuilder.redirectErrorStream(true).
+        if (plan.capturePolicy() instanceof CapturePolicy.Discard) {
+            return ProcessBuilder.Redirect.DISCARD;
+        }
+        if (plan.capturePolicy() instanceof CapturePolicy.ToPath toPath) {
+            return toPath.stderr()
+                    .map(path -> ProcessBuilder.Redirect.to(path.toFile()))
+                    .orElse(ProcessBuilder.Redirect.DISCARD);
+        }
+        return ProcessBuilder.Redirect.PIPE;
+    }
+
     private static Future<?> startStdinWriter(Process process, StdinPolicy stdin, ExecutorService executor) {
         if (stdin.mode() == StdinPolicy.Mode.OPEN) {
             throw new CommandExecutionException("One-shot execution cannot keep stdin open");
         }
         if (stdin.mode() == StdinPolicy.Mode.CLOSED) {
             closeStdin(process);
+            return null;
+        }
+        if (stdin.input().path().isPresent()) {
+            // Stdin is redirected from the source file at the operating-system level; there is nothing to write.
             return null;
         }
         return executor.submit(() -> writeStdin(process, stdin));
@@ -179,15 +230,11 @@ public final class ProcessKernel {
         }
     }
 
-    private static boolean waitFor(Process process, Duration timeout) {
-        return ProcessLifecycle.waitFor(process, timeout);
-    }
-
     private static OptionalInt stopTimedOut(Process process, ShutdownPolicy shutdownPolicy) {
         return ProcessLifecycle.stop(process, shutdownPolicy);
     }
 
-    private static CapturedOutput await(Future<CapturedOutput> output, boolean terminalShutdown) {
+    private static CapturedOutput await(Future<CapturedOutput> output, boolean terminalShutdown, OptionalInt exitCode) {
         try {
             return output.get(DurationSupport.saturatedMillis(CLEANUP_TIMEOUT), TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
@@ -195,7 +242,7 @@ public final class ProcessKernel {
             throw new CommandExecutionException("Interrupted while capturing command output", exception);
         } catch (TimeoutException exception) {
             output.cancel(true);
-            throw new CommandExecutionException("Timed out while draining command output", exception);
+            throw new CommandExecutionException(drainTimeoutMessage(terminalShutdown, exitCode), exception);
         } catch (ExecutionException exception) {
             if (terminalShutdown) {
                 CapturedOutput shutdownOutput = shutdownOutput(exception.getCause());
@@ -205,6 +252,20 @@ public final class ProcessKernel {
             }
             throw new CommandExecutionException("Could not capture command output", exception.getCause());
         }
+    }
+
+    private static String drainTimeoutMessage(boolean terminalShutdown, OptionalInt exitCode) {
+        if (terminalShutdown || exitCode.isEmpty()) {
+            return "Timed out while draining command output";
+        }
+        return "Timed out while draining command output: the process exited (code " + exitCode.getAsInt()
+                + ") but its output pipe is still open - a descendant process that inherited stdout or stderr"
+                + " may be holding it";
+    }
+
+    private static Set<ProcessHandle> knownDescendants(AtomicReference<Set<ProcessHandle>> liveDescendants) {
+        Set<ProcessHandle> snapshot = liveDescendants.get();
+        return snapshot == null ? Set.of() : snapshot;
     }
 
     private static void awaitStdin(Future<?> input) {
@@ -250,9 +311,10 @@ public final class ProcessKernel {
         ProcessLifecycle.closeQuietly(process.getErrorStream());
     }
 
-    private static void forceStopAfterFailure(Process process, RuntimeException primaryFailure) {
+    private static void forceStopAfterFailure(
+            Process process, Set<ProcessHandle> knownDescendants, RuntimeException primaryFailure) {
         try {
-            ProcessLifecycle.forceStop(process, CLEANUP_TIMEOUT);
+            ProcessLifecycle.forceStop(process, knownDescendants, CLEANUP_TIMEOUT);
         } catch (RuntimeException cleanupFailure) {
             primaryFailure.addSuppressed(cleanupFailure);
         } finally {
@@ -260,19 +322,16 @@ public final class ProcessKernel {
         }
     }
 
-    private static boolean isStreamClosed(Throwable throwable) {
-        if (!(throwable instanceof java.io.IOException ioException)) {
-            return false;
-        }
-        String message = ioException.getMessage();
-        return "Stream Closed".equals(message) || "Stream closed".equals(message);
-    }
-
     private static CapturedOutput shutdownOutput(Throwable throwable) {
-        if (throwable instanceof CapturedOutput.PartialCaptureException partial && isStreamClosed(partial.getCause())) {
+        // Called only after the process was force-stopped on timeout, so the shutdown state itself marks any pipe
+        // IOException as the expected partial-output path. The JDK used to surface this as the literal "Stream
+        // Closed"/"Stream closed" message; matching the state instead of the message text keeps recovery stable
+        // across JDK wording changes.
+        if (throwable instanceof CapturedOutput.PartialCaptureException partial
+                && partial.getCause() instanceof java.io.IOException) {
             return partial.output();
         }
-        if (isStreamClosed(throwable)) {
+        if (throwable instanceof java.io.IOException) {
             return CapturedOutput.empty();
         }
         return null;

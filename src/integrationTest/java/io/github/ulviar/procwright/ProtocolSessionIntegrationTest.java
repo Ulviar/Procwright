@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +24,7 @@ import io.github.ulviar.procwright.session.SessionOptions;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -115,14 +118,66 @@ final class ProtocolSessionIntegrationTest {
     }
 
     @Test
-    void outputBacklogOverflowIsVisibleWhenAdapterReadsOtherStream() {
+    void stdoutBacklogOverflowIsVisibleWhenAdapterReadsOtherStream() {
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> fixtureService()
-                .protocolSession(new StdoutLineAdapter(16), call -> call.args(
-                                "partial", "--stdout=", "--stderr=" + "e".repeat(4096), "--hold-millis=5000")
+                .protocolSession(new StderrLineAdapter(16), call -> call.args(
+                                "partial", "--stdout=" + "o".repeat(4096), "--stderr=", "--hold-millis=5000")
                         .outputBacklogLimit(128))
                 .request(""));
 
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+    }
+
+    @Test
+    void requestAfterStdoutBacklogOverflowReportsOverflowReason() {
+        try (ProtocolSession<String, String> session = fixtureService()
+                .protocolSession(new StderrLineAdapter(16), call -> call.args(
+                                "partial", "--stdout=" + "o".repeat(4096), "--stderr=", "--hold-millis=5000")
+                        .outputBacklogLimit(128))) {
+            ProtocolSessionException overflow = assertThrows(ProtocolSessionException.class, () -> session.request(""));
+            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
+
+            ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
+
+            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, followUp.reason());
+            assertTrue(followUp.getMessage().contains("closed by an earlier failure"));
+        }
+    }
+
+    @Test
+    void unreadChattyStderrDoesNotKillLongLivedProtocolSession() {
+        try (ProtocolSession<String, String> session = fixtureService()
+                .protocolSession(new TextLineAdapter(), call -> call.args("controlled-line-repl")
+                        .outputBacklogLimit(1024))) {
+            for (int request = 0; request < 5; request++) {
+                assertEquals(
+                        "response:stderr-burst",
+                        session.request("stderr-burst", Duration.ofSeconds(5)),
+                        "request " + request + " must survive unread stderr beyond the backlog limit");
+            }
+        }
+    }
+
+    @Test
+    void stderrStaysReadableThroughBoundedQueue() {
+        try (ProtocolSession<String, String> session = fixtureService()
+                .protocolSession(new StderrEchoAdapter(), call -> call.args("controlled-line-repl")
+                        .outputBacklogLimit(1024))) {
+            assertEquals("ping", session.request("ping", Duration.ofSeconds(2)));
+        }
+    }
+
+    @Test
+    void requestAgainstExitedProcessReportsProcessExited() throws Exception {
+        try (ProtocolSession<String, String> session =
+                fixtureService().protocolSession(new TextLineAdapter(), call -> call.args("exit", "--stdout=gone"))) {
+            session.onExit().get(2, java.util.concurrent.TimeUnit.SECONDS);
+
+            ProtocolSessionException exception =
+                    assertThrows(ProtocolSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
+
+            assertEquals(ProtocolSessionException.Reason.PROCESS_EXITED, exception.reason());
+        }
     }
 
     @Test
@@ -166,6 +221,27 @@ final class ProtocolSessionIntegrationTest {
                 .request("", Duration.ofMillis(100)));
 
         assertEquals(ProtocolSessionException.Reason.TIMEOUT, exception.reason());
+    }
+
+    @Test
+    void parallelRequestsAreSerialized() throws Exception {
+        try (ProtocolSession<String, String> session = fixtureService()
+                .protocolSession(
+                        new TwoLineTextAdapter(), call -> call.args("two-line-delay-repl", "--delay-millis=100"))) {
+            ExecutorService executor = Executors.newCachedThreadPool();
+            try {
+                Future<String> first = executor.submit(() -> session.request("a", Duration.ofSeconds(5)));
+                Future<String> second = executor.submit(() -> session.request("b", Duration.ofSeconds(5)));
+
+                List<String> responses = List.of(first.get(), second.get());
+
+                assertTrue(responses.contains("start:a\nend:a"), () -> "interleaved response: " + responses);
+                assertTrue(responses.contains("start:b\nend:b"), () -> "interleaved response: " + responses);
+            } finally {
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            }
+        }
     }
 
     @Test
@@ -456,6 +532,39 @@ final class ProtocolSessionIntegrationTest {
         @Override
         public String readResponse(ProtocolReaders readers) {
             return readers.stdout().readLine(maxChars);
+        }
+    }
+
+    private static final class StderrLineAdapter implements ProtocolAdapter<String, String> {
+
+        private final int maxChars;
+
+        private StderrLineAdapter(int maxChars) {
+            this.maxChars = maxChars;
+        }
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return readers.stderr().readLine(maxChars);
+        }
+    }
+
+    private static final class StderrEchoAdapter implements ProtocolAdapter<String, String> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.writeLine(":stderr " + request);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return readers.stderr().readLine(64);
         }
     }
 

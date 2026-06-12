@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 /**
  * Scenario-first command execution and interactive process workflows for JVM applications.
  */

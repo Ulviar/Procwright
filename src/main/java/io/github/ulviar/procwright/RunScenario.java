@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
@@ -123,7 +125,7 @@ public final class RunScenario {
     /**
      * Returns a copy with a per-call timeout.
      *
-     * @param timeout timeout
+     * @param timeout timeout, or {@link Duration#ZERO} to disable the run timeout
      * @return updated scenario
      */
     public RunScenario withTimeout(Duration timeout) {
@@ -183,6 +185,9 @@ public final class RunScenario {
 
     /**
      * Returns a copy with explicit stdin input.
+     *
+     * <p>Use {@link CommandInput#fromPath(java.nio.file.Path)} to stream stdin from a file without loading it into
+     * memory.
      *
      * @param input command input
      * @return updated scenario

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import java.time.Duration;
@@ -100,7 +102,9 @@ public final class PooledProtocolSessionOptions {
     }
 
     /**
-     * Returns default pooled protocol-session options.
+     * Returns default pooled protocol-session options: max size 1 worker, warmup 0, min idle 0, acquire timeout
+     * 5 seconds, hook timeout 5 seconds, unlimited ({@code Integer.MAX_VALUE}) requests per worker, worker age
+     * retirement disabled ({@link Duration#ZERO}), and background replenishment enabled.
      *
      * @return default options
      */

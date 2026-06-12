@@ -14,6 +14,13 @@ uses daemon platform-thread fallback. The public API does not expose or require 
 
 The core one-shot and session scenarios use ordinary process pipes by default.
 
+## Windows process termination
+
+On Windows the JDK implements `Process.destroy()` as `TerminateProcess`, so the graceful phase of
+`ShutdownPolicy.interruptThenKill(...)` cannot deliver a graceful signal: the process is terminated forcibly already
+during the interrupt grace. A child that needs an orderly shutdown on Windows should receive an application-level quit
+request (for example a protocol command over stdin) before the shutdown policy applies.
+
 ## PTY boundary
 
 Terminal capability is requested through `TerminalPolicy` inside session-family scenarios. The public API exposes
@@ -27,6 +34,13 @@ module.
 
 The system provider for Unix-like environments depends on an available terminal helper such as `script(1)`. If that
 capability is unavailable, terminal-required scenarios should fail explicitly.
+
+Two consequences of the `script(1)`-based transport are visible to callers:
+
+- The child's stderr is merged into the PTY output stream, so per-stream stdout/stderr separation is not preserved
+  under a terminal-backed session.
+- The supervised process is the `script(1)` wrapper, so the `pid` reported in diagnostics events is the wrapper's pid,
+  not the target command's.
 
 ## Required terminal mode
 

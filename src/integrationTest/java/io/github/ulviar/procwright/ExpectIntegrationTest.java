@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -12,7 +14,9 @@ import io.github.ulviar.procwright.session.ExpectOptions;
 import io.github.ulviar.procwright.session.ExpectOutputFilter;
 import io.github.ulviar.procwright.session.ExpectTranscriptValues;
 import io.github.ulviar.procwright.session.Session;
+import io.github.ulviar.procwright.session.SessionOptions;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -33,6 +37,77 @@ final class ExpectIntegrationTest {
             assertTrue(transcript.contains("send line: <redacted>"));
             assertTrue(!transcript.contains("send line: hello"));
             assertTrue(transcript.contains("stdout: echo:hello"));
+        }
+    }
+
+    @Test
+    void literalMatchResultReturnsMatchedTextEmptyGroupsAndBeforeText() {
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+            io.github.ulviar.procwright.session.ExpectMatch match = expect.expectTextMatch("dy> ");
+
+            assertEquals("dy> ", match.matched());
+            assertEquals(java.util.List.of(), match.groups());
+            assertEquals("rea", match.before());
+        }
+    }
+
+    @Test
+    void regexMatchResultExtractsValueThroughCaptureGroups() {
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+            expect.expectText("ready> ");
+            expect.sendLine("token-42");
+
+            io.github.ulviar.procwright.session.ExpectMatch match =
+                    expect.expectRegexMatch(Pattern.compile("echo:(token)-(\\d+)"));
+
+            assertEquals("echo:token-42", match.matched());
+            assertEquals(java.util.List.of("token", "42"), match.groups());
+        }
+    }
+
+    @Test
+    void consecutiveMatchResultsReportBeforeTextBetweenMatches() {
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+            expect.expectText("ready> ");
+            expect.sendLine("alpha");
+
+            io.github.ulviar.procwright.session.ExpectMatch match = expect.expectTextMatch("alpha");
+
+            assertEquals("echo:", match.before());
+        }
+    }
+
+    @Test
+    void expectMatchesCrlfTerminatedOutputWithoutNormalization() {
+        try (Session session = fixtureService()
+                        .interactive(call -> call.args("line-repl", "--crlf=true", "--response-prefix=echo:"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
+            expect.sendLine("alpha");
+
+            io.github.ulviar.procwright.session.ExpectMatch match =
+                    expect.expectRegexMatch(Pattern.compile("echo:(\\w+)\r\n"));
+
+            assertEquals("echo:alpha\r\n", match.matched());
+            assertEquals(java.util.List.of("alpha"), match.groups());
+        }
+    }
+
+    @Test
+    void matchResultTimeoutIsTypedExpectException() {
+        try (Session session = fixtureService()
+                        .interactive(call ->
+                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(timeoutAfterFixtureStartup()))) {
+            ExpectException exception =
+                    assertThrows(ExpectException.class, () -> expect.expectTextMatch("never-appears"));
+
+            assertEquals(ExpectException.Reason.TIMEOUT, exception.reason());
         }
     }
 
@@ -275,6 +350,41 @@ final class ExpectIntegrationTest {
         try (Session session = fixtureService().interactive(call -> call.args("ansi-prompt"));
                 Expect expect = session.expect(options)) {
             expect.expectText("READY> ");
+        }
+    }
+
+    @Test
+    void expectFollowsSessionCharsetByDefault() {
+        CommandService service = new CommandService(
+                TestCliSupport.command(),
+                RunOptions.defaults(),
+                SessionOptions.defaults().withCharset(StandardCharsets.ISO_8859_1));
+
+        try (Session session = service.interactive(call ->
+                        call.args("line-repl", "--charset=ISO-8859-1", "--prompt=ready> ", "--response-prefix=echo:"));
+                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
+            expect.expectText("ready> ");
+            expect.sendLine("café");
+            expect.expectText("echo:café");
+        }
+    }
+
+    @Test
+    void explicitExpectCharsetTakesPrecedenceOverSessionCharset() {
+        CommandService service = new CommandService(
+                TestCliSupport.command(),
+                RunOptions.defaults(),
+                SessionOptions.defaults().withCharset(StandardCharsets.ISO_8859_1));
+
+        try (Session session = service.interactive(call ->
+                        call.args("line-repl", "--charset=UTF-8", "--prompt=ready> ", "--response-prefix=echo:"));
+                Expect expect = session.expect(ExpectOptions.defaults()
+                        .withTimeout(Duration.ofSeconds(2))
+                        .withCharset(StandardCharsets.UTF_8))) {
+            // ASCII traffic stays charset-neutral; this only pins the explicit-charset precedence contract.
+            expect.expectText("ready> ");
+            expect.sendLine("plain");
+            expect.expectText("echo:plain");
         }
     }
 

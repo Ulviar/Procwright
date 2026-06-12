@@ -55,8 +55,16 @@ or runtime failure.
 - `DECODE_ERROR`;
 - `RESPONSE_TOO_LARGE`;
 - `STDOUT_BACKLOG_OVERFLOW`;
+- `PROCESS_EXITED`;
 - `DECODER_FAILED`;
 - `FAILURE`.
+
+`PROCESS_EXITED` reports that the worker process had already exited when the session tried to write the request. It is
+distinct from `CLOSED`, which reports a session closed before the request could complete.
+
+After a terminal failure closes the session — for example backlog overflow, request timeout, or process exit —
+follow-up requests fail with the original failure reason and a message prefixed with `closed by an earlier failure`,
+not with a generic `CLOSED`.
 
 ## ProtocolSessionException
 
@@ -64,8 +72,12 @@ or runtime failure.
 Reasons distinguish timeout, closed session, EOF, broken pipe, decode error, oversized request, oversized response,
 output backlog overflow, adapter decoder failure, process exit, and general failure.
 
-Protocol backlog overflow is reported as `OUTPUT_BACKLOG_OVERFLOW` because either stdout or stderr may be the stream
-that overflowed.
+Backlog overflow is asymmetric: unread stdout beyond the configured limit fails the session with
+`OUTPUT_BACKLOG_OVERFLOW`, while unread stderr never fails the session — its oldest pending bytes are dropped and
+stderr stays readable up to the limit.
+
+As with line sessions, after a terminal failure closes the session, follow-up requests fail with the original failure
+reason and a message prefixed with `closed by an earlier failure`, not with a generic `CLOSED`.
 
 The transcript snapshot records whether retained output was truncated, malformed for the selected charset policy, or
 redacted.

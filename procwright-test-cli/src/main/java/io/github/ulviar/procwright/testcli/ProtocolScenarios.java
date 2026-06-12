@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.testcli;
 
 import java.io.ByteArrayOutputStream;
@@ -42,6 +44,7 @@ final class ProtocolScenarios {
         String prompt = options.string("prompt", "");
         String responsePrefix = options.string("response-prefix", "response:");
         String exitCommand = options.string("exit-command", ":exit");
+        boolean crlf = options.bool("crlf", false);
         if (!prompt.isEmpty()) {
             context.stdoutText(prompt);
         }
@@ -66,6 +69,8 @@ final class ProtocolScenarios {
                     for (int index = 0; index < lines; index++) {
                         context.stdoutLine("multi:" + index);
                     }
+                } else if (crlf) {
+                    context.stdoutText(responsePrefix + line + "\r\n");
                 } else {
                     context.stdoutLine(responsePrefix + line);
                 }
@@ -181,6 +186,20 @@ final class ProtocolScenarios {
                 context.writeRepeated(context.stderr(), (byte) 'e', 256 * 1024, 8192);
                 context.stderrLine("");
                 context.stdoutLine("response:stderr-burst");
+            }
+            case "malformed-utf8" -> {
+                // 0xFF is never valid in UTF-8, so strict decoders must report malformed input.
+                context.stdout().write(new byte[] {(byte) 0xFF, '\n'});
+                context.stdout().flush();
+            }
+            case "split-utf8" -> {
+                // "П" (U+041F) encodes as 0xD0 0x9F; the flush+sleep boundary forces the two bytes into
+                // separate pipe reads so incremental decoders must carry the partial sequence across chunks.
+                context.stdout().write(new byte[] {(byte) 0xD0});
+                context.stdout().flush();
+                context.sleepMillis(context.options().longValue("split-delay-millis", 50));
+                context.stdout().write(new byte[] {(byte) 0x9F, '\n'});
+                context.stdout().flush();
             }
             default -> {
                 return false;

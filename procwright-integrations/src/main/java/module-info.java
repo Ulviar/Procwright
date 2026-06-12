@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 /**
  * Optional integration helpers built on top of the scenario-first Procwright core module.
  */

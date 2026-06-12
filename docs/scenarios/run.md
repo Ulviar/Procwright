@@ -6,8 +6,8 @@ The scenario covers:
 
 - direct argv by default;
 - explicit shell mode when requested by the caller;
-- bounded stdout/stderr capture;
-- stdin input;
+- bounded stdout/stderr capture, output discarding, or redirection to files (`CapturePolicy`);
+- stdin input from memory or streamed from a file (`CommandInput.fromPath`);
 - working directory;
 - explicit environment inheritance or clean environment policy;
 - timeout and shutdown policy;
@@ -25,6 +25,16 @@ if (!result.succeeded()) {
     throw result.toException();
 }
 ```
+
+By default a run is stopped after 30 seconds, captures up to 1 MiB per stream, and reports truncation and timeout on
+the result — see [Policies](../reference/policies.md#default-values). A `Duration.ZERO` timeout disables the deadline:
+the run waits until the process exits on its own, while the shutdown policy still applies on close and failure paths.
+
+For large outputs, `CapturePolicy.toPath(stdout, stderr)` (or `toPath(merged)` with `OutputMode.MERGED`) redirects
+output to files at the operating-system level, and `CapturePolicy.discard()` drops it entirely; in both cases the
+result's stdout/stderr accessors are empty and the truncation flags stay `false`, while exit code, `timedOut()`, and
+`elapsed()` are reported as usual. Large stdin payloads can be streamed from a file with
+`CommandInput.fromPath(file)` without loading them into memory.
 
 More examples: [Examples](../examples.md#one-shot-command).
 

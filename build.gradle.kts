@@ -313,7 +313,7 @@ val quickCheck =
     tasks.register("quickCheck") {
         description = "Runs the fast contract/unit verification tier."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(tasks.named("test"))
+        dependsOn(tasks.named("test"), "apiCompatibilityCheck")
     }
 
 val scenarioCheck =
@@ -706,10 +706,18 @@ spotless {
     java {
         palantirJavaFormat("2.80.0")
         target("src/**/*.java", "procwright-*/src/**/*.java")
+        licenseHeader(
+            "/* SPDX-License-Identifier: Apache-2.0 */\n\n",
+            "(?:/\\*\\*|package |import |open |module )",
+        )
     }
     kotlin {
         ktfmt("0.58").kotlinlangStyle()
         target("procwright-kotlin/src/**/*.kt")
+        licenseHeader(
+            "/* SPDX-License-Identifier: Apache-2.0 */\n\n",
+            "(?:/\\*\\*|@file|package |import )",
+        )
     }
     kotlinGradle {
         ktfmt("0.58").kotlinlangStyle()

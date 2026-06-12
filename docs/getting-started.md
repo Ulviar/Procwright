@@ -71,6 +71,9 @@ public final class GettingStartedExample {
 }
 ```
 
+By default a run is stopped after 30 seconds and captures up to 1 MiB per stream — see
+[Policies](reference/policies.md#default-values) for all default limits.
+
 Complete example locations are listed in [Examples](examples.md).
 
 ## Mental model

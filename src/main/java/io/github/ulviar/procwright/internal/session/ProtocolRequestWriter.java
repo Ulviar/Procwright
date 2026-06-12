@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.session.ProtocolSessionException;
@@ -45,6 +47,11 @@ final class ProtocolRequestWriter implements ProtocolWriter {
         } catch (IOException exception) {
             throw failures.failure(
                     ProtocolSessionException.Reason.BROKEN_PIPE, "Could not write protocol request", exception);
+        } catch (ProcessExitedException exception) {
+            throw failures.failure(
+                    ProtocolSessionException.Reason.PROCESS_EXITED,
+                    "Protocol process exited before the request could be written",
+                    exception);
         } catch (IllegalStateException exception) {
             throw failures.closed(exception);
         }
@@ -76,6 +83,11 @@ final class ProtocolRequestWriter implements ProtocolWriter {
         } catch (IOException exception) {
             throw failures.failure(
                     ProtocolSessionException.Reason.BROKEN_PIPE, "Could not flush protocol request", exception);
+        } catch (ProcessExitedException exception) {
+            throw failures.failure(
+                    ProtocolSessionException.Reason.PROCESS_EXITED,
+                    "Protocol process exited before the request could be written",
+                    exception);
         } catch (IllegalStateException exception) {
             throw failures.closed(exception);
         }

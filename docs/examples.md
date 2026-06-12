@@ -3,6 +3,28 @@
 These selected snippets show the main public workflows in one place. Use the how-to guides when you need task steps,
 and the scenario reference when you need exact contracts.
 
+## Compile-tested examples
+
+The complete examples live in the repository and are compiled as part of the build:
+
+- `src/test/java/io/github/ulviar/procwright/examples/GettingStartedExample.java` — the first one-shot `run` call from
+  Getting Started.
+- `src/test/java/io/github/ulviar/procwright/examples/CommandServiceApiExamples.java` — one method per core workflow:
+  run, explicit command configuration, policy composition, interactive, expect, terminal-required session, line
+  session, protocol session, listen-only streaming, daemon readiness, diagnostics, pooled workers, and scenario
+  presets.
+- `src/test/java/io/github/ulviar/procwright/examples/ReferenceApiExamples.java` — reference-page snippets: command
+  defaults, policy composition, direct argv, and explicit shell mode.
+- `procwright-kotlin/src/test/kotlin/io/github/ulviar/procwright/kotlin/ProcwrightKotlinTest.kt` — the Kotlin
+  extensions in use: `runCommand`, `openSession`, line-session `requestAwait`, the pooled line-session DSL,
+  `protocolAdapter`, and `listenFlow`.
+- `procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/examples/CommandBackedToolExamples.java`
+  — optional integrations: one-shot and JSON-line command-backed tools, cancellable JSON-line calls, and
+  Content-Length framed JSON.
+- `procwright-consumer-examples/src/main/java/io/github/ulviar/procwright/consumer/examples/ConsumerScenarios.java` —
+  a consumer module that resolves Procwright as an external dependency and exercises run, line-session, protocol-session,
+  and pooled workflows.
+
 ## Core examples
 
 ### One-shot command

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
@@ -176,11 +178,13 @@ public final class LineSessionScenario {
     /**
      * Returns a copy with a pending stdout line backlog limit.
      *
-     * @param stdoutBacklogLimit backlog limit
+     * <p>The limit counts pending response lines, not bytes.
+     *
+     * @param stdoutBacklogLines backlog limit in lines
      * @return updated scenario
      */
-    public LineSessionScenario withStdoutBacklogLimit(int stdoutBacklogLimit) {
-        return withOptions(options.withStdoutBacklogLimit(stdoutBacklogLimit));
+    public LineSessionScenario withStdoutBacklogLines(int stdoutBacklogLines) {
+        return withOptions(options.withStdoutBacklogLines(stdoutBacklogLines));
     }
 
     /**

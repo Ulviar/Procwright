@@ -20,7 +20,9 @@
 - Очень большие значения `Duration` насыщаются во внутреннем runtime и не превращаются в сырой `ArithmeticException`.
 - Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
 - Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.
-- Прерванное ожидание не теряет interrupt status.
+- Прерванное ожидание не теряет interrupt status. Доказано:
+  `OneShotExecutionIntegrationTest.callerInterruptDuringRunIsTypedFailureAndRestoresInterruptStatus` и
+  `LineSessionIntegrationTest.callerInterruptDuringRequestIsTypedFailureAndRestoresInterruptStatus`.
 
 ## Shell и argv
 
@@ -146,8 +148,9 @@
   output streams.
 - Первая публичная operation над stdout/stderr выбирает raw stream mode; поздний helper claim fail fast, включая
   in-flight raw read.
-- `close()` и idle timeout проходят через общий shutdown helper; отдельная hardening-проверка escalation path остается
-  открытой.
+- `close()` и idle timeout проходят через общий shutdown helper (`ProcessLifecycle.stop`); escalation branch этого
+  helper (процесс игнорирует interrupt signal и принудительно убивается после interrupt grace) доказан тестом
+  `OneShotExecutionIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` (POSIX).
 - Ctrl+C/interrupt поведение проверяется через PTY `TerminalSignal.INTERRUPT`.
 
 ## Построчный workflow
@@ -211,5 +214,7 @@
 - public package boundaries покрыты tests;
 - LICENSE присутствует в корне репозитория;
 - versioning policy, compatibility policy, dependency review и release checklist актуальны;
-- session shutdown escalation hardening либо закрыт тестом, либо явно принят как public limitation;
+- session shutdown escalation hardening закрыт тестом
+  `OneShotExecutionIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
+  shutdown helper `ProcessLifecycle.stop`;
 - CI запускает `check` и `javadoc` на Linux, macOS и Windows.

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -6,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.CommandInvocation;
 import io.github.ulviar.procwright.command.CommandResult;
@@ -173,12 +176,224 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
+    void zeroTimeoutDisablesRunTimeoutAndAwaitsCompletion() {
+        CommandResult result = fixtureService().run(call -> call.args("sleep", "--millis=300", "--finished=true")
+                .timeout(Duration.ZERO));
+
+        assertTrue(result.succeeded());
+        assertFalse(result.timedOut());
+        assertTrue(normalizeLineEndings(result.stdout()).contains("finished\n"));
+    }
+
+    @Test
+    void negativeTimeoutIsRejectedBeforeLaunch() {
+        assertThrows(IllegalArgumentException.class, () -> fixtureService()
+                .run(call -> call.args("exit").timeout(Duration.ofMillis(-1))));
+    }
+
+    @Test
+    void fileCaptureWritesLargeOutputWithEmptyResultStreams(@TempDir Path directory) throws IOException {
+        Path stdoutFile = directory.resolve("stdout.log");
+        Path stderrFile = directory.resolve("stderr.log");
+
+        CommandResult result = fixtureService().run(call -> call.args(
+                        "burst", "--stdout-bytes=2m", "--stdout-byte=x", "--stderr-bytes=64", "--stderr-byte=e")
+                .capture(CapturePolicy.toPath(stdoutFile, stderrFile))
+                .timeout(Duration.ofSeconds(30)));
+
+        assertTrue(result.succeeded());
+        assertEquals(2 * 1024 * 1024, java.nio.file.Files.size(stdoutFile));
+        assertEquals(64, java.nio.file.Files.size(stderrFile));
+        assertStdoutEquals("", result);
+        assertStderrEquals("", result);
+        assertEquals(0, result.stdoutBytes().length);
+        assertEquals(0, result.stderrBytes().length);
+        assertFalse(result.stdoutTruncated());
+        assertFalse(result.stderrTruncated());
+    }
+
+    @Test
+    void discardCaptureDropsOutputWithoutFailing() {
+        CommandResult result = fixtureService().run(call -> call.args("burst", "--stdout-bytes=2m", "--stdout-byte=x")
+                .capture(CapturePolicy.discard())
+                .timeout(Duration.ofSeconds(30)));
+
+        assertTrue(result.succeeded());
+        assertStdoutEquals("", result);
+        assertStderrEquals("", result);
+        assertFalse(result.stdoutTruncated());
+        assertFalse(result.stderrTruncated());
+    }
+
+    @Test
+    void mergedSingleFileCaptureReceivesBothStreams(@TempDir Path directory) throws IOException {
+        Path mergedFile = directory.resolve("merged.log");
+
+        CommandResult result = fixtureService().run(call -> call.args("exit", "--stdout=out\n", "--stderr=err\n")
+                .output(OutputMode.MERGED)
+                .capture(CapturePolicy.toPath(mergedFile)));
+
+        assertTrue(result.succeeded());
+        String merged = normalizeLineEndings(java.nio.file.Files.readString(mergedFile));
+        assertTrue(merged.contains("out\n"));
+        assertTrue(merged.contains("err\n"));
+        assertStdoutEquals("", result);
+    }
+
+    @Test
+    void fileCaptureWithSeparateOutputRejectsMergedSinglePathEarly(@TempDir Path directory) {
+        Path mergedFile = directory.resolve("merged.log");
+
+        assertThrows(IllegalArgumentException.class, () -> fixtureService()
+                .run(call -> call.args("exit").capture(CapturePolicy.toPath(mergedFile))));
+        assertFalse(java.nio.file.Files.exists(mergedFile));
+    }
+
+    @Test
+    void timeoutWithFileCaptureStillStopsProcessAndReportsTimedOut(@TempDir Path directory) {
+        Path stdoutFile = directory.resolve("stdout.log");
+        Path stderrFile = directory.resolve("stderr.log");
+
+        CommandResult result = fixtureService().run(call -> call.args("sleep", "--millis=5000", "--finished=false")
+                .capture(CapturePolicy.toPath(stdoutFile, stderrFile))
+                .timeout(timeoutAfterFixtureStartup())
+                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+
+        assertTrue(result.timedOut());
+        assertFalse(result.succeeded());
+        assertStdoutEquals("", result);
+    }
+
+    @Test
+    void stdinFromPathStreamsLargeFileWithoutBufferingInMemory(@TempDir Path directory) throws IOException {
+        Path stdinFile = directory.resolve("stdin.bin");
+        byte[] payload = new byte[4 * 1024 * 1024];
+        java.util.Arrays.fill(payload, (byte) 'x');
+        java.nio.file.Files.write(stdinFile, payload);
+
+        CommandResult result = fixtureService().run(call -> call.args("stdin-echo", "--mode=bytes-count")
+                .input(io.github.ulviar.procwright.command.CommandInput.fromPath(stdinFile))
+                .timeout(Duration.ofSeconds(30)));
+
+        assertTrue(result.succeeded());
+        assertStdoutEquals("bytes:" + payload.length + "\n", result);
+    }
+
+    @Test
+    void stdinFromMissingFileFailsWithTypedLaunchFailure(@TempDir Path directory) {
+        Path missing = directory.resolve("missing-input.bin");
+
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class, () -> fixtureService().run(call -> call.args("stdin-echo")
+                        .input(io.github.ulviar.procwright.command.CommandInput.fromPath(missing))));
+
+        assertEquals(CommandExecutionException.Reason.LAUNCH_FAILED, exception.reason());
+    }
+
+    @Test
     void outputIsDecodedWithConfiguredCharset() {
         CommandResult result = fixtureService()
                 .run(call -> call.args("binary", "--pattern=hex", "--hex=d09fd180d0b8d0b2d0b5d1820a")
                         .charset(StandardCharsets.UTF_8));
 
         assertStdoutEquals("Привет\n", result);
+    }
+
+    @Test
+    void strictCharsetPolicyReportsDecodeErrorAsTypedFailure() {
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run(call -> call.args("binary", "--pattern=hex", "--hex=ff")
+                        .charsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))));
+
+        assertEquals(CommandExecutionException.Reason.DECODE_ERROR, exception.reason());
+    }
+
+    @Test
+    void capturedOutputPreservesEmittedNewlineStyleWithoutNormalization() {
+        CommandResult lf = fixtureService().run(call -> call.args("platform-newlines", "--style=lf"));
+        CommandResult crlf = fixtureService().run(call -> call.args("platform-newlines", "--style=crlf"));
+        CommandResult crOnly = fixtureService().run(call -> call.args("platform-newlines", "--style=cr"));
+
+        assertEquals("out:0\nout:1\n", lf.stdout());
+        assertEquals("out:0\r\nout:1\r\n", crlf.stdout());
+        assertEquals("out:0\rout:1\r", crOnly.stdout());
+    }
+
+    @Test
+    void callerInterruptDuringRunIsTypedFailureAndRestoresInterruptStatus() throws Exception {
+        java.util.concurrent.CountDownLatch processStarted = new java.util.concurrent.CountDownLatch(1);
+        AtomicLong childPid = new AtomicLong(-1);
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> {
+            childPid.set(process.pid());
+            processStarted.countDown();
+        }));
+        java.util.concurrent.atomic.AtomicReference<Throwable> thrown =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean interruptedAfterCatch =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        Thread caller = new Thread(() -> {
+            try {
+                service.run(call -> call.args("never-exit").timeout(Duration.ZERO));
+            } catch (Throwable throwable) {
+                thrown.set(throwable);
+                interruptedAfterCatch.set(Thread.currentThread().isInterrupted());
+            }
+        });
+
+        caller.start();
+        assertTrue(processStarted.await(10, java.util.concurrent.TimeUnit.SECONDS));
+        caller.interrupt();
+        caller.join(java.util.concurrent.TimeUnit.SECONDS.toMillis(10));
+
+        assertFalse(caller.isAlive(), "interrupted caller must not stay blocked in run()");
+        assertTrue(
+                thrown.get() instanceof CommandExecutionException,
+                () -> "expected typed execution failure, got " + thrown.get());
+        assertTrue(interruptedAfterCatch.get(), "caller interrupt status must be restored after the typed failure");
+        assertProcessEventuallyStops(childPid.get());
+    }
+
+    @Test
+    void shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal(@TempDir Path directory) throws Exception {
+        if (isWindows()) {
+            // destroy() is already forceful on Windows, so there is no SIGTERM-then-KILL escalation to prove.
+            return;
+        }
+        Path hookFile = directory.resolve("shutdown-hook.txt");
+        Duration interruptGrace = Duration.ofSeconds(2);
+        AtomicLong childPid = new AtomicLong(-1);
+        CommandService service =
+                fixtureService(ProcessKernel.withPostStartHook(process -> childPid.set(process.pid())));
+
+        // The shutdown hook blocks for 60 s, so the interrupt signal alone cannot end the process;
+        // only the force-kill escalation after the interrupt grace can explain a bounded, dead
+        // process. The hook records its progress in a file because Process.destroy() closes the
+        // parent-side stdout pipe, so post-signal stdout never reaches the captured result. The
+        // 2 s run timeout leaves the fixture JVM time to register its hook before the signal.
+        java.time.Instant stopStarted = java.time.Instant.now();
+        CommandResult result =
+                service.run(call -> call.args("shutdown-hook", "--hook-delay-millis=60000", "--hook-file=" + hookFile)
+                        .timeout(Duration.ofSeconds(2))
+                        .shutdown(ShutdownPolicy.interruptThenKill(interruptGrace, Duration.ofSeconds(5))));
+        Duration wallClockElapsed = Duration.between(stopStarted, java.time.Instant.now());
+
+        assertTrue(result.timedOut());
+        assertFalse(result.succeeded());
+        assertStdoutEquals("started\n", result);
+        String hookMarkers = java.nio.file.Files.exists(hookFile) ? java.nio.file.Files.readString(hookFile) : "";
+        assertTrue(
+                hookMarkers.contains("shutdown-hook:start"),
+                () -> "interrupt signal must reach the shutdown hook before escalation, hook file: " + hookMarkers);
+        assertFalse(
+                hookMarkers.contains("shutdown-hook:end"),
+                () -> "force kill must preempt the blocking shutdown hook, hook file: " + hookMarkers);
+        assertTrue(
+                wallClockElapsed.compareTo(interruptGrace) >= 0,
+                () -> "process must survive the full interrupt grace before the kill, took " + wallClockElapsed);
+        assertTrue(
+                wallClockElapsed.compareTo(Duration.ofSeconds(30)) < 0,
+                () -> "escalation must stay bounded, took " + wallClockElapsed);
+        assertProcessEventuallyStops(childPid.get());
     }
 
     @Test
@@ -313,6 +528,29 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
+    void orphanedDescendantHoldingOutputPipeIsKilledAndFailureExplainsCause(@TempDir Path directory) throws Exception {
+        if (isWindows()) {
+            return;
+        }
+        Path pidFile = directory.resolve("grandchild.pid");
+
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class, () -> fixtureService().run(call -> call.args(
+                                "spawn-child",
+                                "--child-scenario=never-exit",
+                                "--inherit-output=true",
+                                "--pid-file=" + pidFile,
+                                "--linger-millis=500")
+                        .timeout(Duration.ofSeconds(10))));
+
+        assertTrue(
+                exception.getMessage().contains("a descendant process that inherited stdout or stderr"),
+                () -> "failure message must explain the orphaned pipe holder: " + exception.getMessage());
+        long orphanPid = Long.parseLong(java.nio.file.Files.readString(pidFile).trim());
+        assertProcessEventuallyStops(orphanPid);
+    }
+
+    @Test
     void shellModeIsExplicitAndReceivesEnvironmentOverride() {
         CommandService shell = CommandService.forShellCommand(shellEchoEnvironmentCommand("PROCWRIGHT_SHELL_VALUE"));
 
@@ -351,6 +589,19 @@ final class OneShotExecutionIntegrationTest {
         return System.getProperty("os.name").toLowerCase().contains("win");
     }
 
+    private static void assertProcessEventuallyStops(long pid) throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (System.nanoTime() < deadlineNanos) {
+            boolean alive = ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
+            if (!alive) {
+                return;
+            }
+            Thread.sleep(25);
+        }
+        ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly);
+        throw new AssertionError("orphaned descendant process " + pid + " is still alive");
+    }
+
     private static Duration timeoutAfterFixtureStartup() {
         return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
     }
@@ -360,7 +611,10 @@ final class OneShotExecutionIntegrationTest {
     }
 
     private static Duration descendantStartupTimeout() {
-        return isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(250);
+        // The spawned child JVM sleeps for 10 s, so a generous startup window keeps the assertion
+        // semantics (timeout fires after the child pid is reported) while absorbing cold JVM starts
+        // on loaded machines.
+        return Duration.ofSeconds(2);
     }
 
     private static void putWindowsSystemRootIfNeeded(CommandInvocation.Builder call) {

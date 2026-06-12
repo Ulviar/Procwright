@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
@@ -75,7 +77,9 @@ public final class SessionOptions {
     }
 
     /**
-     * Returns default session options.
+     * Returns default session options: idle timeout disabled ({@link Duration#ZERO}), shutdown
+     * {@code interruptThenKill(2 s, 5 s)}, charset UTF-8, terminal policy {@code DISABLED}, system PTY provider, and
+     * an 80x24 terminal size.
      *
      * @return default session options
      */

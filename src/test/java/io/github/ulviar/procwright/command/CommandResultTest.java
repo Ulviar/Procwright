@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.command;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,6 +21,26 @@ final class CommandResultTest {
 
         assertTrue(result.succeeded());
         assertEquals(0, result.exitCode().orElseThrow());
+    }
+
+    @Test
+    void convenienceConstructorEncodesByteViewsAsUtf8() {
+        CommandResult result = new CommandResult(0, "Привет", "");
+
+        org.junit.jupiter.api.Assertions.assertArrayEquals(
+                "Привет".getBytes(java.nio.charset.StandardCharsets.UTF_8), result.stdoutBytes());
+    }
+
+    @Test
+    void charsetConstructorEncodesByteViewsWithProvidedCharset() {
+        CommandResult result = new CommandResult(0, "é", "è", java.nio.charset.StandardCharsets.ISO_8859_1);
+
+        org.junit.jupiter.api.Assertions.assertArrayEquals(
+                "é".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1), result.stdoutBytes());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(
+                "è".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1), result.stderrBytes());
+        assertEquals("é", result.stdout());
+        assertThrows(NullPointerException.class, () -> new CommandResult(0, "x", "y", null));
     }
 
     @Test

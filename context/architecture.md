@@ -91,7 +91,17 @@ Testing/evals
 
 ```text
 io.github.ulviar.procwright
+  Procwright
   CommandService
+  ProcwrightException
+  RunScenario
+  InteractiveScenario
+  LineSessionScenario
+  PooledLineSessionScenario
+  ProtocolSessionScenario
+  ReusableProtocolSessionScenario
+  PooledProtocolSessionScenario
+  StreamScenario
 
 io.github.ulviar.procwright.command
   CommandSpec
@@ -120,6 +130,7 @@ io.github.ulviar.procwright.session
   LineSessionInvocation
   LineSession (interface)
   LineSessionOptions
+  LineSessionException
   LineResponse
   LineTranscript
   ResponseDecoder
@@ -179,13 +190,20 @@ io.github.ulviar.procwright.internal.session
   stateful session-family implementations and runtime factories hidden by JPMS exports
 
 io.github.ulviar.procwright.kotlin
-  runCommand(...)
-  runCommandAwait(...)
+  runCommand(...) / runCommandAwait(...)
   openSession(...)
-  awaitExit(...)
+  awaitExit(...) для Session и StreamSession
   requestAwait(...)
-  ListenFlowInvocation
+  Kotlin duration overloads (timeout, idleTimeout, readinessTimeout,
+    request, awaitDrained, acquireTimeout и другие DSL-параметры)
+  pooledLineSession(...)
+  protocolAdapter(...)
   listenFlow(...)
+  ProcwrightDsl (annotation)
+  ListenFlowInvocation
+  PooledLineSessionDsl
+  LineWorkerDsl
+  ProtocolAdapterDsl
 
 io.github.ulviar.procwright.integration
   JsonValue
@@ -202,6 +220,9 @@ io.github.ulviar.procwright.integration
   CliAdapterError
   CommandBackedTool
 ```
+
+Оркестрация внутри корневого пакета (`ScenarioRuntime`, `CommandServiceDefaults`, `ProtocolWorkerConfiguration`)
+остается package-private и не входит в public API.
 
 Публичных core-пакетов должно быть мало, но они больше не должны превращать корень в плоский каталог всех типов.
 `Session`, `Expect`, `LineSession`, `ProtocolSession`, `StreamSession`, `PooledLineSession` и `PooledProtocolSession`

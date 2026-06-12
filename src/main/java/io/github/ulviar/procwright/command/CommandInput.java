@@ -1,21 +1,36 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.command;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
- * Bytes written to command stdin before stdin is closed.
+ * Command stdin contents: either in-memory bytes written before stdin is closed, or a file the operating system
+ * streams into stdin.
+ *
+ * <p>In-memory inputs are written by Procwright and stdin is closed afterwards. Path-based inputs created through
+ * {@link #fromPath(Path)} are redirected at the operating-system level, so arbitrarily large files stream into the
+ * process without being loaded into memory. The file must exist when the command is launched; a missing file fails
+ * the run with a typed {@link CommandExecutionException}.
  */
 public final class CommandInput {
 
-    private static final CommandInput CLOSED = new CommandInput(new byte[0]);
-
     private final byte[] bytes;
+    private final Path path;
 
     private CommandInput(byte[] bytes) {
         this.bytes = Arrays.copyOf(Objects.requireNonNull(bytes, "bytes"), bytes.length);
+        this.path = null;
+    }
+
+    private CommandInput(Path path) {
+        this.bytes = null;
+        this.path = Objects.requireNonNull(path, "path");
     }
 
     /**
@@ -51,16 +66,39 @@ public final class CommandInput {
         return new CommandInput(bytes);
     }
 
-    static CommandInput closed() {
-        return CLOSED;
+    /**
+     * Creates command input streamed from a file.
+     *
+     * <p>The file is redirected into stdin at the operating-system level, so it is never loaded into Procwright memory.
+     * Existence is checked when the command is launched: a missing file fails the run with a typed
+     * {@link CommandExecutionException}.
+     *
+     * @param path stdin source file
+     * @return command input
+     */
+    public static CommandInput fromPath(Path path) {
+        return new CommandInput(path);
+    }
+
+    /**
+     * Returns the stdin source file for path-based input.
+     *
+     * @return stdin source file, or empty for in-memory input
+     */
+    public Optional<Path> path() {
+        return Optional.ofNullable(path);
     }
 
     /**
      * Returns a defensive copy of the input bytes.
      *
      * @return input bytes copy
+     * @throws IllegalStateException when this input is path-based and carries no in-memory bytes
      */
     public byte[] copyBytes() {
+        if (bytes == null) {
+            throw new IllegalStateException("path-based command input has no in-memory bytes");
+        }
         return Arrays.copyOf(bytes, bytes.length);
     }
 
@@ -72,11 +110,11 @@ public final class CommandInput {
         if (!(other instanceof CommandInput that)) {
             return false;
         }
-        return Arrays.equals(bytes, that.bytes);
+        return Arrays.equals(bytes, that.bytes) && Objects.equals(path, that.path);
     }
 
     @Override
     public int hashCode() {
-        return Arrays.hashCode(bytes);
+        return 31 * Arrays.hashCode(bytes) + Objects.hashCode(path);
     }
 }

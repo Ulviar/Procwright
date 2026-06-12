@@ -1,11 +1,15 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.kotlin
 
 import io.github.ulviar.procwright.CommandService
+import io.github.ulviar.procwright.session.ProtocolAdapter
 import io.github.ulviar.procwright.session.StreamInvocation
 import io.github.ulviar.procwright.session.StreamSource
 import java.lang.reflect.Modifier
 import java.nio.file.Path
 import java.time.Duration
+import java.util.function.Supplier
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -150,6 +154,55 @@ class ProcwrightKotlinTest {
     }
 
     @Test
+    fun `protocol session request can be awaited`() = runBlocking {
+        javaService()
+            .protocolSession(lineReplAdapter())
+            .withArgs(*fixtureArgs("line-repl"))
+            .withRequestTimeout(Duration.ofSeconds(1))
+            .open()
+            .use { session ->
+                assertEquals("response:ping", session.requestAwait("ping"))
+                assertEquals("response:pong", session.requestAwait("pong", 1.seconds))
+            }
+    }
+
+    @Test
+    fun `pooled line session request can be awaited`() = runBlocking {
+        javaService()
+            .pooledLineSession {
+                worker {
+                    args(*fixtureArgs("line-repl"))
+                    requestTimeout(1.seconds)
+                }
+                maxSize(1)
+                minIdle(0)
+            }
+            .use { pool ->
+                assertEquals(listOf("response:hello"), pool.requestAwait("hello").lines())
+                assertEquals(
+                    listOf("response:again"),
+                    pool.requestAwait("again", 1.seconds).lines(),
+                )
+            }
+    }
+
+    @Test
+    fun `pooled protocol session request can be awaited`() = runBlocking {
+        javaService()
+            .protocolSession(Supplier { lineReplAdapter() })
+            .withArgs(*fixtureArgs("line-repl"))
+            .withRequestTimeout(Duration.ofSeconds(1))
+            .pooled()
+            .withMaxSize(1)
+            .withMinIdle(0)
+            .open()
+            .use { pool ->
+                assertEquals("response:ping", pool.requestAwait("ping"))
+                assertEquals("response:pong", pool.requestAwait("pong", 1.seconds))
+            }
+    }
+
+    @Test
     fun `stream session exit can be awaited`() = runBlocking {
         javaService().listen().withArgs(*fixtureArgs("paired-streams")).open().use { session ->
             val exit = session.awaitExit()
@@ -203,11 +256,19 @@ class ProcwrightKotlinTest {
                 method.isAnnotationPresent(org.junit.jupiter.api.Test::class.java)
             }
 
-        assertEquals(15, testMethods.size)
+        assertEquals(18, testMethods.size)
         assertTrue(testMethods.all { it.returnType == Void.TYPE })
     }
 
     private fun javaService(): CommandService = CommandService.forCommand(javaExecutable())
+
+    private fun lineReplAdapter(): ProtocolAdapter<String, String> = protocolAdapter {
+        writeRequest { request, writer ->
+            writer.writeLine(request)
+            writer.flush()
+        }
+        readResponse { readers -> readers.stdout().readLine(128) }
+    }
 
     private fun javaExecutable(): String {
         val executableName =

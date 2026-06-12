@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.session.ProtocolReader;
@@ -101,7 +103,8 @@ final class ProtocolResponseReader implements ProtocolReader {
         if (maxChars <= 0) {
             throw new IllegalArgumentException("maxChars must be positive");
         }
-        int readLimit = maxChars == Integer.MAX_VALUE ? Integer.MAX_VALUE : maxChars + 1;
+        // The limit applies to line content, so the raw read reserves two extra chars for a CRLF terminator.
+        int readLimit = maxChars >= Integer.MAX_VALUE - 2 ? Integer.MAX_VALUE : maxChars + 2;
         String line = readTextUntil((byte) '\n', readLimit);
         if (line.endsWith("\n")) {
             line = line.substring(0, line.length() - 1);

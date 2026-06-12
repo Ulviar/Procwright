@@ -28,6 +28,9 @@ try (Session session = python.interactive().withArgs("-i").open()) {
 }
 ```
 
+`closeStdin()` signals end-of-input immediately and closes the raw stream in the background, so it never blocks — even
+while a concurrent write is stuck on a full stdin pipe; writes after `closeStdin()` fail with `IllegalStateException`.
+
 ## Output ownership
 
 Interactive sessions expose raw stdout and stderr, but Procwright still protects output ownership. The first public raw stream

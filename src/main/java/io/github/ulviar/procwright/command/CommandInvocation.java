@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.command;
 
 import io.github.ulviar.procwright.internal.CommandValidation;
@@ -311,7 +313,7 @@ public final class CommandInvocation {
         /**
          * Sets the per-call timeout override.
          *
-         * @param timeout timeout
+         * @param timeout timeout, or {@link Duration#ZERO} to disable the run timeout
          * @return this builder
          */
         public Builder timeout(Duration timeout) {

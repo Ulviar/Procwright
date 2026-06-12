@@ -42,9 +42,10 @@ unsupported behavior, если provider недоступен, и не долже
 - Для baseline `0.1.0` `Procwright.command(...)` является рекомендуемой точкой входа, `CommandService` остается reusable
   command handle, `SessionOptions.idleTimeout` сохраняет caller-visible semantics, а текущий набор `ScenarioPresets`
   входит в public pre-1.0 API.
-- Public API scope `0.1.0` включает сценарии `run`, `interactive`, `lineSession`, `protocolSession`,
-  `lineSession().pooled()` и `protocolSession(factory).pooled()`. Новые сценарии или изменение их caller-visible
-  invariants требуют отдельного ADR и baseline test update.
+- Public API scope `0.1.0` включает сценарии `run`, `interactive`, `expect`, `lineSession`, `protocolSession`,
+  `listen`, `lineSession().pooled()` и `protocolSession(factory).pooled()`, как зафиксировано в
+  [public-api-baseline.md](public-api-baseline.md). Новые сценарии или изменение их caller-visible invariants требуют
+  отдельного ADR и baseline test update.
 
 ## Поведенческая совместимость
 

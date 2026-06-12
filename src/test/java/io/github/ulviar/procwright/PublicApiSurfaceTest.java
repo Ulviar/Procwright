@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,6 +52,8 @@ final class PublicApiSurfaceTest {
             "io.github.ulviar.procwright.StreamScenario",
             "io.github.ulviar.procwright.command.CapturePolicy",
             "io.github.ulviar.procwright.command.CapturePolicy$Bounded",
+            "io.github.ulviar.procwright.command.CapturePolicy$Discard",
+            "io.github.ulviar.procwright.command.CapturePolicy$ToPath",
             "io.github.ulviar.procwright.command.CharsetPolicy",
             "io.github.ulviar.procwright.command.CommandException",
             "io.github.ulviar.procwright.command.CommandExecutionException",
@@ -74,6 +78,7 @@ final class PublicApiSurfaceTest {
             "io.github.ulviar.procwright.session.Expect",
             "io.github.ulviar.procwright.session.ExpectException",
             "io.github.ulviar.procwright.session.ExpectException$Reason",
+            "io.github.ulviar.procwright.session.ExpectMatch",
             "io.github.ulviar.procwright.session.ExpectOptions",
             "io.github.ulviar.procwright.session.ExpectOutputFilter",
             "io.github.ulviar.procwright.session.ExpectTranscriptValues",

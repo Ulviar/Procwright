@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.kotlin
 
 import io.github.ulviar.procwright.CommandService
@@ -9,8 +11,10 @@ import io.github.ulviar.procwright.command.ShutdownPolicy
 import io.github.ulviar.procwright.session.LineResponse
 import io.github.ulviar.procwright.session.LineSession
 import io.github.ulviar.procwright.session.PooledLineSession
+import io.github.ulviar.procwright.session.PooledProtocolSession
 import io.github.ulviar.procwright.session.ProtocolAdapter
 import io.github.ulviar.procwright.session.ProtocolReaders
+import io.github.ulviar.procwright.session.ProtocolSession
 import io.github.ulviar.procwright.session.ProtocolWriter
 import io.github.ulviar.procwright.session.ResponseDecoder
 import io.github.ulviar.procwright.session.Session
@@ -24,18 +28,15 @@ import io.github.ulviar.procwright.terminal.TerminalPolicy
 import java.nio.charset.Charset
 import java.nio.file.Path
 import java.time.Duration
-import java.util.concurrent.CompletableFuture
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration as KotlinDuration
 import kotlin.time.toJavaDuration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.withContext
 
 /** Runs a one-shot command using a Kotlin receiver-style invocation builder. */
@@ -63,7 +64,12 @@ fun SessionInvocation.Builder.idleTimeout(timeout: KotlinDuration): SessionInvoc
 fun SessionInvocation.Builder.readinessTimeout(timeout: KotlinDuration): SessionInvocation.Builder =
     readinessTimeout(timeout.toJavaDuration())
 
-/** Waits for a raw session to exit without blocking the caller coroutine. */
+/**
+ * Waits for a raw session to exit without blocking the caller coroutine.
+ *
+ * Cancelling the awaiting coroutine cancels only this call's exit-future view; the shared session
+ * exit future and the session lifecycle are not affected.
+ */
 suspend fun Session.awaitExit(): SessionExit = onExit().await()
 
 /** Sends one request to a line session without blocking the caller coroutine. */
@@ -80,15 +86,79 @@ suspend fun LineSession.requestAwait(line: String, timeout: Duration? = null): L
 suspend fun LineSession.requestAwait(line: String, timeout: KotlinDuration): LineResponse =
     requestAwait(line, timeout.toJavaDuration())
 
+/**
+ * Sends one request to a typed protocol session without blocking the caller coroutine.
+ *
+ * Passing a `null` timeout uses the session default request timeout.
+ */
+suspend fun <I, O> ProtocolSession<I, O>.requestAwait(request: I, timeout: Duration? = null): O =
+    withContext(Dispatchers.IO) {
+        if (timeout == null) {
+            request(request)
+        } else {
+            request(request, timeout)
+        }
+    }
+
+/** Sends one request to a typed protocol session using Kotlin's duration type. */
+suspend fun <I, O> ProtocolSession<I, O>.requestAwait(request: I, timeout: KotlinDuration): O =
+    requestAwait(request, timeout.toJavaDuration())
+
 /** Sends one pooled line-session request using Kotlin's duration type. */
 fun PooledLineSession.request(line: String, timeout: KotlinDuration): LineResponse =
     request(line, timeout.toJavaDuration())
+
+/**
+ * Sends one pooled line-session request without blocking the caller coroutine.
+ *
+ * Passing a `null` timeout uses the worker line-session default request timeout.
+ */
+suspend fun PooledLineSession.requestAwait(line: String, timeout: Duration? = null): LineResponse =
+    withContext(Dispatchers.IO) {
+        if (timeout == null) {
+            request(line)
+        } else {
+            request(line, timeout)
+        }
+    }
+
+/** Sends one pooled line-session request using Kotlin's duration type. */
+suspend fun PooledLineSession.requestAwait(line: String, timeout: KotlinDuration): LineResponse =
+    requestAwait(line, timeout.toJavaDuration())
+
+/**
+ * Sends one pooled protocol-session request without blocking the caller coroutine.
+ *
+ * Passing a `null` timeout uses the worker protocol-session default request timeout.
+ */
+suspend fun <I, O> PooledProtocolSession<I, O>.requestAwait(
+    request: I,
+    timeout: Duration? = null,
+): O =
+    withContext(Dispatchers.IO) {
+        if (timeout == null) {
+            request(request)
+        } else {
+            request(request, timeout)
+        }
+    }
+
+/** Sends one pooled protocol-session request using Kotlin's duration type. */
+suspend fun <I, O> PooledProtocolSession<I, O>.requestAwait(
+    request: I,
+    timeout: KotlinDuration,
+): O = requestAwait(request, timeout.toJavaDuration())
 
 /** Waits for a pooled line-session pool to drain using Kotlin's duration type. */
 fun PooledLineSession.awaitDrained(timeout: KotlinDuration): Boolean =
     awaitDrained(timeout.toJavaDuration())
 
-/** Waits for a streaming session to finish without blocking the caller coroutine. */
+/**
+ * Waits for a streaming session to finish without blocking the caller coroutine.
+ *
+ * Cancelling the awaiting coroutine cancels only this call's exit-future view; the shared session
+ * exit future and the session lifecycle are not affected.
+ */
 suspend fun StreamSession.awaitExit(): StreamExit = onExit().await()
 
 /** Sets the stream timeout from Kotlin's duration type. */
@@ -132,7 +202,12 @@ fun CommandService.listenFlow(configure: ListenFlowInvocation.() -> Unit = {}): 
                 listen()
                     .configuredBy { builder ->
                         DefaultListenFlowInvocation(builder).configure()
-                        builder.onOutput { chunk -> runBlocking { send(chunk) } }
+                        builder.onOutput { chunk ->
+                            // Blocks the pump thread while the buffer is full to preserve
+                            // backpressure. A closed/failed result means the collector is gone;
+                            // remaining chunks are dropped instead of failing the pump.
+                            trySendBlocking(chunk)
+                        }
                     }
                     .open()
             session.onExit().whenComplete { _, throwable ->
@@ -321,7 +396,7 @@ private class DefaultLineWorkerDsl(
     }
 
     override fun stdoutBacklogLimit(limit: Int): LineWorkerDsl = update {
-        it.withStdoutBacklogLimit(limit)
+        it.withStdoutBacklogLines(limit)
     }
 
     override fun maxLineChars(maxLineChars: Int): LineWorkerDsl = update {
@@ -381,17 +456,3 @@ private class KotlinProtocolAdapter<I, O>(
 
     override fun readResponse(readers: ProtocolReaders): O = reader(readers)
 }
-
-private suspend fun <T> CompletableFuture<T>.await(): T =
-    suspendCancellableCoroutine { continuation ->
-        whenComplete { value, throwable ->
-            if (!continuation.isActive) {
-                return@whenComplete
-            }
-            if (throwable == null) {
-                continuation.resume(value)
-            } else {
-                continuation.resumeWithException(throwable)
-            }
-        }
-    }

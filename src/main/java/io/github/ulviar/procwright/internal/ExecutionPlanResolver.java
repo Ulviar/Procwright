@@ -1,6 +1,7 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal;
 
-import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandInvocation;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.EnvironmentPolicy;
@@ -44,7 +45,7 @@ public final class ExecutionPlanResolver {
         LaunchPlan launchPlan = launchPlan(profile, spec, invocationShape, outputMode(profile, invocation));
         return new ExecutionPlan(
                 launchPlan,
-                bounded(invocation.capturePolicy().orElse(profile.capturePolicy())),
+                invocation.capturePolicy().orElse(profile.capturePolicy()),
                 invocation.shutdownPolicy().orElse(profile.shutdownPolicy()),
                 invocation.timeout().orElse(profile.timeout()),
                 invocation.charsetPolicy().orElse(profile.charsetPolicy()),
@@ -232,13 +233,6 @@ public final class ExecutionPlanResolver {
                 invocation.workingDirectory(),
                 invocation.environmentPolicy(),
                 invocation.environment());
-    }
-
-    private static CapturePolicy.Bounded bounded(CapturePolicy capturePolicy) {
-        if (capturePolicy instanceof CapturePolicy.Bounded bounded) {
-            return bounded;
-        }
-        throw new IllegalArgumentException("only bounded capture is supported by the one-shot kernel");
     }
 
     private record InvocationShape(

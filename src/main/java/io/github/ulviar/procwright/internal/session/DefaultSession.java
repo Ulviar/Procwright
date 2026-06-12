@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
@@ -165,17 +167,16 @@ public final class DefaultSession implements Session {
 
     /**
      * Closes process stdin. The session may keep running until the process exits or is closed.
+     *
+     * <p>This method returns promptly even while another thread is blocked writing into a full stdin pipe. The closed
+     * state is published first, so later writes fail with {@link IllegalStateException}, and the raw stream close runs
+     * on a background thread: closing the raw stream synchronously would block on the stream monitor held by the
+     * blocked writer until the child drains the pipe or exits.
      */
     public void closeStdin() {
-        synchronized (stdinLock) {
-            State current = state.get();
-            if (current == State.STDIN_CLOSED || current == State.CLOSING || current == State.CLOSED) {
-                return;
-            }
-            if (state.compareAndSet(State.RUNNING, State.STDIN_CLOSED)) {
-                closeRawStdin();
-                markActivity();
-            }
+        if (state.compareAndSet(State.RUNNING, State.STDIN_CLOSED)) {
+            Threading.start("procwright-session-stdin-close-", this::closeRawStdin);
+            markActivity();
         }
     }
 
@@ -352,6 +353,10 @@ public final class DefaultSession implements Session {
         return process.pid();
     }
 
+    Charset charset() {
+        return charset;
+    }
+
     private static java.util.Map<String, String> exitAttributes(OptionalInt exitCode, boolean timedOut) {
         java.util.LinkedHashMap<String, String> attributes = new java.util.LinkedHashMap<>();
         attributes.put("timedOut", Boolean.toString(timedOut));
@@ -360,9 +365,17 @@ public final class DefaultSession implements Session {
     }
 
     private void ensureCanWrite() {
-        ensureStdinOpen();
         if (!process.isAlive()) {
-            throw new IllegalStateException("Session stdin is closed");
+            throw new ProcessExitedException(exitCodeMessage());
+        }
+        ensureStdinOpen();
+    }
+
+    private String exitCodeMessage() {
+        try {
+            return "Session process has exited with code " + process.exitValue();
+        } catch (IllegalThreadStateException stillRunning) {
+            return "Session process has exited";
         }
     }
 
@@ -451,7 +464,7 @@ public final class DefaultSession implements Session {
         @Override
         public void flush() throws IOException {
             synchronized (stdinLock) {
-                ensureStdinOpen();
+                ensureCanWrite();
                 delegate.flush();
             }
         }

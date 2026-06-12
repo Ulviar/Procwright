@@ -1,5 +1,8 @@
 # Procwright
 
+[![CI](https://github.com/Ulviar/Procwright/actions/workflows/ci.yml/badge.svg)](https://github.com/Ulviar/Procwright/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 Procwright is a JVM library for scenario-first control of external command-line processes. Its APIs make bounded output,
 timeouts, stream ownership, diagnostics, and best-effort process cleanup explicit for each workflow.
 
@@ -25,6 +28,10 @@ redaction-friendly observation.
 ## Installation
 
 Published releases use Maven Central coordinates.
+
+> **Note:** version `0.1.0` is not yet available on Maven Central — publication is pending. Until then, build from
+> source with `./gradlew publishToMavenLocal --project-prop=procwright.javaRelease=17` and consume the artifacts from
+> `mavenLocal()`.
 
 Gradle Kotlin DSL:
 
@@ -114,6 +121,11 @@ Start with the public docs:
 - `io.github.ulviar:procwright` is the Java core module `io.github.ulviar.procwright` with no runtime dependencies outside the JDK.
 - `io.github.ulviar:procwright-kotlin` is an optional Kotlin ergonomics module.
 - `io.github.ulviar:procwright-integrations` is an optional Java module for structured CLI-backed integration helpers.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, verification tiers, and conventions. Security issues go
+through the [security policy](SECURITY.md), not public issues.
 
 ## License
 

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
@@ -22,7 +24,7 @@ public final class ProtocolSessionOptions {
 
     private final Duration requestTimeout;
     private final int transcriptLimit;
-    private final int stdoutBacklogLimit;
+    private final int outputBacklogLimit;
     private final int maxRequestBytes;
     private final int maxRequestChars;
     private final int maxResponseBytes;
@@ -34,7 +36,7 @@ public final class ProtocolSessionOptions {
      *
      * @param requestTimeout default request timeout
      * @param transcriptLimit maximum retained transcript characters
-     * @param stdoutBacklogLimit maximum pending output bytes per stream
+     * @param outputBacklogLimit maximum pending output bytes per stream
      * @param maxRequestBytes maximum bytes one request may write
      * @param maxRequestChars maximum chars one request may write through text helpers
      * @param maxResponseBytes maximum bytes one response may read
@@ -44,7 +46,7 @@ public final class ProtocolSessionOptions {
     public ProtocolSessionOptions(
             Duration requestTimeout,
             int transcriptLimit,
-            int stdoutBacklogLimit,
+            int outputBacklogLimit,
             int maxRequestBytes,
             int maxRequestChars,
             int maxResponseBytes,
@@ -52,7 +54,7 @@ public final class ProtocolSessionOptions {
             CharsetPolicy charsetPolicy) {
         this.requestTimeout = requirePositive(requestTimeout, "requestTimeout");
         this.transcriptLimit = requirePositive(transcriptLimit, "transcriptLimit");
-        this.stdoutBacklogLimit = requirePositive(stdoutBacklogLimit, "stdoutBacklogLimit");
+        this.outputBacklogLimit = requirePositive(outputBacklogLimit, "outputBacklogLimit");
         this.maxRequestBytes = requirePositive(maxRequestBytes, "maxRequestBytes");
         this.maxRequestChars = requirePositive(maxRequestChars, "maxRequestChars");
         this.maxResponseBytes = requirePositive(maxResponseBytes, "maxResponseBytes");
@@ -61,7 +63,9 @@ public final class ProtocolSessionOptions {
     }
 
     /**
-     * Returns default protocol-session options.
+     * Returns default protocol-session options: request timeout 5 seconds, transcript limit 65,536 characters,
+     * output backlog 1 MiB pending bytes per stream, request and response limits of 1 MiB bytes with unlimited
+     * ({@code Integer.MAX_VALUE}) characters, and charset policy {@code CharsetPolicy.replace(UTF-8)}.
      *
      * @return default options
      */
@@ -79,7 +83,7 @@ public final class ProtocolSessionOptions {
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -97,7 +101,7 @@ public final class ProtocolSessionOptions {
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -108,29 +112,22 @@ public final class ProtocolSessionOptions {
     /**
      * Returns a copy with a different pending output byte limit per stream.
      *
-     * @param stdoutBacklogLimit maximum pending output bytes per stream
-     * @return updated options
-     */
-    public ProtocolSessionOptions withStdoutBacklogLimit(int stdoutBacklogLimit) {
-        return copy(
-                requestTimeout,
-                transcriptLimit,
-                stdoutBacklogLimit,
-                maxRequestBytes,
-                maxRequestChars,
-                maxResponseBytes,
-                maxResponseChars,
-                charsetPolicy);
-    }
-
-    /**
-     * Returns a copy with a different pending output byte limit per stream.
+     * <p>See {@link #outputBacklogLimit()} for the asymmetric stdout/stderr overflow semantics. The limit counts
+     * bytes and applies to each stream independently.
      *
      * @param outputBacklogLimit maximum pending output bytes per stream
      * @return updated options
      */
     public ProtocolSessionOptions withOutputBacklogLimit(int outputBacklogLimit) {
-        return withStdoutBacklogLimit(outputBacklogLimit);
+        return copy(
+                requestTimeout,
+                transcriptLimit,
+                outputBacklogLimit,
+                maxRequestBytes,
+                maxRequestChars,
+                maxResponseBytes,
+                maxResponseChars,
+                charsetPolicy);
     }
 
     /**
@@ -143,7 +140,7 @@ public final class ProtocolSessionOptions {
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -161,7 +158,7 @@ public final class ProtocolSessionOptions {
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -179,7 +176,7 @@ public final class ProtocolSessionOptions {
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -197,7 +194,7 @@ public final class ProtocolSessionOptions {
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -215,7 +212,7 @@ public final class ProtocolSessionOptions {
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -244,19 +241,16 @@ public final class ProtocolSessionOptions {
     /**
      * Returns maximum pending output bytes per stream.
      *
-     * @return output backlog limit
-     */
-    public int stdoutBacklogLimit() {
-        return stdoutBacklogLimit;
-    }
-
-    /**
-     * Returns maximum pending output bytes per stream.
+     * <p>The limit counts bytes and applies to each stream independently, with asymmetric overflow handling: unread
+     * stdout beyond the limit fails the session with
+     * {@link ProtocolSessionException.Reason#OUTPUT_BACKLOG_OVERFLOW} because stdout is the protocol stream, while
+     * unread stderr never fails the session; its pending bytes beyond the limit drop oldest-first and stderr stays
+     * readable up to the limit alongside the bounded transcript.
      *
-     * @return output backlog limit
+     * @return output backlog limit in bytes per stream
      */
     public int outputBacklogLimit() {
-        return stdoutBacklogLimit;
+        return outputBacklogLimit;
     }
 
     /**
@@ -313,7 +307,7 @@ public final class ProtocolSessionOptions {
             return false;
         }
         return transcriptLimit == that.transcriptLimit
-                && stdoutBacklogLimit == that.stdoutBacklogLimit
+                && outputBacklogLimit == that.outputBacklogLimit
                 && maxRequestBytes == that.maxRequestBytes
                 && maxRequestChars == that.maxRequestChars
                 && maxResponseBytes == that.maxResponseBytes
@@ -327,7 +321,7 @@ public final class ProtocolSessionOptions {
         return Objects.hash(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -338,7 +332,7 @@ public final class ProtocolSessionOptions {
     private ProtocolSessionOptions copy(
             Duration requestTimeout,
             int transcriptLimit,
-            int stdoutBacklogLimit,
+            int outputBacklogLimit,
             int maxRequestBytes,
             int maxRequestChars,
             int maxResponseBytes,
@@ -347,7 +341,7 @@ public final class ProtocolSessionOptions {
         return new ProtocolSessionOptions(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLimit,
+                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,

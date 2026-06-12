@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.internal.session.DefaultExpect;
@@ -87,6 +89,52 @@ public sealed interface Expect extends AutoCloseable permits DefaultExpect {
      * @return this helper
      */
     Expect expectRegex(Pattern pattern, Duration timeout);
+
+    /**
+     * Waits for literal text using the default timeout and returns the match result.
+     *
+     * <p>The result carries live process output: unlike transcripts it is not redacted, because the caller asked for
+     * it. See {@link ExpectMatch}.
+     *
+     * @param text expected text
+     * @return match result with the matched text, empty groups, and the output consumed before the match
+     */
+    ExpectMatch expectTextMatch(String text);
+
+    /**
+     * Waits for literal text and returns the match result.
+     *
+     * <p>The result carries live process output: unlike transcripts it is not redacted, because the caller asked for
+     * it. See {@link ExpectMatch}.
+     *
+     * @param text expected text
+     * @param timeout match timeout
+     * @return match result with the matched text, empty groups, and the output consumed before the match
+     */
+    ExpectMatch expectTextMatch(String text, Duration timeout);
+
+    /**
+     * Waits for a regular expression match using the default timeout and returns the match result.
+     *
+     * <p>The result carries live process output: unlike transcripts it is not redacted, because the caller asked for
+     * it. See {@link ExpectMatch}.
+     *
+     * @param pattern expected pattern
+     * @return match result with the full match, capture groups, and the output consumed before the match
+     */
+    ExpectMatch expectRegexMatch(Pattern pattern);
+
+    /**
+     * Waits for a regular expression match and returns the match result.
+     *
+     * <p>The result carries live process output: unlike transcripts it is not redacted, because the caller asked for
+     * it. See {@link ExpectMatch}.
+     *
+     * @param pattern expected pattern
+     * @param timeout match timeout
+     * @return match result with the full match, capture groups, and the output consumed before the match
+     */
+    ExpectMatch expectRegexMatch(Pattern pattern, Duration timeout);
 
     /**
      * Returns the current bounded transcript snapshot.

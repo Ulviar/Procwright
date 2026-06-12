@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
@@ -15,7 +17,7 @@ import java.util.Optional;
 
 public record ExecutionPlan(
         LaunchPlan launchPlan,
-        CapturePolicy.Bounded capturePolicy,
+        CapturePolicy capturePolicy,
         ShutdownPolicy shutdownPolicy,
         Duration timeout,
         CharsetPolicy charsetPolicy,
@@ -33,6 +35,23 @@ public record ExecutionPlan(
         Objects.requireNonNull(charsetPolicy, "charsetPolicy");
         Objects.requireNonNull(stdin, "stdin");
         Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
+        requireCaptureCompatibleWithOutputMode(capturePolicy, launchPlan.outputMode());
+    }
+
+    private static void requireCaptureCompatibleWithOutputMode(CapturePolicy capturePolicy, OutputMode outputMode) {
+        if (!(capturePolicy instanceof CapturePolicy.ToPath toPath)) {
+            return;
+        }
+        if (toPath.merged() && outputMode != OutputMode.MERGED) {
+            throw new IllegalArgumentException(
+                    "single-file capture requires OutputMode.MERGED; use CapturePolicy.toPath(stdout, stderr) for"
+                            + " separate streams");
+        }
+        if (!toPath.merged() && outputMode != OutputMode.SEPARATE) {
+            throw new IllegalArgumentException(
+                    "two-file capture requires OutputMode.SEPARATE; use CapturePolicy.toPath(merged) for merged"
+                            + " output");
+        }
     }
 
     public Charset charset() {

@@ -5,6 +5,10 @@ run a finite command, automate prompts, talk to a worker, follow output, or reus
 
 The current public version is `0.1.0`. Use Java 17 or newer; published artifacts target Java 17.
 
+!!! note "Not yet on Maven Central"
+    `0.1.0` is not yet available on Maven Central; publication is pending. Until then, build from source and use
+    `./gradlew publishToMavenLocal`. See [Installation](release/installation.md).
+
 If you are new to Procwright, start with one question: what shape does the external process have? A command that exits belongs
 to `run`. A raw live process belongs to `interactive`. Prompt automation uses `interactive` + `Expect`. A long-lived
 worker with one line per response belongs to `lineSession`. A framed or typed protocol belongs to `protocolSession`. A

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.testcli;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -78,7 +80,14 @@ final class TestCliApplicationTest {
 
     @Test
     void longRunScenarioModelsBoundedHeartbeatOutput() throws Exception {
-        Run run = run("", "long-run", "--ticks=3", "--interval-millis=0", "--stderr-every=2", "--payload=:payload");
+        Run run = run(
+                "",
+                "long-run",
+                "--ticks=3",
+                "--interval-millis=0",
+                "--stderr-every=2",
+                "--payload=:payload",
+                "--hold-millis=1");
 
         assertEquals(0, run.exitCode());
         assertEquals("tick:0:payload\ntick:1:payload\ntick:2:payload\n", run.stdoutText());
@@ -104,6 +113,21 @@ final class TestCliApplicationTest {
         assertEquals(9, run.exitCode());
         assertEquals("ready> response:first\nready> ready> multi:0\nmulti:1\nready> bye\n", run.stdoutText());
         assertEquals("diagnostic\n", run.stderrText());
+    }
+
+    @Test
+    void controlledLineReplCanEmitMalformedAndSplitUtf8Bytes() throws Exception {
+        Run malformed = run("malformed-utf8\n:exit\n", "controlled-line-repl");
+        Run split = run("split-utf8\n:exit\n", "controlled-line-repl", "--split-delay-millis=0");
+
+        assertEquals(0, malformed.exitCode());
+        assertArrayEquals(
+                new byte[] {(byte) 0xFF, '\n', 'b', 'y', 'e', '\n'}, malformed.stdout(), "raw invalid UTF-8 byte");
+        assertEquals(0, split.exitCode());
+        assertArrayEquals(
+                new byte[] {(byte) 0xD0, (byte) 0x9F, '\n', 'b', 'y', 'e', '\n'},
+                split.stdout(),
+                "multi-byte codepoint flushed in two chunks");
     }
 
     @Test

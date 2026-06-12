@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.kotlin
 
 import io.github.ulviar.procwright.session.LineSession

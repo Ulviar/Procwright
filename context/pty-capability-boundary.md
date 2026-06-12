@@ -3,19 +3,22 @@
 ## Назначение
 
 PTY нужен не как отдельный пользовательский сценарий, а как transport capability для сценариев, где terminal меняет
-поведение процесса. Пользователь выбирает workflow (`interactive`, `lineSession`, `lineSession().pooled()`), а не
-provider, платформу или набор PTY-флагов.
+поведение процесса. Пользователь выбирает workflow (`interactive`, `lineSession`, `protocolSession`,
+`lineSession().pooled()`, `protocolSession(factory).pooled()`), а не provider, платформу или набор PTY-флагов.
 
 ## Публичная модель
 
 - `TerminalPolicy.DISABLED` всегда использует pipes.
 - `TerminalPolicy.AUTO` использует PTY только когда provider доступен; иначе fallback в pipes допустим.
 - `TerminalPolicy.REQUIRED` требует PTY и fail fast при недоступном provider.
-- `SessionInvocation`, `LineSessionInvocation` и `PooledLineSessionInvocation` могут задавать terminal policy.
+- `SessionInvocation`, `LineSessionInvocation`, `PooledLineSessionInvocation` и `ProtocolSessionInvocation` могут
+  задавать terminal policy; scenario builders раскрывают это как `withTerminal(...)` у `InteractiveScenario`,
+  `LineSessionScenario`, `ProtocolSessionScenario` и `ReusableProtocolSessionScenario`.
 - `run` и `listen` не раскрывают terminal policy в draft API.
 
-`PooledLineSessionInvocation` наследует terminal capability только потому, что workers являются `LineSession`.
-Отдельного pool-level PTY runtime нет.
+Pooled-сценарии задают terminal только на уровне worker-ов: `PooledLineSessionInvocation` наследует terminal
+capability только потому, что workers являются `LineSession`, а `protocolSession(factory).pooled()` — через
+worker-конфигурацию `ReusableProtocolSessionScenario`. Отдельного pool-level PTY runtime нет.
 
 ## Provider boundary
 

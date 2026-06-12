@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -14,6 +16,12 @@ import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.LineSessionOptions;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
+import io.github.ulviar.procwright.session.PooledProtocolSession;
+import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
+import io.github.ulviar.procwright.session.ProtocolAdapter;
+import io.github.ulviar.procwright.session.ProtocolReaders;
+import io.github.ulviar.procwright.session.ProtocolSessionException;
+import io.github.ulviar.procwright.session.ProtocolWriter;
 import io.github.ulviar.procwright.session.SessionOptions;
 import io.github.ulviar.procwright.session.StreamSession;
 import io.github.ulviar.procwright.testcli.TestCli;
@@ -275,8 +283,78 @@ final class TestCliStressTest {
         }
     }
 
+    @Test
+    void pooledProtocolSessionRetiresTimedOutWorkersAndKeepsServingRequests() throws Exception {
+        try (PooledProtocolSession<String, String> pool = testCliService()
+                .pooledProtocol(TextLineAdapter::new, call -> call.args("line-repl")
+                        .maxSize(2)
+                        .warmupSize(1)
+                        .acquireTimeout(Duration.ofSeconds(2)))) {
+            ExecutorService executor = Executors.newCachedThreadPool();
+            CountDownLatch start = new CountDownLatch(1);
+            try {
+                ArrayList<Future<String>> futures = new ArrayList<>();
+                for (int index = 0; index < 10; index++) {
+                    int requestIndex = index;
+                    futures.add(executor.submit(() -> {
+                        start.await();
+                        if (requestIndex % 2 == 0) {
+                            try {
+                                pool.request(":sleep 250", Duration.ofMillis(40));
+                                throw new AssertionError("expected pooled protocol request timeout");
+                            } catch (ProtocolSessionException exception) {
+                                assertEquals(ProtocolSessionException.Reason.TIMEOUT, exception.reason());
+                                return "timeout";
+                            }
+                        }
+                        return pool.request("ok-" + requestIndex, Duration.ofSeconds(2));
+                    }));
+                }
+
+                start.countDown();
+                int timeouts = 0;
+                int successes = 0;
+                for (Future<String> future : futures) {
+                    String outcome = future.get(10, TimeUnit.SECONDS);
+                    if ("timeout".equals(outcome)) {
+                        timeouts++;
+                    } else {
+                        successes++;
+                        assertTrue(outcome.startsWith("response:ok-"));
+                    }
+                }
+
+                PooledProtocolSessionMetrics metrics = pool.metrics();
+                assertEquals(5, timeouts);
+                assertEquals(5, successes);
+                assertEquals(5, metrics.completedRequests());
+                assertEquals(5, metrics.failedRequests());
+                assertTrue(metrics.created() >= metrics.retired());
+                assertTrue(metrics.size() <= 2);
+                assertEquals(0, metrics.leased());
+            } finally {
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            }
+        }
+    }
+
     private static CommandService testCliService() {
         return new CommandService(testCliCommand(), RunOptions.defaults());
+    }
+
+    private static final class TextLineAdapter implements ProtocolAdapter<String, String> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.writeLine(request);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return readers.stdout().readLine(64);
+        }
     }
 
     private static CommandService testCliLineService() {

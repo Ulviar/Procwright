@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.diagnostics;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,6 +17,11 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.DiagnosticAttributeSchema;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
+import io.github.ulviar.procwright.session.PooledProtocolSession;
+import io.github.ulviar.procwright.session.ProtocolAdapter;
+import io.github.ulviar.procwright.session.ProtocolReaders;
+import io.github.ulviar.procwright.session.ProtocolSession;
+import io.github.ulviar.procwright.session.ProtocolWriter;
 import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.StreamExit;
 import io.github.ulviar.procwright.session.StreamListener;
@@ -140,6 +147,30 @@ final class DiagnosticsIntegrationTest {
                         DiagnosticEventType.PROCESS_FAILED,
                         DiagnosticEventType.SHUTDOWN_REQUESTED),
                 "secret-stream-output");
+    }
+
+    @Test
+    void runDiagnosticEventsArriveInLifecycleOrder() {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            int run = attempt;
+            DiagnosticRecorder recorder = new DiagnosticRecorder();
+            CommandService service = fixtureService()
+                    .withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+
+            CommandResult result =
+                    service.run().withArgs("exit", "--stdout=ok\n").execute();
+
+            assertTrue(result.succeeded());
+            assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+            List<DiagnosticEventType> types =
+                    recorder.events().stream().map(DiagnosticEvent::type).toList();
+            int prepared = types.indexOf(DiagnosticEventType.COMMAND_PREPARED);
+            int started = types.indexOf(DiagnosticEventType.PROCESS_STARTED);
+            int exited = types.indexOf(DiagnosticEventType.PROCESS_EXITED);
+            assertTrue(
+                    prepared >= 0 && prepared < started && started < exited,
+                    () -> "run " + run + " delivered events out of lifecycle order: " + types);
+        }
     }
 
     @Test
@@ -349,6 +380,83 @@ final class DiagnosticsIntegrationTest {
                         DiagnosticEventType.PROCESS_STARTED,
                         DiagnosticEventType.SHUTDOWN_REQUESTED,
                         DiagnosticEventType.PROCESS_EXITED));
+    }
+
+    @Test
+    void protocolSessionEmitsLifecycleEventsWithSharedRunId() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        CommandService service =
+                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+
+        try (ProtocolSession<String, String> session = service.protocolSession(new TextLineAdapter())
+                .withArgs("controlled-line-repl", "--response-prefix=secret-protocol:")
+                .open()) {
+            assertEquals("secret-protocol:hello", session.request("hello", Duration.ofSeconds(2)));
+        }
+
+        assertEquals(
+                "protocolSession",
+                recorder.first(DiagnosticEventType.COMMAND_PREPARED).scenario());
+        assertEventsSafe(
+                recorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.SHUTDOWN_REQUESTED,
+                        DiagnosticEventType.PROCESS_EXITED),
+                "secret-protocol");
+        assertSharedRunId(recorder);
+    }
+
+    @Test
+    void pooledProtocolWorkersEmitLifecycleEventsWithSharedRunId() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        CommandService service =
+                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+
+        try (PooledProtocolSession<String, String> pool = service.protocolSession(TextLineAdapter::new)
+                .withArgs("controlled-line-repl", "--response-prefix=secret-protocol:")
+                .pooled()
+                .withMaxSize(1)
+                .withWarmupSize(1)
+                .open()) {
+            assertEquals("secret-protocol:hello", pool.request("hello", Duration.ofSeconds(2)));
+        }
+
+        assertEquals(
+                "pooledProtocol",
+                recorder.first(DiagnosticEventType.COMMAND_PREPARED).scenario());
+        assertEventsSafe(
+                recorder,
+                Set.of(
+                        DiagnosticEventType.COMMAND_PREPARED,
+                        DiagnosticEventType.PROCESS_STARTED,
+                        DiagnosticEventType.SHUTDOWN_REQUESTED,
+                        DiagnosticEventType.PROCESS_EXITED),
+                "secret-protocol");
+        assertSharedRunId(recorder);
+    }
+
+    private static void assertSharedRunId(DiagnosticRecorder recorder) {
+        List<DiagnosticEvent> events = recorder.events();
+        assertFalse(events.isEmpty());
+        Set<String> runIds =
+                events.stream().map(DiagnosticEvent::runId).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        assertEquals(1, runIds.size(), () -> "events of one process lifecycle must share one runId: " + runIds);
+    }
+
+    private static final class TextLineAdapter implements ProtocolAdapter<String, String> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.writeLine(request);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return readers.stdout().readLine(64);
+        }
     }
 
     private static void assertEventsSafe(

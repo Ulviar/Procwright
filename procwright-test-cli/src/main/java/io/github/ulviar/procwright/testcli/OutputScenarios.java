@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package io.github.ulviar.procwright.testcli;
 
 import java.io.IOException;
@@ -43,6 +45,9 @@ final class OutputScenarios {
             }
             context.sleepMillis(intervalMillis);
         }
+        // Optional silent tail after the heartbeats, e.g. for idle-timeout checks that need
+        // activity followed by a quiet but still-alive process.
+        context.sleepMillis(options.longValue("hold-millis", 0));
         return options.integer("exit-code", 0);
     }
 

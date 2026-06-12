@@ -18,7 +18,8 @@
 - `lineSession().pooled()`;
 - `protocolSession(factory).pooled()`.
 
-Terminal/PTY — capability внутри `interactive` и `lineSession`, а не отдельный сценарий core. Command-backed tools —
+Terminal/PTY — capability внутри session-family сценариев (`interactive`, `lineSession`, `protocolSession`), а не
+отдельный сценарий core. Command-backed tools —
 optional integration layer поверх process scenarios, а не часть core process workflow.
 `ScenarioPresets` — typed customizers для существующих scenario builders, а не отдельный сценарий.
 Pooled workers наследуют terminal capability только через `LineSession` или `ProtocolSession`; отдельного PTY pool
