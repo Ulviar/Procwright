@@ -13,7 +13,7 @@ val procwrightJavaVersion = rootProject.extra["procwrightJavaVersion"] as JavaVe
 
 dependencies {
     api(project(":"))
-    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation(kotlin("test"))
 }
