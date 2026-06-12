@@ -14,7 +14,7 @@ plugins {
     `maven-publish`
     signing
     id("com.diffplug.spotless") version "8.6.0"
-    id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
+    id("org.jetbrains.kotlin.jvm") version "2.4.0" apply false
 }
 
 val supportedJavaReleases = setOf(17, 21, 25)
