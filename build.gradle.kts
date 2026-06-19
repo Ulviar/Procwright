@@ -13,7 +13,7 @@ plugins {
     `java-library`
     `maven-publish`
     signing
-    id("com.diffplug.spotless") version "8.6.0"
+    id("com.diffplug.spotless") version "8.7.0"
     id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
 }
 
