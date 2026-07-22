@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.testcli;
 
+import java.io.EOFException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
@@ -28,8 +29,15 @@ final class TestCliApplication {
         Objects.requireNonNull(workingDirectory, "workingDirectory");
 
         CliOptions options = CliOptions.parse(args);
+        awaitStartSignal(options, stdin);
         Scenario scenario = ScenarioRegistry.find(options.scenario());
         ScenarioContext context = new ScenarioContext(options, stdin, stdout, stderr, environment, workingDirectory);
         return scenario.run(context);
+    }
+
+    private static void awaitStartSignal(CliOptions options, InputStream stdin) throws Exception {
+        if (options.bool("await-start-signal", false) && stdin.read() < 0) {
+            throw new EOFException("parent closed the startup gate before releasing the child process");
+        }
     }
 }
