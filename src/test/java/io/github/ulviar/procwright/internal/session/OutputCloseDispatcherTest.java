@@ -701,6 +701,7 @@ final class BoundedCloseDispatcherTest {
 
     @Test
     void liveReturnedOwnerMismatchFallsBackExactlyOnceAndReportsOneOwnershipFailure() throws Exception {
+        CountDownLatch releaseActualOwner = new CountDownLatch(1);
         CountDownLatch releaseReturnedOwner = new CountDownLatch(1);
         CountDownLatch closed = new CountDownLatch(1);
         CountDownLatch settled = new CountDownLatch(1);
@@ -716,7 +717,12 @@ final class BoundedCloseDispatcherTest {
                 1,
                 2,
                 (name, task) -> {
-                    Thread actualOwner = new Thread(task, name + "actual");
+                    Thread actualOwner = new Thread(
+                            () -> {
+                                awaitUninterruptibly(releaseActualOwner);
+                                task.run();
+                            },
+                            name + "actual");
                     Thread returnedOwner =
                             new Thread(() -> awaitUninterruptibly(releaseReturnedOwner), name + "returned");
                     actualOwner.setDaemon(true);
@@ -743,10 +749,12 @@ final class BoundedCloseDispatcherTest {
                             },
                             settled::countDown);
 
+            releaseActualOwner.countDown();
             assertTrue(closed.await(1, TimeUnit.SECONDS));
             assertTrue(failureReported.await(1, TimeUnit.SECONDS));
             assertTrue(settled.await(1, TimeUnit.SECONDS));
         } finally {
+            releaseActualOwner.countDown();
             releaseReturnedOwner.countDown();
         }
 

@@ -1879,25 +1879,67 @@ val releaseShellScripts =
         }
     )
 
-val releaseShellScriptSyntaxCheck =
-    tasks.register<Exec>("releaseShellScriptSyntaxCheck") {
-        description = "Checks the syntax of fixed repository scripts used by release workflows."
+fun supportsReleaseShellSyntaxCheck(osName: String): Boolean =
+    !osName.lowercase(Locale.ROOT).contains("windows")
+
+val releaseShellScriptInventoryCheck =
+    tasks.register("releaseShellScriptInventoryCheck") {
+        description = "Checks that the fixed release shell-script inventory is present."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        workingDir(rootDir)
         inputs.files(releaseShellScripts)
-        doFirst {
+        doLast {
             val missing = releaseShellScripts.files.filterNot(File::isFile)
             if (missing.isNotEmpty()) {
                 throw GradleException(
                     "Required release scripts are missing: ${missing.joinToString { it.name }}"
                 )
             }
+        }
+    }
+
+val releaseShellScriptSyntaxCheck =
+    tasks.register<Exec>("releaseShellScriptSyntaxCheck") {
+        description = "Checks release shell-script syntax on hosts with a native Unix toolchain."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(releaseShellScriptInventoryCheck)
+        workingDir(rootDir)
+        inputs.files(releaseShellScripts)
+        onlyIf(
+            "Bash syntax checking applies to Unix release hosts, not the Windows artifact matrix."
+        ) {
+            supportsReleaseShellSyntaxCheck(System.getProperty("os.name"))
+        }
+        doFirst {
             commandLine(
                 listOf("bash", "-n") +
                     releaseShellScripts.files.sortedBy { it.name }.map { it.absolutePath }
             )
         }
         outputs.upToDateWhen { false }
+    }
+
+val releaseShellScriptSyntaxApplicabilitySelfTest =
+    tasks.register("releaseShellScriptSyntaxApplicabilitySelfTest") {
+        description = "Proves which CI host families require the Unix release-script toolchain."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        doLast {
+            val cases =
+                mapOf(
+                    "Linux" to true,
+                    "Mac OS X" to true,
+                    "Windows 11" to false,
+                    "Windows Server 2025" to false,
+                )
+            val failures =
+                cases.filter { (osName, expected) ->
+                    supportsReleaseShellSyntaxCheck(osName) != expected
+                }
+            if (failures.isNotEmpty()) {
+                throw GradleException(
+                    "Unexpected release shell syntax applicability: ${failures.keys.joinToString()}"
+                )
+            }
+        }
     }
 
 val releaseWorkflowStaticCheck =
@@ -1907,6 +1949,7 @@ val releaseWorkflowStaticCheck =
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(
             releaseShellScriptSyntaxCheck,
+            releaseShellScriptSyntaxApplicabilitySelfTest,
             releaseWorkflowStaticTest,
             tasks.named(sourceSets["releaseCheck"].classesTaskName),
         )

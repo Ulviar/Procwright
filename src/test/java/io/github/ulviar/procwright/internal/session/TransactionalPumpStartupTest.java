@@ -435,6 +435,7 @@ final class TransactionalPumpStartupTest {
             assertSame(sessionFailure, thrown);
             assertTrue(stdout.awaitCloseCompleted());
             assertTrue(stderr.awaitCloseCompleted());
+            awaitSettlement(rawSession.onExit());
             assertSuppressedOnce(sessionFailure, stdoutCloseFailure);
             assertSuppressedOnce(sessionFailure, stderrCloseFailure);
             assertEquals(2, sessionFailure.getSuppressed().length);
@@ -470,6 +471,7 @@ final class TransactionalPumpStartupTest {
             coordinator.closeSessionPreserving(workerFailure);
             assertTrue(stdout.awaitCloseCompleted());
             assertTrue(stderr.awaitCloseCompleted());
+            awaitSettlement(rawSession.onExit());
 
             coordinator.closeSessionPreserving(workerFailure);
 
@@ -838,6 +840,7 @@ final class TransactionalPumpStartupTest {
         CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
         CountDownLatch releaseOccupyingClose = new CountDownLatch(1);
         CountDownLatch pendingClosesFinished = new CountDownLatch(2);
+        CountDownLatch acceptedClosesSettled = new CountDownLatch(3);
         BoundedCloseDispatcher.Reservation occupiedCapacity = closeDispatcher.reserve(3);
         occupiedCapacity.dispatch(
                 () -> {
@@ -845,10 +848,19 @@ final class TransactionalPumpStartupTest {
                     awaitUninterruptibly(releaseOccupyingClose);
                 },
                 "procwright-occupying-output-close-",
-                failure -> {});
+                failure -> {},
+                acceptedClosesSettled::countDown);
         assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
-        occupiedCapacity.dispatch(pendingClosesFinished::countDown, "procwright-pending-output-close-", failure -> {});
-        occupiedCapacity.dispatch(pendingClosesFinished::countDown, "procwright-pending-output-close-", failure -> {});
+        occupiedCapacity.dispatch(
+                pendingClosesFinished::countDown,
+                "procwright-pending-output-close-",
+                failure -> {},
+                acceptedClosesSettled::countDown);
+        occupiedCapacity.dispatch(
+                pendingClosesFinished::countDown,
+                "procwright-pending-output-close-",
+                failure -> {},
+                acceptedClosesSettled::countDown);
 
         CloseTrackingInputStream stdout = new CloseTrackingInputStream();
         CloseTrackingInputStream stderr = new CloseTrackingInputStream();
@@ -862,6 +874,9 @@ final class TransactionalPumpStartupTest {
 
             releaseOccupyingClose.countDown();
             assertTrue(pendingClosesFinished.await(1, TimeUnit.SECONDS), "previously accepted work must drain");
+            assertTrue(
+                    acceptedClosesSettled.await(1, TimeUnit.SECONDS),
+                    "accepted close completion callbacks must be published");
             assertEquals(0, closeDispatcher.outstandingCount());
         } finally {
             releaseOccupyingClose.countDown();

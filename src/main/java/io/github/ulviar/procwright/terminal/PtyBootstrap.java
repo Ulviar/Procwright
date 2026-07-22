@@ -38,8 +38,9 @@ final class PtyBootstrap {
     static final int MAX_FIELD_BYTES = 32 * 1_024;
     static final int MAX_TOTAL_BYTES = 128 * 1_024;
     static final int MAX_FRAME_BYTES = MAX_TOTAL_BYTES + 4 * 1_024;
-    static final Duration MAX_BOOTSTRAP_TIMEOUT = Duration.ofSeconds(8);
-    private static final Duration MIN_BOOTSTRAP_TIMEOUT = Duration.ofSeconds(3);
+    static final Duration MAX_BOOTSTRAP_TIMEOUT = Duration.ofSeconds(10);
+    static final Duration MIN_BOOTSTRAP_TIMEOUT = Duration.ofSeconds(3);
+    private static final long MAX_WEIGHTED_FIELD_COUNT = MAX_ENTRY_COUNT * 3L;
 
     static final String SHELL_PROGRAM = """
             stty_path=$1
@@ -310,13 +311,18 @@ final class PtyBootstrap {
     }
 
     private static Duration bootstrapTimeout(EncodedPayload payload) {
-        long fields =
+        long weightedFields =
                 (long) payload.environment().size() * 2L + payload.command().size();
-        long kibibytes = (payload.totalBytes() + 1_023L) / 1_024L;
-        long computedMillis = 2_000L + fields * 6L + kibibytes * 20L;
-        long boundedMillis =
-                Math.max(MIN_BOOTSTRAP_TIMEOUT.toMillis(), Math.min(MAX_BOOTSTRAP_TIMEOUT.toMillis(), computedMillis));
-        return Duration.ofMillis(boundedMillis);
+        long entryBudgetMillis = scaledBootstrapTimeoutMillis(weightedFields, MAX_WEIGHTED_FIELD_COUNT);
+        long byteBudgetMillis = scaledBootstrapTimeoutMillis(payload.totalBytes(), MAX_TOTAL_BYTES);
+        return Duration.ofMillis(Math.max(entryBudgetMillis, byteBudgetMillis));
+    }
+
+    private static long scaledBootstrapTimeoutMillis(long used, long limit) {
+        long minimum = MIN_BOOTSTRAP_TIMEOUT.toMillis();
+        long range = MAX_BOOTSTRAP_TIMEOUT.toMillis() - minimum;
+        long bounded = Math.min(used, limit);
+        return minimum + (range * bounded + limit - 1L) / limit;
     }
 
     private static Charset nativeCharset() {

@@ -38,6 +38,9 @@ import org.junit.jupiter.api.Test;
 
 final class PooledLineSessionIntegrationTest {
 
+    // This only bounds the test harness; scenario timeouts remain the values asserted by each test.
+    private static final long EXTERNAL_WATCHDOG_SECONDS = 5;
+
     @Test
     void warmupLaunchFailureIsPooledStartupFailure() {
         CommandService missingExecutable = Procwright.command("procwright-missing-executable-for-startup-test");
@@ -621,12 +624,14 @@ final class PooledLineSessionIntegrationTest {
                     awaitIgnoringInterrupt(releaseReset);
                 })
                 .open();
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<LineResponse> request = executor.submit(() -> pool.request("hello"));
             assertTrue(resetEntered.await(1, TimeUnit.SECONDS));
 
-            PooledLineSessionException timeout = assertThrows(PooledLineSessionException.class, pool::close);
+            Future<PooledLineSessionException> closeAttempt =
+                    executor.submit(() -> assertThrows(PooledLineSessionException.class, pool::close));
+            PooledLineSessionException timeout = closeAttempt.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS);
             assertEquals(PooledLineSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
             CompletableFuture<Void> cancelled = pool.closeAsync();
             CompletableFuture<Void> eventual = pool.closeAsync();
@@ -635,14 +640,16 @@ final class PooledLineSessionIntegrationTest {
 
             releaseReset.countDown();
 
-            assertEquals("response:hello", request.get(1, TimeUnit.SECONDS).text());
-            eventual.get(1, TimeUnit.SECONDS);
+            assertEquals(
+                    "response:hello",
+                    request.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS).text());
+            eventual.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS);
             pool.close();
             assertEquals(0, pool.metrics().size());
         } finally {
             releaseReset.countDown();
             executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            assertTrue(executor.awaitTermination(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS));
             pool.close();
         }
     }
@@ -693,7 +700,7 @@ final class PooledLineSessionIntegrationTest {
         CountDownLatch terminalCallsStarted = new CountDownLatch(3);
         PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
                 .withWarmupSize(1)
-                .withCloseTimeout(Duration.ofSeconds(1))
+                .withCloseTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1))
                 .withReset(worker -> {
                     resetEntered.countDown();
                     awaitIgnoringInterrupt(releaseReset);
@@ -717,16 +724,21 @@ final class PooledLineSessionIntegrationTest {
 
             releaseReset.countDown();
 
-            assertEquals("response:hello", request.get(1, TimeUnit.SECONDS).text());
+            assertEquals(
+                    "response:hello",
+                    request.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS).text());
             for (Future<?> closer : closers) {
-                closer.get(1, TimeUnit.SECONDS);
+                closer.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS);
             }
-            assertEquals(0, pool.metrics().size());
-            assertEquals(1, pool.metrics().retired());
+            PooledLineSessionMetrics metrics = pool.metrics();
+            assertEquals(0, metrics.size());
+            assertEquals(1, metrics.retired());
+            assertEquals(0, metrics.failedWorkerCloses());
+            assertEquals(1, metrics.retireReasons().get(PooledWorkerRetireReason.CLOSED));
         } finally {
             releaseReset.countDown();
             executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            assertTrue(executor.awaitTermination(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS));
             pool.close();
         }
     }

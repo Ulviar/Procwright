@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -71,6 +72,47 @@ final class PtyBootstrapTest {
         assertTrue(fieldFailure.getMessage().contains("field"));
         assertTrue(totalFailure.getMessage().contains("total"));
         assertTrue(countFailure.getMessage().contains("too many entries"));
+    }
+
+    @Test
+    void bootstrapDeadlineScalesMonotonicallyAcrossEntryAndByteLimits() throws Exception {
+        PtyBootstrap.Prepared minimal = PtyBootstrap.prepare(payload(List.of("/bin/true"), Map.of()));
+
+        LinkedHashMap<String, String> intermediateEnvironment = new LinkedHashMap<>();
+        for (int index = 0; index < PtyBootstrap.MAX_ENTRY_COUNT / 2; index++) {
+            intermediateEnvironment.put("MID_" + index, "v");
+        }
+        PtyBootstrap.Prepared intermediateEntries =
+                PtyBootstrap.prepare(payload(List.of("/bin/true"), intermediateEnvironment));
+
+        ArrayList<String> command = new ArrayList<>(PtyBootstrap.MAX_ENTRY_COUNT);
+        command.add("/bin/true");
+        while (command.size() < PtyBootstrap.MAX_ENTRY_COUNT) {
+            command.add("");
+        }
+        LinkedHashMap<String, String> environment = new LinkedHashMap<>();
+        while (environment.size() < PtyBootstrap.MAX_ENTRY_COUNT) {
+            environment.put("ENTRY_" + environment.size(), "v");
+        }
+        PtyBootstrap.Prepared maximumEntries = PtyBootstrap.prepare(payload(command, environment));
+
+        PtyBootstrap.Prepared intermediateBytes =
+                PtyBootstrap.prepare(payload(List.of("/bin/true", "x".repeat(PtyBootstrap.MAX_FIELD_BYTES)), Map.of()));
+        int remainingBytes = PtyBootstrap.MAX_TOTAL_BYTES - "/bin/true".length();
+        ArrayList<String> maximumByteCommand = new ArrayList<>();
+        maximumByteCommand.add("/bin/true");
+        while (remainingBytes > 0) {
+            int chunk = Math.min(remainingBytes, PtyBootstrap.MAX_FIELD_BYTES);
+            maximumByteCommand.add("x".repeat(chunk));
+            remainingBytes -= chunk;
+        }
+        PtyBootstrap.Prepared maximumBytes = PtyBootstrap.prepare(payload(maximumByteCommand, Map.of()));
+
+        assertTrue(minimal.timeout().compareTo(PtyBootstrap.MIN_BOOTSTRAP_TIMEOUT) >= 0);
+        assertTrue(intermediateEntries.timeout().compareTo(minimal.timeout()) > 0);
+        assertTrue(intermediateBytes.timeout().compareTo(minimal.timeout()) > 0);
+        assertEquals(PtyBootstrap.MAX_BOOTSTRAP_TIMEOUT, maximumEntries.timeout());
+        assertEquals(PtyBootstrap.MAX_BOOTSTRAP_TIMEOUT, maximumBytes.timeout());
     }
 
     @Test

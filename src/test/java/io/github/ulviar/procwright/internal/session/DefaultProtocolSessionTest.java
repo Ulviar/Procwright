@@ -1006,6 +1006,7 @@ final class DefaultProtocolSessionTest {
             stderr.releaseCloseFailure();
             assertTrue(stdout.awaitCloseWorkerStopped());
             assertTrue(stderr.awaitCloseWorkerStopped());
+            protocol.onExit().handle((ignored, failure) -> null).get(1, TimeUnit.SECONDS);
             assertIdentitySuppressedOnce(pumpError, stdoutCloseFailure);
             assertIdentitySuppressedOnce(pumpError, stderrCloseFailure);
             ProtocolSessionException closedFailure = assertInstanceOf(

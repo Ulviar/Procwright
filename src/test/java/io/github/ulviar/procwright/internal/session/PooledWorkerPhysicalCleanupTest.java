@@ -455,6 +455,7 @@ final class PooledWorkerPhysicalCleanupTest {
             assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));
             assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
             assertTrue(stderr.awaitCloseFinished(Duration.ofSeconds(1)));
+            firstWorker.onExit().handle((ignored, exitFailure) -> null).get(1, TimeUnit.SECONDS);
             PoolRetirementDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
             assertNoDispatcherLeak(dispatcher);
         } finally {
