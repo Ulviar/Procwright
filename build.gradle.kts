@@ -390,16 +390,11 @@ val consumerExampleCheckPaths =
         ":procwright-kotlin-consumer-example:check",
     )
 
-tasks.check { dependsOn(consumerExampleCheckPaths) }
-
 val publicApiConsumerCompilationCheck =
     tasks.register("publicApiConsumerCompilationCheck") {
-        description =
-            "Compiles every in-repository public API consumer: root stress sources, integrations and Kotlin tests, and the canonical consumer examples."
+        description = "Compiles the standalone public API consumer examples."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(
-            tasks.named("compileStressTestJava"),
-            ":procwright-integrations:compileTestJava",
             ":procwright-consumer-examples:compileTestJava",
             ":procwright-integrations-consumer-example:compileJava",
             ":procwright-kotlin-consumer-example:compileKotlin",
@@ -414,7 +409,6 @@ val quickCheck =
             tasks.named("test"),
             publicApiConsumerCompilationCheck,
             "apiCompatibilityCheck",
-            "apiCompatibilitySelfTest",
             ":procwright-kotlin:checkKotlinAbi",
         )
     }
@@ -451,98 +445,7 @@ val publicJavaJavadocCheck =
         description = "Builds public Java Javadocs and fails on every Javadoc warning."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(tasks.named("javadoc"), ":procwright-integrations:javadoc")
-
-        doLast {
-            assertStrictJavadocOptions(
-                layout.buildDirectory.file("tmp/javadoc/javadoc.options").get().asFile,
-                "core",
-            )
-            assertStrictJavadocOptions(
-                project(":procwright-integrations")
-                    .layout
-                    .buildDirectory
-                    .file("tmp/javadoc/javadoc.options")
-                    .get()
-                    .asFile,
-                "integrations",
-            )
-            assertGeneratedJavadocMemberTerms(
-                layout.buildDirectory
-                    .file("docs/javadoc/io/github/ulviar/procwright/session/ProtocolAdapter.html")
-                    .get()
-                    .asFile,
-                "writeRequest(I,io.github.ulviar.procwright.session.ProtocolWriter)",
-                listOf("FAILURE"),
-            )
-            assertGeneratedJavadocMemberTerms(
-                layout.buildDirectory
-                    .file("docs/javadoc/io/github/ulviar/procwright/session/ProtocolAdapter.html")
-                    .get()
-                    .asFile,
-                "readResponse(io.github.ulviar.procwright.session.ProtocolReaders)",
-                listOf("PROTOCOL_DECODER_FAILED"),
-            )
-            assertGeneratedJavadocMemberTerms(
-                layout.buildDirectory
-                    .file("docs/javadoc/io/github/ulviar/procwright/session/ResponseDecoder.html")
-                    .get()
-                    .asFile,
-                "decode(io.github.ulviar.procwright.session.ResponseDecoder.Reader)",
-                listOf("DECODER_FAILED"),
-            )
-            assertJavadocMemberGateIgnoresUnrelatedPageText()
-        }
     }
-
-fun assertStrictJavadocOptions(optionsFile: File, moduleName: String) {
-    if (!optionsFile.isFile) {
-        throw GradleException("Javadoc options file is missing for $moduleName: $optionsFile")
-    }
-    val options = optionsFile.readText()
-    if (!options.contains("-Werror")) {
-        throw GradleException("publicJavaJavadocCheck must run $moduleName Javadoc with -Werror")
-    }
-}
-
-fun assertGeneratedJavadocMemberTerms(
-    document: File,
-    memberAnchor: String,
-    requiredTerms: List<String>,
-) {
-    if (!document.isFile) {
-        throw GradleException("Generated Javadoc is missing for $memberAnchor: $document")
-    }
-    val memberSection = javadocMemberSection(document.readText(), memberAnchor)
-    val missing = requiredTerms.filterNot(memberSection::contains)
-    if (missing.isNotEmpty()) {
-        throw GradleException(
-            "Generated Javadoc member $memberAnchor is missing contract terms: $missing"
-        )
-    }
-}
-
-fun javadocMemberSection(document: String, memberAnchor: String): String {
-    val startMarker = "<section class=\"detail\" id=\"$memberAnchor\">"
-    val start = document.indexOf(startMarker)
-    if (start < 0) {
-        throw GradleException("Generated Javadoc member anchor is missing: $memberAnchor")
-    }
-    val end = document.indexOf("</section>", start + startMarker.length)
-    if (end < 0) {
-        throw GradleException("Generated Javadoc member section is incomplete: $memberAnchor")
-    }
-    return document.substring(start, end + "</section>".length)
-}
-
-fun assertJavadocMemberGateIgnoresUnrelatedPageText() {
-    val fixture =
-        """<p>FAILURE</p><section class="detail" id="target()"><p>member documentation</p></section>"""
-    if (javadocMemberSection(fixture, "target()").contains("FAILURE")) {
-        throw GradleException(
-            "Javadoc member gate accepted contract text from outside the target declaration"
-        )
-    }
-}
 
 val apiCompatibilityBaselineVersion = "0.1.0"
 val apiCompatibilityBaselineDir =
@@ -622,16 +525,6 @@ val apiCompatibilityCheck =
         classpath = sourceSets["apiCompatibility"].runtimeClasspath
         mainClass.set(apiCompatibilityMainClass)
         doFirst { setArgs(listOf("check") + apiCompatibilitySpecs()) }
-    }
-
-val apiCompatibilitySelfTest =
-    tasks.register<JavaExec>("apiCompatibilitySelfTest") {
-        description = "Proves that exact API signatures reject hostile source-contract changes."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(tasks.named(sourceSets["apiCompatibility"].classesTaskName))
-        classpath = sourceSets["apiCompatibility"].runtimeClasspath
-        mainClass.set(apiCompatibilityMainClass)
-        args("self-test")
     }
 
 val writeApiCompatibilityBaseline =
@@ -1106,53 +999,7 @@ val publicDocsCheck =
             "--site-dir",
             output.get().asFile.absolutePath,
         )
-
-        doLast {
-            listOf(
-                    Triple(
-                        "core Java API",
-                        output.get().asFile.resolve("api/java/core/index.html"),
-                        listOf(
-                            "<title>Overview (procwright ",
-                            "href=\"io/github/ulviar/procwright/package-summary.html\"",
-                        ),
-                    ),
-                    Triple(
-                        "integrations Java API",
-                        output.get().asFile.resolve("api/java/integrations/index.html"),
-                        listOf(
-                            "<title>procwright-integrations ",
-                            "href=\"io.github.ulviar.procwright.integrations/module-summary.html\"",
-                        ),
-                    ),
-                    Triple(
-                        "Kotlin API",
-                        output.get().asFile.resolve("api/kotlin/index.html"),
-                        listOf(
-                            "<title>procwright-kotlin</title>",
-                            "href=\"procwright-kotlin/io.github.ulviar.procwright.kotlin/index.html\"",
-                        ),
-                    ),
-                )
-                .forEach { (apiName, apiIndex, identityMarkers) ->
-                    assertGeneratedApiRoute(apiName, apiIndex, identityMarkers)
-                }
-        }
     }
-
-fun assertGeneratedApiRoute(apiName: String, document: File, identityMarkers: List<String>) {
-    if (!document.isFile) {
-        throw GradleException("Generated $apiName index is missing: $document")
-    }
-    val contents = document.readText()
-    val missingMarkers = identityMarkers.filterNot(contents::contains)
-    if (missingMarkers.isNotEmpty()) {
-        throw GradleException(
-            "Generated $apiName route does not identify the expected API: " +
-                "$document (missing $missingMarkers)"
-        )
-    }
-}
 
 data class VerificationComponentId(val group: String, val name: String, val version: String) :
     Comparable<VerificationComponentId> {

@@ -48,7 +48,7 @@ diagnostics package описывает только пользовательск
 
 ## Проверка
 
-- `PublicApiSurfaceTest` проверяет public API packages, отсутствие `internal` в public signatures и exports
-  `module-info.class`.
+- `PublicApiSurfaceTest` проверяет public API packages и отсутствие недоступных типов в public signatures.
+- `ApiCompatibilityCheck` проверяет exact API baseline и exports из `module-info.class`.
 - `PackageBoundaryTest` проверяет production-зависимости между core packages по скомпилированным class files.
 - `javadoc` исключает все `internal` packages.

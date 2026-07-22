@@ -4,8 +4,8 @@
 
 Baseline фиксирует намеренную JVM-поверхность первого выпуска. Он защищается тремя независимыми механизмами:
 
-- surface tests проверяют public packages/types, JPMS exports и отсутствие internal/external types;
-- exact signature checker сравнивает methods, generic bounds и checked `throws` с файлами
+- surface tests проверяют сценарные точки входа, форму Draft API, public packages и отсутствие утечек недоступных типов;
+- exact signature checker проверяет JPMS exports и сравнивает methods, generic bounds и checked `throws` с файлами
   `config/api-compatibility/0.1.0/`;
 - external consumer modules компилируют канонические Java, Kotlin и integrations scenarios.
 
