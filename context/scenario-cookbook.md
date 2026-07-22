@@ -7,7 +7,7 @@ Cookbook показывает, как выбирать сценарий Procwrig
 workflow и не скатиться к ручной сборке process harness.
 
 Каждый рецепт ниже привязан к compile-tested example method. Если рецепт меняется, соответствующий example должен
-компилироваться в тестовых sources.
+компилироваться в тестовых или external consumer sources.
 
 ## Карта выбора
 
@@ -23,13 +23,12 @@ workflow и не скатиться к ручной сборке process harness
 | Требовать terminal capability | `interactive` + `TerminalPolicy.REQUIRED` | `terminalRequiredSessionScenario` |
 | Читать поток вывода без накопления всего output | `listen` | `listenOnlyStreamingScenario` |
 | Ждать readiness по output долгоживущего процесса | `listen` + application readiness check | `daemonReadinessScenario` |
-| Наблюдать lifecycle без раскрытия raw argv/env/output | `DiagnosticsOptions` | `diagnosticsScenario` |
+| Наблюдать lifecycle без раскрытия raw argv/env/output | scenario `withDiagnostic*` | `diagnosticsScenario` |
 | Переиспользовать line-oriented workers | `lineSession().pooled()` | `pooledLineSessionScenario` |
 | Переиспользовать typed protocol workers | `protocolSession(factory).pooled()` | `pooledProtocolSessionScenario` |
 | Взять готовый workflow preset без нового runner | `ScenarioPresets` | `scenarioPresetComposition` |
 | Обернуть CLI как tool adapter | `:procwright-integrations` | `oneShotCommandBackedTool` |
 | Общаться с JSON Lines worker | `JsonLineSession` | `jsonLineCommandBackedTool` |
-| Отменить async JSON Lines call | `CancellableCall` | `cancellableJsonLineCall` |
 | Читать/писать Content-Length JSON frames | `ContentLengthJsonFrames` | `contentLengthFramedJson` |
 
 ## `run`
@@ -89,15 +88,18 @@ Compile-tested examples:
 Используй `lineSession`, когда CLI работает как request/response protocol, где один request получает один logical
 response. Это не raw terminal parser и не generic streaming API.
 
-Compile-tested example:
+Compile-tested examples:
 
 - `lineSessionScenario`
+- `strictBoundedLineSessionScenario`
 
 Инварианты:
 
 - requests сериализованы;
 - decoder владеет правилом завершения response;
-- timeout/failure закрывает session, чтобы не продолжать неизвестное protocol state;
+- validation, size, encoding и wait failure допускают retry, только если request не передан writer-у и гарантированно не
+  сможет записаться позже; после передачи writer-у failure и другие protocol failures закрывают session, чтобы не
+  продолжать неизвестное protocol state;
 - transcript bounded и доступен в ошибке.
 
 ## `protocolSession`
@@ -144,6 +146,7 @@ protocol workers с per-worker adapter state.
 Compile-tested examples:
 
 - `pooledLineSessionScenario`
+- `drainedPooledLineSessionScenario`
 - `pooledProtocolSessionScenario`
 
 Инварианты:
@@ -151,13 +154,14 @@ Compile-tested examples:
 - pool строится поверх `LineSession` или `ProtocolSession`, а не нового process runtime;
 - `maxSize` ограничивает live workers;
 - `warmupSize` и `minIdle` управляют readiness дорогих workers;
-- request timeout/failure retire worker;
+- timeout до получения worker никого не retire; timeout/failure после получения worker retire этот worker;
 - metrics являются snapshot, а не управляющим API.
 
 ## Диагностика
 
-Используй `DiagnosticsOptions`, когда нужна наблюдаемость lifecycle без изменения поведения команды. Diagnostics не
-является logging framework и не должен становиться самостоятельным workflow.
+Используй `withDiagnosticListener(...)` и `withDiagnosticTranscriptSink(...)` выбранного Draft, когда нужна
+наблюдаемость lifecycle без изменения поведения команды. Diagnostics не является logging framework и не должен
+становиться самостоятельным workflow.
 
 Compile-tested example:
 
@@ -181,28 +185,29 @@ Compile-tested example:
 
 Инварианты:
 
-- preset является typed `Consumer` конкретного builder;
-- preset не добавляет options, которых нет в сценарии;
+- preset является typed функцией, принимающей и возвращающей конкретный Draft;
+- preset использует только `with*`, доступные выбранному сценарию;
 - invalid preset parameters fail fast до запуска процесса.
 
 ## CLI-backed integrations
 
 Используй `:procwright-integrations`, когда внешний CLI нужно поднять на уровень command-backed tool, JSON Lines worker или
-Content-Length framed JSON protocol. Этот модуль optional и не меняет core process runtime.
+framed/typed `protocolSession`. Этот модуль optional и не меняет core process runtime.
 
 Compile-tested examples:
 
 - `oneShotCommandBackedTool`
 - `jsonLineCommandBackedTool`
-- `cancellableJsonLineCall`
 - `contentLengthFramedJson`
+- [`TypedContentLengthJsonSessionExample.main`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java)
 
 Инварианты:
 
-- integration layer строится поверх существующих `run`/`lineSession` сценариев;
+- integration layer строится поверх существующих `run`, `lineSession` и `protocolSession`;
+- framing adapter владеет wire format, а `typedJsonSession` — domain mapping; lifecycle, deadlines и bounds остаются у
+  `ProtocolSession`;
 - CLI output считается untrusted data;
 - adapter errors не включают raw stdout/stderr excerpts по умолчанию;
-- cancellation сначала фиксирует outcome, затем закрывает underlying lifecycle owner.
 
 ## Релизный gate
 

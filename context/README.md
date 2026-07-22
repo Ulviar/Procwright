@@ -10,12 +10,12 @@
 
 ## Активная карта
 
-- [architecture.md](architecture.md) — границы baseline `0.1.0` и слои runtime.
+- [architecture.md](architecture.md) — текущие слои, модули и границы runtime.
 - [invariant-architecture.md](invariant-architecture.md) — как изолируются инварианты API и runtime.
 - [scenario-api.md](scenario-api.md) — scenario-first пользовательский язык.
 - [scenario-contracts.md](scenario-contracts.md) — контракты реализованных сценариев.
 - [scenario-cookbook.md](scenario-cookbook.md) — краткая карта выбора сценария для maintainers.
-- [api-ideas.md](api-ideas.md) — текущие принципы пользовательского API.
+- [api-ideas.md](api-ideas.md) — критерии осмысленного расширения API.
 - [development-model.md](development-model.md) — легкий процесс работы и контекстная гигиена.
 - [diagnostics.md](diagnostics.md) — diagnostics contract.
 - [pty-capability-boundary.md](pty-capability-boundary.md) — PTY как capability boundary.
@@ -40,8 +40,9 @@
 
 ## Решения и research boundary
 
-- `decisions/` — ADR для устойчивых архитектурных решений.
-- `comparison/` — только воспроизводимая методика сравнения process-библиотек, без исторических raw reports.
+- [decisions/README.md](decisions/README.md) — ADR для устойчивых архитектурных решений.
+- [comparison/README.md](comparison/README.md) — только воспроизводимая методика сравнения process-библиотек, без
+  исторических raw reports.
 - `audits/` — только постоянные инструкции и протокол аудита, без закрытых отчетов.
 
 ## Правила очистки

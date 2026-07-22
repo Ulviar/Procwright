@@ -6,6 +6,7 @@ Procwright is not a thin wrapper over `ProcessBuilder`. The public API starts wi
 - live interactive process control;
 - prompt automation;
 - line-oriented protocols;
+- framed or typed protocols;
 - streaming output;
 - reusable workers;
 - structured CLI-backed integration boundaries.

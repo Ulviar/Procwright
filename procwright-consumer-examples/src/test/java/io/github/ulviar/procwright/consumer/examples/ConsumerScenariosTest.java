@@ -48,9 +48,8 @@ final class ConsumerScenariosTest {
     }
 
     private static CommandSpec testCliCommand() {
-        return CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), TestCli.class.getName())
-                .build();
+        return CommandSpec.of(javaExecutable())
+                .withArgs("-cp", System.getProperty("java.class.path"), TestCli.class.getName());
     }
 
     private static String javaExecutable() {

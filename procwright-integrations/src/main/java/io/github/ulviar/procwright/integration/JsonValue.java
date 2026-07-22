@@ -27,6 +27,7 @@ public sealed interface JsonValue
      *
      * @param members object members
      * @return JSON object
+     * @throws JsonParseException when a member name contains an unpaired UTF-16 surrogate
      */
     static JsonObject object(Map<String, JsonValue> members) {
         return new JsonObject(members);
@@ -47,6 +48,7 @@ public sealed interface JsonValue
      *
      * @param value string value
      * @return JSON string
+     * @throws JsonParseException when the value contains an unpaired UTF-16 surrogate
      */
     static JsonString string(String value) {
         return new JsonString(value);
@@ -112,14 +114,14 @@ public sealed interface JsonValue
          * Creates an object.
          *
          * @param members object members
+         * @throws JsonParseException when a member name contains an unpaired UTF-16 surrogate
          */
         public JsonObject {
             Objects.requireNonNull(members, "members");
             LinkedHashMap<String, JsonValue> copy = new LinkedHashMap<>();
             for (Map.Entry<String, JsonValue> entry : members.entrySet()) {
-                copy.put(
-                        Objects.requireNonNull(entry.getKey(), "member name"),
-                        Objects.requireNonNull(entry.getValue(), "member value"));
+                String name = JsonStrings.requireWellFormedUtf16(entry.getKey(), "member name", "JSON member name");
+                copy.put(name, Objects.requireNonNull(entry.getValue(), "member value"));
             }
             members = Collections.unmodifiableMap(copy);
         }
@@ -167,9 +169,10 @@ public sealed interface JsonValue
          * Creates a string.
          *
          * @param value string value
+         * @throws JsonParseException when the value contains an unpaired UTF-16 surrogate
          */
         public JsonString {
-            Objects.requireNonNull(value, "value");
+            value = JsonStrings.requireWellFormedUtf16(value, "value", "JSON string");
         }
     }
 
@@ -186,7 +189,7 @@ public sealed interface JsonValue
          * @param value decimal value
          */
         public JsonNumber {
-            Objects.requireNonNull(value, "value");
+            value = JsonNumbers.canonicalize(value);
         }
     }
 

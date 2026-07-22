@@ -51,4 +51,31 @@ public final class DurationSupport {
     public static long remainingNanos(long deadlineNanos, long currentNanos) {
         return deadlineNanos - currentNanos;
     }
+
+    public static Duration elapsed(long startedNanos, long finishedNanos) {
+        long elapsedNanos = finishedNanos - startedNanos;
+        if (finishedNanos >= startedNanos && elapsedNanos < 0) {
+            return Duration.ofNanos(Long.MAX_VALUE);
+        }
+        if (elapsedNanos < 0) {
+            return Duration.ZERO;
+        }
+        return Duration.ofNanos(elapsedNanos);
+    }
+
+    public static Duration requireNonNegative(Duration duration, String name) {
+        Objects.requireNonNull(duration, name);
+        if (duration.isNegative()) {
+            throw new IllegalArgumentException(name + " must not be negative");
+        }
+        return duration;
+    }
+
+    public static Duration requirePositive(Duration duration, String name) {
+        Objects.requireNonNull(duration, name);
+        if (duration.isZero() || duration.isNegative()) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
+        return duration;
+    }
 }

@@ -9,7 +9,8 @@ import java.util.concurrent.CompletableFuture;
  * Handle for a listen-only streaming command.
  *
  * <p>A stream session owns stdout/stderr pumps and dispatches chunks to the configured listener. It does not retain all
- * output; only a bounded diagnostic window is kept for exit and failure signals.
+ * output; only a bounded diagnostic window is kept for exit and failure signals. Process stdin is already closed when
+ * the handle is returned.
  *
  * <p>This sealed interface is a Procwright-owned handle contract, not a service-provider interface. Applications receive
  * stream sessions from {@code CommandService}.
@@ -29,12 +30,6 @@ public sealed interface StreamSession extends AutoCloseable permits DefaultStrea
      * @return diagnostic transcript
      */
     StreamTranscript diagnostics();
-
-    /**
-     * Closes process stdin without writing input. This is useful when the stream was started with
-     * {@link StreamInvocation.Builder#keepStdinOpen()}.
-     */
-    void closeStdin();
 
     /**
      * Stops the underlying process through the configured shutdown policy. Calling this method more than once has no

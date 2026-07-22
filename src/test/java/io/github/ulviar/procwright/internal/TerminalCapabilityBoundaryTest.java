@@ -6,14 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.command.CommandInvocation;
+import io.github.ulviar.procwright.InteractiveScenario;
+import io.github.ulviar.procwright.LineSessionScenario;
+import io.github.ulviar.procwright.ProtocolSessionScenario;
+import io.github.ulviar.procwright.RunScenario;
+import io.github.ulviar.procwright.StreamScenario;
 import io.github.ulviar.procwright.command.CommandSpec;
-import io.github.ulviar.procwright.command.RunOptions;
-import io.github.ulviar.procwright.session.LineSessionInvocation;
-import io.github.ulviar.procwright.session.PooledLineSessionInvocation;
-import io.github.ulviar.procwright.session.SessionInvocation;
-import io.github.ulviar.procwright.session.StreamInvocation;
-import io.github.ulviar.procwright.session.StreamOptions;
 import io.github.ulviar.procwright.terminal.PtyProvider;
 import io.github.ulviar.procwright.terminal.PtyRequest;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
@@ -37,23 +35,17 @@ final class TerminalCapabilityBoundaryTest {
 
     @Test
     void terminalPolicyIsExposedOnlyBySessionFamilyDrafts() {
-        assertEquals(Set.of(), terminalMethods(CommandInvocation.Builder.class));
-        assertEquals(Set.of(), terminalMethods(StreamInvocation.Builder.class));
+        assertEquals(Set.of(), terminalMethods(RunScenario.Draft.class));
+        assertEquals(Set.of(), terminalMethods(StreamScenario.Draft.class));
 
-        assertEquals(Set.of("terminal(TerminalPolicy)"), terminalMethods(SessionInvocation.Builder.class));
-        assertEquals(Set.of("terminal(TerminalPolicy)"), terminalMethods(LineSessionInvocation.Builder.class));
-        assertEquals(Set.of("terminal(TerminalPolicy)"), terminalMethods(PooledLineSessionInvocation.Builder.class));
+        assertEquals(Set.of("withTerminal(TerminalPolicy)"), terminalMethods(InteractiveScenario.Draft.class));
+        assertEquals(Set.of("withTerminal(TerminalPolicy)"), terminalMethods(LineSessionScenario.Draft.class));
+        assertEquals(Set.of("withTerminal(TerminalPolicy)"), terminalMethods(ProtocolSessionScenario.Draft.class));
     }
 
     @Test
     void nonSessionPublicApiDoesNotExposeTerminalCapability() {
-        for (Class<?> type : List.of(
-                CommandInvocation.class,
-                CommandInvocation.Builder.class,
-                RunOptions.class,
-                StreamInvocation.class,
-                StreamInvocation.Builder.class,
-                StreamOptions.class)) {
+        for (Class<?> type : List.of(RunScenario.Draft.class, StreamScenario.Draft.class)) {
             assertNoForbiddenTerminalNames(type);
             assertNoForbiddenTerminalTypes(type);
         }
@@ -63,18 +55,23 @@ final class TerminalCapabilityBoundaryTest {
     void runAndStreamProfilesDoNotRequestTerminalCapability() {
         assertEquals(
                 TerminalPolicy.DISABLED,
-                ScenarioProfile.run(RunOptions.defaults()).terminalPolicy());
+                RunSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
+                        .plan()
+                        .launchPlan()
+                        .terminalPolicy());
         assertEquals(
                 TerminalPolicy.DISABLED,
-                ScenarioProfile.stream(StreamOptions.defaults()).terminalPolicy());
+                StreamSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
+                        .plan()
+                        .sessionPlan()
+                        .launchPlan()
+                        .terminalPolicy());
     }
 
     @Test
     void streamExecutionPlanKeepsPtyProviderUnavailable() {
-        StreamExecutionPlan plan = ExecutionPlanResolver.resolve(
-                ScenarioProfile.stream(StreamOptions.defaults()),
-                CommandSpec.of("tool"),
-                StreamInvocation.builder().build());
+        StreamExecutionPlan plan = StreamSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
+                .plan();
 
         assertEquals(TerminalPolicy.DISABLED, plan.sessionPlan().launchPlan().terminalPolicy());
         assertFalse(plan.sessionPlan().ptyProvider().available());
@@ -83,7 +80,7 @@ final class TerminalCapabilityBoundaryTest {
 
     private static Set<String> terminalMethods(Class<?> type) {
         return Arrays.stream(type.getMethods())
-                .filter(method -> method.getName().equals("terminal"))
+                .filter(method -> method.getName().equals("withTerminal"))
                 .map(TerminalCapabilityBoundaryTest::signature)
                 .collect(Collectors.toUnmodifiableSet());
     }

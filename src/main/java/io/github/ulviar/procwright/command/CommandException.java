@@ -8,6 +8,7 @@ import java.util.Objects;
 /**
  * Exception view of an unsuccessful command result.
  */
+@SuppressWarnings("serial")
 public final class CommandException extends ProcwrightException {
 
     /** Command result that caused this exception. */

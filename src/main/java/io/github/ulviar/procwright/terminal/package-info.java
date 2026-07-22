@@ -13,4 +13,7 @@
  * <p>Terminal capability applies to session-family scenarios only; {@code run} and {@code listen} reject terminal
  * requests during resolution.
  */
+@NullMarked
 package io.github.ulviar.procwright.terminal;
+
+import org.jspecify.annotations.NullMarked;

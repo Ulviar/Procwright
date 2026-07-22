@@ -1,354 +1,217 @@
 # Архитектура изолированных инвариантов
 
-## Главная идея
+## Позиция
 
-Широкие возможности не должны появляться через широкий public API. Они должны появляться через небольшое число
-компонуемых объектов, каждый из которых удерживает свой инвариант.
-
-Внешний API при этом должен оставаться scenario-first: пользователь выбирает `run`, `lineSession`, `interactive`,
-`expect`, `listen` или nested pooled session, а не ручной набор runtime flags. Scenario layer разворачивается во внутренние policies
-и execution plan.
-
-Пользовательский API должен выглядеть простым:
-
-```java
-CommandResult result = service.run()
-        .withArg("--version")
-        .withTimeout(Duration.ofSeconds(3))
-        .withCapture(CapturePolicy.bounded(64 * 1024))
-        .execute();
-```
-
-Внутри эта запись не должна превращаться в набор случайных флагов. Она должна собираться в валидированный план:
+Широкие возможности Procwright создаются композицией небольших объектов с одним владельцем ответственности, а не
+числом public entry points. Пользователь выбирает сценарий; Draft допускает только настройки с определенной семантикой
+для этого сценария; runtime получает нормализованный snapshot.
 
 ```text
-CommandSpec + InvocationOverrides + RunOptions
-  -> CommandInvocation
-  -> ResolvedCommand
-  -> ExecutionPlan
-  -> ProcessLauncher
+CommandSpec
+  -> scenario Draft.with* (immutable snapshot)
+  -> execute/open (explicit resource boundary)
+  -> internal scenario settings
+  -> validated execution/session plan
+  -> process/session runtime
+  -> typed result or failure
 ```
 
-Каждый переход — отдельная граница инвариантов.
+Test доказывает инвариант, но не владеет им. Документация объясняет контракт, но не заменяет реализацию.
 
-## Что значит изолировать инвариант
+## Уровни владения
 
-Инвариант должен жить в одном месте:
+### Command model
 
-- не в комментарии;
-- не в README;
-- не в проверках, размазанных по runtime;
-- не в соглашении между несколькими builder methods.
+`CommandSpec` владеет данными, общими для всех сценариев одной команды: executable, базовыми args, working directory,
+environment policy/overrides и shell mode. Он immutable, копирует mutable input и валидирует локальные значения при
+каждом `with*`.
 
-Если правило важно, у него должен быть хозяин:
+Scenario-specific timeout, capture, readiness, terminal, diagnostics, protocol limits и pool policy в `CommandSpec` не
+помещаются.
 
-- value object;
-- policy object;
-- state machine;
-- validator;
-- runtime component.
+### Scenario Draft
 
-Test/eval case доказывает инвариант, но не является его владельцем.
+`RunScenario.Draft`, `InteractiveScenario.Draft`, `LineSessionScenario.Draft`,
+`ProtocolSessionScenario.Draft` и `StreamScenario.Draft` являются write-only persistent configuration API:
 
-Пример: "timeout не может быть отрицательным" — инвариант `TimeoutPolicy`, а не проверка в каждом методе запуска.
+- каждый `with*` возвращает новый Draft;
+- исходная ветка остается неизменной и пригодна для повторного/конкурентного terminal call;
+- локальная валидация отдельных значений и defensive copying выполняются в `with*`; комбинация настроек и
+  нормализованный plan валидируются в `execute()`/`open()` до запуска процесса;
+- Draft не вводит callback-based mutable configuration DSL; переданные scenario callbacks могут сохраняться только в
+  immutable snapshot, getters не раскрываются;
+- terminal method — единственная точка создания процесса или result.
 
-Пример: "direct argv и shell command нельзя смешивать" — инвариант `CommandLine`, а не ветвление в launcher.
+`Expect.Draft` применяет ту же модель к helper, а `LineSessionScenario.PoolDraft` и
+`ProtocolSessionScenario.PoolDraft` — к pool lifecycle. Worker settings фиксируются до перехода в `pooled()`.
 
-## Слои инвариантов
+### Internal settings
 
-### API draft layer
+Package-private immutable settings разделены по ответственности:
 
-Builder и lambda customizer — это draft layer. Он может быть удобным, неполным и mutable.
+- launch context;
+- run input/capture/output;
+- session lifecycle и terminal;
+- readiness;
+- line/protocol limits и decoding;
+- diagnostics;
+- pool capacity, warmup, hooks и retirement.
 
-Его задача:
+Settings не являются public compatibility surface. Они переносят точный snapshot от Draft к runtime и не содержат
+открытых ресурсов.
 
-- принять пользовательский ввод;
-- дать приятный fluent API;
-- собрать данные;
-- вызвать `build()` или внутренний resolver.
+### Plan validation
 
-Он не должен быть доменной моделью.
+Локальная проверка одного значения выполняется его policy/value object или `with*`. Проверка комбинации выполняется
+при terminal call владельцем соответствующего plan. Например, совместимость capture destination и output mode нельзя
+доказать одним setter-ом.
 
-### Domain layer
+Runtime получает только согласованный plan и не угадывает, какие defaults или overrides имел в виду пользователь.
 
-Domain layer содержит immutable объекты, которые уже валидны:
+### Stateful runtime
 
-- `CommandSpec`;
-- `CommandInvocation`;
-- `SessionInvocation`;
-- `LineSessionInvocation`;
-- `RunOptions`;
-- `SessionOptions`;
-- `LineSessionOptions`;
-- `ResponseDecoder`;
-- `CapturePolicy`;
-- `ShutdownPolicy`;
-- `TerminalPolicy`;
-- `EnvironmentPolicy`;
-- `CharsetPolicy`.
+После запуска владельцем инварианта становится конкретный runtime component:
 
-Environment overrides и working directory не имеют отдельных public типов: это валидируемые поля `CommandSpec` и
-per-call invocation объектов.
+- process lifecycle — `ProcessLifecycle` и session state owner;
+- stdin close — единый bounded close path;
+- output ownership — `SessionOutputOwnership`;
+- line request serialization — `DefaultLineSession`;
+- protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader` и `ProtocolResponseBudget`;
+- output backlog — bounded queue владельца сценария;
+- pool partition и transitions — `WorkerPoolController`;
+- transcript retention — bounded transcript owner;
+- diagnostics delivery — diagnostic emitter/dispatcher.
 
-Если объект создан, его базовые инварианты выполнены.
+Cleanup phases выполняются независимо, а несколько failures объединяются identity-safe suppression owner. Fallback,
+который создает unbounded thread, недопустим.
 
-### Resolution layer
+### Transport
 
-Resolution layer соединяет базовую команду, per-call overrides и defaults:
+Transport владеет OS-specific launch, pipe/PTY выбором, сигналами и process-tree возможностями. Public API выражает
+только `TerminalPolicy`, `TerminalSize`, `TerminalSignal`, `PtyProvider` и `PtyRequest`; platform details не превращаются в
+scenario flags.
 
-```text
-CommandSpec + InvocationDraft + RunOptions -> ResolvedCommand
-```
+## Основные инварианты
 
-Именно здесь решаются вопросы:
+### API
 
-- какие args итоговые;
-- какая working directory;
-- какие env overrides;
-- включен ли shell;
-- как объединяются defaults и per-call options;
-- какой capture/shutdown/terminal policy действует.
+- `Procwright.command(...)` — единственная фабрика сервиса вокруг команды.
+- Пользователь всегда явно выбирает сценарий.
+- `execute()`/`open()` не скрыты в configuration callback.
+- Public scenario configuration carriers вне Draft отсутствуют.
+- Preset — pure typed transformation `Draft -> Draft`.
+- Public sealed session handles принадлежат Procwright и не являются SPI.
 
-Runtime не должен заново угадывать эти правила.
+### Command и security
 
-Scenario-specific drafts могут быть разными. One-shot `CommandInvocation` содержит input/capture/output policies,
-raw-session `SessionInvocation` содержит raw text-send charset, а `LineSessionInvocation` должен оставаться уже и не
-раскрывать параметры, у которых нет валидной line-protocol семантики.
+- executable обязателен, args сохраняют порядок;
+- direct argv является default, shell mode включается явно;
+- env keys и values валидируются до запуска;
+- working directory представлен `Path`;
+- failures и diagnostics не раскрывают raw argv/env values;
+- CLI output считается недоверенными данными.
 
-### Runtime layer
+### I/O и память
 
-Runtime layer исполняет уже нормализованный план. Его инварианты другие:
+- stdout/stderr дренируются без взаимной блокировки;
+- capture, transcript, line/protocol backlog и decoder pending state имеют независимые bounds;
+- truncation, malformed decoding и redaction отражаются явно;
+- streaming применяет backpressure и не удерживает весь output;
+- request/response byte, char и line limits не подменяются transcript limit;
+- некорректный или non-progressing codec не может бесконечно удерживать caller или наращивать память.
 
-- stdout/stderr всегда дренируются;
-- process handle закрывается;
-- timeout supervision запускается один раз;
-- shutdown policy применяется в правильном порядке;
-- overflow-prone duration conversion живет в одном internal helper, а не в случайных `toNanos()` вызовах;
-- result собирается после завершения pumps.
+### Lifecycle
 
-Runtime не должен знать, как пользователь собирал builder.
+- timeout, explicit close и failure используют общий shutdown policy;
+- process-tree cleanup повторно обнаруживает поздних descendants в пределах phase deadline;
+- `close()` идемпотентен, а первое terminal outcome не заменяется поздним;
+- `onExit()` завершается ровно один раз;
+- readiness выполняется после launch, но до возврата handle или перевода worker в idle;
+- partial construction failure закрывает все уже созданные ресурсы.
 
-### Transport layer
+### Concurrency и ownership
 
-Transport layer изолирует OS-specific поведение:
+- terminal calls одного Draft создают независимые процессы;
+- raw `Session` не обещает request serialization;
+- `LineSession` и `ProtocolSession` допускают только один request/response cycle одновременно;
+- helper или runtime pump получает exclusive ownership stdout/stderr;
+- позднее raw чтение после helper claim и поздний helper claim после raw operation отклоняются;
+- stream listeners, readiness probes и worker hooks имеют независимые process-wide capacity partitions; зависший
+  callback удерживает разрешение только своей категории до фактического возврата;
+- readiness, worker hooks и protocol callbacks получают fresh non-inheriting daemon thread на invocation: Java 17 не
+  дает поддерживаемого способа очистить произвольный `ThreadLocal`, поэтому callback thread не переходит другому owner;
+- тот же conservative fresh-thread контракт намеренно остается для custom charset encoding, provider writes, worker
+  startup factories и regex evaluation; их invocation rate ограничен отдельными admissions, а безопасный общий
+  lifecycle owner для произвольной реализации не доказан;
+- stream listener использует lazy session-affine daemon owner: chunks одной session не создают новые потоки, owner не
+  переходит другой session и закрывается после pump completion либо начала остановки; аварийный выход owner либо
+  запускает replacement для уже принятой доставки, либо завершает admission ошибкой с точным возвратом разрешения;
+- process provider scanner является trusted internal boundary и переиспользует не более 32 non-inheriting daemon
+  workers; между operations восстанавливаются name, context class loader, uncaught handler, priority и interrupt status,
+  а произвольные `ThreadLocal` запрещены контрактом этой границы;
+- admission ограничивает выполняющиеся и abandoned operations; callback queues не растут без границы;
+- late `RuntimeException` и `Error` readiness/worker hook после timeout или interruption отправляются ровно один раз
+  через bounded failure reporter; ожидаемый `InterruptedException` от отмены отдельно не публикуется;
+- late `RuntimeException` и `Error` line/protocol callback публикуются через bounded failure reporter только после
+  возврата callback admission; ожидаемый checked interruption scanner operation после owner timeout/interruption не
+  публикуется;
+- diagnostics сохраняют порядок для одного destination, но отдают dispatcher после bounded batch и продолжают с
+  конца общей FIFO-очереди, поэтому непрерывный producer не удерживает dispatcher slots бесконечно;
+- interrupt синхронного caller-а восстанавливает interrupt status и не обходит cleanup;
+- coroutine cancellation закрывает/retire только session или worker с недостоверным protocol state; ожидание общего
+  exit future не получает ownership над процессом.
 
-- pipe launch;
-- PTY launch;
-- signal mapping;
-- process-tree termination;
-- platform quirks.
+### Protocol
 
-Transport failures переводятся в типизированные ошибки библиотеки. Raw platform details не должны протекать в
-обычный public API.
+- `ProtocolAdapter` владеет request framing и определением конца response;
+- scenario Draft хранит factory, а `ScenarioRuntime` вызывает ее отдельно перед запуском каждого session/worker;
+- concurrent terminal calls могут вызывать factory конкурентно, поэтому factory обязана быть thread-safe;
+- adapter создается до process launch; `null` и factory failure не оставляют процесс;
+- deadline охватывает validation/encoding, serialized access, write и decode;
+- protocol failure закрывает session, потому что дальнейшее framing state неизвестно;
+- stable reason enum отделяет timeout, EOF, broken pipe, decode, oversize, backlog и adapter failure.
 
-## Категории инвариантов
+### Pool
 
-### Command invariants
+- pool использует существующий line/protocol runtime и не раскрывает lease;
+- каждый worker всегда принадлежит ровно одному состоянию: starting, idle, leased или retiring;
+- `maxSize` ограничивает live slots, включая starting/retiring;
+- acquire timeout и request timeout различаются;
+- failed request/timeout/decoder/process exit retire worker;
+- reset/health hooks bounded и не выполняются одновременно с пользовательским request;
+- close запрещает новые requests, закрывает idle workers и дает активным requests завершить установленный lifecycle;
+- metrics являются снимком наблюдаемого состояния, а retirement reason не выводится из текста exception.
 
-- executable обязателен;
-- args сохраняют порядок;
-- direct argv и shell command не смешиваются;
-- env keys валидируются отдельно от env values;
-- working directory — `Path`, а не строка;
-- command echo безопасен для диагностики и не теряет quoting intent;
-- launch failure и validation messages не раскрывают raw argv/env values.
+### Integrations и Kotlin
 
-### Options invariants
-
-- timeout не отрицательный;
-- capture limits не отрицательные;
-- charset задан явно для text capture;
-- shutdown grace period согласован с total timeout;
-- terminal required не должен silently fallback в pipes.
-
-### I/O invariants
-
-- stdout и stderr не блокируют друг друга;
-- bounded capture всегда выставляет truncation flag;
-- streaming не обязан хранить весь output;
-- binary и text paths не смешиваются неявно;
-- line decoder документирует newline normalization.
-
-### Lifecycle invariants
-
-- session имеет явные состояния;
-- после close нельзя писать в stdin;
-- `onExit` завершается ровно один раз;
-- close idempotent;
-- timeout и manual close не соревнуются без coordination owner.
-
-### Concurrency invariants
-
-- raw `Session` может иметь минимальные guarantees;
-- `LineSession` сериализует request/response cycle;
-- `ResponseDecoder` владеет правилом завершения line response;
-- высокоуровневые helpers (`LineSession`, `Expect`) должны иметь одного владельца output streams;
-- async API не должен обходить shutdown policy;
-- cancellation должна попадать в тот же lifecycle path, что timeout.
-
-### Error invariants
-
-- non-zero exit — не то же самое, что launch failure;
-- timeout — не то же самое, что interrupted caller;
-- truncated output явно помечен;
-- exception содержит structured data, а не только message;
-- raw IOException не должна быть единственным public failure contract.
-- diagnostics events имеют correlation id, чтобы параллельные lifecycle не склеивались по timestamp или command text.
-
-### Integration invariants
-
-- CLI-backed integrations живут в optional module и не добавляют второй process runtime.
-- JSON codec принимает только полные JSON values и отклоняет trailing content, invalid numbers и raw control characters.
-- JSON Lines framing не допускает raw line separators в frame boundary; embedded переносы должны быть JSON-escaped.
-- Content-Length framing валидирует headers, length и max frame size до разбора JSON body.
-- Structured adapter errors не включают raw stdout/stderr, argv или env values; diagnostic excerpts должны быть bounded,
-  если появятся в будущем.
-- Cancellation внешнего tool call должна мапиться в явный cancelled outcome и lifecycle close, а не в случайный protocol
-  failure.
-- Output command-backed tool считается недоверенными данными. Agent harness может читать его как observation, но не как
-  инструкции.
-
-### Stress invariants
-
-- Нагрузочные проверки должны быть bounded и достаточно детерминированными для `check`.
-- Stress suite проверяет сохранение safety-инвариантов под нагрузкой, а не абсолютный throughput конкретного железа.
-- Memory pressure проверяется через bounded retention contracts: размер сохраненного output/transcript не должен расти
-  вместе с полным объемом stdout/stderr.
-- Deadlock-regression считается failure, если future/request/process не завершается в bounded deadline.
-- PTY stress не должен превращать platform availability в failure; отсутствие provider — skip, а не silent fallback для
-  `REQUIRED`.
-
-## Как получить широкие возможности без грязного API
-
-Широта должна появляться через композицию:
-
-```java
-service.run()
-        .withArg("run")
-        .withWorkingDirectory(dir)
-        .withEnvironment("CI", "true")
-        .withInput(CommandInput.utf8(payload))
-        .withCapture(CapturePolicy.bounded(64 * 1024))
-        .withShutdown(ShutdownPolicy.interruptThenKill(
-                Duration.ofSeconds(2),
-                Duration.ofSeconds(5)))
-        .execute();
-```
-
-Это широкий API по возможностям, но не широкий по сущностям. Пользователь комбинирует политики, а не выбирает из
-десятков специализированных runners.
-
-TerminalPolicy допустим только как scenario-level capability для session-family сценариев, где терминал имеет смысл:
-`interactive`, `lineSession` и `protocolSession` (включая reusable factory-форму). Pooled-варианты задают terminal
-только на уровне worker-ов: `lineSession().pooled()` наследует capability через worker-ов `LineSession`, а
-`protocolSession(factory).pooled()` — через worker-конфигурацию `ReusableProtocolSessionScenario`. Отдельного
-pool-level PTY runtime нет. PTY provider details, signal quirks и platform-specific transport поведение остаются за
-transport/SPI границей и не становятся public knobs.
+- optional modules не создают второй process runtime;
+- Kotlin extensions работают с теми же Java Draft и handles;
+- `openFlow()` cold: каждая collection открывает и закрывает собственную `StreamSession`;
+- `protocolAdapterFactory { ... }` создает отдельный adapter wrapper на каждый factory call;
+- JSON/framing helpers валидируют границы до domain parsing и не публикуют unbounded raw output в errors.
 
 ## Анти-паттерны
 
-### Boolean soup
+Недопустимы:
 
-Плохо:
+- boolean soup вместо policy/value object;
+- второй публичный dialect через дополнительные configuration carriers;
+- instance adapter, разделяемый несколькими protocol sessions;
+- validation, размазанная по launcher и runtime;
+- getter-rich Draft, превращающийся в domain model;
+- hidden process spawn в `with*`, preset или Kotlin configuration block;
+- unbounded queue/executor как fallback cleanup;
+- новый scenario name без отдельного lifecycle или invariant set;
+- тест, который закрепляет внутреннюю структуру вместо public behavior.
 
-```java
-options.mergeError(true).useShell(false).requireTty(true).killTree(true);
-```
+## Проверка
 
-Лучше:
+Для каждого инварианта в [quality/invariant-proof-map.md](quality/invariant-proof-map.md) должны быть указаны владелец и
+proof. Public surface проверяется exact signature baseline и compilation внешних consumers. Stateful инварианты
+проверяются unit, integration и bounded stress tests; platform capability — отдельной CI matrix.
 
-```java
-options
-        .stderr(StderrPolicy.mergeIntoStdout())
-        .commandLine(CommandLine.direct())
-        .shutdown(ShutdownPolicy.killProcessTree());
-```
+Архитектурное изменение принимается только после ответа на три вопроса:
 
-Не каждую boolean-настройку надо запрещать, но boolean не должен скрывать доменную модель.
-
-### Validation in launcher
-
-Launcher не должен быть мусоросборником всех проверок. Если launcher получает невозможную комбинацию, значит
-resolution/domain layer пропустил инвариант.
-
-### Public classes for every scenario
-
-Не надо создавать `GitRunner`, `TailRunner`, `PooledLineConversation`, `ListenOnlySessionRunner` на раннем этапе.
-Если появляется новый scenario facade вроде `PooledLineSession`, он должен быть тонким слоем над уже существующим
-primitive (`LineSession`) и иметь отдельный ADR/eval, а не собственный runtime.
-
-### Half-valid objects
-
-Объект public API не должен существовать в полувалидном состоянии. Полувалидность допустима только в builder/draft.
-
-## Предпочтительная форма кода
-
-### Immutable records and sealed policies
-
-Для Java-кода предпочтительны:
-
-- records для immutable data;
-- sealed interfaces для policy families;
-- package-private constructors для контролируемого создания;
-- static factories с говорящими именами;
-- small validators рядом с value object.
-
-Текущее состояние: в `0.1.0` `CapturePolicy` — sealed interface с единственным вариантом `CapturePolicy.Bounded` и
-factory `CapturePolicy.bounded(byteLimit)`.
-
-Иллюстрация принципа (не текущая сигнатура): новые варианты capture должны добавляться как члены той же sealed policy
-family, а не как boolean flags:
-
-```java
-// Иллюстрация направления, не текущий API.
-public sealed interface CapturePolicy permits Bounded, ToPath, Discard {
-    static CapturePolicy bounded(int byteLimit) { ... }
-}
-```
-
-### Draft builders
-
-Builders должны быть тонкими:
-
-- собрать пользовательский ввод;
-- не держать сложный runtime state;
-- не исполнять process;
-- возвращать immutable объект или передавать draft в resolver.
-
-### Resolved plan
-
-`ExecutionPlan` или аналог должен быть internal объектом. Это не пользовательская абстракция, а контракт между API
-и runtime.
-
-## Тестирование инвариантов
-
-Каждый важный инвариант должен иметь один из видов проверки:
-
-- unit test value object;
-- resolver test;
-- lifecycle test;
-- fixture/eval scenario;
-- compile-time API example.
-
-Имена тестов должны отражать правило:
-
-```text
-CommandLineTest.rejectsShellAndDirectArgsMix
-RunOptionsTest.rejectsNegativeTimeout
-LineSessionTest.serializesConcurrentRequests
-ProcessRuntimeTest.drainsStdoutAndStderrConcurrently
-```
-
-## Практический вывод
-
-Да, API должен быть чистым и давать очень широкие возможности. Но широта должна идти не через разрастание public
-классов, а через:
-
-- сильные value objects;
-- небольшие policy families;
-- один resolver для сборки execution plan;
-- узкие runtime ports;
-- явные lifecycle state machines;
-- тесты, закрепляющие каждый инвариант.
-
-Это главный архитектурный критерий для Procwright.
+1. Какой пользовательский сценарий стало возможно выразить?
+2. Какой компонент единолично владеет новым правилом?
+3. Какая проверка отличает правильное поведение от похожего, но ошибочного?

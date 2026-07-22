@@ -1,197 +1,263 @@
-# Choose a Process Scenario
+# Choose a process scenario
 
-Use this guide when you know the shape of the external process but have not chosen the Procwright scenario yet.
+Choose by the process's I/O contract, not by a list of low-level flags.
 
-## Version or availability probes
+| Process contract | Scenario |
+| --- | --- |
+| Starts, produces bounded output, and exits | `run()` |
+| Needs direct stdin/stdout access | `interactive()` |
+| Prints prompts that must be matched | `interactive()` and `session.expect().open()` |
+| Accepts one line and returns one line | `lineSession()` |
+| Uses custom framing, bytes, multi-line messages, or typed values | `protocolSession(adapterFactory)` |
+| Produces output continuously | `listen()` |
+| Is expensive to start and safely reusable | add `pooled()` to a line or factory-backed protocol Draft |
 
-Choose `run` for commands such as `git --version`, `docker info`, `java --version`, or a tool-specific `doctor` command.
+## Finite command
 
-Keep executable discovery in the application layer. In `0.1.0`, Procwright launches the command it is given; it does not own
-PATH lookup, Windows extension probing, package-manager installation, or toolchain discovery.
-
-Recommended shape:
-
-- create a `CommandService` for the executable or resolved path;
-- set a short timeout;
-- use bounded capture;
-- convert unsuccessful results with `CommandResult.toException()` when fail-fast flow is wanted.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
 ```java
-CommandService java = Procwright.command("java");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-CommandResult result = java.run().execute("--version");
+package io.github.ulviar.procwright.examples;
 
-if (!result.succeeded()) {
-    throw result.toException();
-}
-```
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CommandResult;
+import java.nio.file.Path;
+import java.time.Duration;
 
-See [Run a finite command](run-finite-command.md) and [`run`](../scenarios/run.md).
+public final class RunExample {
 
-## Release or build automation command
+    private RunExample() {}
 
-Choose `run` when a release step must complete before the next step starts. This matches common wrappers around Git,
-Maven, Gradle, Docker, code generators, and validators.
+    public static void main(String[] args) {
+        CommandResult result = Procwright.command(javaExecutable())
+                .run()
+                .withArgs("--version")
+                .withCapture(CapturePolicy.bounded(256 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
 
-Use stable command defaults for working directory and environment. Put per-step arguments, timeout, capture, and
-shutdown policy in the scenario invocation.
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+        System.err.printf(
+                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
+                result.exitCode().isPresent()
+                        ? Integer.toString(result.exitCode().getAsInt())
+                        : "unavailable",
+                result.timedOut(),
+                result.stdoutTruncated(),
+                result.stderrTruncated());
 
-See [Stop hung processes](stop-hung-processes.md), [Command model](../reference/command-model.md), and
-[Policies](../reference/policies.md).
-
-## Long-running log follower
-
-Choose `listen` when the process is a stream source: `tail -f`, `kubectl logs -f`, a local server log, or a watcher.
-
-The listener should be bounded and fast. Slow listeners create backpressure on the process pipe instead of unbounded
-memory growth. If the caller needs to stop watching, close the `StreamSession`.
-
-```java
-CommandService tool = Procwright.command("tool");
-
-try (StreamSession stream = tool.listen()
-        .withArgs("logs", "--follow")
-        .onOutput(chunk -> {
-            if (chunk.source() == StreamSource.STDERR) {
-                System.err.print(chunk.text());
-            } else {
-                System.out.print(chunk.text());
-            }
-        })
-        .open()) {
-    stream.onExit().join();
-}
-```
-
-See [Follow logs](follow-logs.md) and [Streaming](../scenarios/streaming.md).
-
-## Local daemon startup with readiness check
-
-Choose `listen` when readiness is an external observation such as HTTP polling or a known log line. Choose
-`interactive`, `lineSession`, or `protocolSession` readiness probes when readiness can be checked through the worker
-protocol itself.
-
-Typical readiness checks are HTTP polling, socket availability, a PID file, a status command, or a known log line. Procwright
-should own stream draining, timeout, shutdown, and diagnostics. The application still owns the domain-specific definition
-of "ready"; Procwright only owns when the probe runs and how the process is closed on readiness failure.
-
-```java
-CommandService server = Procwright.command("tool");
-AtomicBoolean ready = new AtomicBoolean(false);
-
-try (StreamSession stream = server.listen()
-        .withArgs("serve")
-        .withTimeout(Duration.ofSeconds(30))
-        .onOutput(chunk -> {
-            if (chunk.text().contains("ready")) {
-                ready.set(true);
-            }
-        })
-        .open()) {
-    long deadlineNanos = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-    while (!ready.get() && System.nanoTime() < deadlineNanos) {
-        Thread.sleep(25);
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
     }
-    if (!ready.get()) {
-        throw new IllegalStateException("server did not become ready");
+
+    private static String javaExecutable() {
+        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", name).toString();
     }
 }
 ```
 
-Do not turn this into a raw background `Process` unless the caller truly wants to own every stream and shutdown detail.
+Use this when completion and a typed result matter. [Run guide](run-finite-command.md).
 
 ## Prompt-driven installer or configurator
 
-Choose `interactive` plus `Expect` when a CLI asks questions and emits prompts.
-
-Keep terminal requirements explicit. Some tools work over ordinary pipes; others require terminal capability and should
-be launched with [`TerminalPolicy.REQUIRED`](../scenarios/terminal.md).
-
-See [Automate prompts](automate-prompts.md), [Require a terminal](require-terminal.md), and
-[Expect Automation](../scenarios/expect.md).
-
-## Line-oriented worker
-
-Choose `lineSession` when the process behaves like a request/response worker where one request produces one logical
-response. Choose `lineSession().pooled()` when worker startup is expensive and the protocol can be reset or checked
-reliably between requests.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ExpectExample.java -->
 ```java
-CommandService repl = Procwright.command(CommandSpec.of("tool"));
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (LineSession session = repl.lineSession()
-        .withArgs("repl")
-        .withRequestTimeout(Duration.ofSeconds(2))
-        .open()) {
-    LineResponse response = session.request("status");
-    if (response.text().isBlank()) {
-        throw new IllegalStateException("empty response");
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.Expect;
+import io.github.ulviar.procwright.session.Session;
+import java.time.Duration;
+
+public final class ExpectExample {
+
+    private ExpectExample() {}
+
+    public static void main(String[] args) {
+        try (Session session = Procwright.command(ExampleSupport.workerCommand("expect"))
+                        .interactive()
+                        .withIdleTimeout(Duration.ofSeconds(10))
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(5)).open()) {
+            expect.expectText("ready> ");
+            expect.sendLine("café");
+            expect.expectText("ok:café");
+        }
     }
 }
 ```
 
-See [Talk to a line worker](talk-to-line-worker.md), [Reuse workers](reuse-workers.md), and
-[Line Sessions](../scenarios/line-session.md).
+`Expect` owns output while it matches prompts. [Prompt guide](automate-prompts.md).
+
+## Line request/response worker
+
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java -->
+```java
+/* SPDX-License-Identifier: Apache-2.0 */
+
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.LineResponse;
+import io.github.ulviar.procwright.session.LineSession;
+import java.time.Duration;
+
+public final class LineSessionExample {
+
+    private LineSessionExample() {}
+
+    public static void main(String[] args) {
+        try (LineSession session = Procwright.command(ExampleSupport.workerCommand("line"))
+                .lineSession()
+                .withRequestTimeout(Duration.ofSeconds(5))
+                .open()) {
+            LineResponse response = session.request("Zażółć gęślą jaźń");
+            if (!response.text().equals("response:Zażółć gęślą jaźń")) {
+                throw new IllegalStateException("Unexpected line response");
+            }
+        }
+    }
+}
+```
+
+Use this only when embedded newlines are impossible. [Line-worker guide](talk-to-line-worker.md).
 
 ## Framed or typed protocol worker
 
-Choose `protocolSession` when requests or responses are multi-line, byte-oriented, content-length framed,
-delimiter-framed, or mapped to domain types. Choose `protocolSession(factory).pooled()` when startup is expensive and
-reset/health semantics are clear.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java -->
 ```java
-CommandService worker = Procwright.command("tool");
-ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
-        .withArgs("worker")
-        .withRequestTimeout(Duration.ofSeconds(2))
-        .withOutputBacklogLimit(128 * 1024)
-        .withReadiness(ready -> ready.request("ready"))
-        .open()) {
-    String response = session.request("first line\nsecond line");
-    if (response.isBlank()) {
-        throw new IllegalStateException("empty response");
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CharsetPolicy;
+import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentRequest;
+import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentResponse;
+import io.github.ulviar.procwright.session.ProtocolSession;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+
+public final class ProtocolSessionExample {
+
+    private ProtocolSessionExample() {}
+
+    public static void main(String[] args) {
+        try (ProtocolSession<DocumentRequest, DocumentResponse> session = Procwright.command(
+                        ExampleSupport.workerCommand("protocol"))
+                .protocolSession(LengthLineFrameAdapter::new)
+                .withRequestTimeout(Duration.ofSeconds(5))
+                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
+                .withMaxRequestBytes(16_384)
+                .withMaxRequestChars(8192)
+                .withMaxResponseBytes(16_384)
+                .withMaxResponseChars(8192)
+                .withOutputBacklogLimit(16_384)
+                .open()) {
+            DocumentResponse response = session.request(new DocumentRequest("first line\nПривет, 世界"));
+            if (!response.text().equals("first line\nПривет, 世界")) {
+                throw new IllegalStateException("Unexpected protocol response");
+            }
+        }
     }
 }
 ```
 
-The adapter implementation is shown in [Protocol Sessions](../scenarios/protocol-session.md#example). See also
-[Reuse workers](reuse-workers.md) and [Integrations](../scenarios/integrations.md).
+The adapter in this example writes a byte length and reads a multi-line LF-framed response through `ProtocolReader`.
+Its `readResponse` method is the response decoder. Pass an adapter factory, not one adapter instance, so each opened
+session or pool worker has isolated protocol state. [Protocol contract](../scenarios/protocol-session.md).
 
-## JSON Lines or Content-Length tool adapter
+## Continuous output
 
-Choose the optional integrations module when a CLI should be treated as a structured adapter rather than raw process
-text.
-
-Add `io.github.ulviar:procwright-integrations` when using these helpers. See
-[optional modules](../release/installation.md#optional-modules).
-
-The adapter layer still builds on core scenarios. It should validate output as untrusted data and keep cancellation,
-diagnostics, and protocol bounds explicit.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ListenExample.java -->
 ```java
-CommandService service = Procwright.command("tool");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (LineSession lineSession = service.lineSession().withArg("json-worker").open();
-        JsonLineSession json = JsonLineSession.over(lineSession)) {
-    CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
-            json, input -> JsonValue.object(Map.of("input", JsonValue.string(input))), Function.identity());
+package io.github.ulviar.procwright.examples;
 
-    ToolCallResult<JsonValue> result = tool.call("payload");
-    result.value().ifPresent(System.out::println);
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.StreamExit;
+import io.github.ulviar.procwright.session.StreamSession;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public final class ListenExample {
+
+    private ListenExample() {}
+
+    public static void main(String[] args) {
+        AtomicInteger chunks = new AtomicInteger();
+        try (StreamSession stream = Procwright.command(ExampleSupport.workerCommand("listen"))
+                .listen()
+                .withTimeout(Duration.ofSeconds(2))
+                .onOutput(chunk -> chunks.incrementAndGet())
+                .open()) {
+            StreamExit exit = stream.onExit().orTimeout(5, TimeUnit.SECONDS).join();
+            if (!exit.timedOut() || chunks.get() == 0) {
+                throw new IllegalStateException("Expected bounded log streaming");
+            }
+        }
+    }
 }
 ```
 
-See [Wrap a CLI tool](wrap-cli-tool.md) and [Integrations](../scenarios/integrations.md).
+Use this when retaining all output would be wasteful or unbounded. [Streaming guide](follow-logs.md).
 
-## Tee output to logs and keep diagnostics
+## Reusable worker
 
-First decide which invariant matters more:
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LinePoolExample.java -->
+```java
+/* SPDX-License-Identifier: Apache-2.0 */
 
-- use `run` when the completed result is the primary artifact;
-- use `listen` when real-time output consumption is the primary artifact;
-- use diagnostics when lifecycle observability is needed without exposing raw output.
+package io.github.ulviar.procwright.examples;
 
-The current public API does not provide a single "run and tee all output while also returning a full captured result"
-shortcut. That is intentional in `0.1.0`: output ownership and memory bounds must stay visible.
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.LineResponse;
+import io.github.ulviar.procwright.session.PooledLineSession;
+import java.time.Duration;
+
+public final class LinePoolExample {
+
+    private LinePoolExample() {}
+
+    public static void main(String[] args) {
+        try (PooledLineSession pool = Procwright.command(ExampleSupport.workerCommand("line"))
+                .lineSession()
+                .withRequestTimeout(Duration.ofSeconds(5))
+                .withMaxRequestBytes(16 * 1024)
+                .withMaxRequestChars(8 * 1024)
+                .withMaxLineChars(8 * 1024)
+                .withMaxResponseLines(1)
+                .withMaxResponseChars(8 * 1024)
+                .withStdoutBacklogLines(128)
+                .withStdoutBacklogChars(64 * 1024)
+                .pooled()
+                .withMaxSize(2)
+                .withWarmupSize(1)
+                .withAcquireTimeout(Duration.ofSeconds(2))
+                .withHookTimeout(Duration.ofSeconds(1))
+                .withCloseTimeout(Duration.ofSeconds(15))
+                .withMaxRequestsPerWorker(100)
+                .open()) {
+            LineResponse response = pool.request("Привет", Duration.ofSeconds(5));
+            if (!response.text().equals("response:Привет")) {
+                throw new IllegalStateException("Unexpected pooled response");
+            }
+        }
+    }
+}
+```
+
+Pooling is available for line and factory-backed protocol sessions. It is not available for raw interactive sessions.
+[Pooling guide](reuse-workers.md).
+
+All complete sources and their shared worker are listed in [Runnable examples](../examples.md).

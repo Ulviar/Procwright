@@ -1,95 +1,174 @@
-# Protocol Sessions
+# Protocol sessions
 
-Use `protocolSession` when a long-lived CLI worker speaks a request/response protocol that is not a single stdout line.
-The caller supplies a `ProtocolAdapter<I, O>` that owns request framing and response decoding.
+`protocolSession(adapterFactory)` models request/response protocols whose adapter owns framing and typed conversion.
 
-The scenario covers:
-
-- multi-line, byte, or typed requests;
-- deadline-aware stdin writing and stdout/stderr reading;
-- bounded unread output per stream (see [Output backlog](#output-backlog));
-- one in-flight request per worker;
-- request timeout, acquire timeout in pools, and readiness timeout as separate failures;
-- strict or replacing charset decoding;
-- request and response size limits;
-- bounded transcripts with malformed/truncated markers;
-- process close after protocol failure.
-
-The example below includes a minimal length-prefixed adapter.
-
-## Example
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java -->
 ```java
-CommandService worker = Procwright.command("tool");
-ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
-        .withArgs("worker")
-        .withRequestTimeout(Duration.ofSeconds(2))
-        .withOutputBacklogLimit(128 * 1024)
-        .withReadiness(ready -> ready.request("ready"))
-        .open()) {
-    String response = session.request("first line\nsecond line");
-    if (response.isBlank()) {
-        throw new IllegalStateException("empty response");
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CharsetPolicy;
+import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentRequest;
+import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentResponse;
+import io.github.ulviar.procwright.session.ProtocolSession;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+
+public final class ProtocolSessionExample {
+
+    private ProtocolSessionExample() {}
+
+    public static void main(String[] args) {
+        try (ProtocolSession<DocumentRequest, DocumentResponse> session = Procwright.command(
+                        ExampleSupport.workerCommand("protocol"))
+                .protocolSession(LengthLineFrameAdapter::new)
+                .withRequestTimeout(Duration.ofSeconds(5))
+                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
+                .withMaxRequestBytes(16_384)
+                .withMaxRequestChars(8192)
+                .withMaxResponseBytes(16_384)
+                .withMaxResponseChars(8192)
+                .withOutputBacklogLimit(16_384)
+                .open()) {
+            DocumentResponse response = session.request(new DocumentRequest("first line\nПривет, 世界"));
+            if (!response.text().equals("first line\nПривет, 世界")) {
+                throw new IllegalStateException("Unexpected protocol response");
+            }
+        }
     }
 }
 ```
 
-The adapter owns the protocol framing:
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/DocumentProtocol.java -->
 ```java
-private static final class LengthPrefixedTextAdapter implements ProtocolAdapter<String, String> {
+/* SPDX-License-Identifier: Apache-2.0 */
+
+package io.github.ulviar.procwright.examples;
+
+public final class DocumentProtocol {
+
+    private DocumentProtocol() {}
+
+    public record DocumentRequest(String text) {}
+
+    public record DocumentResponse(String text) {}
+}
+```
+
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java -->
+```java
+/* SPDX-License-Identifier: Apache-2.0 */
+
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentRequest;
+import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentResponse;
+import io.github.ulviar.procwright.session.ProtocolAdapter;
+import io.github.ulviar.procwright.session.ProtocolReader;
+import io.github.ulviar.procwright.session.ProtocolReaders;
+import io.github.ulviar.procwright.session.ProtocolWriter;
+import java.nio.charset.StandardCharsets;
+
+final class LengthLineFrameAdapter implements ProtocolAdapter<DocumentRequest, DocumentResponse> {
+
+    private static final int MAX_HEADER_CHARS = 64;
+    private static final int MAX_BODY_BYTES = 8192;
+    private static final int MAX_BODY_CHARS = 4096;
 
     @Override
-    public void writeRequest(String request, ProtocolWriter writer) {
-        byte[] body = request.getBytes(StandardCharsets.UTF_8);
+    public void writeRequest(DocumentRequest request, ProtocolWriter writer) {
+        byte[] body = request.text().getBytes(StandardCharsets.UTF_8);
+        if (body.length > MAX_BODY_BYTES) {
+            throw new IllegalArgumentException("Request body exceeds " + MAX_BODY_BYTES + " UTF-8 bytes");
+        }
         writer.writeLine(Integer.toString(body.length));
-        writer.write(body);
+        writer.write(request.text());
         writer.flush();
     }
 
     @Override
-    public String readResponse(ProtocolReaders readers) {
+    public DocumentResponse readResponse(ProtocolReaders readers) {
         ProtocolReader stdout = readers.stdout();
-        int length = Integer.parseInt(stdout.readLine(32));
-        byte[] body = stdout.readExactly(length);
-        return new String(body, StandardCharsets.UTF_8);
+        int length = parseBodyLength(stdout.readLine(MAX_HEADER_CHARS));
+        String body = stdout.readTextExactly(length, MAX_BODY_CHARS);
+        if (!stdout.readLine(8).isEmpty() || !stdout.readLine(16).equals("END")) {
+            throw new IllegalStateException("Unexpected frame terminator");
+        }
+        return new DocumentResponse(body);
+    }
+
+    static int parseBodyLength(String header) {
+        String prefix = "len:";
+        if (!header.startsWith(prefix) || header.length() == prefix.length()) {
+            throw invalidHeader(header);
+        }
+        if (header.length() > prefix.length() + 1 && header.charAt(prefix.length()) == '0') {
+            throw invalidHeader(header);
+        }
+        int length = 0;
+        for (int index = prefix.length(); index < header.length(); index++) {
+            char digit = header.charAt(index);
+            if (digit < '0' || digit > '9') {
+                throw invalidHeader(header);
+            }
+            int value = digit - '0';
+            if (length > (MAX_BODY_BYTES - value) / 10) {
+                throw invalidHeader(header);
+            }
+            length = length * 10 + value;
+        }
+        return length;
+    }
+
+    private static IllegalStateException invalidHeader(String header) {
+        return new IllegalStateException("Invalid response length header: " + header);
     }
 }
 ```
 
-For that adapter, one request/response cycle looks like this on stdout/stdin:
+[Open `ProtocolSessionExample.java`](../examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java),
+[the message types](../examples/java/io/github/ulviar/procwright/examples/DocumentProtocol.java),
+[the adapter](../examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java), and the
+[shared example sources](../examples.md#core).
 
-```text
-stdin:  22\nfirst line\nsecond line
-stdout: 22\nfirst line\nsecond line
-```
+Pass a `Supplier<ProtocolAdapter<I, O>>`. Each `open()` and each pool worker receives a fresh adapter. Only mutable state
+created by or owned by that adapter is isolated. Factory calls may overlap during concurrent opens or pool startup; mutable
+state captured from outside remains shared and must be synchronized or avoided. Factory failure or `null` fails before a
+process starts.
 
-The worker executable is responsible for speaking that protocol. Procwright owns the process and deadlines; the adapter owns
-how one request and one response are framed.
+One session serializes its adapter calls: request writing completes before response decoding, and no second request cycle
+overlaps them. Different factory-created adapters can run concurrently. Readiness, diagnostics recipients, and a custom
+PTY provider are retained separately from the adapters; concurrent direct opens and protocol-pool workers can invoke the
+same supplied instances concurrently. Make them thread-safe or use separate Draft branches with separate instances.
 
-## Output backlog
+A timeout or interruption while waiting for the serialized request slot happens before adapter admission, writes no
+request bytes and leaves the direct session open. The caller can retry after the active request completes. If the session
+has already selected a terminal failure or fatal error, that outcome wins instead. Once the serialized slot is acquired,
+the request owns the session; a timeout, interruption, callback-start failure, or protocol failure closes the direct
+session because the runtime can no longer prove that request processing did not begin.
 
-`withOutputBacklogLimit(bytes)` bounds pending unread output. The limit counts bytes and applies to each stream
-independently, with asymmetric overflow semantics. Stdout is the protocol stream: unread stdout beyond the limit fails
-the session with `ProtocolSessionException` reason `OUTPUT_BACKLOG_OVERFLOW`. Stderr never fails the session: its
-oldest pending bytes beyond the limit are dropped, and adapters that read stderr still see up to the limit.
+`ProtocolWriter` and `ProtocolReader` are callback-scoped and thread-confined. Use them only on the thread executing the
+adapter callback and do not retain them after it returns. A late or cross-thread call fails before touching process I/O,
+so it cannot write during response decoding or consume output belonging to a later request.
 
-## Pooling
+`DocumentRequest` and `DocumentResponse` keep the public session typed while `LengthLineFrameAdapter` owns wire framing.
+The adapter writes the UTF-8 byte length of `DocumentRequest.text()` and then its text. It reads
+`len:<bytes>\n<body>\nEND\n`; a body such as
+`first line\nsecond line` therefore ends with `second line\nEND\n`, not an extra blank line. `readTextExactly` treats
+the declared body bytes as one complete field, applies strict UTF-8 decoding, and enforces both its local character
+limit and the response-global character budget. The adapter bounds the header at 64 characters and accepts only an
+ASCII decimal body length from 0 through 8192 bytes.
 
-Use `protocolSession(factory).pooled()` when worker startup is expensive and the adapter can prove that a worker is
-reusable after each request. The pool owns acquire, release, retirement, reset, health checks, warmup, and background
-replenishment. The pooled API takes an adapter factory so each worker owns its own protocol state. Procwright serializes
-factory calls, and the adapters returned by the factory do not need to be thread-safe.
+Every `ProtocolReader` method enforces the session deadline, response-global byte budget, and unread backlog limit. Text
+methods additionally apply the configured `CharsetPolicy` and response-global character budget. Raw methods such as
+`readExactly` return bytes without decoding and therefore do not count characters. Use `readTextExactly` for a
+length-framed complete text field; use `readLine` or `readTextUntil` for a continuous text stream. Switch modes only at
+complete character boundaries. Procwright rejects a raw or exact-field read before consumption when continuous decoding
+still holds an incomplete character. It cannot infer a boundary after arbitrary raw bytes, so the adapter must know its
+framing before returning to continuous text. A character-limit failure stops after the first excess decoded character
+instead of draining the rest of a declared text field; the terminal session close discards any unread field bytes.
 
-Task-oriented pooling steps are in [Reuse workers](../how-to/reuse-workers.md).
-
-## Adapter Boundary
-
-The adapter should describe protocol framing, not process lifecycle. It should write exactly one request, flush when the
-protocol requires it, and read exactly one response. Procwright owns the process, deadlines, output pumps, bounded diagnostics,
-and worker retirement after failures.
-
-Use the optional integrations module for common adapter helpers: JSON Lines, delimiter-framed bytes, Content-Length JSON,
-and typed JSON mapping.
+See [scenario defaults](../reference/defaults.md#protocol-sessions) for request, response, backlog, decoding, terminal,
+and readiness limits.

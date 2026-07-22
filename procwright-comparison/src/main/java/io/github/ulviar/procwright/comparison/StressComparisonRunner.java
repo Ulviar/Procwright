@@ -6,7 +6,6 @@ import io.github.ulviar.procwright.CommandService;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.session.LineSessionException;
-import io.github.ulviar.procwright.session.LineSessionOptions;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
 import io.github.ulviar.procwright.testcli.TestCli;
@@ -35,6 +34,7 @@ public final class StressComparisonRunner {
     private static final int BURST_PARALLELISM = 12;
     private static final int TIMEOUT_PARALLELISM = 16;
     private static final int FLAKY_SEEDS = 40;
+    private static final Path DEFAULT_REPORT_PATH = Path.of("build", "reports", "comparison", "stress-results.md");
 
     private final List<CandidateAdapter> candidates = List.of(
             new ProcwrightCandidateAdapter(),
@@ -48,15 +48,19 @@ public final class StressComparisonRunner {
     /**
      * Runs stress comparison and writes a raw Markdown result table.
      *
-     * @param args optional output path
+     * @param args optional output path; defaults to {@code build/reports/comparison/stress-results.md}
      * @throws Exception when report writing fails
      */
     public static void main(String[] args) throws Exception {
-        Path output = args.length == 0 ? Path.of("context/comparison/stress-results.md") : Path.of(args[0]);
+        Path output = outputPath(args);
         StressComparisonRunner runner = new StressComparisonRunner();
         List<ScenarioResult> results = runner.runAll();
         runner.writeReport(output, results);
         System.out.println("Wrote stress comparison report: " + output.toAbsolutePath());
+    }
+
+    static Path outputPath(String[] args) {
+        return args.length == 0 ? DEFAULT_REPORT_PATH : Path.of(args[0]);
     }
 
     private List<ScenarioResult> runAll() {
@@ -186,9 +190,10 @@ public final class StressComparisonRunner {
                     "no built-in pooled line-session abstraction; requires a custom pool and protocol state machine");
         }
         long started = System.nanoTime();
-        try (PooledLineSession pool = testCliLineService()
+        try (PooledLineSession pool = testCliService()
                 .lineSession()
                 .withArgs("line-repl")
+                .withRequestTimeout(Duration.ofSeconds(2))
                 .pooled()
                 .withMaxSize(2)
                 .withWarmupSize(1)
@@ -382,17 +387,12 @@ public final class StressComparisonRunner {
         return command;
     }
 
-    private static CommandService testCliLineService() {
-        return Procwright.command(commandSpec(testCliCommand()))
-                .withLineSessionOptions(LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
+    private static CommandService testCliService() {
+        return Procwright.command(commandSpec(testCliCommand()));
     }
 
     private static CommandSpec commandSpec(List<String> command) {
-        CommandSpec.Builder builder = CommandSpec.builder(command.get(0));
-        if (command.size() > 1) {
-            builder.args(command.subList(1, command.size()));
-        }
-        return builder.build();
+        return CommandSpec.of(command.get(0)).withArgs(command.subList(1, command.size()));
     }
 
     private static long parseChildPid(String stdout) {

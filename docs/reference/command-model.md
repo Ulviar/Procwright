@@ -1,55 +1,69 @@
-# Command Model
+# Command model
 
-Procwright separates reusable command configuration from per-scenario invocation details.
+`Procwright.command(executable)` creates a reusable `CommandService`. Use `Procwright.command(CommandSpec)` when calls
+share base argv, a working directory, or environment changes.
 
-## CommandSpec
+`CommandSpec` is immutable:
 
-`CommandSpec` is the immutable base command configuration. It owns:
+- `CommandSpec.of(executable)` creates a direct command.
+- `withArg` and `withArgs` append argv entries without shell parsing.
+- `withWorkingDirectory` sets the child directory.
+- `withInheritedEnvironment` or `withCleanEnvironment` chooses the initial environment; `withEnvironment` then adds or
+  replaces one entry.
+- `CommandSpec.shell(commandLine)` explicitly delegates parsing and quoting to the operating-system shell and does not
+  accept argv additions.
 
-- executable or explicit shell command line;
-- base arguments;
-- base working directory;
-- base environment overrides;
-- environment policy.
+Scenario Drafts are also immutable. Configuration methods return a new Draft, and only `execute()` or `open()` starts a
+process.
 
-Use `CommandSpec.of("tool")` or `CommandSpec.builder("tool")` for direct argv execution.
-
-Use `CommandSpec.shell(...)` only when shell syntax is required. Do not build shell command strings from untrusted
-input.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
 ```java
-Path projectDir = Path.of(".");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-CommandSpec command = CommandSpec.builder("python")
-        .workingDirectory(projectDir)
-        .putEnvironment("PYTHONUTF8", "1")
-        .build();
+package io.github.ulviar.procwright.examples;
 
-CommandService python = Procwright.command(command);
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CommandResult;
+import java.nio.file.Path;
+import java.time.Duration;
 
-python.run().execute("--version");
+public final class RunExample {
+
+    private RunExample() {}
+
+    public static void main(String[] args) {
+        CommandResult result = Procwright.command(javaExecutable())
+                .run()
+                .withArgs("--version")
+                .withCapture(CapturePolicy.bounded(256 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
+
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+        System.err.printf(
+                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
+                result.exitCode().isPresent()
+                        ? Integer.toString(result.exitCode().getAsInt())
+                        : "unavailable",
+                result.timedOut(),
+                result.stdoutTruncated(),
+                result.stderrTruncated());
+
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+    }
+
+    private static String javaExecutable() {
+        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", name).toString();
+    }
+}
 ```
 
-## CommandService
+[Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
 
-`CommandService` binds a `CommandSpec` to scenario defaults and launches scenario workflows:
-
-- `run`;
-- `interactive`;
-- `lineSession`;
-- `protocolSession`;
-- `listen`;
-- `lineSession().pooled()`;
-- `protocolSession(factory).pooled()`.
-
-Scenario methods first select the workflow and then expose only configuration relevant to that workflow. The primary API
-shape is scenario object plus `with...` configuration.
-
-## Override precedence
-
-Base command configuration belongs to `CommandSpec`. Per-call or per-session overrides belong to scenario objects. The
-resolver combines both layers before launch.
-
-Use base configuration for stable defaults, such as working directory or environment overrides shared by all calls. Use
-scenario invocation callbacks for operation-specific arguments, timeout, capture, listener, terminal, or pooling
-choices.
+Direct argv is the portable and injection-resistant default. Procwright does not normalize shell quoting or expand shell
+built-ins.

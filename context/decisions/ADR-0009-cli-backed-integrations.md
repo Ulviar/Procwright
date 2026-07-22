@@ -6,7 +6,7 @@
 
 Procwright должен быть полезен как process harness для command-backed tools и MCP-like адаптеров, но core runtime не должен
 становиться agent framework, tool registry или MCP SDK wrapper. Внешние протоколы должны использовать уже существующие
-сценарии `run`, `lineSession`, `interactive`, `listen` и `pooled`.
+сценарии `run`, `lineSession`, `protocolSession`, `interactive`, `listen` и `pooled`.
 
 ## Решение
 
@@ -19,7 +19,8 @@ Procwright должен быть полезен как process harness для co
 - JSON Lines helpers для line-oriented CLI workers;
 - `JsonLineSession` поверх существующего `LineSession`;
 - Content-Length framed JSON helpers для MCP-like stdin/stdout протоколов;
-- `CancellableCall`, где cancel фиксируется как structured observation и затем проходит через lifecycle close;
+- `ProtocolAdapters` factories для JSON Lines, delimiter и Content-Length framing в `protocolSession`, а также
+  `typedJsonSession` для преобразования domain types в JSON и обратно;
 - `CliAdapterError` и `ToolCallResult` для structured success/failure;
 - `CommandBackedTool` как узкий wrapper над уже существующими command workflows.
 
@@ -36,13 +37,14 @@ Procwright должен быть полезен как process harness для co
 
 - Integration layer не запускает процессы напрямую, если это можно выразить через существующий scenario.
 - JSONL helper использует `LineSession`, поэтому наследует сериализацию request/response, timeout и shutdown path.
+- Framing factories и typed wrapper используют `ProtocolSession`, поэтому process lifecycle, deadlines, bounds и
+  cleanup остаются в core runtime.
 - Content-Length helper валидирует headers и frame size до разбора JSON body.
 - Adapter errors не включают raw stdout/stderr или raw argv/env values.
-- Cancellation должна стать observable `cancelled` outcome, а не случайным timeout/protocol failure.
 - Tool output считается недоверенными данными, а не инструкциями для agent harness.
 - JPMS descriptor экспортирует только `io.github.ulviar.procwright.integration` и требует core module.
 
 ## Последствия
 
 Core остается меньше и стабильнее: CLI-backed integrations расширяют библиотеку через optional module. Реальный MCP SDK
-adapter можно добавить позже отдельным модулем поверх `:procwright-integrations`, не меняя core execution kernel.
+adapter можно добавить позже отдельным модулем поверх `:procwright-integrations`, не создавая второй process engine.

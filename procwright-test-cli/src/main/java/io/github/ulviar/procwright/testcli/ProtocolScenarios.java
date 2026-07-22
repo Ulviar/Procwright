@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 final class ProtocolScenarios {
 
@@ -23,6 +24,10 @@ final class ProtocolScenarios {
         try (var reader = context.stdinReader()) {
             reader.readLine();
         }
+        String response = context.options().string("stdout", "");
+        if (!response.isEmpty()) {
+            context.stdoutLine(response);
+        }
         return context.options().integer("exit-code", 0);
     }
 
@@ -37,6 +42,34 @@ final class ProtocolScenarios {
             }
         }
         return context.options().integer("exit-code", 0);
+    }
+
+    static int expectNearMatchRepl(ScenarioContext context) throws Exception {
+        CliOptions options = context.options();
+        int chunkCount = positiveAtMost(options.integer("chunk-count", 256), 4_096, "chunk-count");
+        int chunkBytes = positiveAtMost(options.byteSize("chunk-bytes", 2_048), 64 * 1024, "chunk-bytes");
+        long outputBytes = Math.multiplyExact((long) chunkCount, chunkBytes);
+        if (outputBytes > 64L * 1024 * 1024) {
+            throw new IllegalArgumentException("one near-match round must not exceed 64 MiB");
+        }
+        long delayMillis = options.longValue("delay-millis", 1);
+        if (delayMillis < 0 || delayMillis > 1_000) {
+            throw new IllegalArgumentException("delay-millis must be between 0 and 1000");
+        }
+        byte[] chunk = new byte[chunkBytes];
+        Arrays.fill(chunk, (byte) 'a');
+        context.stdoutText(options.string("ready", "ready> "));
+        try (var reader = context.stdinReader()) {
+            while (reader.readLine() != null) {
+                for (int index = 0; index < chunkCount; index++) {
+                    context.stdout().write(chunk);
+                    context.stdout().flush();
+                    context.sleepMillis(delayMillis);
+                }
+                context.stdoutLine("b");
+            }
+        }
+        return options.integer("exit-code", 0);
     }
 
     private static int lineRepl(ScenarioContext context, boolean controlsEnabled) throws Exception {
@@ -154,6 +187,13 @@ final class ProtocolScenarios {
         return value.isBlank() ? defaultValue : Integer.parseInt(value);
     }
 
+    private static int positiveAtMost(int value, int maximum, String name) {
+        if (value <= 0 || value > maximum) {
+            throw new IllegalArgumentException(name + " must be between 1 and " + maximum);
+        }
+        return value;
+    }
+
     private static boolean runControlRequest(String line, ScenarioContext context) throws Exception {
         switch (line) {
             case "pid" ->
@@ -173,6 +213,7 @@ final class ProtocolScenarios {
                 context.sleepMillis(context.options().longValue("slow-millis", 5000));
             }
             case "slow-response" -> {
+                context.stderrLine("request-started:slow-response");
                 context.sleepMillis(context.options().longValue("slow-response-millis", 5000));
                 context.stdoutLine("response:slow");
             }
@@ -191,6 +232,12 @@ final class ProtocolScenarios {
                 // 0xFF is never valid in UTF-8, so strict decoders must report malformed input.
                 context.stdout().write(new byte[] {(byte) 0xFF, '\n'});
                 context.stdout().flush();
+            }
+            case "malformed-stderr-utf8" -> {
+                context.stderr().write(new byte[] {(byte) 0xFF, '\n'});
+                context.stderr().flush();
+                context.sleepMillis(50);
+                context.stdoutLine("response:malformed-stderr-utf8");
             }
             case "split-utf8" -> {
                 // "П" (U+041F) encodes as 0xD0 0x9F; the flush+sleep boundary forces the two bytes into

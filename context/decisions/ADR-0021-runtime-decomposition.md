@@ -2,7 +2,7 @@
 
 ## Статус
 
-Accepted.
+Принято.
 
 ## Контекст
 
@@ -12,9 +12,9 @@ Accepted.
 
 ## Решение
 
-`CommandService` остается публичным facade-объектом вокруг команды, defaults и сценарных entry points.
-Оркестрация сценариев вынесена во внутренний `ScenarioRuntime`: он строит invocation objects, резолвит execution/session
-plans, открывает runtime wrappers, применяет readiness checks и передает diagnostics дальше в runtime.
+`CommandService` остается публичным facade-объектом вокруг команды и сценарных entry points. Persistent Draft хранит
+scenario-specific internal settings. `ScenarioRuntime` строит execution/session plans из их snapshot, открывает runtime
+wrappers, применяет readiness и передает diagnostics дальше в runtime.
 
 `DefaultProtocolSession` остается владельцем lifecycle протокольной сессии, serialized request lock, transcript snapshot
 и process exit snapshot. Внутренние детали чтения и записи разделены на маленькие владельцы:

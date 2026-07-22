@@ -6,7 +6,6 @@ import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.diagnostics.DiagnosticsOptions;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
@@ -22,7 +21,7 @@ public record ExecutionPlan(
         Duration timeout,
         CharsetPolicy charsetPolicy,
         StdinPolicy stdin,
-        DiagnosticsOptions diagnosticsOptions) {
+        DiagnosticsSettings diagnostics) {
 
     public ExecutionPlan {
         Objects.requireNonNull(launchPlan, "launchPlan");
@@ -34,7 +33,7 @@ public record ExecutionPlan(
         }
         Objects.requireNonNull(charsetPolicy, "charsetPolicy");
         Objects.requireNonNull(stdin, "stdin");
-        Objects.requireNonNull(diagnosticsOptions, "diagnosticsOptions");
+        Objects.requireNonNull(diagnostics, "diagnostics");
         requireCaptureCompatibleWithOutputMode(capturePolicy, launchPlan.outputMode());
     }
 

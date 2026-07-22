@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.internal.ExpectSettings;
+import io.github.ulviar.procwright.session.Expect;
 import io.github.ulviar.procwright.session.Session;
 import java.util.Objects;
 
@@ -15,5 +17,9 @@ public final class SessionInternals {
             return defaultSession;
         }
         throw new IllegalArgumentException("Session must be a Procwright-created handle");
+    }
+
+    public static Expect openExpect(Session session, ExpectSettings options) {
+        return new DefaultExpect(requireDefaultSession(session), Objects.requireNonNull(options, "options"));
     }
 }

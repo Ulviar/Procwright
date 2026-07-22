@@ -9,9 +9,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class TestCliApplicationTest {
@@ -30,6 +37,24 @@ final class TestCliApplicationTest {
         assertTrue(run.stdoutText().contains("platform-newlines"));
         assertTrue(run.stdoutText().contains("mixed-load"));
         assertEquals("", run.stderrText());
+    }
+
+    @Test
+    void activeSimulatorCatalogCoversEveryRegisteredScenario() throws Exception {
+        Path catalog =
+                Path.of(System.getProperty("procwright.repositoryRoot")).resolve("context/evals/test-cli-simulator.md");
+        assertTrue(Files.isRegularFile(catalog), () -> "simulator catalog is missing: " + catalog);
+
+        Set<String> documented = new TreeSet<>();
+        for (String line : Files.readAllLines(catalog, StandardCharsets.UTF_8)) {
+            if (line.startsWith("- `") && line.contains("` —")) {
+                documented.add(line.substring(3, line.indexOf('`', 3)));
+            }
+        }
+        Set<String> registered = new TreeSet<>();
+        ScenarioRegistry.definitions().stream().map(ScenarioDefinition::name).forEach(registered::add);
+
+        assertEquals(registered, documented, "active simulator catalog must exactly match the registry");
     }
 
     @Test
@@ -66,6 +91,37 @@ final class TestCliApplicationTest {
 
         assertEquals(0, run.exitCode());
         assertArrayEquals(new byte[] {0, (byte) 255, 65, 10, 0, (byte) 255, 65, 10}, run.stdout());
+    }
+
+    @Test
+    void binaryScenarioCanHoldAfterFlushingRawBytes() throws Exception {
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread worker = new Thread(() -> {
+            try {
+                TestCliApplication.run(
+                        new String[] {"binary", "--pattern=hex", "--hex=410d42", "--hold-millis=60000"},
+                        InputStream.nullInputStream(),
+                        stdout,
+                        OutputStream.nullOutputStream(),
+                        Map.of(),
+                        Path.of("").toAbsolutePath().normalize());
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            }
+        });
+        worker.start();
+        try {
+            assertTrue(eventually(() -> stdout.size() == 3));
+            assertTrue(worker.isAlive(), "binary fixture must hold after flushing its raw bytes");
+        } finally {
+            worker.interrupt();
+            worker.join(Duration.ofSeconds(1).toMillis());
+        }
+
+        assertTrue(!worker.isAlive());
+        assertTrue(failure.get() instanceof InterruptedException);
+        assertArrayEquals(new byte[] {'A', '\r', 'B'}, stdout.toByteArray());
     }
 
     @Test
@@ -128,6 +184,29 @@ final class TestCliApplicationTest {
                 new byte[] {(byte) 0xD0, (byte) 0x9F, '\n', 'b', 'y', 'e', '\n'},
                 split.stdout(),
                 "multi-byte codepoint flushed in two chunks");
+    }
+
+    @Test
+    void expectNearMatchReplEmitsPacedBoundedRoundsFromOneProcess() throws Exception {
+        Run run = run(
+                "first\nsecond\n",
+                "expect-near-match-repl",
+                "--ready=ready> ",
+                "--chunk-count=2",
+                "--chunk-bytes=3",
+                "--delay-millis=0");
+
+        assertEquals(0, run.exitCode());
+        assertEquals("ready> aaaaaab\naaaaaab\n", run.stdoutText());
+        assertEquals("", run.stderrText());
+    }
+
+    @Test
+    void expectNearMatchReplRejectsUnboundedRoundSettings() {
+        assertThrows(IllegalArgumentException.class, () -> run("next\n", "expect-near-match-repl", "--chunk-count=0"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> run("next\n", "expect-near-match-repl", "--chunk-count=4096", "--chunk-bytes=64k"));
     }
 
     @Test
@@ -227,6 +306,17 @@ final class TestCliApplicationTest {
         int exitCode = TestCliApplication.run(
                 args, new ByteArrayInputStream(stdin.getBytes(StandardCharsets.UTF_8)), stdout, stderr, env, cwd);
         return new Run(exitCode, stdout.toByteArray(), stderr.toByteArray());
+    }
+
+    private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return condition.getAsBoolean();
     }
 
     private record Run(int exitCode, byte[] stdout, byte[] stderr) {

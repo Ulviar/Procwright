@@ -11,6 +11,8 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.jar.JarEntry;
@@ -21,7 +23,6 @@ import org.junit.jupiter.api.Test;
 final class PublicIntegrationApiSurfaceTest {
 
     private static final Set<String> PUBLIC_API_TYPES = Set.of(
-            "io.github.ulviar.procwright.integration.CancellableCall",
             "io.github.ulviar.procwright.integration.CliAdapterError",
             "io.github.ulviar.procwright.integration.CommandBackedTool",
             "io.github.ulviar.procwright.integration.CommandBackedTool$Handler",
@@ -52,6 +53,18 @@ final class PublicIntegrationApiSurfaceTest {
     @Test
     void integrationPublicApiTypesStayInApprovedBaseline() throws Exception {
         assertEquals(PUBLIC_API_TYPES, publicApiTypeNames(JsonCodec.class));
+    }
+
+    @Test
+    void toolCallResultExposesOnlyStructuredFailureFactory() {
+        List<Class<?>> failureParameterTypes = Arrays.stream(ToolCallResult.class.getDeclaredMethods())
+                .filter(method -> Modifier.isPublic(method.getModifiers()))
+                .filter(method -> Modifier.isStatic(method.getModifiers()))
+                .filter(method -> method.getName().equals("failure"))
+                .map(method -> method.getParameterTypes()[0])
+                .toList();
+
+        assertEquals(List.of(CliAdapterError.class), failureParameterTypes);
     }
 
     @Test

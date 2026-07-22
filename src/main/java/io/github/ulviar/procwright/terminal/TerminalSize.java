@@ -5,8 +5,8 @@ package io.github.ulviar.procwright.terminal;
 /**
  * Requested terminal dimensions for PTY-backed sessions.
  *
- * @param columns terminal columns
- * @param rows terminal rows
+ * @param columns terminal columns, from 1 through 65535
+ * @param rows terminal rows, from 1 through 65535
  */
 public record TerminalSize(int columns, int rows) {
 
@@ -15,15 +15,15 @@ public record TerminalSize(int columns, int rows) {
     /**
      * Validates terminal dimensions.
      *
-     * @param columns terminal columns
-     * @param rows terminal rows
+     * @param columns terminal columns, from 1 through 65535
+     * @param rows terminal rows, from 1 through 65535
      */
     public TerminalSize {
-        if (columns <= 0) {
-            throw new IllegalArgumentException("columns must be positive");
+        if (columns <= 0 || columns > 65_535) {
+            throw new IllegalArgumentException("columns must be between 1 and 65535");
         }
-        if (rows <= 0) {
-            throw new IllegalArgumentException("rows must be positive");
+        if (rows <= 0 || rows > 65_535) {
+            throw new IllegalArgumentException("rows must be between 1 and 65535");
         }
     }
 

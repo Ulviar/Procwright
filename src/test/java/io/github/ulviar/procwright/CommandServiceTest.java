@@ -3,126 +3,87 @@
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import io.github.ulviar.procwright.command.RunOptions;
-import io.github.ulviar.procwright.session.LineSessionOptions;
-import io.github.ulviar.procwright.session.PooledLineSessionOptions;
-import io.github.ulviar.procwright.session.PooledProtocolSessionOptions;
-import io.github.ulviar.procwright.session.SessionOptions;
+import io.github.ulviar.procwright.command.CommandSpec;
+import io.github.ulviar.procwright.session.ProtocolAdapter;
+import io.github.ulviar.procwright.session.ProtocolReaders;
+import io.github.ulviar.procwright.session.ProtocolWriter;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Set;
-import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 final class CommandServiceTest {
 
     @Test
-    void commandServiceDoesNotExposePositionalConstructors() {
-        assertEquals(0, CommandService.class.getConstructors().length);
-    }
-
-    @Test
-    void commandServiceDoesNotExposeRootPoolShortcuts() {
+    void commandServiceExposesOnlyScenarioSelectors() {
         assertEquals(
-                0,
-                Arrays.stream(CommandService.class.getMethods())
-                        .filter(method -> method.getName().equals("pooled")
-                                || method.getName().equals("pooledProtocol"))
-                        .count());
+                Set.of("run", "interactive", "lineSession", "listen", "protocolSession"),
+                Arrays.stream(CommandService.class.getDeclaredMethods())
+                        .filter(method -> java.lang.reflect.Modifier.isPublic(method.getModifiers()))
+                        .map(java.lang.reflect.Method::getName)
+                        .collect(Collectors.toSet()));
     }
 
     @Test
-    void commandServiceDoesNotExposeDirectConsumerShortcuts() {
-        Set<String> shortcutNames = Set.of("run", "interactive", "lineSession", "protocolSession", "listen");
+    void selectorsReturnNestedDraftContracts() {
+        CommandService service = Procwright.command("tool");
 
-        assertEquals(
-                0,
-                Arrays.stream(CommandService.class.getMethods())
-                        .filter(method -> shortcutNames.contains(method.getName()))
-                        .filter(method ->
-                                Arrays.stream(method.getParameterTypes()).anyMatch(type -> type.equals(Consumer.class)))
-                        .count());
+        assertInstanceOf(RunScenario.Draft.class, service.run());
+        assertInstanceOf(InteractiveScenario.Draft.class, service.interactive());
+        assertInstanceOf(LineSessionScenario.Draft.class, service.lineSession());
+        assertInstanceOf(StreamScenario.Draft.class, service.listen());
+        assertInstanceOf(ProtocolSessionScenario.Draft.class, service.protocolSession(NoopAdapter::new));
     }
 
     @Test
-    void createsServiceForExecutableWithDefaultOptions() {
-        CommandService service = CommandService.forCommand("git");
+    void protocolSelectorAcceptsOnlyANonNullFactory() {
+        CommandService service = Procwright.command("tool");
 
-        assertEquals("git", service.commandSpec().executable());
-        assertEquals(RunOptions.defaults(), service.runOptions());
-        assertSame(SessionOptions.defaults(), service.sessionOptions());
-        assertSame(LineSessionOptions.defaults(), service.lineSessionOptions());
-        assertSame(PooledLineSessionOptions.defaults(), service.pooledLineSessionOptions());
-        assertEquals(PooledProtocolSessionOptions.defaults(), service.pooledProtocolSessionOptions());
-    }
-
-    @Test
-    void createsServiceFromCommandSpecWithDefaultOptions() {
-        io.github.ulviar.procwright.command.CommandSpec spec = io.github.ulviar.procwright.command.CommandSpec.builder(
-                        "git")
-                .args("--no-pager")
-                .build();
-
-        CommandService service = CommandService.forCommand(spec);
-
-        assertSame(spec, service.commandSpec());
-        assertEquals(RunOptions.defaults(), service.runOptions());
         assertThrows(
                 NullPointerException.class,
-                () -> CommandService.forCommand((io.github.ulviar.procwright.command.CommandSpec) null));
+                () -> service.protocolSession((java.util.function.Supplier<
+                                ? extends io.github.ulviar.procwright.session.ProtocolAdapter<String, String>>)
+                        null));
+        assertEquals(
+                1,
+                Arrays.stream(CommandService.class.getDeclaredMethods())
+                        .filter(method -> method.getName().equals("protocolSession"))
+                        .count());
     }
 
     @Test
-    void procwrightCommandUsesCommandServiceDefaults() {
-        CommandService service = Procwright.command("git");
+    void draftSettersValidateImmediatelyButPoolCrossFieldsWaitForOpen() {
+        CommandService service = Procwright.command("tool");
 
-        assertEquals("git", service.commandSpec().executable());
-        assertEquals(RunOptions.defaults(), service.runOptions());
-        assertSame(SessionOptions.defaults(), service.sessionOptions());
+        assertThrows(NullPointerException.class, () -> service.run().withArgs((String[]) null));
+        assertThrows(IllegalArgumentException.class, () -> service.run().withTimeout(Duration.ofMillis(-1)));
+        assertThrows(IllegalArgumentException.class, () -> service.lineSession().withMaxRequestChars(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.lineSession().pooled().withMaxSize(0));
+
+        LineSessionScenario.PoolDraft temporarilyInconsistent =
+                service.lineSession().pooled().withWarmupSize(2);
+        assertThrows(IllegalArgumentException.class, temporarilyInconsistent::open);
     }
 
     @Test
-    void runValidatesConfigurationCallback() {
-        CommandService service = CommandService.forCommand("git");
-
-        assertThrows(NullPointerException.class, () -> service.run().configuredBy(null));
+    void procwrightHasNoCompetingShellEntryPoint() {
+        assertThrows(NoSuchMethodException.class, () -> Procwright.class.getMethod("shellCommand", String.class));
+        assertThrows(NullPointerException.class, () -> Procwright.command((CommandSpec) null));
     }
 
-    @Test
-    void interactiveValidatesConfigurationCallback() {
-        CommandService service = CommandService.forCommand("git");
+    private static final class NoopAdapter implements ProtocolAdapter<String, String> {
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {}
 
-        assertThrows(NullPointerException.class, () -> service.interactive().configuredBy(null));
-    }
-
-    @Test
-    void lineSessionValidatesConfigurationCallback() {
-        CommandService service = CommandService.forCommand("git");
-
-        assertThrows(NullPointerException.class, () -> service.lineSession().configuredBy(null));
-    }
-
-    @Test
-    void serviceDefaultReplacementsValidateNulls() {
-        CommandService service = CommandService.forCommand("git");
-
-        assertThrows(NullPointerException.class, () -> service.withRunOptions(null));
-        assertThrows(NullPointerException.class, () -> service.withSessionOptions(null));
-        assertThrows(NullPointerException.class, () -> service.withLineSessionOptions(null));
-        assertThrows(NullPointerException.class, () -> service.withStreamOptions(null));
-        assertThrows(NullPointerException.class, () -> service.withPooledLineSessionOptions(null));
-        assertThrows(NullPointerException.class, () -> service.withProtocolSessionOptions(null));
-        assertThrows(NullPointerException.class, () -> service.withPooledProtocolSessionOptions(null));
-        assertThrows(NullPointerException.class, () -> service.withDiagnostics(null));
-    }
-
-    @Test
-    void createsServiceForShellCommandWithDefaultOptions() {
-        CommandService service = CommandService.forShellCommand("echo hello");
-
-        assertEquals("echo hello", service.commandSpec().executable());
-        assertEquals(RunOptions.defaults(), service.runOptions());
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return "";
+        }
     }
 }

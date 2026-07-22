@@ -4,10 +4,12 @@ package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.ProcwrightException;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Signals a line-oriented request/response failure.
  */
+@SuppressWarnings("serial")
 public final class LineSessionException extends ProcwrightException {
 
     /** Failure reason. */
@@ -35,9 +37,9 @@ public final class LineSessionException extends ProcwrightException {
      * @param reason failure reason
      * @param transcript bounded transcript snapshot
      * @param message failure message
-     * @param cause failure cause
+     * @param cause failure cause, or {@code null} when unavailable
      */
-    public LineSessionException(Reason reason, LineTranscript transcript, String message, Throwable cause) {
+    public LineSessionException(Reason reason, LineTranscript transcript, String message, @Nullable Throwable cause) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
         this.transcript = Objects.requireNonNull(transcript, "transcript");
@@ -65,6 +67,8 @@ public final class LineSessionException extends ProcwrightException {
      * Distinct line-session failure reasons.
      */
     public enum Reason {
+        /** Request exceeded the configured byte or character limit. */
+        REQUEST_TOO_LARGE,
         /** Request did not produce a complete response before its deadline. */
         TIMEOUT,
         /** Process stdout reached EOF before a complete response was decoded. */

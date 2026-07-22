@@ -8,6 +8,7 @@ import java.util.Objects;
 /**
  * Signals an integration protocol framing failure.
  */
+@SuppressWarnings("serial")
 public final class IntegrationProtocolException extends ProcwrightException {
 
     /** Protocol failure reason. */

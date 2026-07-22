@@ -1,0 +1,268 @@
+name: Stage Maven Central
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-version:
+        description: SemVer version to stage, without a leading v
+        required: true
+        type: string
+      release-commit:
+        description: Lowercase full commit SHA from main that passed the CI push workflow
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: stage-maven-central
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned release handoff
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == github.workflow_sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      handoff-artifact-id: ${{ steps.handoff-upload.outputs.artifact-id }}
+      handoff-artifact-digest: ${{ steps.handoff-upload.outputs.artifact-digest }}
+
+    steps:
+      - name: Validate release commit before checkout
+        run: '[[ "$PROCWRIGHT_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+
+      - name: Checkout trusted release control
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-trusted
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Validate canonical release version from trusted control
+        run: python3 .procwright-trusted/scripts/release_contract.py version "$PROCWRIGHT_RELEASE_VERSION"
+        env:
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+
+      - name: Verify target provenance from trusted control
+        run: bash .procwright-trusted/scripts/release/verify_release_commit_provenance.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_TRUSTED_ROOT: .procwright-trusted
+
+      - name: Checkout verified release target
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.release-commit }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-target
+
+      - name: Verify target checkout from trusted control
+        run: bash .procwright-trusted/scripts/release/verify_target_checkout.sh
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_TARGET_ROOT: .procwright-target
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: "17.0.19+10"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.10.12"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+
+      - name: Verify release candidate
+        working-directory: .procwright-target
+        run: ./gradlew releaseCandidateCheck --project-prop=procwright.javaRelease=17 --project-prop=procwright.version="$PROCWRIGHT_RELEASE_VERSION" --no-daemon
+        env:
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+
+      - name: Build unsigned Maven repository
+        working-directory: .procwright-target
+        run: ./gradlew cleanMavenCentralBundleRepository publishMavenJavaPublicationToMavenCentralBundleRepository :procwright-integrations:publishMavenJavaPublicationToMavenCentralBundleRepository :procwright-kotlin:publishMavenJavaPublicationToMavenCentralBundleRepository --project-prop=procwright.javaRelease=17 --project-prop=procwright.version="$PROCWRIGHT_RELEASE_VERSION" --no-daemon
+        env:
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+
+      - name: Verify exact unsigned Maven repository
+        run: python3 .procwright-trusted/scripts/verify_local_maven_central_bundle.py --unsigned --repository .procwright-target/build/maven-central/repository --version "$PROCWRIGHT_RELEASE_VERSION"
+        env:
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+
+      - name: Prepare immutable unsigned handoff
+        id: handoff
+        run: python3 .procwright-trusted/scripts/release_handoff.py prepare --repository .procwright-target/build/maven-central/repository --output .procwright-target/build/release-handoff --version "$PROCWRIGHT_RELEASE_VERSION" --commit "$PROCWRIGHT_RELEASE_COMMIT" --workflow-sha "$GITHUB_WORKFLOW_SHA"
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+
+      - name: Upload immutable unsigned handoff
+        id: handoff-upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: procwright-${{ inputs.release-version }}-${{ inputs.release-commit }}-unsigned-release
+          path: |
+            .procwright-target/build/release-handoff/procwright-${{ inputs.release-version }}-unsigned.zip
+            .procwright-target/build/release-handoff/procwright-${{ inputs.release-version }}-unsigned.zip.sha256
+            .procwright-target/build/release-handoff/procwright-${{ inputs.release-version }}-unsigned-manifest.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: true
+
+  publish:
+    name: Sign and stage verified handoff
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == github.workflow_sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: maven-central
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Validate release commit before checkout
+        run: '[[ "$PROCWRIGHT_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+
+      - name: Checkout trusted release control
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-trusted
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Validate canonical release version from trusted control
+        run: python3 .procwright-trusted/scripts/release_contract.py version "$PROCWRIGHT_RELEASE_VERSION"
+        env:
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+
+      - name: Verify target provenance from trusted control
+        run: bash .procwright-trusted/scripts/release/verify_release_commit_provenance.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_TRUSTED_ROOT: .procwright-trusted
+
+      - name: Verify current-run handoff artifact identity
+        run: python3 .procwright-trusted/scripts/verify_release_handoff_artifact.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_DIGEST: ${{ needs.build.outputs.handoff-artifact-digest }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_ID: ${{ needs.build.outputs.handoff-artifact-id }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_NAME: procwright-${{ inputs.release-version }}-${{ inputs.release-commit }}-unsigned-release
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+
+      - name: Download exact current-run handoff artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.build.outputs.handoff-artifact-id }}
+          path: .procwright-handoff
+          merge-multiple: false
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Verify and extract unsigned handoff
+        id: handoff
+        run: python3 .procwright-trusted/scripts/release_handoff.py verify --handoff .procwright-handoff --output-repository build/maven-central/repository --version "$PROCWRIGHT_RELEASE_VERSION" --commit "$PROCWRIGHT_RELEASE_COMMIT" --workflow-sha "$GITHUB_WORKFLOW_SHA" --github-artifact-digest "$PROCWRIGHT_HANDOFF_ARTIFACT_DIGEST" --github-artifact-id "$PROCWRIGHT_HANDOFF_ARTIFACT_ID" --github-artifact-name "$PROCWRIGHT_HANDOFF_ARTIFACT_NAME"
+        env:
+          PROCWRIGHT_HANDOFF_ARTIFACT_DIGEST: ${{ needs.build.outputs.handoff-artifact-digest }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_ID: ${{ needs.build.outputs.handoff-artifact-id }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_NAME: procwright-${{ inputs.release-version }}-${{ inputs.release-commit }}-unsigned-release
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+
+      - name: Validate protected staging trust root
+        run: '[[ "$PROCWRIGHT_APPROVED_SIGNING_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]]'
+        env:
+          PROCWRIGHT_APPROVED_SIGNING_FINGERPRINT: ${{ vars.MAVEN_CENTRAL_STAGING_SIGNING_FINGERPRINT }}
+
+      - name: Sign and finalize verified Maven Central bundle
+        run: bash .procwright-trusted/scripts/release/sign_release_handoff.sh
+        env:
+          PROCWRIGHT_HANDOFF_ARTIFACT_DIGEST: ${{ needs.build.outputs.handoff-artifact-digest }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_ID: ${{ needs.build.outputs.handoff-artifact-id }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_NAME: procwright-${{ inputs.release-version }}-${{ inputs.release-commit }}-unsigned-release
+          PROCWRIGHT_APPROVED_SIGNING_FINGERPRINT: ${{ vars.MAVEN_CENTRAL_STAGING_SIGNING_FINGERPRINT }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+
+      - name: Verify signatures and stage USER_MANAGED deployment
+        id: central
+        run: |
+          python3 .procwright-trusted/scripts/release_handoff.py verify-signing-evidence --bundle "build/maven-central/procwright-${PROCWRIGHT_RELEASE_VERSION}-maven-central-bundle.zip" --evidence "build/maven-central/procwright-${PROCWRIGHT_RELEASE_VERSION}-signing-evidence.json" --public-key "build/maven-central/procwright-${PROCWRIGHT_RELEASE_VERSION}-signing-public-key.asc" --version "$PROCWRIGHT_RELEASE_VERSION" --fingerprint "$PROCWRIGHT_SIGNING_FINGERPRINT" --github-artifact .procwright-handoff --github-artifact-digest "$PROCWRIGHT_HANDOFF_ARTIFACT_DIGEST" --github-artifact-id "$PROCWRIGHT_HANDOFF_ARTIFACT_ID" --github-artifact-name "$PROCWRIGHT_HANDOFF_ARTIFACT_NAME"
+          bash .procwright-trusted/scripts/release/stage_central_bundle.sh
+          verified_digest="$(sed -n 's/^verified_signed_bundle_sha256=//p' "$GITHUB_OUTPUT")"
+          staged_digest="$(sed -n 's/^bundle_sha256=//p' "$GITHUB_OUTPUT")"
+          [[ "$verified_digest" =~ ^[0-9a-f]{64}$ && "$verified_digest" == "$staged_digest" ]]
+        env:
+          PROCWRIGHT_HANDOFF_ARTIFACT_DIGEST: ${{ needs.build.outputs.handoff-artifact-digest }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_ID: ${{ needs.build.outputs.handoff-artifact-id }}
+          PROCWRIGHT_HANDOFF_ARTIFACT_NAME: procwright-${{ inputs.release-version }}-${{ inputs.release-commit }}-unsigned-release
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_SIGNING_FINGERPRINT: ${{ vars.MAVEN_CENTRAL_STAGING_SIGNING_FINGERPRINT }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+
+      - name: Record privileged publication provenance
+        run: bash .procwright-trusted/scripts/release/record_build_provenance.sh
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.release-version }}
+          PROCWRIGHT_STAGED_BUNDLE_SHA256: ${{ steps.central.outputs.bundle_sha256 }}
+          PROCWRIGHT_UNSIGNED_HANDOFF_SHA256: ${{ steps.handoff.outputs.unsigned_bundle_sha256 }}
+
+      - name: Preserve validated staged bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: procwright-${{ inputs.release-version }}-${{ inputs.release-commit }}-central-bundle
+          path: |
+            build/maven-central/procwright-${{ inputs.release-version }}-maven-central-bundle.zip
+            build/maven-central/procwright-${{ inputs.release-version }}-maven-central-bundle.zip.sha256
+            build/maven-central/procwright-${{ inputs.release-version }}-staged-bundle-payload-manifest.json
+            build/maven-central/procwright-${{ inputs.release-version }}-signing-evidence.json
+            build/maven-central/procwright-${{ inputs.release-version }}-signing-public-key.asc
+            build/maven-central/procwright-${{ inputs.release-version }}-verified-handoff.json
+            build/maven-central/procwright-${{ inputs.release-version }}-provenance.txt
+            build/maven-central/procwright-${{ inputs.release-version }}-central-deployment.json
+          if-no-files-found: error
+          retention-days: 90

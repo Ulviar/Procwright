@@ -1,61 +1,52 @@
 # Diagnostics
 
-Diagnostics are observability hooks over command scenarios. They are not a logging framework and they do not change
-command behavior.
+Attach a listener or transcript sink directly to a scenario Draft before its terminal call.
 
-## Options
-
-Attach diagnostics through `DiagnosticsOptions` on `CommandService`.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/DiagnosticsExample.java -->
 ```java
-CommandService tool = Procwright.command("tool")
-        .withDiagnostics(DiagnosticsOptions.defaults().withListener(event -> {
-            if (event.attributes().containsKey("exitCode")) {
-                System.out.println(
-                        event.type() + ":" + event.attributes().get("exitCode"));
-            }
-        }));
+/* SPDX-License-Identifier: Apache-2.0 */
 
-tool.run().execute("--version");
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+public final class DiagnosticsExample {
+
+    private DiagnosticsExample() {}
+
+    public static void main(String[] args) throws Exception {
+        CountDownLatch processExited = new CountDownLatch(1);
+        var run = Procwright.command(ExampleSupport.workerCommand("finite"))
+                .run()
+                .withDiagnosticListener(event -> {
+                    if (event.type() == DiagnosticEventType.PROCESS_EXITED) {
+                        processExited.countDown();
+                    }
+                });
+
+        run.withTimeout(Duration.ofSeconds(5)).execute();
+        if (!processExited.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("PROCESS_EXITED diagnostic was not delivered");
+        }
+    }
+}
 ```
 
-## Event shape
+[Open `DiagnosticsExample.java`](../examples/java/io/github/ulviar/procwright/examples/DiagnosticsExample.java) and the
+[shared example sources](../examples.md#core).
 
-Each `DiagnosticEvent` has the same stable outer shape:
+Diagnostic delivery is asynchronous and bounded. For one command or session lifecycle, calls to each listener or sink are
+serialized in submission order. Listener and sink delivery use independent queues and may overlap. Separate executions,
+sessions, and pool workers also use independent queues. Reusing a Draft therefore lets the same supplied recipient run
+concurrently; make it thread-safe or use separate Draft branches with separate recipients.
 
-- `type`: event type;
-- `runId`: process-lifecycle correlation id;
-- `timestamp`: event timestamp;
-- `scenario`: scenario that emitted the event;
-- `command`: redaction-friendly command echo;
-- `attributes`: event-specific structured attributes.
+A short-lived program that must observe a terminal event should wait for that event, as the example does. Diagnostics are
+observation only; listener failure does not become process control logic.
 
-Use `runId` to correlate lifecycle events for one process. Diagnostic delivery is asynchronous and best-effort: it
-never blocks the command workflow. Within one run, each recipient receives its events in emission order — the listener
-sees events in order, and the transcript sink sees events in order — but ordering between the listener and the
-transcript sink is not coordinated. If a listener throws, Procwright emits `LISTENER_FAILED` when it can and continues the
-command workflow; listener failure does not turn a successful command into a failed command.
-
-## Redaction model
-
-Diagnostic attributes are intentionally small and redaction-friendly. They must not contain raw argv values,
-environment values, stdin, stdout, or stderr.
-
-`CommandEcho` exposes executable, argument count, working directory, environment variable names, output mode, and
-terminal policy. It does not expose argument values or environment values.
-
-## Event-specific attributes
-
-| Event | Stable attributes |
-| --- | --- |
-| `COMMAND_PREPARED` | none |
-| `PROCESS_STARTED` | `pid` |
-| `OUTPUT_TRUNCATED` | `source` plus `limitBytes` or `limitChars` |
-| `TIMEOUT_REACHED` | none |
-| `SHUTDOWN_REQUESTED` | `reason` |
-| `LISTENER_FAILED` | none |
-| `PROCESS_EXITED` | `timedOut`, optional `exitCode` |
-| `PROCESS_FAILED` | `error` |
-
-Diagnostics are for observation, not control flow. Do not use a diagnostic listener as the only place that enforces
-application correctness.
+Transcripts retain bounded event snapshots. Sensitive argv, environment values, request bodies, output, and exception
+messages can reach diagnostics unless the application filters or redacts them before export. Do not treat a size limit as
+redaction.

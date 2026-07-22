@@ -27,6 +27,10 @@ core и не задает публичный API Procwright. Его задача
 JMH benchmarks запускаются отдельно от release regression gate; команды и методология описаны в
 [jmh-benchmarks.md](jmh-benchmarks.md).
 
+Все Gradle-входы для запуска сравнений пишут только в `procwright-comparison/build/reports/comparison/`:
+`run` — в `application-results.md`, `comparisonReport` — в `results.md`, `comparisonCheck` — в
+`verification-results.md`, `stressComparisonReport` — в `stress-results.md`. Они не изменяют tracked context.
+
 Архитектурное решение по итогам сравнения зафиксировано в
 [../decisions/ADR-0012-scenario-first-after-library-comparison.md](../decisions/ADR-0012-scenario-first-after-library-comparison.md).
 

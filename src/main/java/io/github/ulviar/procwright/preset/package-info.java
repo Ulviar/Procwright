@@ -8,4 +8,7 @@
  * not create runners or bypass the resolver, so everything a preset does can also be written out explicitly at the
  * call site.
  */
+@NullMarked
 package io.github.ulviar.procwright.preset;
+
+import org.jspecify.annotations.NullMarked;

@@ -31,5 +31,5 @@ One-shot, sessions, streaming, pooling, diagnostics, Kotlin adapters и integrat
 
 ## Последствия
 
-`./gradlew check` запускает bounded stress suite. Более тяжелые benchmark/JMH сценарии остаются отдельным слоем, чтобы
+`./gradlew check --project-prop=procwright.javaRelease=17` запускает bounded stress suite. Более тяжелые benchmark/JMH сценарии остаются отдельным слоем, чтобы
 не смешивать deterministic regressions и machine-dependent measurements.

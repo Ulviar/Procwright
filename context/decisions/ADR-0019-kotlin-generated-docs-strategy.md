@@ -1,4 +1,4 @@
-# ADR-0019: Kotlin generated docs для baseline 0.1.0
+# ADR-0019: Проверка KDoc и публикация Kotlin API
 
 ## Статус
 
@@ -6,36 +6,26 @@
 
 ## Контекст
 
-`:procwright-kotlin` является optional ergonomics module. Он добавляет Kotlin receiver extensions, suspending wrappers и Flow
-adapter поверх Java core. Core не зависит от Kotlin runtime. Kotlin public API проверяется source-level KDoc gate.
-
-Нужно решить, добавлять ли Dokka в текущий documentation toolchain.
+`:procwright-kotlin` — optional ergonomics module поверх Java core. Его public declarations должны иметь проверяемый
+KDoc, а пользовательская документация должна объяснять artifact, package и основные Kotlin-сценарии. Отдельный
+generated API site имеет собственную стоимость поддержки и должен появляться только при доказанной пользе для
+пользователя.
 
 ## Решение
 
-Baseline `0.1.0` не добавляет Dokka в build, но Kotlin API должен быть явно представлен в public docs:
-
-- Kotlin public declarations должны иметь KDoc;
-- `:procwright-kotlin:kotlinApiDocsCheck` остается обязательной проверкой;
-- public docs содержат страницу Kotlin API с artifact, package, extensions и основными usage examples;
-- Dokka не добавляется в текущий build до Kotlin API stabilization.
-
-## Почему Dokka откладывается
-
-- Kotlin module пока является ergonomics layer, а не основной runtime contract.
-- Документационный site уже публикует Java Javadocs для core и integrations.
-- Добавление Dokka меняет build dependency surface и требует отдельного review.
-- До API freeze Kotlin wrappers могут изменяться чаще, чем core Java contracts.
+- Dokka 2.2.0 входит в Gradle build как parser-backed KDoc gate.
+- `:procwright-kotlin:kotlinApiDocsCheck` запускает `dokkaGeneratePublicationHtml` с `reportUndocumented=true` и
+  `failOnWarning=true`.
+- Output этой проверки в `procwright-kotlin/build/kdoc-validation` упаковывается в стандартный
+  `procwright-kotlin-<version>-javadoc.jar`; пустой Java Javadoc classifier для Kotlin-only module не публикуется.
+- Public Kotlin reference и scenario examples поддерживаются в основной документации. Generated KDoc доступен через
+  Javadoc classifier, но не дублируется внутри MkDocs site.
+- Отдельный Dokka site и его публикация отложены до появления подтвержденной пользовательской потребности.
 
 ## Последствия
 
-Плюсы:
-
-- Build остается проще.
-- Kotlin API все равно защищен KDoc coverage check и tests.
-- Dokka можно добавить отдельным focused change после Kotlin API stabilization.
-
-Минусы:
-
-- Public site не содержит generated Dokka docs.
-- Kotlin пользователю доступна public reference page, KDoc in sources artifact и scenario docs.
+- Build использует официальный Kotlin parser и документирует отсутствие KDoc как ошибку, а не как text-heuristic.
+- Dokka остается build-time dependency, закрепленной dependency verification metadata, и не меняет runtime dependency
+  surface.
+- Стандартный Javadoc classifier содержит реальную generated Kotlin API reference. Отдельный Dokka site не дублирует
+  Kotlin reference без решения о навигации, versioning и пользовательской пользе.

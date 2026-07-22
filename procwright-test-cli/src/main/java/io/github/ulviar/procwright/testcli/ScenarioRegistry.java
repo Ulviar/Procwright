@@ -53,6 +53,11 @@ final class ScenarioRegistry {
                     "Emits interleaved stdout/stderr chunks with optional delay.",
                     OutputScenarios::stream),
             scenario(
+                    "concurrent-output",
+                    "output",
+                    "Emits one stdout chunk and one stderr chunk from synchronized writer threads.",
+                    OutputScenarios::concurrentOutput),
+            scenario(
                     "long-run",
                     "output",
                     "Emits bounded heartbeat output over a configurable long-running interval.",
@@ -109,6 +114,11 @@ final class ScenarioRegistry {
                     "Runs a line protocol with health, reset, delay, noise, and stderr control requests.",
                     ProtocolScenarios::controlledLineRepl),
             scenario(
+                    "expect-near-match-repl",
+                    "protocol",
+                    "Emits bounded paced near-match rounds from one reusable process.",
+                    ProtocolScenarios::expectNearMatchRepl),
+            scenario(
                     "exit-after-read",
                     "protocol",
                     "Reads one stdin line and exits without producing a response.",
@@ -159,6 +169,10 @@ final class ScenarioRegistry {
             throw new IllegalArgumentException("unknown test-cli scenario: " + name);
         }
         return definition.scenario();
+    }
+
+    static List<ScenarioDefinition> definitions() {
+        return DEFINITIONS;
     }
 
     private static int catalog(ScenarioContext context) throws IOException {

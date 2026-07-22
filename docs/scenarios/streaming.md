@@ -1,41 +1,56 @@
 # Streaming
 
-Use `listen` when the caller needs output chunks as they arrive and should not retain the entire output in memory.
+`listen()` delivers stdout and stderr chunks while the process runs without retaining complete output.
 
-The scenario covers:
-
-- parallel stdout/stderr draining;
-- synchronous listener backpressure;
-- bounded diagnostics;
-- default stdin close;
-- timeout handling;
-- listener-failure propagation through the stream exit future.
-
-## Example
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ListenExample.java -->
 ```java
-CommandService tool = Procwright.command("tool");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (StreamSession stream = tool.listen()
-        .withArgs("logs", "--follow")
-        .onOutput(chunk -> {
-            if (chunk.source() == StreamSource.STDERR) {
-                System.err.print(chunk.text());
-            } else {
-                System.out.print(chunk.text());
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.StreamExit;
+import io.github.ulviar.procwright.session.StreamSession;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public final class ListenExample {
+
+    private ListenExample() {}
+
+    public static void main(String[] args) {
+        AtomicInteger chunks = new AtomicInteger();
+        try (StreamSession stream = Procwright.command(ExampleSupport.workerCommand("listen"))
+                .listen()
+                .withTimeout(Duration.ofSeconds(2))
+                .onOutput(chunk -> chunks.incrementAndGet())
+                .open()) {
+            StreamExit exit = stream.onExit().orTimeout(5, TimeUnit.SECONDS).join();
+            if (!exit.timedOut() || chunks.get() == 0) {
+                throw new IllegalStateException("Expected bounded log streaming");
             }
-        })
-        .open()) {
-    stream.onExit().join();
+        }
+    }
 }
 ```
 
-## Backpressure
+[Open `ListenExample.java`](../examples/java/io/github/ulviar/procwright/examples/ListenExample.java) and the
+[shared example sources](../examples.md#core).
 
-Listener callbacks are synchronous for a stream session. A slow listener applies process-pipe backpressure instead of
-creating an unbounded in-memory queue. Move heavy work into an application-owned bounded queue or executor.
+Register `onOutput` before `open()`. The listener is the only output owner. Listener failures terminate the scenario and
+are reported through `StreamException`.
 
-## Failure model
+Within one stream session, stdout and stderr listener calls are synchronous and serialized. Concurrent opens of one Draft
+can invoke the same retained listener instance from different sessions, so a shared listener must be thread-safe. Use
+separate Draft branches with separate listener instances when it is not. Diagnostic recipients follow their asynchronous
+delivery contract and can also overlap across sessions.
 
-`StreamSession.onExit()` completes with `StreamExit` on normal completion and may complete exceptionally with
-`StreamException` when listener processing or stream supervision fails. The exception includes bounded diagnostics.
+`listen()` closes stdin when the process starts. Use [`interactive()`](interactive.md) when the caller needs to write
+stdin.
+
+`withTimeout` sets an absolute runtime limit; zero disables it. `StreamExit.timedOut()` distinguishes deadline shutdown
+from a normal exit. Closing the session stops its process.
+
+See [scenario defaults](../reference/defaults.md#streaming) for timeout, shutdown, charset, retained diagnostics, and
+listener values.

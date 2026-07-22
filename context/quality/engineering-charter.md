@@ -31,15 +31,16 @@ Procwright должен разрабатываться без спешки, бе
 - API проектируется от пользовательского сценария, а не от низкоуровневых flags.
 - Public surface должен быть маленьким, последовательным и предсказуемым.
 - Широкие возможности появляются через композицию value objects и policies.
-- Ошибки API должны быть обнаружены как можно раньше: в builder, value object или resolver.
+- Ошибки API должны быть обнаружены как можно раньше: в scenario Draft, value object или plan validator.
 - Public API не должен протекать implementation details, transport quirks или concurrency machinery.
-- Каждый public example должен компилироваться, когда появится build infrastructure.
+- Каждый public example должен проходить compile-tested external consumer gate.
 
 ## Обязательные требования к архитектуре
 
-- Все сценарии используют общий execution kernel.
+- Сценарии разделяют общие инварианты lifecycle и transport через их единственных владельцев; новый scenario или
+  optional layer не создает второй process engine.
 - Каждый инвариант имеет одного владельца.
-- Runtime получает нормализованный `ExecutionPlan`, а не набор полусырых builder flags.
+- Runtime получает нормализованный plan, а не набор полусырых Draft fields.
 - Transport-specific logic изолируется за узкими ports/SPI.
 - Сложная возможность сначала доказывается как internal design, затем становится public API.
 - Новые public classes добавляются только если они снижают реальную сложность для пользователя.
@@ -49,8 +50,8 @@ Procwright должен разрабатываться без спешки, бе
 - Код, комментарии, Javadoc/KDoc, tests и commit messages пишутся на английском.
 - Код должен быть простым, но не примитивным: явная модель важнее короткого хака.
 - Предпочтительны immutable objects, records, sealed policy families и узкие interfaces.
-- Builders остаются draft layer и не содержат runtime orchestration.
-- Никаких half-valid public objects вне builder/draft слоя.
+- Scenario Draft остается immutable configuration layer и не содержит runtime orchestration.
+- Никаких half-valid public objects вне Draft слоя.
 - Никаких boolean soup, если за boolean скрывается доменная политика.
 - Исключения должны нести structured data, когда это важно для диагностики.
 
@@ -61,13 +62,14 @@ Procwright должен разрабатываться без спешки, бе
 - Fixture/eval suite — часть продукта, а не вспомогательная мелочь.
 - Тесты должны покрывать happy path, failure path и edge cases.
 - Timeout, cancellation, stream draining и lifecycle behavior нельзя считать готовыми без негативных тестов.
-- Public API examples должны стать compile-tested examples.
+- Каждый public API example является compile-tested external consumer и изменяется в том же шаге, что API или
+  observable contract.
 
 ## Обязательные требования к документации
 
 - Документация в `context/` пишется на русском.
 - У каждого документа должен быть адресат и причина существования: пользовательское действие, maintainer decision,
-  архитектурная граница, release gate или проверяемый historical lesson.
+  архитектурная граница, release gate или проверяемое текущее ограничение.
 - Пользовательская документация должна описывать только реализованное и проверенное поведение.
 - Спекулятивные решения живут в ADR или планах, а не в README как обещание.
 - Документ должен уменьшать неопределенность. Если он просто повторяет правило, лучше сделать test или validator.
@@ -95,7 +97,7 @@ Procwright должен разрабатываться без спешки, бе
 
 - API выглядит удобным только для автора runtime, а не для пользователя;
 - правило существует только в тексте, но не в коде или тесте;
-- runtime принимает невозможную комбинацию options;
+- runtime принимает невозможную комбинацию settings;
 - ошибка теряет важный контекст;
 - тест покрывает только happy path;
 - документация обещает больше, чем реализовано;

@@ -3,10 +3,13 @@
 package io.github.ulviar.procwright.integration;
 
 import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.core.StreamReadFeature;
+import com.fasterxml.jackson.core.StreamWriteFeature;
+import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
@@ -15,7 +18,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.DecimalNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.StringWriter;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -80,10 +87,32 @@ public final class JsonCodec {
      */
     public static String write(JsonValue value, int maxDepth) {
         requirePositive(maxDepth, "maxDepth");
-        try {
-            return DEFAULT_MAPPER.writeValueAsString(toJsonNode(Objects.requireNonNull(value, "value"), 0, maxDepth));
-        } catch (JsonProcessingException exception) {
-            throw new JsonParseException("Could not write JSON: " + exception.getOriginalMessage(), exception);
+        StringWriter output = new StringWriter();
+        try (JsonGenerator generator = DEFAULT_MAPPER.createGenerator(output)) {
+            writeJsonValue(generator, Objects.requireNonNull(value, "value"), 0, maxDepth);
+        } catch (IOException exception) {
+            throw writeFailure(exception);
+        }
+        return output.toString();
+    }
+
+    static void writeUtf8(JsonValue value, OutputStream output) throws IOException {
+        writeUtf8(value, output, DEFAULT_MAX_DEPTH);
+    }
+
+    static long utf8Length(JsonValue value, long maxBytes) throws IOException {
+        if (maxBytes < 0) {
+            throw new IllegalArgumentException("maxBytes must not be negative");
+        }
+        BoundedCountingOutputStream output = new BoundedCountingOutputStream(maxBytes);
+        writeUtf8(value, output, DEFAULT_MAX_DEPTH);
+        return output.count();
+    }
+
+    private static void writeUtf8(JsonValue value, OutputStream output, int maxDepth) throws IOException {
+        Objects.requireNonNull(output, "output");
+        try (JsonGenerator generator = DEFAULT_MAPPER.createGenerator(output)) {
+            writeJsonValue(generator, Objects.requireNonNull(value, "value"), 0, maxDepth);
         }
     }
 
@@ -123,6 +152,8 @@ public final class JsonCodec {
     private static ObjectMapper mapper(int maxDepth) {
         JsonFactory factory = JsonFactory.builder()
                 .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                .enable(JsonWriteFeature.COMBINE_UNICODE_SURROGATES_IN_UTF8)
+                .disable(StreamWriteFeature.AUTO_CLOSE_TARGET)
                 .streamReadConstraints(StreamReadConstraints.builder()
                         .maxNestingDepth(maxDepth)
                         .build())
@@ -212,6 +243,54 @@ public final class JsonCodec {
                 "Unsupported JSON value type: " + value.getClass().getName());
     }
 
+    private static void writeJsonValue(JsonGenerator generator, JsonValue value, int depth, int maxDepth)
+            throws IOException {
+        if (value instanceof JsonValue.JsonObject object) {
+            requireDepth(depth, maxDepth);
+            generator.writeStartObject();
+            for (Map.Entry<String, JsonValue> entry : object.members().entrySet()) {
+                generator.writeFieldName(entry.getKey());
+                writeJsonValue(generator, entry.getValue(), depth + 1, maxDepth);
+            }
+            generator.writeEndObject();
+            return;
+        }
+        if (value instanceof JsonValue.JsonArray array) {
+            requireDepth(depth, maxDepth);
+            generator.writeStartArray();
+            for (JsonValue child : array.values()) {
+                writeJsonValue(generator, child, depth + 1, maxDepth);
+            }
+            generator.writeEndArray();
+            return;
+        }
+        if (value instanceof JsonValue.JsonString string) {
+            generator.writeString(string.value());
+            return;
+        }
+        if (value instanceof JsonValue.JsonNumber number) {
+            generator.writeNumber(number.value());
+            return;
+        }
+        if (value instanceof JsonValue.JsonBoolean bool) {
+            generator.writeBoolean(bool.value());
+            return;
+        }
+        if (value instanceof JsonValue.JsonNull) {
+            generator.writeNull();
+            return;
+        }
+        throw new JsonParseException(
+                "Unsupported JSON value type: " + value.getClass().getName());
+    }
+
+    private static JsonParseException writeFailure(IOException exception) {
+        String message = exception instanceof JsonProcessingException processing
+                ? processing.getOriginalMessage()
+                : exception.getMessage();
+        return new JsonParseException("Could not write JSON: " + message, exception);
+    }
+
     private static int requirePositive(int value, String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
@@ -222,6 +301,48 @@ public final class JsonCodec {
     private static void requireDepth(int depth, int maxDepth) {
         if (depth >= maxDepth) {
             throw new JsonParseException("JSON nesting exceeds maxDepth");
+        }
+    }
+
+    static final class OutputLimitExceededException extends IOException {
+
+        private static final long serialVersionUID = 1L;
+
+        private OutputLimitExceededException(long limit) {
+            super("JSON output exceeds " + limit + " bytes");
+        }
+    }
+
+    private static final class BoundedCountingOutputStream extends OutputStream {
+
+        private final long limit;
+        private long count;
+
+        private BoundedCountingOutputStream(long limit) {
+            this.limit = limit;
+        }
+
+        @Override
+        public void write(int value) throws OutputLimitExceededException {
+            add(1);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws OutputLimitExceededException {
+            Objects.requireNonNull(bytes, "bytes");
+            Objects.checkFromIndexSize(offset, length, bytes.length);
+            add(length);
+        }
+
+        private void add(int length) throws OutputLimitExceededException {
+            if (length > limit - count) {
+                throw new OutputLimitExceededException(limit);
+            }
+            count += length;
+        }
+
+        private long count() {
+            return count;
         }
     }
 }

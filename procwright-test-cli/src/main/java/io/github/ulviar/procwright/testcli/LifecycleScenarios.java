@@ -52,12 +52,15 @@ final class LifecycleScenarios {
         // Optional side channel: a parent that terminates this process usually loses its stdout
         // pipe before the hook output arrives, so the hook can also record progress in a file.
         String hookFile = options.string("hook-file", "");
+        String readyFile = options.string("ready-file", "");
+        String hookChildPidFile = options.string("hook-child-pid-file", "");
         Runtime.getRuntime()
                 .addShutdownHook(new Thread(
-                        () -> runShutdownHook(context, stdout, hookDelayMillis, hookFile),
+                        () -> runShutdownHook(context, stdout, hookDelayMillis, hookFile, hookChildPidFile),
                         "procwright-test-cli-shutdown-hook"));
 
         context.stdoutLine(options.string("started-text", "started"));
+        appendHookMarker(readyFile, "ready\n");
         long runMillis = options.longValue("run-millis", -1);
         if (runMillis < 0) {
             while (true) {
@@ -70,6 +73,9 @@ final class LifecycleScenarios {
 
     static int spawnChild(ScenarioContext context) throws Exception {
         CliOptions options = context.options();
+        if (options.bool("close-stdin", false)) {
+            context.stdin().close();
+        }
         String childScenario = options.string("child-scenario", "sleep");
         List<String> command = testCliCommand(childScenario);
         if ("sleep".equals(childScenario)) {
@@ -159,11 +165,22 @@ final class LifecycleScenarios {
     }
 
     private static void runShutdownHook(
-            ScenarioContext context, OutputStream stdout, long hookDelayMillis, String hookFile) {
+            ScenarioContext context,
+            OutputStream stdout,
+            long hookDelayMillis,
+            String hookFile,
+            String hookChildPidFile) {
         try {
             stdout.write("shutdown-hook:start\n".getBytes(context.charset()));
             stdout.flush();
             appendHookMarker(hookFile, "shutdown-hook:start\n");
+            if (!hookChildPidFile.isEmpty()) {
+                Process child = new ProcessBuilder(testCliCommand("never-exit"))
+                        .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                        .redirectError(ProcessBuilder.Redirect.DISCARD)
+                        .start();
+                Files.writeString(Path.of(hookChildPidFile), Long.toString(child.pid()));
+            }
             Thread.sleep(hookDelayMillis);
             stdout.write("shutdown-hook:end\n".getBytes(context.charset()));
             stdout.flush();

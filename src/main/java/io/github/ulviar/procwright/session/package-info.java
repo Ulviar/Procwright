@@ -14,9 +14,11 @@
  * {@link io.github.ulviar.procwright.session.Expect} automates prompts over a raw session with literal and regex
  * matching.
  *
- * <p>Each session family has an options class with explicit defaults ({@code SessionOptions},
- * {@code LineSessionOptions}, {@code ProtocolSessionOptions}, {@code ExpectOptions}, {@code StreamOptions}, and the
- * pooled variants) and a typed exception with a stable reason enum, so failures can be mapped to domain errors
- * without parsing messages.
+ * <p>Session configuration is exposed through immutable nested scenario {@code Draft} interfaces and each live handle
+ * has a typed exception with a stable reason enum, so failures can be mapped to domain errors without parsing
+ * messages.
  */
+@NullMarked
 package io.github.ulviar.procwright.session;
+
+import org.jspecify.annotations.NullMarked;

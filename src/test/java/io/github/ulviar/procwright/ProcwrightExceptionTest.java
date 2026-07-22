@@ -2,7 +2,10 @@
 
 package io.github.ulviar.procwright;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.ulviar.procwright.command.CommandException;
 import io.github.ulviar.procwright.command.CommandExecutionException;
@@ -26,13 +29,12 @@ final class ProcwrightExceptionTest {
         assertInstanceOf(ProcwrightException.class, new CommandExecutionException("failed"));
         assertInstanceOf(
                 ProcwrightException.class,
-                new LineSessionException(LineSessionException.Reason.TIMEOUT, new LineTranscript("", false), "failed"));
+                new LineSessionException(
+                        LineSessionException.Reason.TIMEOUT, new LineTranscript("", false, false), "failed"));
         assertInstanceOf(
                 ProcwrightException.class,
                 new ProtocolSessionException(
-                        ProtocolSessionException.Reason.TIMEOUT,
-                        new ProtocolTranscript("", false, false, false),
-                        "failed"));
+                        ProtocolSessionException.Reason.TIMEOUT, new ProtocolTranscript("", false, false), "failed"));
         assertInstanceOf(
                 ProcwrightException.class,
                 new PooledLineSessionException(PooledLineSessionException.Reason.CLOSED, "failed"));
@@ -41,8 +43,26 @@ final class ProcwrightExceptionTest {
                 new PooledProtocolSessionException(PooledProtocolSessionException.Reason.CLOSED, "failed"));
         assertInstanceOf(
                 ProcwrightException.class,
-                new ExpectException(ExpectException.Reason.TIMEOUT, new LineTranscript("", false), "failed"));
+                new ExpectException(ExpectException.Reason.TIMEOUT, new LineTranscript("", false, false), "failed"));
         assertInstanceOf(
-                ProcwrightException.class, new StreamException("failed", new StreamTranscript("", false), null));
+                ProcwrightException.class,
+                new StreamException(
+                        StreamException.Reason.PROCESS_FAILED, "failed", new StreamTranscript("", false), null));
+    }
+
+    @Test
+    void streamExceptionRequiresAndExposesStructuredFailureState() {
+        StreamTranscript transcript = new StreamTranscript("diagnostics", true);
+        IllegalStateException cause = new IllegalStateException("failed");
+        StreamException failure =
+                new StreamException(StreamException.Reason.PROCESS_FAILED, "failed", transcript, cause);
+
+        assertEquals(StreamException.Reason.PROCESS_FAILED, failure.reason());
+        assertSame(transcript, failure.diagnostics());
+        assertSame(cause, failure.getCause());
+        assertThrows(NullPointerException.class, () -> new StreamException(null, "failed", transcript, cause));
+        assertThrows(
+                NullPointerException.class,
+                () -> new StreamException(StreamException.Reason.PROCESS_FAILED, "failed", null, cause));
     }
 }

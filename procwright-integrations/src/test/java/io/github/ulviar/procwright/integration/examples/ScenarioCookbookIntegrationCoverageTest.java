@@ -103,7 +103,6 @@ final class ScenarioCookbookIntegrationCoverageTest {
             }
             if (columns[2].contains(":procwright-integrations")
                     || columns[2].contains("JsonLineSession")
-                    || columns[2].contains("CancellableCall")
                     || columns[2].contains("ContentLengthJsonFrames")) {
                 names.add(columns[3].trim().replace("`", ""));
             }

@@ -18,14 +18,12 @@ final class ReferenceApiExamples {
     void commandDefaults() {
         Path projectDir = Path.of(".");
 
-        CommandSpec command = CommandSpec.builder("python")
-                .workingDirectory(projectDir)
-                .putEnvironment("PYTHONUTF8", "1")
-                .build();
+        CommandSpec command =
+                CommandSpec.of("python").withWorkingDirectory(projectDir).withEnvironment("PYTHONUTF8", "1");
 
         CommandService python = Procwright.command(command);
 
-        python.run().execute("--version");
+        python.run().withArg("--version").execute();
     }
 
     void policyComposition() {
@@ -45,7 +43,7 @@ final class ReferenceApiExamples {
     void directArgv() {
         CommandService git = Procwright.command("git");
 
-        CommandResult result = git.run().execute("status", "--short");
+        CommandResult result = git.run().withArgs("status", "--short").execute();
 
         if (!result.succeeded()) {
             throw result.toException();
@@ -53,7 +51,7 @@ final class ReferenceApiExamples {
     }
 
     void explicitShell() {
-        CommandService shell = Procwright.shellCommand("printf '%s\\n' \"$MESSAGE\"");
+        CommandService shell = Procwright.command(CommandSpec.shell("printf '%s\\n' \"$MESSAGE\""));
 
         shell.run().withEnvironment("MESSAGE", "hello").execute();
     }

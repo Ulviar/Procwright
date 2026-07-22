@@ -3,14 +3,20 @@
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.internal.session.DefaultExpect;
-import io.github.ulviar.procwright.internal.session.SessionInternals;
+import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.regex.Pattern;
 
 /**
  * Small expect-style prompt automation helper over a raw {@link Session}.
  *
- * <p>Matching is performed against filtered stdout. Stderr is drained into the transcript for diagnostics.
+ * <p>Matching is performed against decoded stdout. The built-in ANSI option incrementally removes 7-bit ECMA-48 control
+ * sequence introducer (CSI) sequences that begin with {@code ESC [}. Stderr is drained into the transcript for
+ * diagnostics.
+ *
+ * <p>A match timeout is recoverable: it does not close this helper or its session, and a caller may perform another
+ * match. A concurrent close, output failure, or stdout EOF retains its distinct failure reason instead of being reported
+ * as a timeout.
  *
  * <p>This sealed interface is a Procwright-owned handle contract, not a service-provider interface. Expect helpers rely on
  * Procwright's internal output-ownership invariant and therefore support only sessions created by Procwright.
@@ -18,26 +24,74 @@ import java.util.regex.Pattern;
 public sealed interface Expect extends AutoCloseable permits DefaultExpect {
 
     /**
-     * Creates an expect helper using default options.
+     * Immutable, write-only configuration for opening an expect helper over an existing session.
      *
-     * @param session session to automate
-     * @return expect helper
-     * @throws IllegalArgumentException when the session was not created by Procwright
+     * <p>Each {@code with*} method returns a new draft. Creating and configuring drafts does not claim process output;
+     * {@link #open()} does.
      */
-    static Expect on(Session session) {
-        return on(session, ExpectOptions.defaults());
-    }
+    interface Draft {
+        /**
+         * Sets the default match timeout.
+         *
+         * @param timeout positive match timeout
+         * @return updated draft
+         */
+        Draft withTimeout(Duration timeout);
 
-    /**
-     * Creates an expect helper using explicit options.
-     *
-     * @param session session to automate
-     * @param options expect options
-     * @return expect helper
-     * @throws IllegalArgumentException when the session was not created by Procwright
-     */
-    static Expect on(Session session, ExpectOptions options) {
-        return new DefaultExpect(SessionInternals.requireDefaultSession(session), options);
+        /**
+         * Sets the retained transcript character limit.
+         *
+         * @param transcriptLimit positive character limit
+         * @return updated draft
+         */
+        Draft withTranscriptLimit(int transcriptLimit);
+
+        /**
+         * Sets the maximum retained text available to matchers.
+         *
+         * @param matchBufferLimit positive character limit
+         * @return updated draft
+         */
+        Draft withMatchBufferLimit(int matchBufferLimit);
+
+        /**
+         * Overrides the session charset used to decode output.
+         *
+         * @param charset output charset
+         * @return updated draft
+         */
+        Draft withCharset(Charset charset);
+
+        /**
+         * Removes 7-bit ECMA-48 control sequence introducer (CSI) sequences beginning with {@code ESC [} from stdout and
+         * stderr before matching and transcript capture.
+         *
+         * <p>Stripping is incremental, so a sequence split across process-output reads is handled consistently. An
+         * incomplete or overlong candidate is preserved as text instead of being retained without a bound.
+         *
+         * @return updated draft
+         */
+        Draft withAnsiControlSequenceStripping();
+
+        /**
+         * Selects whether transcript values are retained or redacted.
+         *
+         * @param transcriptValues transcript value policy
+         * @return updated draft
+         */
+        Draft withTranscriptValues(ExpectTranscriptValues transcriptValues);
+
+        /**
+         * Atomically claims both session output streams and opens the helper.
+         *
+         * <p>Merely retrieving raw stream wrappers does not conflict with this operation. A prior effective raw stream
+         * operation, another helper claim, or completed session cleanup does.
+         *
+         * @return newly opened expect helper
+         * @throws IllegalStateException if session output is already in raw mode, owned by another helper, or closed by
+         *     session cleanup
+         */
+        Expect open();
     }
 
     /**
@@ -144,7 +198,8 @@ public sealed interface Expect extends AutoCloseable permits DefaultExpect {
     LineTranscript transcript();
 
     /**
-     * Closes this helper and the underlying session. Calling this method more than once has no effect.
+     * Closes this helper and the underlying session. Output ownership is not returned to raw session code. Calling this
+     * method more than once has no effect.
      */
     @Override
     void close();

@@ -7,14 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.command.RunOptions;
 import io.github.ulviar.procwright.session.Expect;
 import io.github.ulviar.procwright.session.ExpectException;
-import io.github.ulviar.procwright.session.ExpectOptions;
-import io.github.ulviar.procwright.session.ExpectOutputFilter;
 import io.github.ulviar.procwright.session.ExpectTranscriptValues;
 import io.github.ulviar.procwright.session.Session;
-import io.github.ulviar.procwright.session.SessionOptions;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -26,8 +22,11 @@ final class ExpectIntegrationTest {
     @Test
     void literalMatchAndSendLineRecordOrder() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             expect.expectText("ready> ");
             expect.sendLine("hello");
             expect.expectText("echo:hello");
@@ -43,8 +42,11 @@ final class ExpectIntegrationTest {
     @Test
     void literalMatchResultReturnsMatchedTextEmptyGroupsAndBeforeText() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             io.github.ulviar.procwright.session.ExpectMatch match = expect.expectTextMatch("dy> ");
 
             assertEquals("dy> ", match.matched());
@@ -56,8 +58,11 @@ final class ExpectIntegrationTest {
     @Test
     void regexMatchResultExtractsValueThroughCaptureGroups() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             expect.expectText("ready> ");
             expect.sendLine("token-42");
 
@@ -72,8 +77,11 @@ final class ExpectIntegrationTest {
     @Test
     void consecutiveMatchResultsReportBeforeTextBetweenMatches() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             expect.expectText("ready> ");
             expect.sendLine("alpha");
 
@@ -86,8 +94,11 @@ final class ExpectIntegrationTest {
     @Test
     void expectMatchesCrlfTerminatedOutputWithoutNormalization() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--crlf=true", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--crlf=true", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(2)).open()) {
             expect.sendLine("alpha");
 
             io.github.ulviar.procwright.session.ExpectMatch match =
@@ -101,9 +112,12 @@ final class ExpectIntegrationTest {
     @Test
     void matchResultTimeoutIsTypedExpectException() {
         try (Session session = fixtureService()
-                        .interactive(call ->
-                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(timeoutAfterFixtureStartup()))) {
+                        .interactive()
+                        .withArgs("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000")
+                        .open();
+                Expect expect = session.expect()
+                        .withTimeout(timeoutAfterFixtureStartup())
+                        .open()) {
             ExpectException exception =
                     assertThrows(ExpectException.class, () -> expect.expectTextMatch("never-appears"));
 
@@ -113,13 +127,14 @@ final class ExpectIntegrationTest {
 
     @Test
     void transcriptValuesAreOptIn() {
-        ExpectOptions options = ExpectOptions.defaults()
-                .withTimeout(Duration.ofSeconds(1))
-                .withTranscriptValues(ExpectTranscriptValues.VERBATIM);
-
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(options)) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect = session.expect()
+                        .withTimeout(Duration.ofSeconds(1))
+                        .withTranscriptValues(ExpectTranscriptValues.VERBATIM)
+                        .open()) {
             expect.expectText("ready> ");
             expect.sendLine("hello");
             expect.expectText("echo:hello");
@@ -133,8 +148,11 @@ final class ExpectIntegrationTest {
     @Test
     void regexMatchWorksAcrossPromptOutput() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             expect.expectRegex(Pattern.compile("ready>\\s*$"));
         }
     }
@@ -142,8 +160,11 @@ final class ExpectIntegrationTest {
     @Test
     void sendWritesRawText() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             expect.expectText("ready> ");
             expect.send("raw\n");
             expect.expectText("echo:raw");
@@ -153,8 +174,11 @@ final class ExpectIntegrationTest {
     @Test
     void sendLineRejectsEmbeddedLineSeparators() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             assertThrows(IllegalArgumentException.class, () -> expect.sendLine("a\nb"));
             assertThrows(IllegalArgumentException.class, () -> expect.sendLine("a\rb"));
         }
@@ -163,20 +187,27 @@ final class ExpectIntegrationTest {
     @Test
     void sessionOutputCanHaveOnlyOneExpectOwner() {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
-            assertThrows(IllegalStateException.class, () -> session.expect());
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
+            expect.expectText("ready> ");
+            assertThrows(IllegalStateException.class, () -> session.expect().open());
         }
     }
 
     @Test
     void rawOutputStreamsCannotBeReadAfterExpectClaimsOutputOwnership() throws Exception {
         try (Session session = fixtureService()
-                .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"))) {
+                .interactive()
+                .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                .open()) {
             InputStream stdout = session.stdout();
             InputStream stderr = session.stderr();
 
-            try (Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+            try (Expect expect =
+                    session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
                 assertThrows(IllegalStateException.class, stdout::read);
                 assertThrows(IllegalStateException.class, stderr::read);
                 assertThrows(IllegalStateException.class, stdout::close);
@@ -189,8 +220,11 @@ final class ExpectIntegrationTest {
     @Test
     void newRawOutputStreamsCannotBeReadAfterExpectClaimsOutputOwnership() throws Exception {
         try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+                        .interactive()
+                        .withArgs("line-repl", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             assertThrows(IllegalStateException.class, session.stdout()::read);
             assertThrows(IllegalStateException.class, session.stderr()::read);
             expect.expectText("ready> ");
@@ -199,8 +233,11 @@ final class ExpectIntegrationTest {
 
     @Test
     void closingExpectClosesUnderlyingSession() throws Exception {
-        Session session = fixtureService().interactive(call -> call.args("sleep", "--millis=5000", "--finished=false"));
-        Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)));
+        Session session = fixtureService()
+                .interactive()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .open();
+        Expect expect = session.expect().withTimeout(Duration.ofSeconds(1)).open();
 
         expect.close();
 
@@ -211,11 +248,34 @@ final class ExpectIntegrationTest {
     }
 
     @Test
+    void closingExpectDoesNotReturnItsOutputStreamsToRawSessionCode() throws Exception {
+        Session session = fixtureService()
+                .interactive()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .open();
+        InputStream stdout = session.stdout();
+        InputStream stderr = session.stderr();
+        Expect expect = session.expect().withTimeout(Duration.ofSeconds(1)).open();
+
+        expect.close();
+        session.onExit().get(2, java.util.concurrent.TimeUnit.SECONDS);
+
+        assertThrows(IllegalStateException.class, stdout::read);
+        assertThrows(IllegalStateException.class, stderr::read);
+        assertThrows(IllegalStateException.class, stdout::close);
+        assertThrows(IllegalStateException.class, stderr::close);
+        assertThrows(IllegalStateException.class, () -> session.expect().open());
+    }
+
+    @Test
     void timeoutRedactsExpectedTextInTranscriptAndMessageByDefault() {
         try (Session session = fixtureService()
-                        .interactive(call ->
-                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(timeoutAfterFixtureStartup()))) {
+                        .interactive()
+                        .withArgs("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000")
+                        .open();
+                Expect expect = session.expect()
+                        .withTimeout(timeoutAfterFixtureStartup())
+                        .open()) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("secret-done"));
 
             assertEquals(ExpectException.Reason.TIMEOUT, exception.reason());
@@ -231,8 +291,9 @@ final class ExpectIntegrationTest {
     void eofRedactsExpectedRegexInMessageByDefault() {
         Pattern secretPattern = Pattern.compile("secret-never");
 
-        try (Session session = fixtureService().interactive(call -> call.args("exit"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+        try (Session session = fixtureService().interactive().withArgs("exit").open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectRegex(secretPattern));
 
             assertEquals(ExpectException.Reason.EOF, exception.reason());
@@ -244,14 +305,14 @@ final class ExpectIntegrationTest {
 
     @Test
     void verbatimTranscriptValuesAllowExpectedTextInFailureMessage() {
-        ExpectOptions options = ExpectOptions.defaults()
-                .withTimeout(Duration.ofMillis(100))
-                .withTranscriptValues(ExpectTranscriptValues.VERBATIM);
-
         try (Session session = fixtureService()
-                        .interactive(call ->
-                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
-                Expect expect = session.expect(options)) {
+                        .interactive()
+                        .withArgs("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000")
+                        .open();
+                Expect expect = session.expect()
+                        .withTimeout(Duration.ofMillis(100))
+                        .withTranscriptValues(ExpectTranscriptValues.VERBATIM)
+                        .open()) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("visible-done"));
 
             assertEquals(ExpectException.Reason.TIMEOUT, exception.reason());
@@ -261,54 +322,16 @@ final class ExpectIntegrationTest {
     }
 
     @Test
-    void stderrFilterFailureIsDistinct() {
-        ExpectOptions options = ExpectOptions.defaults()
-                .withTimeout(Duration.ofSeconds(1))
-                .withOutputFilter(output -> {
-                    if (output.contains("partial-error")) {
-                        throw new IllegalArgumentException("bad stderr");
-                    }
-                    return output;
-                });
-
-        try (Session session = fixtureService()
-                        .interactive(call ->
-                                call.args("partial", "--stdout=", "--stderr=partial-error", "--hold-millis=5000"));
-                Expect expect = session.expect(options)) {
-            ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("done"));
-
-            assertEquals(ExpectException.Reason.FAILURE, exception.reason());
-        }
-    }
-
-    @Test
-    void filterFailureIsDistinct() {
-        ExpectOptions options = ExpectOptions.defaults()
-                .withTimeout(Duration.ofSeconds(1))
-                .withOutputFilter(output -> {
-                    throw new IllegalArgumentException("bad output");
-                });
-
-        try (Session session = fixtureService()
-                        .interactive(call -> call.args("line-repl", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(options)) {
-            ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("ready"));
-
-            assertEquals(ExpectException.Reason.FAILURE, exception.reason());
-            assertTrue(exception.transcript().text().contains("expect text: <redacted>"));
-            assertFalse(exception.transcript().text().contains("expect text: ready"));
-        }
-    }
-
-    @Test
     void matchBufferIsBoundedIndependentlyFromTranscript() {
-        ExpectOptions options = ExpectOptions.defaults()
-                .withTimeout(Duration.ofSeconds(1))
-                .withMatchBufferLimit(16)
-                .withTranscriptLimit(256);
-
-        try (Session session = fixtureService().interactive(call -> call.args("controlled-line-repl"));
-                Expect expect = session.expect(options)) {
+        try (Session session = fixtureService()
+                        .interactive()
+                        .withArgs("controlled-line-repl")
+                        .open();
+                Expect expect = session.expect()
+                        .withTimeout(Duration.ofSeconds(1))
+                        .withMatchBufferLimit(16)
+                        .withTranscriptLimit(256)
+                        .open()) {
             expect.sendLine("many");
             expect.expectText("done");
 
@@ -318,11 +341,14 @@ final class ExpectIntegrationTest {
 
     @Test
     void transcriptIsBounded() {
-        ExpectOptions options =
-                ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)).withTranscriptLimit(80);
-
-        try (Session session = fixtureService().interactive(call -> call.args("controlled-line-repl"));
-                Expect expect = session.expect(options)) {
+        try (Session session = fixtureService()
+                        .interactive()
+                        .withArgs("controlled-line-repl")
+                        .open();
+                Expect expect = session.expect()
+                        .withTimeout(Duration.ofSeconds(1))
+                        .withTranscriptLimit(80)
+                        .open()) {
             expect.sendLine("many");
             expect.expectText("done");
 
@@ -333,8 +359,9 @@ final class ExpectIntegrationTest {
 
     @Test
     void eofBeforeExpectedOutputIsDistinct() {
-        try (Session session = fixtureService().interactive(call -> call.args("exit"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(1)))) {
+        try (Session session = fixtureService().interactive().withArgs("exit").open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(1)).open()) {
             ExpectException exception = assertThrows(ExpectException.class, () -> expect.expectText("never"));
 
             assertEquals(ExpectException.Reason.EOF, exception.reason());
@@ -342,27 +369,28 @@ final class ExpectIntegrationTest {
     }
 
     @Test
-    void ansiFilterCanNormalizeOutputBeforeMatching() {
-        ExpectOptions options = ExpectOptions.defaults()
-                .withTimeout(Duration.ofSeconds(1))
-                .withOutputFilter(ExpectOutputFilter.stripAnsiControlSequences());
-
-        try (Session session = fixtureService().interactive(call -> call.args("ansi-prompt"));
-                Expect expect = session.expect(options)) {
+    void ansiControlSequenceStrippingNormalizesOutputBeforeMatching() {
+        try (Session session =
+                        fixtureService().interactive().withArgs("ansi-prompt").open();
+                Expect expect = session.expect()
+                        .withTimeout(Duration.ofSeconds(1))
+                        .withAnsiControlSequenceStripping()
+                        .open()) {
             expect.expectText("READY> ");
+            assertFalse(expect.transcript().text().contains("\u001B"));
         }
     }
 
     @Test
     void expectFollowsSessionCharsetByDefault() {
-        CommandService service = new CommandService(
-                TestCliSupport.command(),
-                RunOptions.defaults(),
-                SessionOptions.defaults().withCharset(StandardCharsets.ISO_8859_1));
+        InteractiveScenario.Draft scenario =
+                Procwright.command(TestCliSupport.command()).interactive().withCharset(StandardCharsets.ISO_8859_1);
 
-        try (Session session = service.interactive(call ->
-                        call.args("line-repl", "--charset=ISO-8859-1", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
+        try (Session session = scenario.withArgs(
+                                "line-repl", "--charset=ISO-8859-1", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(2)).open()) {
             expect.expectText("ready> ");
             expect.sendLine("café");
             expect.expectText("echo:café");
@@ -371,16 +399,16 @@ final class ExpectIntegrationTest {
 
     @Test
     void explicitExpectCharsetTakesPrecedenceOverSessionCharset() {
-        CommandService service = new CommandService(
-                TestCliSupport.command(),
-                RunOptions.defaults(),
-                SessionOptions.defaults().withCharset(StandardCharsets.ISO_8859_1));
+        InteractiveScenario.Draft scenario =
+                Procwright.command(TestCliSupport.command()).interactive().withCharset(StandardCharsets.ISO_8859_1);
 
-        try (Session session = service.interactive(call ->
-                        call.args("line-repl", "--charset=UTF-8", "--prompt=ready> ", "--response-prefix=echo:"));
-                Expect expect = session.expect(ExpectOptions.defaults()
+        try (Session session = scenario.withArgs(
+                                "line-repl", "--charset=UTF-8", "--prompt=ready> ", "--response-prefix=echo:")
+                        .open();
+                Expect expect = session.expect()
                         .withTimeout(Duration.ofSeconds(2))
-                        .withCharset(StandardCharsets.UTF_8))) {
+                        .withCharset(StandardCharsets.UTF_8)
+                        .open()) {
             // ASCII traffic stays charset-neutral; this only pins the explicit-charset precedence contract.
             expect.expectText("ready> ");
             expect.sendLine("plain");
@@ -389,7 +417,7 @@ final class ExpectIntegrationTest {
     }
 
     private static CommandService fixtureService() {
-        return new CommandService(TestCliSupport.command(), RunOptions.defaults());
+        return Procwright.command(TestCliSupport.command());
     }
 
     private static Duration timeoutAfterFixtureStartup() {

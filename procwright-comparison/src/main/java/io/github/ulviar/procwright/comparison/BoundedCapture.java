@@ -5,7 +5,6 @@ package io.github.ulviar.procwright.comparison;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Arrays;
-import java.util.Objects;
 import java.util.function.Consumer;
 
 final class BoundedCapture extends OutputStream {
@@ -16,7 +15,7 @@ final class BoundedCapture extends OutputStream {
     private boolean truncated;
 
     BoundedCapture(int limit) {
-        this(limit, bytes -> {});
+        this(limit, null);
     }
 
     BoundedCapture(int limit, Consumer<byte[]> observer) {
@@ -24,7 +23,7 @@ final class BoundedCapture extends OutputStream {
             throw new IllegalArgumentException("limit must be positive");
         }
         this.buffer = new byte[limit];
-        this.observer = Objects.requireNonNull(observer, "observer");
+        this.observer = observer;
     }
 
     @Override
@@ -34,8 +33,9 @@ final class BoundedCapture extends OutputStream {
 
     @Override
     public synchronized void write(byte[] source, int offset, int length) {
-        byte[] observed = Arrays.copyOfRange(source, offset, offset + length);
-        observer.accept(observed);
+        if (observer != null) {
+            observer.accept(Arrays.copyOfRange(source, offset, offset + length));
+        }
         int available = buffer.length - size;
         if (available <= 0) {
             truncated = true;

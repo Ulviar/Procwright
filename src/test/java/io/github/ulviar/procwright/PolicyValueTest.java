@@ -7,19 +7,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
-import io.github.ulviar.procwright.command.OutputMode;
-import io.github.ulviar.procwright.command.RunOptions;
+import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.session.ExpectOptions;
-import io.github.ulviar.procwright.session.LineSessionOptions;
+import io.github.ulviar.procwright.internal.ExpectSettings;
+import io.github.ulviar.procwright.internal.LaunchSettings;
+import io.github.ulviar.procwright.internal.LineSessionSettings;
+import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
+import io.github.ulviar.procwright.internal.RunSettings;
+import io.github.ulviar.procwright.internal.SessionSettings;
+import io.github.ulviar.procwright.internal.StreamSettings;
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
-import io.github.ulviar.procwright.session.PooledLineSessionOptions;
 import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
-import io.github.ulviar.procwright.session.PooledProtocolSessionOptions;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
-import io.github.ulviar.procwright.session.ProtocolSessionOptions;
-import io.github.ulviar.procwright.session.SessionOptions;
-import io.github.ulviar.procwright.session.StreamOptions;
 import io.github.ulviar.procwright.terminal.PtyProvider;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import io.github.ulviar.procwright.terminal.TerminalSize;
@@ -95,50 +95,48 @@ final class PolicyValueTest {
     }
 
     @Test
-    void runOptionsRejectNegativeTimeout() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new RunOptions(
-                        CapturePolicy.bounded(512),
-                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                        Duration.ofMillis(-1),
-                        StandardCharsets.UTF_8,
-                        OutputMode.SEPARATE));
+    void runSettingsRejectNegativeTimeout() {
+        assertThrows(IllegalArgumentException.class, () -> runSettings().withTimeout(Duration.ofMillis(-1)));
     }
 
     @Test
-    void runOptionsExposeCharsetPolicy() {
-        RunOptions options = new RunOptions(
-                CapturePolicy.bounded(512),
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                Duration.ofSeconds(1),
-                CharsetPolicy.report(StandardCharsets.UTF_8),
-                OutputMode.SEPARATE);
+    void runSettingsExposeCharsetPolicy() {
+        RunSettings options = runSettings().withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
 
-        assertEquals(StandardCharsets.UTF_8, options.charset());
+        assertEquals(StandardCharsets.UTF_8, options.charsetPolicy().charset());
         assertEquals(CharsetPolicy.report(StandardCharsets.UTF_8), options.charsetPolicy());
     }
 
     @Test
-    void lineSessionOptionsRejectInvalidTimeoutAndTranscriptLimit() {
-        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+    void lineSessionSettingsRejectInvalidTimeoutAndTranscriptLimit() {
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
                 .withRequestTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
                 .withTranscriptLimit(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
                 .withStdoutBacklogLines(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
+                .withStdoutBacklogChars(0));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
                 .withMaxLineChars(0));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
+                .withMaxRequestBytes(0));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
+                .withMaxRequestChars(0));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
+                .withMaxResponseLines(0));
+        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
+                .withMaxResponseChars(0));
     }
 
     @Test
-    void expectOptionsRejectInvalidTimeoutAndTranscriptLimit() {
+    void expectSettingsRejectInvalidTimeoutAndTranscriptLimit() {
         assertThrows(
-                IllegalArgumentException.class, () -> ExpectOptions.defaults().withTimeout(Duration.ZERO));
+                IllegalArgumentException.class, () -> ExpectSettings.defaults().withTimeout(Duration.ZERO));
         assertThrows(
-                IllegalArgumentException.class, () -> ExpectOptions.defaults().withTranscriptLimit(0));
+                IllegalArgumentException.class, () -> ExpectSettings.defaults().withTranscriptLimit(0));
         assertThrows(
-                IllegalArgumentException.class, () -> ExpectOptions.defaults().withMatchBufferLimit(0));
+                IllegalArgumentException.class, () -> ExpectSettings.defaults().withMatchBufferLimit(0));
     }
 
     @Test
@@ -148,121 +146,140 @@ final class PolicyValueTest {
     }
 
     @Test
-    void sessionOptionsCarryTerminalDefaults() {
+    void sessionSettingsCarryTerminalDefaults() {
         PtyProvider provider = PtyProvider.unavailable("no test provider");
-        SessionOptions options = SessionOptions.defaults()
-                .withTerminalPolicy(TerminalPolicy.REQUIRED)
-                .withPtyProvider(provider)
-                .withTerminalSize(new TerminalSize(100, 40));
+        SessionSettings options = SessionSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
+                .withTerminal(new io.github.ulviar.procwright.internal.TerminalSettings(
+                        TerminalPolicy.REQUIRED, provider, new TerminalSize(100, 40)));
 
-        assertEquals(TerminalPolicy.REQUIRED, options.terminalPolicy());
-        assertEquals(provider, options.ptyProvider());
-        assertEquals(new TerminalSize(100, 40), options.terminalSize());
+        assertEquals(TerminalPolicy.REQUIRED, options.terminal().policy());
+        assertEquals(provider, options.terminal().provider());
+        assertEquals(new TerminalSize(100, 40), options.terminal().size());
     }
 
     @Test
-    void streamOptionsRejectInvalidDiagnosticLimitAndNegativeTimeout() {
-        assertThrows(
-                IllegalArgumentException.class, () -> StreamOptions.defaults().withDiagnosticLimit(0));
-        assertThrows(
-                IllegalArgumentException.class, () -> StreamOptions.defaults().withTimeout(Duration.ofMillis(-1)));
+    void streamSettingsRejectInvalidDiagnosticLimitAndNegativeTimeout() {
+        assertThrows(IllegalArgumentException.class, () -> streamSettings().withDiagnosticLimit(0));
+        assertThrows(IllegalArgumentException.class, () -> streamSettings().withTimeout(Duration.ofMillis(-1)));
     }
 
     @Test
-    void pooledLineSessionOptionsRejectInvalidPoolPolicies() {
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withMaxSize(0));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withWarmupSize(-1));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withMinIdle(-1));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withWarmupSize(2));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withMinIdle(2));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withAcquireTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withHookTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withMaxRequestsPerWorker(0));
-        assertThrows(IllegalArgumentException.class, () -> PooledLineSessionOptions.defaults()
-                .withMaxWorkerAge(Duration.ofMillis(-1)));
+    void workerPoolSettingsRejectInvalidScalarPoliciesAndDeferCrossFieldChecks() {
+        assertEquals(Duration.ofSeconds(15), poolSettings().closeTimeout());
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxSize(0));
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withWarmupSize(-1));
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withMinIdle(-1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> poolSettings().withWarmupSize(2).validateForOpen());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> poolSettings().withMinIdle(2).validateForOpen());
+        assertThrows(IllegalArgumentException.class, () -> poolSettings()
+                .withMaxSize(WorkerPoolSettings.MAX_SIZE + 1)
+                .validateForOpen());
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withAcquireTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withHookTimeout(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withCloseTimeout(Duration.ZERO));
+        assertEquals(
+                Duration.ofSeconds(3),
+                poolSettings().withCloseTimeout(Duration.ofSeconds(3)).closeTimeout());
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxRequestsPerWorker(0));
+        assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxWorkerAge(Duration.ofMillis(-1)));
+        assertThrows(IllegalArgumentException.class, () -> poolSettings()
+                .withMinIdle(1)
+                .withBackgroundReplenishment(false)
+                .validateForOpen());
     }
 
     @Test
     void pooledLineSessionMetricsRejectImpossibleSnapshots() {
-        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 1, 1, 1, 0, 0, 0));
-        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 2, 0, 2, 0, 0, 0));
-        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(1, 0, 2, 2, 0, 0, 0));
-        assertThrows(IllegalArgumentException.class, () -> new PooledLineSessionMetrics(0, 0, 0, 0, 1, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 1, 1, 1, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 2, 0, 2, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 0, 2, 2, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> basicMetrics(0, 0, 0, 0, 1, 0, 0));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new PooledLineSessionMetrics(
-                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
+                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledLineSessionMetrics(1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledLineSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledLineSessionMetrics(2, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledLineSessionMetrics(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledLineSessionMetrics(
+                        0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 0, 0, 0, Map.of(PooledWorkerRetireReason.CLOSED, 1L)));
+    }
+
+    private static PooledLineSessionMetrics basicMetrics(
+            int size, int idle, int leased, long created, long retired, long completed, long failed) {
+        return new PooledLineSessionMetrics(
+                size, idle, leased, 0, 0, created, retired, completed, failed, 0, 0, 0, 0, 0, Map.of());
     }
 
     @Test
-    void protocolSessionOptionsRejectInvalidLimits() {
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+    void protocolSessionSettingsRejectInvalidLimits() {
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withRequestTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withTranscriptLimit(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withOutputBacklogLimit(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withMaxRequestBytes(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withMaxRequestChars(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withMaxResponseBytes(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionOptions.defaults()
+        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withMaxResponseChars(0));
-    }
-
-    @Test
-    void pooledProtocolSessionOptionsRejectInvalidPoolPolicies() {
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withMaxSize(0));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withWarmupSize(-1));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withMinIdle(-1));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withWarmupSize(2));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withMinIdle(2));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withAcquireTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withHookTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withMaxRequestsPerWorker(0));
-        assertThrows(IllegalArgumentException.class, () -> PooledProtocolSessionOptions.defaults()
-                .withMaxWorkerAge(Duration.ofMillis(-1)));
     }
 
     @Test
     void pooledProtocolSessionMetricsRejectImpossibleSnapshots() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+                () -> new PooledProtocolSessionMetrics(1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+                () -> new PooledProtocolSessionMetrics(1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+                () -> new PooledProtocolSessionMetrics(1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, Map.of()));
+                () -> new PooledProtocolSessionMetrics(0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, Map.of()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+                () -> new PooledProtocolSessionMetrics(-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new PooledProtocolSessionMetrics(
-                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
+                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(2, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PooledProtocolSessionMetrics(1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 2, 0, 0, 0, Map.of()));
     }
 
     @Test
@@ -271,7 +288,7 @@ final class PolicyValueTest {
         retireReasons.put(PooledWorkerRetireReason.MAX_REQUESTS, 1L);
 
         PooledProtocolSessionMetrics metrics =
-                new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, retireReasons);
+                new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, retireReasons);
         retireReasons.put(PooledWorkerRetireReason.TIMEOUT, 1L);
 
         assertEquals(Map.of(PooledWorkerRetireReason.MAX_REQUESTS, 1L), metrics.retireReasons());
@@ -279,6 +296,18 @@ final class PolicyValueTest {
                 .put(PooledWorkerRetireReason.TIMEOUT, 1L));
         assertThrows(
                 NullPointerException.class,
-                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, null));
+                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, null));
+    }
+
+    private static RunSettings runSettings() {
+        return RunSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")));
+    }
+
+    private static StreamSettings streamSettings() {
+        return StreamSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")));
+    }
+
+    private static WorkerPoolSettings<Object> poolSettings() {
+        return WorkerPoolSettings.defaults(worker -> {}, worker -> true);
     }
 }

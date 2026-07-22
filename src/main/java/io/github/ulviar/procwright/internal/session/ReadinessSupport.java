@@ -4,12 +4,10 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.internal.DurationSupport;
-import io.github.ulviar.procwright.internal.Threading;
+import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
@@ -28,44 +26,48 @@ public final class ReadinessSupport {
             throw new IllegalArgumentException("readinessTimeout must be positive");
         }
 
-        CompletableFuture<Void> ready = new CompletableFuture<>();
-        Thread thread = Threading.start("procwright-readiness-", () -> {
-            try {
-                readinessProbe.accept(target);
-                ready.complete(null);
-            } catch (Throwable throwable) {
-                ready.completeExceptionally(throwable);
-            }
-        });
+        long deadlineNanos = DurationSupport.deadlineFromNow(timeout);
         try {
-            ready.get(DurationSupport.saturatedMillis(timeout), TimeUnit.MILLISECONDS);
+            BoundedTaskRunner.run(BoundedTaskRunner.READINESS_PROBES, "procwright-readiness-", deadlineNanos, () -> {
+                readinessProbe.accept(target);
+                return null;
+            });
         } catch (TimeoutException exception) {
-            thread.interrupt();
-            closeQuietly(close, exception);
-            throw new CommandExecutionException(
-                    CommandExecutionException.Reason.READINESS_TIMEOUT, "Session readiness probe timed out", exception);
+            throw closePreserving(
+                    close,
+                    new CommandExecutionException(
+                            CommandExecutionException.Reason.READINESS_TIMEOUT,
+                            "Session readiness probe timed out",
+                            exception));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            thread.interrupt();
-            closeQuietly(close, exception);
-            throw new CommandExecutionException(
-                    CommandExecutionException.Reason.READINESS_FAILED,
-                    "Interrupted while waiting for session readiness",
-                    exception);
+            throw closePreserving(
+                    close,
+                    new CommandExecutionException(
+                            CommandExecutionException.Reason.READINESS_FAILED,
+                            "Interrupted while waiting for session readiness",
+                            exception));
         } catch (ExecutionException exception) {
-            closeQuietly(close, exception);
-            throw new CommandExecutionException(
-                    CommandExecutionException.Reason.READINESS_FAILED,
-                    "Session readiness probe failed",
-                    exception.getCause());
+            Throwable cause = exception.getCause();
+            if (cause instanceof Error error) {
+                closePreserving(close, error);
+                throw error;
+            }
+            throw closePreserving(
+                    close,
+                    new CommandExecutionException(
+                            CommandExecutionException.Reason.READINESS_FAILED,
+                            "Session readiness probe failed",
+                            cause));
         }
     }
 
-    private static void closeQuietly(Runnable close, Exception primaryFailure) {
+    private static <T extends Throwable> T closePreserving(Runnable close, T primaryFailure) {
         try {
             close.run();
-        } catch (RuntimeException closeFailure) {
-            primaryFailure.addSuppressed(closeFailure);
+        } catch (Throwable closeFailure) {
+            SuppressionSupport.attach(primaryFailure, closeFailure);
         }
+        return primaryFailure;
     }
 }

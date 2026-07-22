@@ -1,240 +1,121 @@
-# Архитектура baseline 0.1.0
+# Архитектура Procwright
 
 ## Цель
 
-Procwright — JVM-библиотека для безопасного запуска внешних CLI-программ и управления интерактивными процессами из
-Java/Kotlin приложений.
+Procwright — JVM-библиотека для безопасного запуска внешних CLI-программ и управления долгоживущими процессами из
+Java и Kotlin. Пользователь выбирает сценарий, а библиотека владеет process lifecycle, ограничением памяти,
+конкурентным I/O, timeout, shutdown и диагностикой.
 
-Baseline `0.1.0` должен доказать надежное process execution ядро. Новая возможность добавляется только через понятный
-сценарий, владельца инварианта и проверку.
+Новая возможность входит в ядро только тогда, когда у нее есть:
 
-Главный архитектурный принцип описан в [invariant-architecture.md](invariant-architecture.md): широкие возможности
-должны появляться через композицию маленьких валидированных объектов, а не через разрастание public API.
+- понятный пользовательский сценарий;
+- единственный владелец каждого нового инварианта;
+- typed failure contract;
+- проверка наблюдаемого поведения.
 
-Внешний пользовательский слой при этом остается scenario-first. Пользователь выбирает workflow (`run`,
-`lineSession`, `protocolSession`, `interactive`, `expect`, `listen`, `lineSession().pooled()`,
-`protocolSession(factory).pooled()`), а библиотека разворачивает его в policies, общий launch plan и
-scenario-specific execution plan. Это описано в
-[scenario-api.md](scenario-api.md).
+## Пользовательская модель
 
-## Входит в baseline 0.1.0
+Единственная корневая точка входа — `Procwright.command(...)`. Она возвращает `CommandService`, связанный с одной
+immutable базовой командой. Затем пользователь выбирает сценарий:
 
-- One-shot запуск команды.
-- Явная модель команды: executable, args, working directory, environment, shell mode.
-- Безопасные дефолты: direct argv, bounded capture, explicit charset, timeout.
-- Раздельный и объединенный stdout/stderr.
-- Параллельный drain stdout/stderr.
-- Soft shutdown перед hard kill.
-- Минимальная interactive session abstraction.
-- Минимальный line-oriented helper поверх session.
-- Небольшой expect helper после стабилизации session.
-- PTY как узкая transport strategy для session-сценариев.
-- Listen-only streaming helper с bounded diagnostics.
-- Наблюдательная diagnostics layer без влияния на runtime behavior.
-- Correlation-safe diagnostics events с process-lifecycle `runId`.
-- Optional Kotlin ergonomics module без Kotlin dependency в Java core.
-- Pooled line-session scenario поверх существующих `LineSession` workers.
-- Generic protocol-session scenario и typed protocol pool поверх существующих session/runtime границ.
-- Scenario presets как typed builder customizers без отдельного runtime.
-- Optional CLI-backed integrations module без dependency на MCP SDK.
-- Детерминированный fixture/eval набор.
-- Bounded stress suite как часть `check`.
-- Release hardening: license, cross-platform CI, versioning/compatibility policies, dependency review и release
-  checklist.
-- Maven Central publishing/signing setup для Java 17-targeted artifacts без runtime impact.
+- `run()` — конечная команда с `CommandResult`;
+- `interactive()` — raw process session;
+- `lineSession()` — line-oriented request/response;
+- `protocolSession(adapterFactory)` — typed request/response с пользовательским framing;
+- `listen()` — потоковая обработка stdout/stderr;
+- `lineSession().pooled()` и `protocolSession(adapterFactory).pooled()` — пулы дорогих workers.
 
-## Не входит в baseline 0.1.0
+Каждый scenario method возвращает immutable persistent `Draft`. Методы `with*` создают новый Draft и не меняют
+исходный. Процесс появляется только в явном terminal method: `execute()` или `open()`. `Session.expect()` также
+возвращает `Expect.Draft`; helper создается только через `open()`.
 
-- Raw session pooling.
-- Stateful conversation affinity.
-- Реальный MCP SDK adapter.
-- Machine-dependent benchmarks/JMH.
-- Competitor samples.
-- Централизованная diagnostics bus или logging framework.
-- Отдельный public runner под каждый сценарий.
-- Automatic Maven Central publish без ручной проверки первого Central Portal deployment.
+Protocol session принимает `Supplier<? extends ProtocolAdapter<I, O>>`. Для каждого `open()` и каждого pool worker
+до запуска процесса создается отдельный adapter. Concurrent terminal calls могут вызывать factory конкурентно, поэтому
+она должна быть thread-safe и каждый раз возвращать новый non-null adapter.
 
 ## Слои
 
 ```text
-Пользовательский API
-  Procwright / CommandService
-  scenario methods
-  CommandSpec
-  CommandResult
-  RunOptions
-  Session
-  Expect
+Public API
+  Procwright -> CommandService -> scenario Draft -> execute/open
+  CommandSpec, policies, results, session handles, exceptions
+
+Scenario normalization
+  immutable scenario-specific settings
+  validation and construction of execution/session plans
+  readiness and pool configuration
 
 Runtime
-  launch plan
-  resolved execution plan
-  process launch
-  stdout/stderr pumps
-  session lifecycle state machine
-  capture policies
-  timeout supervision
-  shutdown policy
-  diagnostics emission
-  duration saturation helpers
+  process launch and transport selection
+  concurrent stdout/stderr draining
+  request serialization and protocol decoding
+  bounded capture, transcript and queues
+  timeout, shutdown and process-tree cleanup
+  diagnostics and metrics
 
 Transport
-  pipe transport
-  PTY transport
+  pipes
+  optional PTY provider
 
-Testing/evals
-  deterministic fixture
-  behavior scenarios
+Optional layers
+  Kotlin Draft extensions and coroutines
+  protocol/JSON integrations over the same core runtime
 ```
 
-## Пакетная форма ядра
+Public Draft не является доменной моделью runtime. Он принимает и немедленно валидирует один пользовательский шаг,
+копирует mutable input и сохраняет immutable settings. Terminal method передает snapshot во внутренний runtime.
 
-```text
-io.github.ulviar.procwright
-  Procwright
-  CommandService
-  ProcwrightException
-  RunScenario
-  InteractiveScenario
-  LineSessionScenario
-  PooledLineSessionScenario
-  ProtocolSessionScenario
-  ReusableProtocolSessionScenario
-  PooledProtocolSessionScenario
-  StreamScenario
+## Владение ответственностью
 
-io.github.ulviar.procwright.command
-  CommandSpec
-  CommandResult
-  RunOptions
-  CommandInvocation
-  CommandInput
-  CharsetPolicy
-  CapturePolicy
-  OutputMode
-  EnvironmentPolicy
-  ShutdownPolicy
-  CommandException
-  CommandExecutionException
+- `CommandSpec` владеет базовой командой: executable, args, working directory, environment и shell mode.
+- Scenario `Draft` владеет допустимым для выбранного workflow набором настроек и его persistent semantics.
+- Policy/value objects владеют локальными ограничениями значений.
+- Internal settings владеют нормализованным snapshot до запуска.
+- Execution/session plan владеет согласованностью комбинаций, которые зависят от нескольких настроек.
+- Stateful runtime component владеет lifecycle и concurrency-инвариантами открытого процесса.
+- Public result или scenario-specific exception владеет наблюдаемым outcome.
 
-io.github.ulviar.procwright.session
-  Session (interface)
-  SessionInvocation
-  SessionOptions
-  SessionExit
-  Expect (interface)
-  ExpectOptions
-  ExpectOutputFilter
-  ExpectTranscriptValues
-  ExpectException
-  LineSessionInvocation
-  LineSession (interface)
-  LineSessionOptions
-  LineSessionException
-  LineResponse
-  LineTranscript
-  ResponseDecoder
-  StreamSession (interface)
-  StreamOptions
-  StreamInvocation
-  StreamChunk
-  StreamSource
-  StreamListener
-  StreamStdinPolicy
-  StreamExit
-  StreamTranscript
-  StreamException
-  PooledLineSession (interface)
-  PooledLineSessionOptions
-  PooledLineSessionInvocation
-  PooledLineSessionMetrics
-  PooledLineSessionException
-  ProtocolAdapter
-  ProtocolReader
-  ProtocolReaders
-  ProtocolWriter
-  ProtocolSession (interface)
-  ProtocolSessionInvocation
-  ProtocolSessionOptions
-  ProtocolSessionException
-  ProtocolTranscript
-  PooledProtocolSession (interface)
-  PooledProtocolSessionOptions
-  PooledProtocolSessionInvocation
-  PooledProtocolSessionMetrics
-  PooledProtocolSessionException
-  PooledWorkerRetireReason
+Runtime не восстанавливает пользовательское намерение из случайного набора flags и не принимает public configuration
+carriers вне scenario Draft.
 
-io.github.ulviar.procwright.diagnostics
-  DiagnosticsOptions
-  DiagnosticEvent
-  DiagnosticEventType
-  DiagnosticListener
-  DiagnosticTranscriptSink
-  CommandEcho
+## Пакетные границы ядра
 
-io.github.ulviar.procwright.terminal
-  TerminalPolicy
-  TerminalSize
-  TerminalSignal
-  PtyProvider
-  PtyRequest
+- `io.github.ulviar.procwright` — entry point и scenario namespaces с `Draft`/`PoolDraft`.
+- `io.github.ulviar.procwright.command` — command model, result, policies и command failures.
+- `io.github.ulviar.procwright.session` — sealed session handles, protocol contracts, transcripts, metrics и failures.
+- `io.github.ulviar.procwright.diagnostics` — пользовательские events и hooks.
+- `io.github.ulviar.procwright.terminal` — terminal policy, request, size, signal и provider SPI.
+- `io.github.ulviar.procwright.preset` — чистые преобразования конкретных Draft.
+- `io.github.ulviar.procwright.internal` и `.internal.session` — settings, plans и stateful runtime; JPMS их не
+  экспортирует.
 
-io.github.ulviar.procwright.preset
-  ScenarioPresets
+Session-family contracts находятся в одном public package, потому что разделяют lifecycle и exclusive output
+ownership. Их реализации скрыты в `internal.session`. Public sealed handles являются библиотечными контрактами, а не
+SPI для пользовательских реализаций.
 
-io.github.ulviar.procwright.internal
-  runtime, plans, validation and process helpers that must not appear in public signatures
+## Модули
 
-io.github.ulviar.procwright.internal.session
-  stateful session-family implementations and runtime factories hidden by JPMS exports
+- root project `:` (artifact `procwright`) — Java core без runtime-зависимости на стороннюю process-библиотеку.
+- `:procwright-kotlin` — optional Kotlin extensions над теми же Java Draft и handles: Kotlin durations, coroutine
+  terminals, `openFlow()` и `protocolAdapterFactory()`.
+- `:procwright-integrations` — optional JSON/framing helpers, использующие core runtime.
+- `:procwright-test-cli` — управляемый fixture для integration/stress behavior.
+- consumer modules — компилируемые внешние примеры и проверка metadata.
+- `:procwright-comparison` — воспроизводимое сравнение и JMH; не входит в public artifacts и release pass/fail.
 
-io.github.ulviar.procwright.kotlin
-  runCommand(...) / runCommandAwait(...)
-  openSession(...)
-  awaitExit(...) для Session и StreamSession
-  requestAwait(...)
-  Kotlin duration overloads (timeout, idleTimeout, readinessTimeout,
-    request, awaitDrained, acquireTimeout и другие DSL-параметры)
-  pooledLineSession(...)
-  protocolAdapter(...)
-  listenFlow(...)
-  ProcwrightDsl (annotation)
-  ListenFlowInvocation
-  PooledLineSessionDsl
-  LineWorkerDsl
-  ProtocolAdapterDsl
+Kotlin и integrations не создают второй process engine. External process libraries разрешены только в comparison
+module.
 
-io.github.ulviar.procwright.integration
-  JsonValue
-  JsonCodec
-  JsonNumbers
-  JsonParseException
-  JsonLines
-  JsonLineSession
-  ContentLengthJsonFrames
-  ProtocolAdapters
-  IntegrationProtocolException
-  CancellableCall
-  ToolCallResult
-  CliAdapterError
-  CommandBackedTool
-```
+## Границы продукта
 
-Оркестрация внутри корневого пакета (`ScenarioRuntime`, `CommandServiceDefaults`, `ProtocolWorkerConfiguration`)
-остается package-private и не входит в public API.
+В ядро не входят raw session pooling, public leases, stateful affinity, общий async Java API, logging framework,
+dependency-specific process API и отдельный runner для каждого частного случая. Такая возможность требует нового
+сценария только если ее lifecycle или invariant set нельзя выразить существующим Draft и policy objects.
 
-Публичных core-пакетов должно быть мало, но они больше не должны превращать корень в плоский каталог всех типов.
-`Session`, `Expect`, `LineSession`, `ProtocolSession`, `StreamSession`, `PooledLineSession` и `PooledProtocolSession`
-остаются в одном `session` package, потому что разделяют инвариант единоличного владения stdin/stdout/stderr и
-session-family lifecycle. Подробности зафиксированы в
-[decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md).
+См. также:
 
-## Расширения вне baseline 0.1.0
-
-1. PTY hardening и кроссплатформенная матрица.
-2. Более богатый expect DSL.
-3. Более богатый Kotlin DSL поверх optional Kotlin module.
-4. Stateful affinity и raw session pooling поверх nested pooled session APIs.
-5. Реальный MCP SDK adapter отдельным optional module поверх `:procwright-integrations`.
-6. Machine-dependent benchmarks/JMH после deterministic stress suite.
+- [scenario-api.md](scenario-api.md) — форма API;
+- [scenario-contracts.md](scenario-contracts.md) — наблюдаемые гарантии;
+- [invariant-architecture.md](invariant-architecture.md) — владельцы инвариантов;
+- [decisions/ADR-0014-package-architecture.md](decisions/ADR-0014-package-architecture.md) — package boundary;
+- [decisions/ADR-0015-jpms-encapsulation.md](decisions/ADR-0015-jpms-encapsulation.md) — JPMS boundary.

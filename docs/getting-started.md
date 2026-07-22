@@ -1,17 +1,19 @@
-# Getting Started
+# Getting started
 
-## Requirements
+Procwright requires Java 17 or newer. Until the planned `0.1.0` release is published, install it from this checkout:
 
-- JDK 17 or newer. Published artifacts target Java 17.
+```shell
+./gradlew publishToMavenLocal \
+  --project-prop=procwright.javaRelease=17 \
+  --project-prop=procwright.version=0.1.0 \
+  --no-daemon
+```
 
-## Add the dependency
-
-Published releases use Maven Central coordinates.
-
-Gradle Kotlin DSL:
+Add Maven Local and the core dependency:
 
 ```kotlin
 repositories {
+    mavenLocal()
     mavenCentral()
 }
 
@@ -20,86 +22,76 @@ dependencies {
 }
 ```
 
-Gradle Groovy:
+## Run one command
 
-```groovy
-repositories {
-    mavenCentral()
-}
+The canonical example below is compiled and executed as an external consumer.
 
-dependencies {
-    implementation 'io.github.ulviar:procwright:0.1.0'
-}
-```
-
-Maven:
-
-```xml
-<dependency>
-    <groupId>io.github.ulviar</groupId>
-    <artifactId>procwright</artifactId>
-    <version>0.1.0</version>
-</dependency>
-```
-
-## First scenario
-
-The smallest Procwright workflow is a one-shot command scenario: choose the command once, run a call, and inspect a typed
-result.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
 ```java
-import io.github.ulviar.procwright.CommandService;
+/* SPDX-License-Identifier: Apache-2.0 */
+
+package io.github.ulviar.procwright.examples;
+
 import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandResult;
+import java.nio.file.Path;
+import java.time.Duration;
 
-public final class GettingStartedExample {
+public final class RunExample {
 
-    private GettingStartedExample() {}
+    private RunExample() {}
 
     public static void main(String[] args) {
-        CommandService java = Procwright.command("java");
+        CommandResult result = Procwright.command(javaExecutable())
+                .run()
+                .withArgs("--version")
+                .withCapture(CapturePolicy.bounded(256 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
 
-        CommandResult result = java.run().execute("--version");
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+        System.err.printf(
+                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
+                result.exitCode().isPresent()
+                        ? Integer.toString(result.exitCode().getAsInt())
+                        : "unavailable",
+                result.timedOut(),
+                result.stdoutTruncated(),
+                result.stderrTruncated());
 
         if (!result.succeeded()) {
             throw result.toException();
         }
+    }
 
-        System.out.print(result.stdout());
-        System.err.print(result.stderr());
+    private static String javaExecutable() {
+        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", name).toString();
     }
 }
 ```
 
-By default a run is stopped after 30 seconds and captures up to 1 MiB per stream — see
-[Policies](reference/policies.md#default-values) for all default limits.
+[Open `RunExample.java`](examples/java/io/github/ulviar/procwright/examples/RunExample.java).
 
-Complete example locations are listed in [Examples](examples.md).
+The example explicitly retains up to 256 KiB from each output stream. The [run scenario](scenarios/run.md) explains
+what happens when either stream exceeds that byte limit.
 
-## Mental model
+`run()` returns an immutable Draft. Configuration does not start the process. `execute()` starts it and returns a
+`CommandResult` containing the exit status, bounded output, truncation flags, timeout status, and elapsed time.
+Inspect captured output and status before converting an unsuccessful result with `toException()`; the exception keeps the
+complete `CommandResult`.
 
-Procwright has three layers that matter to a new user:
+## Choose the next scenario
 
-- `CommandSpec` describes the executable and stable defaults such as working directory or environment.
-- `CommandService` is the reusable handle around that command.
-- Scenario methods such as `run`, `lineSession`, `protocolSession`, and `listen` choose the workflow and expose only the
-  configuration that is meaningful for that workflow.
+- Use [`interactive()`](scenarios/interactive.md) for direct stdin/stdout control.
+- Add [`session.expect().open()`](scenarios/expect.md) for prompts.
+- Use [`lineSession()`](scenarios/line-session.md) for one-line request/response workers.
+- Use [`protocolSession(adapterFactory)`](scenarios/protocol-session.md) for custom framing or typed messages.
+- Use [`listen()`](scenarios/streaming.md) for continuous output.
+- Add [`pooled()`](scenarios/pooling.md) only when a worker can safely serve multiple requests.
 
-This is why most code starts with `Procwright.command(...)`: after that, choose the scenario by method name instead of building
-a manual process harness.
-
-## Choose a scenario
-
-Do not start by assembling process flags. Start by choosing the workflow:
-
-- `run` for finite commands;
-- `interactive` for raw live process control;
-- `interactive` + `Expect` for prompt automation;
-- `lineSession` for request/response protocols;
-- `protocolSession` for framed, multi-line, byte, or typed request/response protocols;
-- `listen` for streaming output;
-- `lineSession().pooled()` and `protocolSession(factory).pooled()` for reusable workers;
-- `io.github.ulviar:procwright-integrations` for structured CLI adapters.
-
-The [How-to Guides](how-to/index.md) section starts from common tasks. [Scenario Contracts](scenarios/index.md) is the
-reference index for the public scenario surface.
+Sessions and pools own processes and can use try-with-resources in Java or `use` in Kotlin. Pool close is synchronous but
+bounded; configure its budget with `withCloseTimeout(...)`. See the [pooling scenario](scenarios/pooling.md) for copyable
+Java examples.

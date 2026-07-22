@@ -14,6 +14,10 @@ public enum PooledWorkerRetireReason {
     MAX_REQUESTS,
     /** Worker timed out while serving a request. */
     TIMEOUT,
+    /** Worker startup completed after the caller's startup deadline. */
+    STARTUP_TIMEOUT,
+    /** Worker startup completed after its waiting caller was interrupted. */
+    STARTUP_INTERRUPTED,
     /** Worker health check failed. */
     HEALTH_FAILED,
     /** Worker failed because protocol decoding failed. */
@@ -21,5 +25,7 @@ public enum PooledWorkerRetireReason {
     /** Worker process exited or reached EOF. */
     PROCESS_EXITED,
     /** Worker failed for another runtime reason. */
-    WORKER_FAILED
+    WORKER_FAILED,
+    /** Worker reset failed after a response had already completed. */
+    RESET_FAILED
 }

@@ -1,28 +1,58 @@
-# Run a Finite Command
+# Run a finite command
 
-Use `run` for tools such as linters, validators, code generators, `git status`, and package manager commands that
-should finish and return a result.
+Choose `run()` when the child should exit and you need its status and bounded output.
 
-## Steps
-
-1. Create a `CommandService` for the executable.
-2. Select `run` and add per-call arguments.
-3. Inspect `CommandResult`.
-4. Convert unsuccessful results with `toException()` only when fail-fast flow is useful.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
 ```java
-CommandService git = Procwright.command("git");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-CommandResult result = git.run().execute("status", "--short");
+package io.github.ulviar.procwright.examples;
 
-if (!result.succeeded()) {
-    throw result.toException();
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CommandResult;
+import java.nio.file.Path;
+import java.time.Duration;
+
+public final class RunExample {
+
+    private RunExample() {}
+
+    public static void main(String[] args) {
+        CommandResult result = Procwright.command(javaExecutable())
+                .run()
+                .withArgs("--version")
+                .withCapture(CapturePolicy.bounded(256 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
+
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+        System.err.printf(
+                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
+                result.exitCode().isPresent()
+                        ? Integer.toString(result.exitCode().getAsInt())
+                        : "unavailable",
+                result.timedOut(),
+                result.stdoutTruncated(),
+                result.stderrTruncated());
+
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+    }
+
+    private static String javaExecutable() {
+        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", name).toString();
+    }
 }
 ```
 
-More examples: [Examples](../examples.md#one-shot-command).
+[Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
 
-## Use this scenario because
+Add arguments with `withArgs`, set a finite timeout, then call `execute()`. Check `succeeded()` before consuming a result
+as success. A timed-out result is never successful, even if an exit code is available.
 
-`run` owns process completion, bounded capture, timeout supervision, stderr draining, and typed results. A streaming or
-interactive scenario would make the caller own more lifecycle state than this task needs.
+The example retains at most 256 KiB per output stream. See the exact capture and truncation behavior in the
+[run reference](../scenarios/run.md).

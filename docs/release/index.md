@@ -1,10 +1,5 @@
-# Version and Compatibility
+# Version and compatibility
 
-These pages help you add Procwright to a project and understand what the current version supports.
-
-Entry points:
-
-- [Installation](installation.md)
-- [API surface](api-baseline.md)
-- [Compatibility](compatibility.md)
-- [Known limitations](known-limitations.md)
+- [Install the planned `0.1.0` artifacts](installation.md).
+- [Check runtime and API compatibility](compatibility.md).
+- [Check current limitations](known-limitations.md).

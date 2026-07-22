@@ -1,65 +1,102 @@
 # Run
 
-Use `run` when the process has a finite lifecycle and the caller needs a typed command result.
+`run()` executes a finite command and returns `CommandResult`.
 
-The scenario covers:
-
-- direct argv by default;
-- explicit shell mode when requested by the caller;
-- bounded stdout/stderr capture, output discarding, or redirection to files (`CapturePolicy`);
-- stdin input from memory or streamed from a file (`CommandInput.fromPath`);
-- working directory;
-- explicit environment inheritance or clean environment policy;
-- timeout and shutdown policy;
-- process-tree cleanup;
-- typed non-zero result conversion through `CommandResult.toException()`.
-
-## Example
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
 ```java
-CommandService git = Procwright.command("git");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-CommandResult result = git.run().execute("status", "--short");
+package io.github.ulviar.procwright.examples;
 
-if (!result.succeeded()) {
-    throw result.toException();
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CommandResult;
+import java.nio.file.Path;
+import java.time.Duration;
+
+public final class RunExample {
+
+    private RunExample() {}
+
+    public static void main(String[] args) {
+        CommandResult result = Procwright.command(javaExecutable())
+                .run()
+                .withArgs("--version")
+                .withCapture(CapturePolicy.bounded(256 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
+
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+        System.err.printf(
+                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
+                result.exitCode().isPresent()
+                        ? Integer.toString(result.exitCode().getAsInt())
+                        : "unavailable",
+                result.timedOut(),
+                result.stdoutTruncated(),
+                result.stderrTruncated());
+
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+    }
+
+    private static String javaExecutable() {
+        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", name).toString();
+    }
 }
 ```
 
-By default a run is stopped after 30 seconds, captures up to 1 MiB per stream, and reports truncation and timeout on
-the result — see [Policies](../reference/policies.md#default-values). A `Duration.ZERO` timeout disables the deadline:
-the run waits until the process exits on its own, while the shutdown policy still applies on close and failure paths.
+[Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
 
-For large outputs, `CapturePolicy.toPath(stdout, stderr)` (or `toPath(merged)` with `OutputMode.MERGED`) redirects
-output to files at the operating-system level, and `CapturePolicy.discard()` drops it entirely; in both cases the
-result's stdout/stderr accessors are empty and the truncation flags stay `false`, while exit code, `timedOut()`, and
-`elapsed()` are reported as usual. Large stdin payloads can be streamed from a file with
-`CommandInput.fromPath(file)` without loading them into memory.
+The Draft is immutable and reusable. `withArg` and `withArgs` append scenario arguments after any base arguments in the
+`CommandSpec`. Only `execute()` starts a process.
 
-More examples: [Examples](../examples.md#one-shot-command).
+Procwright drains stdout and stderr, applies the configured timeout and shutdown policy, then returns captured bytes and
+decoded text. In the example, `CapturePolicy.bounded(256 * 1024)` retains the first 262,144 bytes separately from each
+stream while continuing to drain later output. `stdoutTruncated()` and `stderrTruncated()` identify streams whose later
+bytes were discarded. Redirected or discarded streams produce empty captured values.
 
-## User responsibilities
+`CommandResult.succeeded()` requires a zero exit code and no timeout. Launch and supervision failures throw
+`CommandExecutionException`; a normal non-zero exit remains a result until the caller converts it with `toException()`.
 
-The caller still owns domain interpretation of the exit code. Procwright reports exit code, timeout, stdout, stderr, elapsed
-time, and truncation flags; it does not decide whether a non-zero exit is acceptable for a particular command.
+Handle launch failure from the exception reason, not from a presumed result:
 
-Choose shell mode only when shell syntax is required. Direct argv is the default API shape because it avoids command
-line parsing surprises and reduces injection risk.
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunFailureExample.java -->
+```java
+/* SPDX-License-Identifier: Apache-2.0 */
 
-## Policy composition
+package io.github.ulviar.procwright.examples;
 
-Use policies for domain decisions instead of booleans. Capture and shutdown policies are examples of invariants that
-belong to value objects, not to ad hoc process code at call sites.
+import static io.github.ulviar.procwright.command.CommandExecutionException.Reason.LAUNCH_FAILED;
 
-## Failure model
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CommandExecutionException;
+import io.github.ulviar.procwright.command.CommandResult;
 
-`CommandResult` represents a process that was launched and supervised to a terminal outcome. Non-zero exit codes remain
-results. `CommandResult.toException()` provides an exception view when the application wants fail-fast control flow.
+public final class RunFailureExample {
 
-`CommandExecutionException` is reserved for launch, supervision, or capture failures where Procwright could not produce a
-normal command result.
+    private RunFailureExample() {}
 
-## Scenario boundary
+    public static CommandResult execute(String executable) {
+        try {
+            return Procwright.command(executable).run().execute();
+        } catch (CommandExecutionException failure) {
+            if (failure.reason() == LAUNCH_FAILED) {
+                throw new IllegalStateException("Command could not be launched", failure);
+            }
+            throw failure;
+        }
+    }
+}
+```
 
-`run` does not request terminal capability. Use `interactive` or `lineSession` when a CLI requires a terminal or a
-long-lived protocol.
+[Open `RunFailureExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunFailureExample.java).
+
+`LAUNCH_FAILED` occurs before a `CommandResult` exists. The example maps that case and preserves every other
+`CommandExecutionException`; it does not assume that `failure.result()` is present.
+
+See [scenario defaults](../reference/defaults.md#run) before relying on the initial timeout, capture limit, decoding, or
+shutdown behavior.

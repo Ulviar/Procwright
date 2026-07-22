@@ -2,7 +2,7 @@
 
 ## Статус
 
-Accepted.
+Принято.
 
 ## Контекст
 
@@ -13,16 +13,14 @@ JPMS должен быть настоящей границей между public
 экспортируемом пакете остается `public` runtime-only support, такой класс становится модульным API независимо от того,
 исключен ли он из Javadoc.
 
-Предыдущее состояние показало архитектурный симптом: stateful handle-классы `Session`, `Expect`, `LineSession`,
-`StreamSession` и `PooledLineSession` одновременно были пользовательским API и владельцами runtime state. Из-за этого
-`SessionRuntime`, `StreamRuntime` и `SessionScenarioSupport` приходилось держать публичными в `session` package как
-мосты к package-private state.
+Public handles должны описывать контракт, а stateful runtime — оставаться скрытым. Иначе package export превращает
+implementation helpers в пользовательский API.
 
 ## Решение
 
 Разделить session-family handles на public contracts и internal implementations:
 
-- `io.github.ulviar.procwright.session` содержит публичные sealed handle interfaces и immutable value/option/exception types;
+- `io.github.ulviar.procwright.session` содержит публичные sealed handle interfaces и immutable value/exception types;
 - `io.github.ulviar.procwright.internal.session` содержит stateful implementations и runtime factories:
   `DefaultSession`, `DefaultExpect`, `DefaultLineSession`, `DefaultStreamSession`, `DefaultPooledLineSession`,
   `SessionRuntime`, `StreamRuntime`, `SessionScenarioSupport`;
@@ -32,7 +30,7 @@ JPMS должен быть настоящей границей между public
 - `internal` и `internal.session` не экспортируются.
 
 Diagnostics dispatcher и diagnostic schema validator остаются в `io.github.ulviar.procwright.internal`; публичный
-diagnostics package описывает только пользовательские hooks, events и options.
+diagnostics package описывает только пользовательские hooks и events.
 
 ## Последствия
 
@@ -45,14 +43,8 @@ diagnostics package описывает только пользовательск
 - package boundary tests проверяют не только список пакетов, но и направление production-зависимостей;
 - sealed session-family interfaces делают non-SPI nature compile-time свойством, а не только Javadoc предупреждением.
 
-Минусы:
-
-- это pre-release breaking change для пользователей, которые могли опираться на concrete classes или reflection;
-- публичные failure types получили публичные constructors, потому что internal implementations теперь создают их из
-  другого package;
-- `Expect.on(Session, ...)` остается public static factory на interface и поэтому public `session` package зависит от
-  internal implementation package на уровне bytecode. Это не leak в сигнатурах и закрыто JPMS exports, но это осознанная
-  внутренняя связь ради сохранения scenario-first API.
+Ограничение: публичные failure constructors нужны internal implementations из другого package. `Session.expect()`
+создает public `Expect.Draft`, не раскрывая implementation type в сигнатуре.
 
 ## Проверка
 

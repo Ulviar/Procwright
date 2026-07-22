@@ -1,111 +1,53 @@
-# Results and Errors
+# Results and errors
 
-Procwright keeps process outcomes and runtime failures separate.
+All Procwright runtime failures extend `ProcwrightException`. Catch the scenario-specific type when code needs a stable
+reason, transcript, or process result.
 
-## ProcwrightException
+## Finite commands
 
-`ProcwrightException` is the common unchecked base class for runtime failures produced by Procwright.
+`CommandResult` reports optional exit code, captured stdout/stderr bytes and text, truncation flags, timeout status, and
+elapsed time. `succeeded()` requires exit code zero and no timeout. A normal non-zero exit is a result; `toException()`
+creates `CommandException` while preserving it.
 
-Catch it when application code needs one generic boundary for logging, wrapping, retry classification, or cleanup around
-Procwright calls. Catch a scenario-specific exception when code needs structured details such as a command result, failure
-reason, transcript snapshot, diagnostics, or process exit information.
+`CommandExecutionException` represents launch, supervision, or strict output-decoding failure and exposes a stable
+`Reason`, message, and cause. `result()` is present only for `DECODE_ERROR`, where the process completed but captured
+bytes could not be decoded under the selected policy. Launch and runtime failures do not promise a result or exit-code
+snapshot.
 
-Non-zero command exits are still represented as `CommandResult` data until application code calls `toException()`.
+## Sessions
 
-## CommandResult
+- `LineSessionException` distinguishes request too large, timeout, EOF, closed, broken pipe, decode error, response too
+  large, stdout backlog overflow, process exit, decoder failure, and other runtime failure. It preserves a bounded line
+  transcript. Validation, request-size, encoding, and wait failures are retryable when the request was not handed off for
+  stdin writing and cannot write later. Once handed off, timeout, interruption, write failure, and every response/protocol
+  failure are terminal even if no received byte can be confirmed. Retryable failures leave `onExit()` incomplete;
+  terminal failures complete it.
+- `ProtocolSessionException` distinguishes timeout, closed, EOF, broken pipe, decode error, request or response too large,
+  output backlog overflow, adapter decoder failure, process exit, and other runtime failure. It preserves a bounded
+  protocol transcript. `exitCode()` is an `OptionalInt` snapshot and can be empty when the failure is selected.
+- `ExpectException` distinguishes timeout, EOF, closed, and helper failure, with a bounded transcript.
+- `StreamException` distinguishes listener failure, output-read failure, and process failure, with bounded diagnostics.
 
-`CommandResult` is the completed one-shot outcome. It contains:
+A framing, decode, EOF, or post-handoff failure closes a direct request session because subsequent protocol state cannot
+be trusted.
 
-- optional exit code;
-- stdout and stderr bytes;
-- decoded stdout and stderr text;
-- stdout/stderr truncation flags;
-- timeout flag;
-- elapsed duration.
+Worker loss can surface as `EOF` or `PROCESS_EXITED` according to observation order. If output EOF is selected before a
+process-exit snapshot is published, the request reports `EOF`; if process exit is selected first, it reports
+`PROCESS_EXITED`. For protocol requests, `EOF` has an empty `exitCode()`, while `PROCESS_EXITED` carries the code only
+when known. `LineSessionException` has no exit-code accessor; a directly owned line session reports an optional code later
+through `onExit()`.
 
-`succeeded()` is true only when the command did not time out and exit code is zero.
+## Pools
 
-`toException()` returns a `CommandException` that preserves the full result.
+Pooled requests keep worker request failures separate from pool orchestration failures. Timeout, EOF or
+`PROCESS_EXITED`, broken pipe or write failure, decoding failure, response overflow, and output-backlog overflow are
+thrown directly as `LineSessionException` or `ProtocolSessionException`; they are not wrapped in a pooled exception.
 
-Procwright-produced results keep captured bytes and decoded text aligned through the execution charset.
+`PooledLineSessionException` and `PooledProtocolSessionException` cover acquisition, startup, surfaced hook or lifecycle
+failures, and close. Their reason enums define `ACQUIRE_TIMEOUT`, `CLOSED`, `STARTUP_FAILED`, `HOOK_TIMEOUT`,
+`INTERRUPTED`, `DRAIN_TIMEOUT`, and `WORKER_FAILED`. A pooled exception cause belongs to that pool phase, such as a
+startup callback failure; it is not the wrapper for a normal worker request exception.
+`PooledLineSessionMetrics.retireReasons()` and `PooledProtocolSessionMetrics.retireReasons()` return counts keyed by
+`PooledWorkerRetireReason`; the same metrics snapshots expose startup, request, acquire, and lifecycle counts.
 
-## CommandException
-
-`CommandException` is an exception view of an unsuccessful `CommandResult`. Use it when application control flow should
-throw on a non-zero exit or timeout while still preserving the result.
-
-## CommandExecutionException
-
-`CommandExecutionException` signals that Procwright could not start, supervise, or capture the process as a normal
-`CommandResult`. It carries a stable reason such as launch failure, decode failure, readiness timeout, readiness failure,
-or runtime failure.
-
-## SessionExit
-
-`SessionExit` reports the exit state of an interactive session process through optional exit code and timeout flag.
-
-## LineSessionException
-
-`LineSessionException` includes a reason and a bounded transcript snapshot. Reasons are:
-
-- `TIMEOUT`;
-- `EOF`;
-- `CLOSED`;
-- `BROKEN_PIPE`;
-- `DECODE_ERROR`;
-- `RESPONSE_TOO_LARGE`;
-- `STDOUT_BACKLOG_OVERFLOW`;
-- `PROCESS_EXITED`;
-- `DECODER_FAILED`;
-- `FAILURE`.
-
-`PROCESS_EXITED` reports that the worker process had already exited when the session tried to write the request. It is
-distinct from `CLOSED`, which reports a session closed before the request could complete.
-
-After a terminal failure closes the session — for example backlog overflow, request timeout, or process exit —
-follow-up requests fail with the original failure reason and a message prefixed with `closed by an earlier failure`,
-not with a generic `CLOSED`.
-
-## ProtocolSessionException
-
-`ProtocolSessionException` includes a stable reason, bounded transcript snapshot, and optional process exit code.
-Reasons distinguish timeout, closed session, EOF, broken pipe, decode error, oversized request, oversized response,
-output backlog overflow, adapter decoder failure, process exit, and general failure.
-
-Backlog overflow is asymmetric: unread stdout beyond the configured limit fails the session with
-`OUTPUT_BACKLOG_OVERFLOW`, while unread stderr never fails the session — its oldest pending bytes are dropped and
-stderr stays readable up to the limit.
-
-As with line sessions, after a terminal failure closes the session, follow-up requests fail with the original failure
-reason and a message prefixed with `closed by an earlier failure`, not with a generic `CLOSED`.
-
-The transcript snapshot records whether retained output was truncated, malformed for the selected charset policy, or
-redacted.
-
-## Pooled Session Exceptions
-
-`PooledLineSessionException` and `PooledProtocolSessionException` report pool-level failures outside the underlying
-request exception. Acquire timeout is distinct from request timeout. Startup failure is distinct from a worker failing
-after it has been leased. Hook timeout reports a bounded health or reset hook that did not finish before its deadline.
-
-## Integration Exceptions
-
-Optional integration helpers also use `ProcwrightException` for failures produced by Procwright adapters. For example,
-`IntegrationProtocolException` reports malformed frames or protocol-level helper failures, and `JsonParseException`
-reports JSON decoding failures in the optional JSON helpers.
-
-## ExpectException
-
-`ExpectException` includes a reason and a bounded transcript snapshot. Reasons are:
-
-- `TIMEOUT`;
-- `EOF`;
-- `CLOSED`;
-- `FAILURE`.
-
-## StreamExit and StreamException
-
-`StreamExit` reports normal streaming completion with optional exit code, timeout flag, closed flag, bounded
-diagnostics, and duration.
-
-`StreamException` reports streaming failures and preserves bounded diagnostics.
+Use reason enums for program logic. Messages are for diagnostics and may change.

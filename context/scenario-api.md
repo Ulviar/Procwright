@@ -2,447 +2,250 @@
 
 ## Позиция
 
-Пользователь должен выбирать сценарий работы, а не набор низкоуровневых параметров запуска.
+Procwright описывает намерение пользователя, а не конфигурацию `ProcessBuilder`. API имеет одну грамматику:
 
-Публичные гарантии каждого канонического сценария зафиксированы в
-[scenario-contracts.md](scenario-contracts.md). Этот документ описывает форму API и пользовательский язык, а contracts
-документирует границы ответственности.
+```text
+Procwright.command(command)
+  -> выбрать scenario
+  -> уточнить immutable Draft через with*
+  -> явно вызвать execute/open
+  -> получить typed result или AutoCloseable handle
+```
 
-Это не противоречит invariant-first архитектуре. Наоборот:
+Корневая команда reusable. Scenario Draft persistent: его можно ветвить, повторно использовать и вызывать terminal
+конкурентно. Каждый terminal call создает независимый execution/handle.
 
-- снаружи API говорит языком сценариев;
-- внутри каждый сценарий разворачивается в валидированные policies и execution plan;
-- пользователь может переопределить детали, но не обязан знать все runtime flags.
+## Базовая команда
 
-Эта идея является текущим API-инвариантом: сначала сценарий, затем scoped configuration.
-
-## Почему не options-first
-
-Options-first API заставляет пользователя думать как автор process runtime:
+Короткая форма:
 
 ```java
-service.run()
-        .configuredBy(call -> call
-                .mergeError(true)
-                .closeStdin(true)
-                .captureStdout(65536)
-                .captureStderr(32768)
-                .bufferBytes(8192)
-                .idleTimeout(Duration.ZERO))
+CommandService git = Procwright.command("git");
+```
+
+Явный reusable launch context:
+
+```java
+CommandSpec command = CommandSpec.of("git")
+        .withWorkingDirectory(repository)
+        .withEnvironment("LC_ALL", "C");
+
+CommandService git = Procwright.command(command);
+```
+
+`CommandSpec` не содержит timeout, capture или protocol settings: они получают смысл только после выбора сценария.
+
+## `run`
+
+Конечная команда с bounded result:
+
+```java
+CommandResult result = git.run()
+        .withArgs("status", "--short")
+        .withTimeout(Duration.ofSeconds(5))
+        .withCapture(CapturePolicy.bounded(64 * 1024))
         .execute();
 ```
 
-Такой API дает много knobs, но плохо выражает намерение. Пользователь хотел не "набор флагов", а один из сценариев:
+`RunScenario.Draft` предлагает launch settings, input, capture, output mode, charset/decoding, timeout, shutdown и
+diagnostics. `execute()` возвращает exit code, stdout/stderr bytes/text, timeout и truncation metadata. Non-zero exit —
+результат процесса; launch/supervision/decode failure — typed exception с доступным result snapshot, когда он есть.
 
-- "запусти команду и верни результат";
-- "открой REPL и обменивайся строками";
-- "открой raw interactive session";
-- "слушай вывод процесса";
-- "используй прогретые line workers".
+## `interactive`
 
-## Внешняя форма
-
-Базовый сервис вокруг команды остается хорошей идеей:
+Raw process handle для caller-owned protocol:
 
 ```java
-var python = Procwright.command("python");
-```
-
-Дальше пользователь выбирает сценарий:
-
-```java
-CommandResult version = python.run().execute("--version");
-
-try (LineSession repl = python.lineSession().withArgs("-i").open()) {
-    LineResponse answer = repl.request("print(6 * 7)");
-}
-
-try (Session shell = python.interactive().withArgs("-i").open()) {
-    shell.sendLine("print('ready')");
-}
-```
-
-Сценарии — это входные точки, а не отдельные архитектурные миры.
-
-Терминал остается сценарной потребностью, а не набором платформенных flags:
-
-```java
-try (Session shell = Procwright.command("sh")
+try (Session session = Procwright.command("python")
         .interactive()
-        .withTerminal(TerminalPolicy.REQUIRED)
+        .withArgs("-u", "-i")
+        .withIdleTimeout(Duration.ofMinutes(1))
         .open()) {
-    shell.sendSignal(TerminalSignal.INTERRUPT);
-}
-```
-
-`TerminalPolicy.REQUIRED` должен завершаться явной ошибкой, если PTY provider недоступен. `TerminalPolicy.AUTO` может
-использовать PTY, когда он есть, и fallback в pipes, когда его нет. `TerminalPolicy.DISABLED` всегда использует pipes.
-Для `lineSession` под PTY decoder должен учитывать terminal echo, CRLF и prompts конкретного процесса; default
-`ResponseDecoder.firstLine()` остается pipe-oriented безопасным default, а не универсальным TTY protocol parser.
-
-## Минимальные сценарии baseline 0.1.0
-
-### `run`
-
-Однократный запуск команды.
-
-Инварианты сценария:
-
-- stdin закрывается или получает явно заданный input;
-- stdout/stderr дренируются до завершения;
-- result содержит exit code, output, duration и diagnostic metadata;
-- timeout применяет shutdown policy;
-- capture policy имеет безопасный default.
-
-Пользовательский пример:
-
-```java
-CommandResult result = git.run().execute("status", "--short");
-```
-
-### `lineSession`
-
-Line-oriented request/response workflow для REPL-like процессов.
-
-Инварианты сценария:
-
-- один request не перемешивается с другим;
-- decoder владеет правилом завершения ответа;
-- timeout относится к request/response cycle;
-- timeout/failure закрывает `LineSession`, чтобы не продолжать работу в неизвестном protocol state;
-- transcript bounded и доступен в ошибке.
-- stdout response backlog bounded отдельной line-session policy, а не размером transcript window.
-- одна незавершенная stdout line bounded отдельной line-length policy.
-- EOF, timeout и decoder/read failure различаются.
-
-Пользовательский пример:
-
-```java
-try (LineSession python = service.lineSession().withArgs("-i").open()) {
-    LineResponse result = python.request("print(6 * 7)");
-}
-```
-
-### `interactive`
-
-Raw interactive process handle.
-
-Инварианты сценария:
-
-- lifecycle explicit;
-- `close()` idempotent;
-- raw streams доступны без лишней line protocol модели;
-- caller берет больше ответственности за ordering и parsing.
-
-Пользовательский пример:
-
-```java
-try (Session session = service.interactive().withArgs("-i").open()) {
     session.sendLine("print(6 * 7)");
+    session.closeStdin();
 }
 ```
 
-### `expect`
+`InteractiveScenario.Draft` предлагает session charset, idle timeout, readiness, terminal capability, shutdown и
+diagnostics. Получение raw stdout/stderr wrapper не выбирает режим: его выбирает первая фактическая stream operation либо
+`Expect.Draft.open()`. Смешивание режимов отклоняется через `IllegalStateException`.
 
-Сценарная автоматизация prompt-диалогов поверх `Session`.
+## `Session.expect()`
 
-Инварианты сценария:
-
-- ожидание совпадения владеет timeout;
-- transcript ограничен;
-- match buffer ограничен отдельной policy;
-- send/expect values redacted в transcript по умолчанию; verbatim режим — explicit opt-in.
-- EOF и timeout различаются;
-- порядок send/expect виден в ошибке.
-- optional output filters нормализуют вывод перед matching и записью в transcript.
-- один `Expect` владеет output streams сессии; закрытие `Expect` закрывает underlying `Session`.
-
-Пользовательский пример:
+Prompt automation создается в два явных шага:
 
 ```java
-try (Session session = service.interactive().withArgs("-i").open();
-        Expect expect = session.expect()) {
+try (Session session = Procwright.command("python").interactive().withArg("-i").open();
+        Expect expect = session.expect()
+                .withTimeout(Duration.ofSeconds(2))
+                .withTranscriptLimit(8 * 1024)
+                .open()) {
     expect.expectRegex(Pattern.compile("Python .*"));
     expect.sendLine("print(6 * 7)");
     expect.expectText("42");
 }
 ```
 
-### `listen`
+`Session.expect()` только создает неизменяемый `Expect.Draft`; каждый `with*` возвращает новую ветку. `open()` атомарно
+захватывает output ownership. Закрытие `Expect` закрывает underlying `Session` и не возвращает raw streams caller. Values,
+отправленные через helper, редактируются в transcript по умолчанию.
 
-Listen-only streaming workflow для `tail`, `logs --follow` и похожих процессов.
+## `lineSession`
 
-Инварианты сценария:
-
-- stdout/stderr дренируются параллельно;
-- listener получает chunks синхронно из pump thread;
-- callback delivery сериализован: один listener не получает два chunks одновременно;
-- медленный listener создает backpressure на pipe, а не бесконечную очередь в памяти;
-- diagnostics bounded и доступны в `StreamExit`/`StreamException`;
-- stdin закрывается на старте по умолчанию;
-- если процессу нельзя сразу посылать EOF, caller выбирает `keepStdinOpen()` и позже вызывает `StreamSession.closeStdin()`;
-- timeout и listener failure завершают session через общий shutdown path.
-
-Пользовательский пример:
+Один line request — один декодированный response:
 
 ```java
-try (StreamSession logs = service.listen()
-        .withArgs("logs", "--follow")
-        .onOutput(chunk -> {
-            if (chunk.source() == StreamSource.STDERR) {
-                System.err.print(chunk.text());
-            }
-        })
+try (LineSession worker = Procwright.command("line-worker")
+        .lineSession()
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .withMaxResponseLines(100)
         .open()) {
-    logs.onExit().join();
+    LineResponse response = worker.request("status");
 }
 ```
 
-### `lineSession().pooled()`
+`LineSessionScenario.Draft` предлагает request/idle timeout, readiness, charset policy, response decoder, request
+byte/char limits, response line/char limits, pending line/char backlog, maximum unfinished line, terminal capability и
+diagnostics. Request cycle сериализован. Validation, size, encoding и wait failure сохраняют session, если request не был
+передан writer-у и не сможет записаться позже. После передачи writer-у timeout, interruption или write failure закрывает
+session, даже если первый byte не подтвержден. EOF, decode и framing failure также закрывают session.
 
-Pooled line-oriented workers для CLI/REPL с дорогим startup.
+## `protocolSession`
 
-Инварианты сценария:
-
-- pool использует existing `LineSession` runtime, а не собственный process launcher;
-- worker lease скрыт от пользователя: `request(...)` сам берет worker, выполняет line request и возвращает/retire worker;
-- `maxSize` ограничивает live workers, `warmupSize` открывает часть workers заранее;
-- acquire timeout — pool-level failure, отдельно от request timeout;
-- reset hook и health check работают через `LineSession` primitive;
-- close запрещает новые requests и graceful-drain текущих leased workers.
-
-Пользовательский пример:
+Typed workflow для delimiter/content-length, multi-line, byte или произвольного request/response protocol:
 
 ```java
-try (PooledLineSession pool = service.lineSession()
-        .withArgs("repl")
-        .pooled()
+Supplier<ProtocolAdapter<Request, Response>> adapters = WorkerAdapter::new;
+
+try (ProtocolSession<Request, Response> worker = Procwright.command("worker")
+        .protocolSession(adapters)
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .withMaxRequestBytes(64 * 1024)
+        .withMaxResponseBytes(256 * 1024)
+        .open()) {
+    Response response = worker.request(new Request("payload"));
+}
+```
+
+Factory вызывается отдельно для каждого session и pool worker. Она выполняется до process launch; `null` или failure
+не оставляют процесс. Concurrent `open()` могут вызывать factory одновременно, поэтому она должна быть thread-safe и
+возвращать свежий adapter. Один instance adapter не принимается, потому что его mutable framing state нельзя безопасно
+разделить между sessions.
+
+Adapter записывает request через `ProtocolWriter` и читает ответ через deadline-aware `ProtocolReaders`. Runtime
+владеет lifecycle, serialization, byte/char limits, backlog, strict/replace decoding, transcript и typed failures.
+
+## `listen`
+
+Потоковая обработка без full-output retention:
+
+```java
+try (StreamSession stream = Procwright.command("tail")
+        .listen()
+        .withArgs("-f", log.toString())
+        .onOutput(chunk -> consume(chunk.source(), chunk.text()))
+        .withTimeout(Duration.ofMinutes(10))
+        .open()) {
+    StreamExit exit = stream.onExit().join();
+}
+```
+
+`StreamScenario.Draft` предлагает output listener, absolute timeout, charset, bounded diagnostics, shutdown и diagnostic
+hooks. Listener вызовы сериализованы; медленный listener создает backpressure. `listen` всегда закрывает stdin при
+старте. Если caller должен писать в stdin, используется `interactive()`.
+
+## Line pool
+
+Worker settings задаются до `pooled()`, pool settings — после:
+
+```java
+LineSessionScenario.Draft worker = Procwright.command("line-worker")
+        .lineSession()
+        .withRequestTimeout(Duration.ofSeconds(2));
+
+try (PooledLineSession pool = worker.pooled()
         .withMaxSize(4)
         .withWarmupSize(1)
-        .withReset(worker -> worker.request("reset"))
+        .withMinIdle(1)
+        .withAcquireTimeout(Duration.ofSeconds(1))
         .open()) {
-    LineResponse result = pool.request("status");
+    LineResponse response = pool.request("status");
 }
 ```
 
-### `protocolSession`
+`pooled()` не открывает ресурсов. `PoolDraft.open()` создает pool и выполняет synchronous warmup. Pool не раскрывает
+lease: каждый `request` сам получает worker, выполняет cycle, запускает reset/health policy и возвращает либо retire-ит
+worker.
 
-Generic request/response workers для framed, multi-line, byte-oriented или typed protocols.
-
-Инварианты сценария:
-
-- caller-provided adapter владеет request writer и response decoder;
-- runtime владеет launch, timeout, output pumps, bounded transcript и cleanup;
-- один request одновременно;
-- request/response size limits и strict charset decoding дают typed failures;
-- readiness probe выполняется до возврата session.
-
-### `protocolSession(factory).pooled()`
-
-Typed protocol pool для дорогих workers, где adapter и hooks доказывают безопасное переиспользование.
-
-Инварианты сценария:
-
-- pool использует existing `ProtocolSession` runtime;
-- каждый worker получает отдельный adapter из factory и владеет своим protocol state;
-- worker lease скрыт от пользователя;
-- warmup, minIdle, bounded health/reset hooks и retirement остаются pool-owned;
-- metrics показывают latency, startup и retire reasons, но не становятся control plane.
-
-## Сценарий как preset, не как мешок flags
-
-Каждый сценарий должен иметь свой default profile:
-
-```text
-run
-  stdin: closed unless input provided
-  capture: bounded stdout/stderr
-  terminal: disabled; use interactive or lineSession when terminal capability is required
-  timeout: command timeout
-
-lineSession
-  stdin: open
-  capture: transcript window
-  terminal: disabled by default; per-call AUTO/REQUIRED available through session invocation
-  timeout: request timeout + session idle timeout
-
-protocolSession
-  stdin/stdout/stderr: adapter-owned request/response protocol
-  capture: bounded transcript window with malformed/truncated flags
-  timeout: request timeout + session idle timeout
-  limits: request bytes/chars, response bytes/chars, output backlog
-
-interactive
-  stdin: open
-  capture: caller-driven streams
-  terminal: disabled by default; per-call AUTO/REQUIRED available through session invocation
-  timeout: idle/lifecycle policy
-
-listen
-  stdin: close on start by default
-  capture: bounded diagnostics window, not full output
-  listener: synchronous chunks with process backpressure
-  timeout: optional absolute stream timeout
-
-lineSession().pooled()
-  worker: existing lineSession
-  size: bounded max workers
-  acquisition: bounded acquire timeout
-  reset/health: explicit hooks through line-session primitive
-  shutdown: idle close immediately, leased close after current request
-
-protocolSession(factory).pooled()
-  worker: existing protocolSession
-  adapter: per-worker adapter factory
-  size: bounded max workers + minIdle replenishment
-  acquisition: bounded acquire timeout
-  reset/health: explicit bounded hooks through typed protocol primitive
-  shutdown: idle close immediately, leased close after current request
-```
-
-Пользователь может переопределить части профиля:
+## Protocol pool
 
 ```java
-try (StreamSession stream = service.listen()
-        .withArgs("logs", "--follow")
-        .withTimeout(Duration.ofMinutes(2))
-        .onOutput(chunk -> System.out.print(chunk.text()))
+try (PooledProtocolSession<Request, Response> pool = Procwright.command("worker")
+        .protocolSession(WorkerAdapter::new)
+        .withRequestTimeout(Duration.ofSeconds(2))
+        .pooled()
+        .withMaxSize(4)
+        .withMaxRequestsPerWorker(1_000)
         .open()) {
-    stream.onExit().join();
+    Response response = pool.request(new Request("payload"));
 }
 ```
 
-Но базовый API должен сначала предложить сценарий, а не заставить пользователя собирать все policies вручную.
+Каждый worker получает собственный adapter из той же factory. Pool и direct protocol session используют один runtime и
+одну failure taxonomy.
 
-## Scenario presets
+## Readiness
 
-Preset — это typed customizer существующего scenario builder, а не новый runner и не отдельная подсистема. Пользователь
-все равно выбирает сценарий:
-
-```java
-service.run()
-        .withArgs("env")
-        .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
-        .execute();
-```
-
-Для listen-only workflow:
+Session-family Draft принимает scenario-typed readiness probe:
 
 ```java
-try (StreamSession stream = service.listen()
-        .withArgs("logs", "--follow")
-        .onOutput(chunk -> System.out.print(chunk.text()))
-        .configuredBy(ScenarioPresets.logFollowing(Duration.ZERO))
-        .open()) {
-    stream.onExit().join();
-}
+LineSessionScenario.Draft readyWorker = Procwright.command("worker")
+        .lineSession()
+        .withReadiness(session -> session.request("ping"))
+        .withReadinessTimeout(Duration.ofSeconds(3));
 ```
 
-Инварианты:
+Probe выполняется после launch и до возврата handle. В pool worker не становится idle до успешного readiness. Failure
+закрывает worker; partial warmup failure закрывает уже созданные workers.
 
-- preset не выбирает сценарий вместо пользователя;
-- preset не создает process runtime;
-- preset применяет только те overrides, которые уже существуют в соответствующем invocation builder;
-- порядок применения preset и ручных overrides — обычный порядок builder calls.
+## Presets
 
-## Внутренняя модель
+Preset — явная typed transformation, а не callback dialect:
 
-Снаружи:
+```java
+RunScenario.Draft draft = Procwright.command("env").run();
+RunScenario.Draft configured = ScenarioPresets.environmentDiagnostics(
+        draft,
+        Duration.ofSeconds(2),
+        16 * 1024);
 
-```text
-Procwright.command(...).run()
-Procwright.command(...).lineSession()
-Procwright.command(...).protocolSession(...)
-Procwright.command(...).interactive()
-Procwright.command(...).listen()
-lineSession().pooled()
-protocolSession(factory).pooled()
-Session.expect()
+CommandResult result = configured.execute();
 ```
 
-Внутри:
+Preset не выбирает сценарий, не открывает ресурс и не хранит mutable state. Новый preset оправдан только реальным
+повторяющимся сочетанием настроек существующего Draft.
 
-```text
-ScenarioProfile + CommandSpec + InvocationDraft
-  -> ResolvedCommand
-  -> LaunchPlan + scenario-specific execution plan
-  -> Runtime
+## Kotlin
+
+Kotlin сохраняет ту же последовательность:
+
+```kotlin
+val result = Procwright.command("git")
+    .run()
+    .withArgs("status", "--short")
+    .withTimeout(5.seconds)
+    .executeAwait()
 ```
 
-`ScenarioProfile` — internal concept текущего контракта. Он связывает пользовательский сценарий с наборами policies за
-границей public API. Если когда-либо понадобится открыть profile-level API, это потребует отдельного ADR и точного
-public use case. У каждого сценария может быть свой draft: one-shot использует `CommandInvocation`, raw session — более
-узкий `SessionInvocation`, а line workflow — `LineSessionInvocation`, чтобы не протаскивать неподходящие
-one-shot/raw-session options вроде `input`, `capture` или text-send charset.
+`openFlow()` возвращает cold Flow: процесс не запускается до collection, а каждая collection владеет отдельной
+`StreamSession`. `protocolAdapterFactory { ... }` возвращает Java `Supplier`, создающий отдельный adapter wrapper для
+каждого session/worker. Kotlin module не добавляет mutable scenario scopes или terminal configuration lambdas.
 
-## Как удерживать рост API
+## Правила расширения
 
-Scenario-first не означает "класс на каждый use case".
-
-Хорошо:
-
-- `run`;
-- `lineSession`;
-- `protocolSession`;
-- `interactive`;
-- `expect`;
-- `listen`;
-- `lineSession().pooled()`;
-- `protocolSession(factory).pooled()`.
-
-Плохо на раннем этапе:
-
-- `GitRunner`;
-- `TailRunner`;
-- `McpCommandRunner`;
-- `PooledListenOnlyConversation`;
-- `StatefulReplConversation`.
-
-Если сценарий можно выразить комбинацией `CommandService + ScenarioProfile + policy override`, новый public facade не
-нужен.
-
-## API и инварианты
-
-Scenario-first API отвечает на вопрос пользователя: "что я хочу сделать?"
-
-Invariant-first runtime отвечает на вопрос библиотеки: "какие правила должны быть истинны, чтобы это безопасно
-выполнить?"
-
-Diagnostics не являются отдельным пользовательским workflow. Это наблюдательный слой поверх сценариев:
-
-- `DiagnosticsOptions` подключаются к `CommandService`;
-- lifecycle events испускают `run`, `interactive`, `lineSession`, `protocolSession`, `listen` и worker launches внутри
-  nested pooled сценариев; `Expect` не испускает отдельные process lifecycle events, потому что работает поверх уже
-  открытой `Session`;
-- listener и transcript sink получают structured events асинхронно best-effort;
-- failures listener/sink игнорируются runtime и не меняют результат процесса;
-- `CommandEcho` не содержит environment values и argument values; он публикует executable, argument count,
-  environment names и launch metadata.
-- event schema и redaction contract зафиксированы в [diagnostics.md](diagnostics.md).
-
-CLI-backed integrations тоже не являются новым process workflow. Optional module `:procwright-integrations` строит helper
-слой поверх существующих сценариев:
-
-- `JsonLineSession` использует уже открытый `LineSession`;
-- `CommandBackedTool` возвращает `ToolCallResult`, но не запускает собственный runtime;
-- Content-Length framed JSON helper работает с streams и не знает о `CommandService`;
-- MCP-like protocols должны подключаться как adapter modules поверх integration layer, а не через `CommandService.mcp(...)`.
-
-Tool output в таких интеграциях считается недоверенными данными. Agent harness может передать его как observation, но не
-должен трактовать содержимое stdout как инструкции.
-
-Итоговая архитектура должна удерживать оба слоя:
-
-- scenario methods дают clean API;
-- scenario profiles задают defaults;
-- value objects удерживают локальные инварианты;
-- resolver собирает нормализованный plan;
-- runtime исполняет plan без знания о fluent API.
-
-## Практический вывод
-
-Пользовательский путь должен оставаться коротким: выбрать сценарий, получить безопасные defaults, затем точечно
-переопределить детали.
-
-Сценарии не должны плодить независимые подсистемы. Они должны быть тонким пользовательским слоем над общей
-invariant-first моделью.
+- Настройка появляется только у сценария, где имеет однозначную семантику.
+- Новый terminal method требует отдельного ownership/lifecycle contract.
+- Новый pool доступен только как nested branch конкретного reusable session scenario.
+- Public helper не может читать streams без exclusive ownership.
+- Новый adapter/helper использует существующий runtime и остается optional, если требует внешнюю dependency.
+- Public surface, examples и context меняются вместе с executable proof.

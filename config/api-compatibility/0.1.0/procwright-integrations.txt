@@ -23,13 +23,11 @@ FIELD public static final io.github.ulviar.procwright.integration.IntegrationPro
 FIELD public static final io.github.ulviar.procwright.integration.IntegrationProtocolException$Reason io.github.ulviar.procwright.integration.IntegrationProtocolException$Reason#OVERSIZED_FRAME
 FIELD public static final io.github.ulviar.procwright.integration.JsonValue$JsonNull io.github.ulviar.procwright.integration.JsonValue$JsonNull#INSTANCE
 METHOD public T io.github.ulviar.procwright.integration.ToolCallResult$Success#payload()
-METHOD public abstract O io.github.ulviar.procwright.integration.CommandBackedTool$Handler#handle(I)
+METHOD public abstract O io.github.ulviar.procwright.integration.CommandBackedTool$Handler#handle(I) throws java.lang.Exception
 METHOD public abstract boolean io.github.ulviar.procwright.integration.ToolCallResult#succeeded()
 METHOD public abstract io.github.ulviar.procwright.integration.ToolCallResult<O> io.github.ulviar.procwright.integration.CommandBackedTool#call(I)
 METHOD public abstract java.util.Optional<T> io.github.ulviar.procwright.integration.ToolCallResult#value()
 METHOD public abstract java.util.Optional<io.github.ulviar.procwright.integration.CliAdapterError> io.github.ulviar.procwright.integration.ToolCallResult#error()
-METHOD public boolean io.github.ulviar.procwright.integration.CancellableCall#cancel()
-METHOD public boolean io.github.ulviar.procwright.integration.CancellableCall#cancellationRequested()
 METHOD public boolean io.github.ulviar.procwright.integration.JsonValue$JsonBoolean#value()
 METHOD public boolean io.github.ulviar.procwright.integration.ToolCallResult$Failure#succeeded()
 METHOD public boolean io.github.ulviar.procwright.integration.ToolCallResult$Success#succeeded()
@@ -57,7 +55,6 @@ METHOD public final java.lang.String io.github.ulviar.procwright.integration.Jso
 METHOD public final java.lang.String io.github.ulviar.procwright.integration.JsonValue$JsonString#toString()
 METHOD public final java.lang.String io.github.ulviar.procwright.integration.ToolCallResult$Failure#toString()
 METHOD public final java.lang.String io.github.ulviar.procwright.integration.ToolCallResult$Success#toString()
-METHOD public io.github.ulviar.procwright.integration.CancellableCall<io.github.ulviar.procwright.integration.JsonValue> io.github.ulviar.procwright.integration.JsonLineSession#requestAsync(io.github.ulviar.procwright.integration.JsonValue, java.time.Duration)
 METHOD public io.github.ulviar.procwright.integration.CliAdapterError io.github.ulviar.procwright.integration.ToolCallResult$Failure#adapterError()
 METHOD public io.github.ulviar.procwright.integration.IntegrationProtocolException$Reason io.github.ulviar.procwright.integration.IntegrationProtocolException#reason()
 METHOD public io.github.ulviar.procwright.integration.JsonValue io.github.ulviar.procwright.integration.JsonLineSession#request(io.github.ulviar.procwright.integration.JsonValue)
@@ -76,13 +73,11 @@ METHOD public java.util.Optional<T> io.github.ulviar.procwright.integration.Tool
 METHOD public java.util.Optional<io.github.ulviar.procwright.integration.CliAdapterError> io.github.ulviar.procwright.integration.ToolCallResult$Failure#error()
 METHOD public java.util.Optional<io.github.ulviar.procwright.integration.CliAdapterError> io.github.ulviar.procwright.integration.ToolCallResult$Success#error()
 METHOD public java.util.Optional<io.github.ulviar.procwright.integration.JsonValue> io.github.ulviar.procwright.integration.JsonValue$JsonObject#member(java.lang.String)
-METHOD public java.util.concurrent.CompletableFuture<T> io.github.ulviar.procwright.integration.CancellableCall#completion()
 METHOD public java.util.concurrent.CompletableFuture<io.github.ulviar.procwright.session.SessionExit> io.github.ulviar.procwright.integration.JsonLineSession#onExit()
 METHOD public static <I, O> io.github.ulviar.procwright.integration.CommandBackedTool<I, O> io.github.ulviar.procwright.integration.CommandBackedTool#jsonLine(io.github.ulviar.procwright.integration.JsonLineSession, java.util.function.Function<I, io.github.ulviar.procwright.integration.JsonValue>, java.util.function.Function<io.github.ulviar.procwright.integration.JsonValue, O>)
-METHOD public static <I, O> io.github.ulviar.procwright.integration.CommandBackedTool<I, O> io.github.ulviar.procwright.integration.CommandBackedTool#of(io.github.ulviar.procwright.integration.CommandBackedTool$Handler<I, O>)
-METHOD public static <I, O> io.github.ulviar.procwright.session.ProtocolAdapter<I, O> io.github.ulviar.procwright.integration.ProtocolAdapters#typedJson(java.util.function.Function<? super I, io.github.ulviar.procwright.integration.JsonValue>, java.util.function.Function<? super io.github.ulviar.procwright.integration.JsonValue, ? extends O>, io.github.ulviar.procwright.session.ProtocolAdapter<io.github.ulviar.procwright.integration.JsonValue, io.github.ulviar.procwright.integration.JsonValue>)
+METHOD public static <I, O> io.github.ulviar.procwright.integration.CommandBackedTool<I, O> io.github.ulviar.procwright.integration.CommandBackedTool#of(io.github.ulviar.procwright.integration.CommandBackedTool.Handler<I, O>)
+METHOD public static <I, O> java.util.function.Supplier<io.github.ulviar.procwright.session.ProtocolAdapter<I, O>> io.github.ulviar.procwright.integration.ProtocolAdapters#typedJsonSession(java.util.function.Function<? super I, io.github.ulviar.procwright.integration.JsonValue>, java.util.function.Function<? super io.github.ulviar.procwright.integration.JsonValue, ? extends O>, java.util.function.Supplier<? extends io.github.ulviar.procwright.session.ProtocolAdapter<io.github.ulviar.procwright.integration.JsonValue, io.github.ulviar.procwright.integration.JsonValue>>)
 METHOD public static <T> io.github.ulviar.procwright.integration.ToolCallResult<T> io.github.ulviar.procwright.integration.ToolCallResult#failure(io.github.ulviar.procwright.integration.CliAdapterError)
-METHOD public static <T> io.github.ulviar.procwright.integration.ToolCallResult<T> io.github.ulviar.procwright.integration.ToolCallResult#failure(java.lang.Throwable)
 METHOD public static <T> io.github.ulviar.procwright.integration.ToolCallResult<T> io.github.ulviar.procwright.integration.ToolCallResult#success(T)
 METHOD public static byte[] io.github.ulviar.procwright.integration.ContentLengthJsonFrames#frame(io.github.ulviar.procwright.integration.JsonValue)
 METHOD public static com.fasterxml.jackson.databind.JsonNode io.github.ulviar.procwright.integration.JsonCodec#toJackson(io.github.ulviar.procwright.integration.JsonValue)
@@ -107,20 +102,34 @@ METHOD public static io.github.ulviar.procwright.integration.JsonValue$JsonNumbe
 METHOD public static io.github.ulviar.procwright.integration.JsonValue$JsonNumber io.github.ulviar.procwright.integration.JsonValue#number(long)
 METHOD public static io.github.ulviar.procwright.integration.JsonValue$JsonObject io.github.ulviar.procwright.integration.JsonValue#object(java.util.Map<java.lang.String, io.github.ulviar.procwright.integration.JsonValue>)
 METHOD public static io.github.ulviar.procwright.integration.JsonValue$JsonString io.github.ulviar.procwright.integration.JsonValue#string(java.lang.String)
-METHOD public static io.github.ulviar.procwright.session.ProtocolAdapter<byte[], byte[]> io.github.ulviar.procwright.integration.ProtocolAdapters#delimiter(byte, int)
-METHOD public static io.github.ulviar.procwright.session.ProtocolAdapter<io.github.ulviar.procwright.integration.JsonValue, io.github.ulviar.procwright.integration.JsonValue> io.github.ulviar.procwright.integration.ProtocolAdapters#contentLengthJson(int)
-METHOD public static io.github.ulviar.procwright.session.ProtocolAdapter<io.github.ulviar.procwright.integration.JsonValue, io.github.ulviar.procwright.integration.JsonValue> io.github.ulviar.procwright.integration.ProtocolAdapters#jsonLines(int)
 METHOD public static java.lang.String io.github.ulviar.procwright.integration.JsonCodec#write(io.github.ulviar.procwright.integration.JsonValue)
 METHOD public static java.lang.String io.github.ulviar.procwright.integration.JsonCodec#write(io.github.ulviar.procwright.integration.JsonValue, int)
 METHOD public static java.lang.String io.github.ulviar.procwright.integration.JsonLines#frame(io.github.ulviar.procwright.integration.JsonValue)
 METHOD public static java.lang.String io.github.ulviar.procwright.integration.JsonLines#line(io.github.ulviar.procwright.integration.JsonValue)
+METHOD public static java.util.function.Supplier<io.github.ulviar.procwright.session.ProtocolAdapter<byte[], byte[]>> io.github.ulviar.procwright.integration.ProtocolAdapters#delimiterSession(byte, int)
+METHOD public static java.util.function.Supplier<io.github.ulviar.procwright.session.ProtocolAdapter<io.github.ulviar.procwright.integration.JsonValue, io.github.ulviar.procwright.integration.JsonValue>> io.github.ulviar.procwright.integration.ProtocolAdapters#contentLengthJsonSession(int)
+METHOD public static java.util.function.Supplier<io.github.ulviar.procwright.session.ProtocolAdapter<io.github.ulviar.procwright.integration.JsonValue, io.github.ulviar.procwright.integration.JsonValue>> io.github.ulviar.procwright.integration.ProtocolAdapters#jsonLinesSession(int)
 METHOD public static void io.github.ulviar.procwright.integration.ContentLengthJsonFrames#write(java.io.OutputStream, io.github.ulviar.procwright.integration.JsonValue)
 METHOD public void io.github.ulviar.procwright.integration.JsonLineSession#close()
+MODULE explicit io.github.ulviar.procwright.integrations
+MODULE_EXPORT io.github.ulviar.procwright.integration
+MODULE_REQUIRE static transitive org.jspecify
+MODULE_REQUIRE transitive com.fasterxml.jackson.databind
+MODULE_REQUIRE transitive io.github.ulviar.procwright
+NULLNESS MODULE io.github.ulviar.procwright.integrations UNSPECIFIED
+NULLNESS PACKAGE io.github.ulviar.procwright.integration @org.jspecify.annotations.NullMarked
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.CliAdapterError#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.JsonValue$JsonArray#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.JsonValue$JsonBoolean#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.JsonValue$JsonNumber#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.JsonValue$JsonObject#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.JsonValue$JsonString#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.ToolCallResult$Failure#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.integration.ToolCallResult$Success#equals(java.lang.Object) parameter[0] UNION_NULL
 TYPE public abstract interface io.github.ulviar.procwright.integration.CommandBackedTool<I, O>
 TYPE public abstract interface io.github.ulviar.procwright.integration.JsonValue permits io.github.ulviar.procwright.integration.JsonValue$JsonArray, io.github.ulviar.procwright.integration.JsonValue$JsonBoolean, io.github.ulviar.procwright.integration.JsonValue$JsonNull, io.github.ulviar.procwright.integration.JsonValue$JsonNumber, io.github.ulviar.procwright.integration.JsonValue$JsonObject, io.github.ulviar.procwright.integration.JsonValue$JsonString
 TYPE public abstract interface io.github.ulviar.procwright.integration.ToolCallResult<T> permits io.github.ulviar.procwright.integration.ToolCallResult$Failure, io.github.ulviar.procwright.integration.ToolCallResult$Success
 TYPE public abstract static interface io.github.ulviar.procwright.integration.CommandBackedTool$Handler<I, O>
-TYPE public final class io.github.ulviar.procwright.integration.CancellableCall<T>
 TYPE public final class io.github.ulviar.procwright.integration.ContentLengthJsonFrames
 TYPE public final class io.github.ulviar.procwright.integration.IntegrationProtocolException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final class io.github.ulviar.procwright.integration.JsonCodec

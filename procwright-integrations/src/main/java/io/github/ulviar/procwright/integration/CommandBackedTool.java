@@ -19,11 +19,24 @@ public interface CommandBackedTool<I, O> {
      *
      * @param input input payload
      * @return success or structured failure
+     * @throws Error when an underlying handler error is propagated
+     * @throws RuntimeException when bounded classification is exhausted for a handler runtime exception
+     * @throws IllegalStateException when bounded classification is exhausted for a checked handler exception
      */
     ToolCallResult<O> call(I input);
 
     /**
      * Creates a tool wrapper around a throwing handler.
+     *
+     * <p>The returned tool maps ordinary handler exceptions to structured failures. It propagates errors unchanged.
+     * If bounded failure classification is exhausted for a checked handler exception, it throws an
+     * {@link IllegalStateException} whose cause is that exception.
+     *
+     * <p>Typed classification uses the handler exception itself after unwrapping only leading
+     * {@link java.util.concurrent.CompletionException} and {@link java.util.concurrent.ExecutionException} instances.
+     * It does not search arbitrary nested causes for a typed failure. The bounded primary cause scan is used only to
+     * preserve {@link Error} and interruption semantics; messages and suppressed exceptions do not drive
+     * classification.
      *
      * @param handler tool handler
      * @param <I> input type
@@ -36,7 +49,7 @@ public interface CommandBackedTool<I, O> {
             try {
                 return ToolCallResult.success(handler.handle(input));
             } catch (Exception exception) {
-                return ToolCallResult.failure(exception);
+                return ToolCallResult.failure(CliAdapterError.from(exception));
             }
         };
     }

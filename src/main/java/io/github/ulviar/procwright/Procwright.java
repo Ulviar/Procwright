@@ -3,19 +3,21 @@
 package io.github.ulviar.procwright;
 
 import io.github.ulviar.procwright.command.CommandSpec;
+import io.github.ulviar.procwright.internal.ProcessKernel;
 
 /**
  * Static entry point for scenario-first command workflows.
  *
- * <p>Each factory returns an immutable {@link CommandService} bound to one base command. The service exposes the
+ * <p>Each {@code command(...)} call returns an immutable {@link CommandService} bound to one base command. The service exposes the
  * scenario catalog: one-shot {@code run()}, raw {@code interactive()} sessions, line-oriented {@code lineSession()},
  * typed {@code protocolSession(...)}, and listen-only {@code listen()} streaming.
  *
  * <pre>{@code
  * CommandResult result = Procwright.command("git")
  *         .run()
+ *         .withArgs("status", "--short")
  *         .withTimeout(Duration.ofSeconds(10))
- *         .execute("status", "--short");
+ *         .execute();
  *
  * if (!result.succeeded()) {
  *     throw result.toException();
@@ -33,7 +35,7 @@ public final class Procwright {
      * @return command service
      */
     public static CommandService command(String executable) {
-        return CommandService.forCommand(executable);
+        return create(CommandSpec.of(executable));
     }
 
     /**
@@ -43,18 +45,10 @@ public final class Procwright {
      * @return command service
      */
     public static CommandService command(CommandSpec commandSpec) {
-        return CommandService.forCommand(commandSpec);
+        return create(java.util.Objects.requireNonNull(commandSpec, "commandSpec"));
     }
 
-    /**
-     * Creates a command service for a command line interpreted by the system shell.
-     *
-     * <p>Prefer {@link #command(String)} plus argv arguments for untrusted values unless shell syntax is required.
-     *
-     * @param commandLine command line interpreted by the system shell
-     * @return command service
-     */
-    public static CommandService shellCommand(String commandLine) {
-        return CommandService.forShellCommand(commandLine);
+    private static CommandService create(CommandSpec commandSpec) {
+        return new CommandService(commandSpec, ProcessKernel.standard());
     }
 }

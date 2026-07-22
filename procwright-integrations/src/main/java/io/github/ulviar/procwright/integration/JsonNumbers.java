@@ -17,6 +17,11 @@ final class JsonNumbers {
         return new BigDecimal(value);
     }
 
+    static BigDecimal canonicalize(BigDecimal value) {
+        // Dispatch on the trusted BigDecimal receiver so hostile subclass overrides cannot affect the snapshot.
+        return BigDecimal.ONE.multiply(Objects.requireNonNull(value, "value"));
+    }
+
     static boolean isJsonNumber(String value) {
         if (value == null || value.isEmpty()) {
             return false;

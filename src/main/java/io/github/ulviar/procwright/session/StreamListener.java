@@ -5,8 +5,13 @@ package io.github.ulviar.procwright.session;
 /**
  * Receives streaming output chunks.
  *
- * <p>Listeners are invoked synchronously, one chunk at a time. A slow listener therefore applies backpressure to
- * process output instead of causing unbounded in-memory buffering.
+ * <p>Within one stream session, listener calls are synchronous and serialized across stdout and stderr, one chunk at a
+ * time. A slow listener therefore applies backpressure to that process output instead of causing unbounded in-memory
+ * buffering.
+ *
+ * <p>A stream {@code Draft} retains the supplied listener instance. Concurrent opens of the same Draft can invoke that
+ * instance concurrently from different sessions. A listener shared this way must be thread-safe; otherwise, use
+ * separate Draft branches with separate listener instances.
  */
 @FunctionalInterface
 public interface StreamListener {

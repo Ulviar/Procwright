@@ -6,7 +6,9 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.CommandEchoSupport;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
+import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.session.StreamSession;
+import java.util.Objects;
 
 public final class StreamRuntime {
 
@@ -14,27 +16,40 @@ public final class StreamRuntime {
 
     public static StreamSession open(StreamExecutionPlan plan) {
         DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
-                plan.diagnosticsOptions(),
+                plan.diagnostics(),
                 "listen",
                 () -> CommandEchoSupport.from(plan.sessionPlan().launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
-        DefaultSession session;
+        DefaultSession session = SessionRuntime.openForStream(plan.sessionPlan(), diagnostics);
+        return finishOpen(session, plan, diagnostics, DefaultStreamSession::new);
+    }
+
+    static StreamSession finishOpen(
+            DefaultSession session,
+            StreamExecutionPlan plan,
+            DiagnosticEmitter diagnostics,
+            StreamSessionFactory factory) {
+        Objects.requireNonNull(factory, "factory");
         try {
-            session = SessionRuntime.open(plan.sessionPlan());
-            diagnostics.emit(
-                    DiagnosticEventType.PROCESS_STARTED,
-                    DiagnosticEmitter.attributes("pid", Long.toString(session.pid())));
-        } catch (RuntimeException exception) {
-            diagnostics.emit(
-                    DiagnosticEventType.PROCESS_FAILED,
-                    DiagnosticEmitter.attributes("error", exception.getClass().getName()));
-            throw exception;
+            return factory.open(session, plan, diagnostics);
+        } catch (RuntimeException | Error failure) {
+            diagnostics.emitProcessFailure(failure);
+            closePreserving(session, failure);
+            throw failure;
         }
+    }
+
+    static void closePreserving(AutoCloseable resource, Throwable primaryFailure) {
         try {
-            return new DefaultStreamSession(session, plan, diagnostics);
-        } catch (RuntimeException exception) {
-            session.close();
-            throw exception;
+            resource.close();
+        } catch (Throwable cleanupFailure) {
+            SuppressionSupport.attach(primaryFailure, cleanupFailure);
         }
+    }
+
+    @FunctionalInterface
+    interface StreamSessionFactory {
+
+        StreamSession open(DefaultSession session, StreamExecutionPlan plan, DiagnosticEmitter diagnostics);
     }
 }

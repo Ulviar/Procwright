@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
@@ -49,6 +50,29 @@ final class ProtocolTranscriptBufferTest {
     }
 
     @Test
+    void replacingPolicyStillMarksMalformedTranscriptBytes() {
+        ProtocolTranscriptBuffer buffer =
+                new ProtocolTranscriptBuffer(1024, CharsetPolicy.replace(StandardCharsets.UTF_8));
+
+        buffer.appendStream("stdout", new byte[] {(byte) 0xFF}, 1);
+
+        assertTrue(buffer.snapshot().malformed());
+        assertEquals("stdout: \uFFFD", buffer.snapshot().text());
+    }
+
+    @Test
+    void endOfStreamMarksIncompleteSequenceAsMalformed() {
+        ProtocolTranscriptBuffer buffer =
+                new ProtocolTranscriptBuffer(1024, CharsetPolicy.replace(StandardCharsets.UTF_8));
+
+        buffer.appendStream("stdout", new byte[] {(byte) 0xD0}, 1);
+        buffer.endStream("stdout");
+
+        assertTrue(buffer.snapshot().malformed());
+        assertEquals("stdout: \uFFFD", buffer.snapshot().text());
+    }
+
+    @Test
     void transcriptRetentionStaysBoundedForLargeDecodedChunks() {
         ProtocolTranscriptBuffer buffer =
                 new ProtocolTranscriptBuffer(64, CharsetPolicy.report(StandardCharsets.UTF_8));
@@ -58,5 +82,23 @@ final class ProtocolTranscriptBufferTest {
 
         assertTrue(buffer.snapshot().truncated());
         assertTrue(buffer.snapshot().text().length() <= 64);
+    }
+
+    @Test
+    void eachTranscriptStreamHasBoundedUndecodedState() throws Exception {
+        ProtocolTranscriptBuffer buffer = new ProtocolTranscriptBuffer(
+                4, CharsetPolicy.report(new IncrementalTextDecoderTest.NoProgressCharset()));
+        byte[] atLimit = new byte[64];
+
+        buffer.appendStream("stdout", atLimit, atLimit.length);
+        buffer.appendStream("stderr", atLimit, atLimit.length);
+
+        assertThrows(
+                ProtocolTranscriptBuffer.TranscriptDecodingException.class,
+                () -> buffer.appendStream("stdout", new byte[] {1}, 1));
+        assertThrows(
+                ProtocolTranscriptBuffer.TranscriptDecodingException.class,
+                () -> buffer.appendStream("stderr", new byte[] {1}, 1));
+        assertTrue(buffer.snapshot().text().length() <= 4);
     }
 }

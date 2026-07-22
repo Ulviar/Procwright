@@ -25,8 +25,26 @@ final class IntegrationModuleDescriptorTest {
                 descriptor.exports().stream()
                         .map(ModuleDescriptor.Exports::source)
                         .collect(java.util.stream.Collectors.toUnmodifiableSet()));
-        assertTrue(descriptor.requires().stream()
-                .anyMatch(require -> require.name().equals("io.github.ulviar.procwright")));
+        assertTransitiveRequirement(descriptor, "io.github.ulviar.procwright");
+        assertTransitiveRequirement(descriptor, "com.fasterxml.jackson.databind");
+        assertStaticTransitiveRequirement(descriptor, "org.jspecify");
+    }
+
+    private static void assertTransitiveRequirement(ModuleDescriptor descriptor, String moduleName) {
+        assertTrue(
+                descriptor.requires().stream()
+                        .anyMatch(require -> require.name().equals(moduleName)
+                                && require.modifiers().contains(ModuleDescriptor.Requires.Modifier.TRANSITIVE)),
+                () -> "Expected transitive module requirement: " + moduleName);
+    }
+
+    private static void assertStaticTransitiveRequirement(ModuleDescriptor descriptor, String moduleName) {
+        ModuleDescriptor.Requires requirement = descriptor.requires().stream()
+                .filter(candidate -> candidate.name().equals(moduleName))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(requirement.modifiers().contains(ModuleDescriptor.Requires.Modifier.STATIC));
+        assertTrue(requirement.modifiers().contains(ModuleDescriptor.Requires.Modifier.TRANSITIVE));
     }
 
     private static ModuleDescriptor moduleDescriptor() throws Exception {

@@ -43,7 +43,7 @@ public final class ConsumerScenarios {
 
     public static String protocolSession(CommandSpec command) {
         try (ProtocolSession<String, String> session = Procwright.command(command)
-                .protocolSession(new LengthLineFrameAdapter())
+                .protocolSession(LengthLineFrameAdapter::new)
                 .withArgs("length-line-frame")
                 .withRequestTimeout(Duration.ofSeconds(2))
                 .open()) {

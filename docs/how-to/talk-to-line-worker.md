@@ -1,30 +1,48 @@
-# Talk to a Line Worker
+# Talk to a line worker
 
-Use `lineSession` when a command stays alive and answers one logical request at a time over a line-oriented protocol.
+Use `lineSession()` only when one request is one encoded line and one response is one stdout line.
 
-## Steps
-
-1. Start from `lineSession()` and set request timeout, transcript limits, or decoder behavior only when the defaults do
-   not match the worker protocol.
-2. Open a line session for the worker command.
-3. Send requests through `LineSession.request(...)`.
-4. Treat request timeout or decoder failure as a session-ending event.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java -->
 ```java
-CommandService repl = Procwright.command(CommandSpec.of("tool"));
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (LineSession session =
-        repl.lineSession().withArgs("repl").withRequestTimeout(Duration.ofSeconds(2)).open()) {
-    LineResponse response = session.request("status");
-    if (response.text().isBlank()) {
-        throw new IllegalStateException("empty response");
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.LineResponse;
+import io.github.ulviar.procwright.session.LineSession;
+import java.time.Duration;
+
+public final class LineSessionExample {
+
+    private LineSessionExample() {}
+
+    public static void main(String[] args) {
+        try (LineSession session = Procwright.command(ExampleSupport.workerCommand("line"))
+                .lineSession()
+                .withRequestTimeout(Duration.ofSeconds(5))
+                .open()) {
+            LineResponse response = session.request("Zażółć gęślą jaźń");
+            if (!response.text().equals("response:Zażółć gęślą jaźń")) {
+                throw new IllegalStateException("Unexpected line response");
+            }
+        }
     }
 }
 ```
 
-More examples: [Examples](../examples.md#line-worker).
+[Open `LineSessionExample.java`](../examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java) and the
+[shared example sources](../examples.md#core).
 
-## Use this scenario because
+This example uses the exact defaults: one exchange is capped at 1,024 response lines and 1,048,576 response characters,
+and unread stdout is capped at 1,024 lines and 1,048,576 characters. See
+[line-session defaults](../reference/defaults.md#line-sessions) for the request, line, transcript, and decoding limits.
 
-`lineSession` owns request serialization, response decoding, timeout/EOF distinction, stderr draining, and bounded
-transcripts. Raw `interactive` sessions are a better fit only when the protocol is not line request/response shaped.
+One session permits one request at a time. Set a request timeout and close the session with try-with-resources. Local
+validation, request-size, encoding, and wait failures leave the direct session open when the request was not handed off
+for stdin writing and cannot write later. Once it is handed off, a timeout, interruption, or write failure closes the
+direct session because stream framing can no longer be trusted, even if no received byte can be confirmed. EOF, malformed
+output, oversized response, and other protocol failures are also terminal.
+
+Use [protocol sessions](../scenarios/protocol-session.md) when requests or responses can contain newlines or use custom
+framing.

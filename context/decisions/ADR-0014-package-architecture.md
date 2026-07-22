@@ -2,95 +2,48 @@
 
 ## Статус
 
-Accepted.
+Принято.
 
 ## Контекст
 
-Первая реализация Java-ядра выросла в один плоский пакет `io.github.ulviar.procwright`. Это мешает читать код,
-размывает владельцев инвариантов и делает публичную поверхность похожей на список классов, а не на сценарную модель.
-
-При этом пакетное разбиение не должно ломать философию Procwright:
-
-- пользователь выбирает сценарий, а не низкоуровневый набор флагов;
-- инварианты должны иметь одного владельца в коде;
-- внутренние runtime-типы не должны становиться частью пользовательского API только из-за удобства реализации;
-- API должен оставаться широким по возможностям, но небольшим и осмысленным по точкам входа.
+Пакеты должны показывать ownership и public boundary, не превращая scenario-first API в техническую навигацию.
+Stateful session contracts разделяют lifecycle и exclusive stream ownership, а runtime details не должны экспортироваться
+ради межпакетного доступа.
 
 ## Решение
 
-Разделить ядро на пакеты по ответственности:
+- `io.github.ulviar.procwright` — `Procwright`, `CommandService`, общий exception boundary и scenario namespaces с
+  `Draft`/`PoolDraft`.
+- `io.github.ulviar.procwright.command` — command model, result, input/output/environment/shutdown policies и failures.
+- `io.github.ulviar.procwright.diagnostics` — public diagnostic events и hooks.
+- `io.github.ulviar.procwright.session` — sealed raw/expect/line/protocol/stream/pooled handles, protocol contracts,
+  transcripts, metrics и failures.
+- `io.github.ulviar.procwright.terminal` — terminal policy, request, provider, size и signal.
+- `io.github.ulviar.procwright.preset` — typed transformations scenario Draft.
+- `io.github.ulviar.procwright.internal` — settings, plans и process helpers.
+- `io.github.ulviar.procwright.internal.session` — stateful session implementations и runtime factories.
 
-- `io.github.ulviar.procwright` — тонкая facade-точка входа, прежде всего `CommandService`;
-- `io.github.ulviar.procwright.command` — one-shot command model, result model, run invocation, input/output policies и
-  command-specific exceptions;
-- `io.github.ulviar.procwright.diagnostics` — diagnostic events, listeners, transcript sinks и diagnostic options;
-- `io.github.ulviar.procwright.session` — raw interactive session, expect, line session, protocol session, stream session,
-  pooled line session и pooled protocol session, потому что эти сценарии разделяют инвариант единоличного владения
-  stdin/stdout/stderr и session-family lifecycle;
-- `io.github.ulviar.procwright.terminal` — terminal/PTY policy, request, provider, size и signal types;
-- `io.github.ulviar.procwright.preset` — scenario presets как пользовательский слой выбора готовых профилей;
-- `io.github.ulviar.procwright.internal` допускается только для implementation details, которые не должны появляться в
-  публичных сигнатурах.
-- `io.github.ulviar.procwright.internal.session` содержит stateful реализации session-family сценариев и runtime factories,
-  которые не экспортируются JPMS-модулем.
-
-Diagnostics runtime dispatcher и schema validator относятся к `internal`: публичный diagnostics package описывает
-только пользовательские hooks, events и options, а не механизм доставки событий.
-
-Публичные contracts session-сценариев сознательно остаются в одном пакете. Разносить `Expect`, `LineSession`,
-`ProtocolSession`, `StreamSession`, `Session` и pooled session handles по отдельным публичным подпакетам сейчас вредно:
-тогда модель сценариев станет технической навигацией вместо пользовательского workflow. Stateful реализации при этом
-вынесены в `internal.session` решением [ADR-0015](ADR-0015-jpms-encapsulation.md).
+Session-family public contracts остаются в одном package, потому что координируют единоличное владение
+stdin/stdout/stderr. Разнос каждого сценария по отдельному public package добавил бы навигацию, но не новую границу
+инварианта.
 
 ## Инварианты
 
-- Публичные сигнатуры не должны ссылаться на `io.github.ulviar.procwright.internal`.
-- Runtime-only классы исключаются из пользовательской документации и не рассматриваются как пользовательский API.
-- Направления production-зависимостей между core packages закреплены тестом, а не только описаны в ADR.
-- Public session-family handles являются sealed interfaces; lifecycle state, output ownership и runtime factories живут в
-  неэкспортируемом `internal.session`.
-- Если класс владеет инвариантом, зависимые сценарии должны находиться рядом с ним или обращаться через явно
-  выделенный runtime boundary.
-- Пакетное разбиение не должно превращать scenario-first API в набор технических namespaces.
-- Новые сценарии сначала определяют владельца инвариантов, затем выбирают пакет.
-
-## Отклоненные варианты
-
-### Оставить весь публичный API в корневом пакете
-
-Отклонено, потому что корневой пакет уже стал нечитаемым и не показывает архитектурных границ.
-
-### Разнести каждый сценарий в отдельный пакет
-
-Отклонено для текущего состояния. Это выглядело бы аккуратно в Javadoc, но нарушило бы важный runtime-инвариант:
-`Session`, `Expect`, `LineSession`, `ProtocolSession` и `StreamSession` должны координировать единоличное владение
-stdin/stdout/stderr без раскрытия внутренних методов наружу.
-
-### Перенести runtime в `internal` без разделения contracts и implementations
-
-Отклонено. Простое перемещение runtime без public handle interfaces создавало бы публичные мосты или ломало
-session-сценарии. Полный split стал возможен позже через ADR-0015: public package содержит handle contracts, а
-stateful реализации и runtime factories живут в `internal.session`.
+- Public signatures не ссылаются на `internal`.
+- JPMS экспортирует только public packages.
+- Public session handles sealed и не являются SPI.
+- Stateful lifecycle/output ownership находится в `internal.session`.
+- Направления production dependencies закреплены bytecode boundary test.
+- Новый package требует устойчивой ответственности, а не только уменьшения числа файлов в каталоге.
 
 ## Последствия
 
-Плюсы:
-
-- пакетная структура начинает отражать назначение классов;
-- корневой пакет остается входной точкой, а не свалкой типов;
-- session-инварианты остаются закрытыми за public handle contracts и неэкспортируемым `internal.session`;
-- публичная документация и API surface tests получают явную модель разрешенных пакетов.
-
-Минусы:
-
-- это breaking change для импортов до baseline `0.1.0`;
-- public session-family handles не являются SPI; sealed contracts делают это compile-time свойством;
-- tests, Kotlin facade, integrations и comparison module должны обновить imports.
+Root package остается коротким пользовательским entry layer. Internal decomposition можно менять без расширения
+compatibility surface. Public failure constructors допустимы там, где internal implementation должна создать
+scenario-specific exception, но сами implementation types остаются скрыты.
 
 ## Проверка
 
-- `PublicApiSurfaceTest` фиксирует разрешенные public API packages и запрещает утечки `internal` в public signatures.
-- `PackageBoundaryTest` читает production class files и проверяет объявленные направления зависимостей между пакетами.
-- `PublicApiSurfaceTest` проверяет `module-info.class` и список экспортируемых packages.
-- Javadoc gate не должен публиковать runtime-only implementation details.
-- Unit, integration, Kotlin, integrations и public docs checks должны проходить после переноса.
+- `PublicApiSurfaceTest` проверяет packages, signatures и JPMS exports.
+- `PackageBoundaryTest` проверяет production dependency directions.
+- Javadoc gate исключает internal packages.

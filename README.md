@@ -3,40 +3,24 @@
 [![CI](https://github.com/Ulviar/Procwright/actions/workflows/ci.yml/badge.svg)](https://github.com/Ulviar/Procwright/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Procwright is a JVM library for scenario-first control of external command-line processes. Its APIs make bounded output,
-timeouts, stream ownership, diagnostics, and best-effort process cleanup explicit for each workflow.
+Procwright is a JVM library for running and controlling external command-line processes. Choose the workflow first;
+Procwright then applies the timeout, output, lifecycle, and cleanup rules for that workflow.
 
-The first public release is `0.1.0`. Use Java 17 or newer; published artifacts target Java 17.
+No public release exists yet. The planned first version is `0.1.0`. Artifacts target Java 17 and run on Java 17 or
+newer.
 
-## Why Procwright exists
+## Install from this checkout
 
-Most process APIs expose low-level pieces: argv, environment, streams, timeouts, and process handles. Real CLI
-automation usually needs a workflow instead:
-
-- run a finite command and inspect a typed result;
-- automate a prompt-oriented session;
-- exchange requests with a line-oriented worker;
-- exchange framed, multi-line, byte, or typed requests with a protocol worker;
-- follow streaming output without retaining everything in memory;
-- reuse warm workers when the protocol can be reset and checked;
-- wrap an external CLI as a structured integration boundary.
-
-Procwright keeps those workflows explicit. The user chooses a scenario, and the library owns the scenario invariants:
-bounded output, timeout and shutdown handling, stream draining, process-tree cleanup, output ownership, diagnostics, and
-redaction-friendly observation.
-
-## Installation
-
-Published releases use Maven Central coordinates.
-
-> **Note:** version `0.1.0` is not yet available on Maven Central — publication is pending. Until then, build from
-> source with `./gradlew publishToMavenLocal --project-prop=procwright.javaRelease=17` and consume the artifacts from
-> `mavenLocal()`.
-
-Gradle Kotlin DSL:
+```shell
+./gradlew publishToMavenLocal \
+  --project-prop=procwright.javaRelease=17 \
+  --project-prop=procwright.version=0.1.0 \
+  --no-daemon
+```
 
 ```kotlin
 repositories {
+    mavenLocal()
     mavenCentral()
 }
 
@@ -45,88 +29,99 @@ dependencies {
 }
 ```
 
-Gradle Groovy:
+## Run a command
 
-```groovy
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    implementation 'io.github.ulviar:procwright:0.1.0'
-}
-```
-
-Maven:
-
-```xml
-<dependency>
-    <groupId>io.github.ulviar</groupId>
-    <artifactId>procwright</artifactId>
-    <version>0.1.0</version>
-</dependency>
-```
-
-The smallest workflow is a one-shot command:
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
 ```java
-import io.github.ulviar.procwright.CommandService;
+/* SPDX-License-Identifier: Apache-2.0 */
+
+package io.github.ulviar.procwright.examples;
+
 import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandResult;
+import java.nio.file.Path;
+import java.time.Duration;
 
-public final class GettingStartedExample {
+public final class RunExample {
 
-    private GettingStartedExample() {}
+    private RunExample() {}
 
     public static void main(String[] args) {
-        CommandService java = Procwright.command("java");
+        CommandResult result = Procwright.command(javaExecutable())
+                .run()
+                .withArgs("--version")
+                .withCapture(CapturePolicy.bounded(256 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
 
-        CommandResult result = java.run().execute("--version");
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+        System.err.printf(
+                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
+                result.exitCode().isPresent()
+                        ? Integer.toString(result.exitCode().getAsInt())
+                        : "unavailable",
+                result.timedOut(),
+                result.stdoutTruncated(),
+                result.stderrTruncated());
 
         if (!result.succeeded()) {
             throw result.toException();
         }
+    }
 
-        System.out.print(result.stdout());
-        System.err.print(result.stderr());
+    private static String javaExecutable() {
+        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", name).toString();
     }
 }
 ```
 
-## Choose a Scenario
+[Open `RunExample.java`](docs/examples/java/io/github/ulviar/procwright/examples/RunExample.java).
 
-| Need | Use |
+The explicit capture policy retains at most 256 KiB (262,144 bytes) from each of stdout and stderr in memory.
+Procwright continues draining both streams and sets `stdoutTruncated()` or `stderrTruncated()` if it discards later
+bytes. See the [run reference](docs/scenarios/run.md) for result behavior and alternative output policies.
+
+Each `with*` call returns a new immutable Draft. Only `execute()` or `open()` starts a process, so a configured Draft can
+be reused or branched safely.
+
+## Choose a workflow
+
+| Process behavior | API |
 | --- | --- |
-| Run a finite command and get a result. | `run` |
-| Configure reusable command defaults. | `CommandSpec` + `CommandService` |
-| Control a live process directly. | `interactive` |
-| Automate prompts. | `interactive` + `Expect` |
-| Talk to a line request/response worker. | `lineSession` |
-| Talk to a framed or typed request/response worker. | `protocolSession` |
-| Follow logs or streaming output. | `listen` |
-| Reuse expensive workers. | `lineSession().pooled()` / `protocolSession(factory).pooled()` |
-| Require terminal capability. | session API + `TerminalPolicy.REQUIRED` |
-| Wrap a CLI as a structured adapter. | `io.github.ulviar:procwright-integrations` |
+| Exits after one command | `run()` |
+| Needs direct stdin/stdout control | `interactive()` |
+| Prompts for input | `interactive()` then `session.expect().open()` |
+| One long-lived worker with line request/response | `lineSession()` |
+| One long-lived worker with framed, binary, or typed messages | `protocolSession(adapterFactory)` |
+| Emits a continuous output stream | `listen()` |
+| Concurrent independent requests across resettable workers | add `pooled()` to a line or protocol Draft |
 
-Start with the public docs:
+Direct line and protocol sessions are already long-lived and serialize requests on one worker. Use them when one worker,
+stable affinity, or worker-local state matters. Pool only when requests are independent, workers can be safely reset, and
+concurrent callers may use different workers.
 
-- [Getting Started](docs/getting-started.md)
-- [How-to Guides](docs/how-to/index.md)
-- [Examples](docs/examples.md)
-- [Reference](docs/reference/index.md)
-- [Version and Compatibility](docs/release/index.md)
+Open sessions and pools with try-with-resources. Pool `close()` waits for bounded worker drain, using a 15-second default;
+configure it with `withCloseTimeout(...)`. Use `closeAsync()` only when the caller must start terminal cleanup without
+blocking. Do not read a session's raw stdout after an `Expect`, line-session, or protocol helper owns that output.
+
+## Documentation
+
+- [Documentation site](https://ulviar.github.io/Procwright/)
+- [Getting started](docs/getting-started.md)
+- [Choose a process scenario](docs/how-to/choose-process-scenario.md)
+- [Runnable examples](docs/examples.md)
+- [Scenario and policy reference](docs/reference/index.md)
+- [Kotlin extensions](docs/reference/kotlin-api.md)
+- [Compatibility and limitations](docs/release/compatibility.md)
 
 ## Modules
 
-- `io.github.ulviar:procwright` is the Java core module `io.github.ulviar.procwright` with no runtime dependencies outside the JDK.
-- `io.github.ulviar:procwright-kotlin` is an optional Kotlin ergonomics module.
-- `io.github.ulviar:procwright-integrations` is an optional Java module for structured CLI-backed integration helpers.
+- `io.github.ulviar:procwright` provides the Java core and has no runtime dependency outside the JDK.
+- `io.github.ulviar:procwright-kotlin` adds Kotlin durations, coroutine terminals, Flow streaming, and an adapter factory DSL.
+- `io.github.ulviar:procwright-integrations` adds structured CLI-backed integration helpers.
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, verification tiers, and conventions. Security issues go
-through the [security policy](SECURITY.md), not public issues.
-
-## License
-
-Procwright is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
+Report vulnerabilities through [SECURITY.md](SECURITY.md). Procwright is licensed under
+[Apache License 2.0](LICENSE).

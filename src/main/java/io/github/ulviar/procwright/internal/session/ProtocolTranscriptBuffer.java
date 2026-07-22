@@ -4,115 +4,85 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.session.ProtocolTranscript;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
-import java.util.HashMap;
-import java.util.Map;
+import java.nio.charset.CharacterCodingException;
 import java.util.Objects;
 
 final class ProtocolTranscriptBuffer {
 
-    private static final byte[] EMPTY_BYTES = new byte[0];
-
     private final BoundedTranscriptBuffer delegate;
-    private final CharsetPolicy charsetPolicy;
-    private final Map<String, StreamDecoder> decoders = new HashMap<>();
+    private final IncrementalTextDecoder stdoutDecoder;
+    private final IncrementalTextDecoder stderrDecoder;
     private boolean malformed;
 
     ProtocolTranscriptBuffer(int limit, CharsetPolicy charsetPolicy) {
         delegate = new BoundedTranscriptBuffer(limit);
-        this.charsetPolicy = Objects.requireNonNull(charsetPolicy, "charsetPolicy");
+        CharsetPolicy requestedPolicy = Objects.requireNonNull(charsetPolicy, "charsetPolicy");
+        CharsetPolicy transcriptPolicy = CharsetPolicy.replace(requestedPolicy.charset());
+        int pendingByteLimit = IncrementalTextDecoder.pendingByteLimitFor(limit);
+        int outputWithoutInputLimit = IncrementalTextDecoder.outputWithoutInputLimitFor(limit);
+        IncrementalTextDecoder initializedStdoutDecoder =
+                createDecoder(transcriptPolicy, pendingByteLimit, outputWithoutInputLimit);
+        IncrementalTextDecoder initializedStderrDecoder =
+                createDecoder(transcriptPolicy, pendingByteLimit, outputWithoutInputLimit);
+        stdoutDecoder = initializedStdoutDecoder;
+        stderrDecoder = initializedStderrDecoder;
     }
 
     synchronized void appendStream(String label, byte[] bytes, int count) {
         Objects.requireNonNull(label, "label");
         Objects.requireNonNull(bytes, "bytes");
         Objects.checkFromIndexSize(0, count, bytes.length);
-        decoder(label).decodeInto(label, bytes, count);
+        IncrementalTextDecoder decoder = decoder(label);
+        decode(decoder, label, sink -> decoder.decode(bytes, count, sink));
+    }
+
+    synchronized void endStream(String label) {
+        Objects.requireNonNull(label, "label");
+        IncrementalTextDecoder decoder = decoder(label);
+        decode(decoder, label, decoder::end);
     }
 
     synchronized ProtocolTranscript snapshot() {
         BoundedTranscriptBuffer.Snapshot snapshot = delegate.snapshot();
-        return new ProtocolTranscript(snapshot.text(), snapshot.truncated(), malformed, false);
+        return new ProtocolTranscript(snapshot.text(), snapshot.truncated(), malformed);
     }
 
-    private StreamDecoder decoder(String label) {
-        return decoders.computeIfAbsent(label, ignored -> new StreamDecoder());
+    private IncrementalTextDecoder decoder(String label) {
+        return switch (label) {
+            case "stdout" -> stdoutDecoder;
+            case "stderr" -> stderrDecoder;
+            default -> throw new IllegalArgumentException("unknown protocol transcript stream: " + label);
+        };
     }
 
-    private final class StreamDecoder {
+    private static IncrementalTextDecoder createDecoder(
+            CharsetPolicy transcriptPolicy, int pendingByteLimit, int outputWithoutInputLimit) {
+        return new IncrementalTextDecoder(transcriptPolicy, pendingByteLimit, outputWithoutInputLimit);
+    }
 
-        private final CharsetDecoder decoder = charsetPolicy
-                .charset()
-                .newDecoder()
-                .onMalformedInput(charsetPolicy.malformedInputAction())
-                .onUnmappableCharacter(charsetPolicy.unmappableCharacterAction());
-        private byte[] pending = EMPTY_BYTES;
-        private int pendingCount;
-
-        private void decodeInto(String label, byte[] bytes, int count) {
-            ByteBuffer input = sourceBuffer(bytes, count);
-            CharBuffer output = CharBuffer.allocate(128);
-            while (true) {
-                CoderResult result = decoder.decode(input, output, false);
-                appendOutput(label, output);
-                if (result.isOverflow()) {
-                    continue;
-                }
-                if (result.isUnderflow()) {
-                    retainPending(input);
-                    return;
-                }
-                appendReplacement(label);
-                skipMalformedInput(input, result);
-            }
-        }
-
-        private ByteBuffer sourceBuffer(byte[] bytes, int count) {
-            if (pendingCount == 0) {
-                return ByteBuffer.wrap(bytes, 0, count);
-            }
-            ByteBuffer combined = ByteBuffer.allocate(pendingCount + count);
-            combined.put(pending, 0, pendingCount);
-            combined.put(bytes, 0, count);
-            combined.flip();
-            pending = EMPTY_BYTES;
-            pendingCount = 0;
-            return combined;
-        }
-
-        private void retainPending(ByteBuffer input) {
-            int remaining = input.remaining();
-            if (remaining == 0) {
-                pending = EMPTY_BYTES;
-                pendingCount = 0;
-                return;
-            }
-            if (pending.length < remaining) {
-                pending = new byte[remaining];
-            }
-            input.get(pending, 0, remaining);
-            pendingCount = remaining;
-        }
-
-        private void appendOutput(String label, CharBuffer output) {
-            output.flip();
-            int count = output.remaining();
-            if (count > 0) {
-                delegate.appendStream(label, output.array(), count);
-            }
-            output.clear();
-        }
-
-        private void skipMalformedInput(ByteBuffer input, CoderResult result) {
+    private void decode(IncrementalTextDecoder decoder, String label, DecodeOperation operation) {
+        try {
+            operation.run((chars, count) -> delegate.appendStream(label, chars, count));
+        } catch (CharacterCodingException exception) {
             malformed = true;
-            input.position(Math.min(input.limit(), input.position() + result.length()));
+            throw new TranscriptDecodingException(exception);
+        } finally {
+            malformed |= decoder.malformed();
         }
+    }
 
-        private void appendReplacement(String label) {
-            delegate.appendStream(label, decoder.replacement());
+    @FunctionalInterface
+    private interface DecodeOperation {
+
+        void run(IncrementalTextDecoder.Sink sink) throws CharacterCodingException;
+    }
+
+    static final class TranscriptDecodingException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        private TranscriptDecodingException(CharacterCodingException cause) {
+            super("Could not decode protocol transcript", cause);
         }
     }
 }

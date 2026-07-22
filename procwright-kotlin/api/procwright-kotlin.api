@@ -1,0 +1,61 @@
+public final class io/github/ulviar/procwright/kotlin/CoroutineExtensionsKt {
+	public static final fun awaitExit (Lio/github/ulviar/procwright/session/LineSession;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun awaitExit (Lio/github/ulviar/procwright/session/ProtocolSession;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun awaitExit (Lio/github/ulviar/procwright/session/Session;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun awaitExit (Lio/github/ulviar/procwright/session/StreamSession;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun executeAwait (Lio/github/ulviar/procwright/RunScenario$Draft;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait (Lio/github/ulviar/procwright/session/LineSession;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait (Lio/github/ulviar/procwright/session/PooledLineSession;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait (Lio/github/ulviar/procwright/session/PooledProtocolSession;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait (Lio/github/ulviar/procwright/session/ProtocolSession;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait-exY8QGI (Lio/github/ulviar/procwright/session/LineSession;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait-exY8QGI (Lio/github/ulviar/procwright/session/PooledLineSession;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait-exY8QGI (Lio/github/ulviar/procwright/session/PooledProtocolSession;Ljava/lang/Object;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun requestAwait-exY8QGI (Lio/github/ulviar/procwright/session/ProtocolSession;Ljava/lang/Object;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/ulviar/procwright/kotlin/DurationExtensionsKt {
+	public static final fun expectRegex-SxA4cEA (Lio/github/ulviar/procwright/session/Expect;Ljava/util/regex/Pattern;J)Lio/github/ulviar/procwright/session/Expect;
+	public static final fun expectRegexMatch-SxA4cEA (Lio/github/ulviar/procwright/session/Expect;Ljava/util/regex/Pattern;J)Lio/github/ulviar/procwright/session/ExpectMatch;
+	public static final fun expectText-SxA4cEA (Lio/github/ulviar/procwright/session/Expect;Ljava/lang/String;J)Lio/github/ulviar/procwright/session/Expect;
+	public static final fun expectTextMatch-SxA4cEA (Lio/github/ulviar/procwright/session/Expect;Ljava/lang/String;J)Lio/github/ulviar/procwright/session/ExpectMatch;
+	public static final fun request-SxA4cEA (Lio/github/ulviar/procwright/session/LineSession;Ljava/lang/String;J)Lio/github/ulviar/procwright/session/LineResponse;
+	public static final fun request-SxA4cEA (Lio/github/ulviar/procwright/session/PooledLineSession;Ljava/lang/String;J)Lio/github/ulviar/procwright/session/LineResponse;
+	public static final fun request-SxA4cEA (Lio/github/ulviar/procwright/session/PooledProtocolSession;Ljava/lang/Object;J)Ljava/lang/Object;
+	public static final fun request-SxA4cEA (Lio/github/ulviar/procwright/session/ProtocolSession;Ljava/lang/Object;J)Ljava/lang/Object;
+	public static final fun withAcquireTimeout-HG0u8IE (Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;
+	public static final fun withAcquireTimeout-HG0u8IE (Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;
+	public static final fun withCloseTimeout-HG0u8IE (Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;
+	public static final fun withCloseTimeout-HG0u8IE (Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;
+	public static final fun withHookTimeout-HG0u8IE (Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;
+	public static final fun withHookTimeout-HG0u8IE (Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;
+	public static final fun withIdleTimeout-HG0u8IE (Lio/github/ulviar/procwright/InteractiveScenario$Draft;J)Lio/github/ulviar/procwright/InteractiveScenario$Draft;
+	public static final fun withIdleTimeout-HG0u8IE (Lio/github/ulviar/procwright/LineSessionScenario$Draft;J)Lio/github/ulviar/procwright/LineSessionScenario$Draft;
+	public static final fun withIdleTimeout-HG0u8IE (Lio/github/ulviar/procwright/ProtocolSessionScenario$Draft;J)Lio/github/ulviar/procwright/ProtocolSessionScenario$Draft;
+	public static final fun withMaxWorkerAge-HG0u8IE (Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/LineSessionScenario$PoolDraft;
+	public static final fun withMaxWorkerAge-HG0u8IE (Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;J)Lio/github/ulviar/procwright/ProtocolSessionScenario$PoolDraft;
+	public static final fun withReadinessTimeout-HG0u8IE (Lio/github/ulviar/procwright/InteractiveScenario$Draft;J)Lio/github/ulviar/procwright/InteractiveScenario$Draft;
+	public static final fun withReadinessTimeout-HG0u8IE (Lio/github/ulviar/procwright/LineSessionScenario$Draft;J)Lio/github/ulviar/procwright/LineSessionScenario$Draft;
+	public static final fun withReadinessTimeout-HG0u8IE (Lio/github/ulviar/procwright/ProtocolSessionScenario$Draft;J)Lio/github/ulviar/procwright/ProtocolSessionScenario$Draft;
+	public static final fun withRequestTimeout-HG0u8IE (Lio/github/ulviar/procwright/LineSessionScenario$Draft;J)Lio/github/ulviar/procwright/LineSessionScenario$Draft;
+	public static final fun withRequestTimeout-HG0u8IE (Lio/github/ulviar/procwright/ProtocolSessionScenario$Draft;J)Lio/github/ulviar/procwright/ProtocolSessionScenario$Draft;
+	public static final fun withTimeout-HG0u8IE (Lio/github/ulviar/procwright/RunScenario$Draft;J)Lio/github/ulviar/procwright/RunScenario$Draft;
+	public static final fun withTimeout-HG0u8IE (Lio/github/ulviar/procwright/StreamScenario$Draft;J)Lio/github/ulviar/procwright/StreamScenario$Draft;
+	public static final fun withTimeout-HG0u8IE (Lio/github/ulviar/procwright/session/Expect$Draft;J)Lio/github/ulviar/procwright/session/Expect$Draft;
+}
+
+public abstract interface annotation class io/github/ulviar/procwright/kotlin/ProcwrightDsl : java/lang/annotation/Annotation {
+}
+
+public abstract interface class io/github/ulviar/procwright/kotlin/ProtocolAdapterFactoryDsl {
+	public abstract fun readResponse (Lkotlin/jvm/functions/Function1;)V
+	public abstract fun writeRequest (Lkotlin/jvm/functions/Function2;)V
+}
+
+public final class io/github/ulviar/procwright/kotlin/ProtocolAdapterFactoryKt {
+	public static final fun protocolAdapterFactory (Lkotlin/jvm/functions/Function1;)Ljava/util/function/Supplier;
+}
+
+public final class io/github/ulviar/procwright/kotlin/StreamFlowKt {
+	public static final fun openFlow (Lio/github/ulviar/procwright/StreamScenario$Draft;)Lkotlinx/coroutines/flow/Flow;
+}

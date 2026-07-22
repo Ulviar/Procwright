@@ -6,34 +6,35 @@ import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReader;
 import io.github.ulviar.procwright.session.ProtocolReaders;
+import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
- * Protocol adapters built on top of Procwright protocol sessions.
+ * Protocol adapter factories built on top of Procwright protocol sessions.
  */
 public final class ProtocolAdapters {
-
-    private static final int DEFAULT_MAX_HEADER_BYTES = 8192;
 
     private ProtocolAdapters() {}
 
     /**
-     * Returns a JSON Lines adapter.
+     * Returns a factory for JSON Lines protocol sessions.
+     *
+     * <p>The factory can be passed directly to {@code command(...).protocolSession(...)} and returns a fresh adapter
+     * for every opened session or pool worker.
      *
      * @param maxLineChars maximum response line characters
-     * @return JSON Lines adapter
+     * @return fresh JSON Lines adapter factory
      */
-    public static ProtocolAdapter<JsonValue, JsonValue> jsonLines(int maxLineChars) {
+    public static Supplier<ProtocolAdapter<JsonValue, JsonValue>> jsonLinesSession(int maxLineChars) {
         if (maxLineChars <= 0) {
             throw new IllegalArgumentException("maxLineChars must be positive");
         }
-        return new ProtocolAdapter<>() {
+        return () -> new ProtocolAdapter<>() {
             @Override
             public void writeRequest(JsonValue request, ProtocolWriter writer) {
                 writer.writeLine(JsonLines.line(request));
@@ -48,17 +49,21 @@ public final class ProtocolAdapters {
     }
 
     /**
-     * Returns a delimiter-framed bytes adapter. The delimiter is appended to requests and removed from responses.
+     * Returns a factory for delimiter-framed byte protocol sessions. The delimiter is appended to requests and removed
+     * from responses.
+     *
+     * <p>The factory can be passed directly to {@code command(...).protocolSession(...)} and returns a fresh adapter
+     * for every opened session or pool worker.
      *
      * @param delimiter frame delimiter
      * @param maxFrameBytes maximum response frame bytes including delimiter
-     * @return delimiter-framed adapter
+     * @return fresh delimiter-framed adapter factory
      */
-    public static ProtocolAdapter<byte[], byte[]> delimiter(byte delimiter, int maxFrameBytes) {
+    public static Supplier<ProtocolAdapter<byte[], byte[]>> delimiterSession(byte delimiter, int maxFrameBytes) {
         if (maxFrameBytes <= 0) {
             throw new IllegalArgumentException("maxFrameBytes must be positive");
         }
-        return new ProtocolAdapter<>() {
+        return () -> new ProtocolAdapter<>() {
             @Override
             public void writeRequest(byte[] request, ProtocolWriter writer) {
                 byte[] payload = Objects.requireNonNull(request, "request").clone();
@@ -83,125 +88,102 @@ public final class ProtocolAdapters {
     }
 
     /**
-     * Returns a Content-Length framed JSON adapter.
+     * Returns a factory for Content-Length framed JSON protocol sessions.
+     *
+     * <p>The factory can be passed directly to {@code command(...).protocolSession(...)} and returns a fresh adapter
+     * for every opened session or pool worker.
      *
      * @param maxFrameBytes maximum response body bytes
-     * @return Content-Length JSON adapter
+     * @return fresh Content-Length JSON adapter factory
      */
-    public static ProtocolAdapter<JsonValue, JsonValue> contentLengthJson(int maxFrameBytes) {
+    public static Supplier<ProtocolAdapter<JsonValue, JsonValue>> contentLengthJsonSession(int maxFrameBytes) {
         if (maxFrameBytes <= 0) {
             throw new IllegalArgumentException("maxFrameBytes must be positive");
         }
-        return new ProtocolAdapter<>() {
+        return () -> new ProtocolAdapter<>() {
             @Override
             public void writeRequest(JsonValue request, ProtocolWriter writer) {
-                writer.write(ContentLengthJsonFrames.frame(request));
+                ContentLengthJsonFrames.write(writer, request);
                 writer.flush();
             }
 
             @Override
             public JsonValue readResponse(ProtocolReaders readers) {
-                int length = readContentLength(readers.stdout());
-                if (length > maxFrameBytes) {
-                    throw new IntegrationProtocolException(
-                            IntegrationProtocolException.Reason.OVERSIZED_FRAME, "Frame exceeds maxFrameBytes");
+                try {
+                    int length = readContentLength(readers.stdout());
+                    if (length > maxFrameBytes) {
+                        throw new IntegrationProtocolException(
+                                IntegrationProtocolException.Reason.OVERSIZED_FRAME, "Frame exceeds maxFrameBytes");
+                    }
+                    byte[] body = readers.stdout().readExactly(length);
+                    return JsonCodec.parse(decodeUtf8(body));
+                } catch (ProtocolSessionException exception) {
+                    if (exception.reason() == ProtocolSessionException.Reason.EOF) {
+                        throw new IntegrationProtocolException(
+                                IntegrationProtocolException.Reason.EOF,
+                                "Protocol output ended before the Content-Length frame was complete",
+                                exception);
+                    }
+                    throw exception;
                 }
-                byte[] body = readers.stdout().readExactly(length);
-                return JsonCodec.parse(decodeUtf8(body));
             }
         };
     }
 
     /**
-     * Maps a JSON protocol adapter to domain request and response types.
+     * Maps a JSON protocol-session factory to domain request and response types.
+     *
+     * <p>Each factory call obtains a fresh transport adapter and creates a fresh typed wrapper, preserving the adapter
+     * isolation required by direct sessions and pools. Mutable per-adapter state belongs inside the transport factory
+     * call, not in the retained callbacks.
+     *
+     * <p>The returned factory retains {@code encode}, {@code decode}, and {@code transportFactory}. Different sessions
+     * and pool workers can invoke those same callback instances concurrently. They must be thread-safe; this helper
+     * does not synchronize them or serialize work across adapters.
+     *
+     * <p>A runtime exception from {@code transportFactory} propagates from the factory call unchanged, as does an
+     * {@link Error}; a null transport fails with {@link NullPointerException}. Runtime exceptions from {@code encode}
+     * and {@code decode} propagate from the adapter callback unchanged. Procwright maps ordinary runtime failures to
+     * protocol {@link ProtocolSessionException.Reason#FAILURE} and
+     * {@link ProtocolSessionException.Reason#PROTOCOL_DECODER_FAILED}, respectively; an explicitly thrown
+     * {@link ProtocolSessionException} retains its existing reason. Callback errors propagate unchanged. Null encoder
+     * or decoder results fail with {@link NullPointerException} and follow the ordinary runtime mapping.
      *
      * @param encode request encoder
      * @param decode response decoder
-     * @param transport JSON transport adapter
+     * @param transportFactory factory that returns a fresh JSON transport adapter for each call
      * @param <I> request type
      * @param <O> response type
-     * @return typed protocol adapter
+     * @return fresh typed protocol adapter factory
      */
-    public static <I, O> ProtocolAdapter<I, O> typedJson(
+    public static <I, O> Supplier<ProtocolAdapter<I, O>> typedJsonSession(
             Function<? super I, JsonValue> encode,
             Function<? super JsonValue, ? extends O> decode,
-            ProtocolAdapter<JsonValue, JsonValue> transport) {
+            Supplier<? extends ProtocolAdapter<JsonValue, JsonValue>> transportFactory) {
         Objects.requireNonNull(encode, "encode");
         Objects.requireNonNull(decode, "decode");
-        Objects.requireNonNull(transport, "transport");
-        return new ProtocolAdapter<>() {
-            @Override
-            public void writeRequest(I request, ProtocolWriter writer) {
-                transport.writeRequest(encode.apply(request), writer);
-            }
+        Objects.requireNonNull(transportFactory, "transportFactory");
+        return () -> {
+            ProtocolAdapter<JsonValue, JsonValue> transport =
+                    Objects.requireNonNull(transportFactory.get(), "transportFactory returned null");
+            return new ProtocolAdapter<>() {
+                @Override
+                public void writeRequest(I request, ProtocolWriter writer) {
+                    JsonValue encoded = Objects.requireNonNull(encode.apply(request), "encode returned null");
+                    transport.writeRequest(encoded, writer);
+                }
 
-            @Override
-            public O readResponse(ProtocolReaders readers) {
-                return decode.apply(transport.readResponse(readers));
-            }
+                @Override
+                public O readResponse(ProtocolReaders readers) {
+                    return Objects.requireNonNull(
+                            decode.apply(transport.readResponse(readers)), "decode returned null");
+                }
+            };
         };
     }
 
     private static int readContentLength(ProtocolReader input) {
-        String headerBlock = readHeaderBlock(input);
-        Integer contentLength = null;
-        for (String line : headerBlock.split("\r\n")) {
-            if (line.isEmpty()) {
-                continue;
-            }
-            int separator = line.indexOf(':');
-            if (separator <= 0) {
-                throw new IntegrationProtocolException(
-                        IntegrationProtocolException.Reason.BAD_HEADER, "Malformed frame header");
-            }
-            String name = line.substring(0, separator).trim().toLowerCase(Locale.ROOT);
-            String value = line.substring(separator + 1).trim();
-            if ("content-length".equals(name)) {
-                if (contentLength != null) {
-                    throw new IntegrationProtocolException(
-                            IntegrationProtocolException.Reason.BAD_HEADER, "Duplicate Content-Length header");
-                }
-                contentLength = parseLength(value);
-            }
-        }
-        if (contentLength == null) {
-            throw new IntegrationProtocolException(
-                    IntegrationProtocolException.Reason.MISSING_LENGTH, "Content-Length header is required");
-        }
-        return contentLength;
-    }
-
-    private static String readHeaderBlock(ProtocolReader input) {
-        ByteArrayOutputStream header = new ByteArrayOutputStream();
-        int previous3 = -1;
-        int previous2 = -1;
-        int previous1 = -1;
-        while (header.size() <= DEFAULT_MAX_HEADER_BYTES) {
-            int value = input.readByte() & 0xFF;
-            header.write(value);
-            if (previous3 == '\r' && previous2 == '\n' && previous1 == '\r' && value == '\n') {
-                return header.toString(StandardCharsets.US_ASCII);
-            }
-            previous3 = previous2;
-            previous2 = previous1;
-            previous1 = value;
-        }
-        throw new IntegrationProtocolException(
-                IntegrationProtocolException.Reason.BAD_HEADER, "Frame headers exceed limit");
-    }
-
-    private static int parseLength(String value) {
-        try {
-            int length = Integer.parseInt(value);
-            if (length < 0) {
-                throw new IntegrationProtocolException(
-                        IntegrationProtocolException.Reason.BAD_LENGTH, "Content-Length must not be negative");
-            }
-            return length;
-        } catch (NumberFormatException exception) {
-            throw new IntegrationProtocolException(
-                    IntegrationProtocolException.Reason.BAD_LENGTH, "Content-Length must be a decimal integer");
-        }
+        return ContentLengthHeaders.readProtocol(() -> input.readByte() & 0xFF);
     }
 
     private static String decodeUtf8(byte[] body) {

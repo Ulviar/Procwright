@@ -2,35 +2,45 @@
 
 package io.github.ulviar.procwright;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandExecutionException;
-import io.github.ulviar.procwright.command.CommandInvocation;
+import io.github.ulviar.procwright.command.CommandInput;
 import io.github.ulviar.procwright.command.CommandResult;
+import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.OutputMode;
-import io.github.ulviar.procwright.command.RunOptions;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.diagnostics.DiagnosticsOptions;
 import io.github.ulviar.procwright.internal.ProcessKernel;
 import io.github.ulviar.procwright.preset.ScenarioPresets;
-import io.github.ulviar.procwright.session.LineSessionOptions;
-import io.github.ulviar.procwright.session.PooledLineSessionOptions;
-import io.github.ulviar.procwright.session.PooledProtocolSessionOptions;
-import io.github.ulviar.procwright.session.ProtocolSessionOptions;
-import io.github.ulviar.procwright.session.SessionOptions;
-import io.github.ulviar.procwright.session.StreamOptions;
+import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CoderMalfunctionError;
+import java.nio.charset.CoderResult;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -38,7 +48,8 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void successfulCommandCapturesStdoutAndExitCode() {
-        CommandResult result = fixtureService().run(call -> call.args("exit", "--stdout=ready\n"));
+        CommandResult result =
+                fixtureService().run().withArgs("exit", "--stdout=ready\n").execute();
 
         assertTrue(result.succeeded());
         assertEquals(0, result.exitCode().orElseThrow());
@@ -48,8 +59,10 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void nonZeroCommandCapturesStdoutAndStderr() {
-        CommandResult result =
-                fixtureService().run(call -> call.args("exit", "--exit-code=7", "--stdout=out\n", "--stderr=err\n"));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("exit", "--exit-code=7", "--stdout=out\n", "--stderr=err\n")
+                .execute();
 
         assertFalse(result.succeeded());
         assertEquals(7, result.exitCode().orElseThrow());
@@ -60,16 +73,21 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void directArgvPreservesArgumentsWithoutShellExpansion() {
         CommandResult result = fixtureService()
-                .run(call -> call.args("argv-env-cwd", "--", "hello world", "$PROCWRIGHT_NOT_EXPANDED"));
+                .run()
+                .withArgs("argv-env-cwd", "--", "hello world", "$PROCWRIGHT_NOT_EXPANDED")
+                .execute();
 
         assertTrue(normalizeLineEndings(result.stdout()).contains("argv:hello world|$PROCWRIGHT_NOT_EXPANDED\n"));
     }
 
     @Test
     void commandReceivesWorkingDirectoryAndEnvironmentOverride(@TempDir Path workingDirectory) throws IOException {
-        CommandResult result = fixtureService().run(call -> call.args("argv-env-cwd", "--env=PROCWRIGHT_TEST_VALUE")
-                .workingDirectory(workingDirectory)
-                .putEnvironment("PROCWRIGHT_TEST_VALUE", "configured"));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("argv-env-cwd", "--env=PROCWRIGHT_TEST_VALUE")
+                .withWorkingDirectory(workingDirectory)
+                .withEnvironment("PROCWRIGHT_TEST_VALUE", "configured")
+                .execute();
 
         List<String> stdoutLines = normalizeLineEndings(result.stdout()).lines().toList();
         assertEquals(3, stdoutLines.size());
@@ -87,12 +105,12 @@ final class OneShotExecutionIntegrationTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("test requires one inherited environment variable"));
 
-        CommandResult result = fixtureService().run(call -> {
-            call.args("argv-env-cwd", "--env=" + inheritedName)
-                    .cleanEnvironment()
-                    .putEnvironment("PROCWRIGHT_TEST_VALUE", "configured");
-            putWindowsSystemRootIfNeeded(call);
-        });
+        RunScenario.Draft draft = fixtureService()
+                .run()
+                .withArgs("argv-env-cwd", "--env=" + inheritedName)
+                .withCleanEnvironment()
+                .withEnvironment("PROCWRIGHT_TEST_VALUE", "configured");
+        CommandResult result = putWindowsSystemRootIfNeeded(draft).execute();
 
         assertTrue(result.succeeded());
         assertTrue(normalizeLineEndings(result.stdout()).contains("env:" + inheritedName + "=<missing>\n"));
@@ -100,8 +118,11 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void largeStdoutIsBoundedAndMarkedAsTruncated() {
-        CommandResult result = fixtureService().run(call -> call.args("burst", "--stdout-bytes=64", "--stdout-byte=x")
-                .capture(CapturePolicy.bounded(16)));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("burst", "--stdout-bytes=64", "--stdout-byte=x")
+                .withCapture(CapturePolicy.bounded(16))
+                .execute();
 
         assertStdoutEquals("x".repeat(16), result);
         assertStderrEquals("", result);
@@ -111,9 +132,11 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void largeStderrIsBoundedIndependentlyFromStdout() {
-        CommandResult result = fixtureService().run(call -> call.args(
-                        "burst", "--stdout-bytes=5", "--stdout-byte=d", "--stderr-bytes=64", "--stderr-byte=e")
-                .capture(CapturePolicy.bounded(16)));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("burst", "--stdout-bytes=5", "--stdout-byte=d", "--stderr-bytes=64", "--stderr-byte=e")
+                .withCapture(CapturePolicy.bounded(16))
+                .execute();
 
         assertStdoutEquals("ddddd", result);
         assertStderrEquals("e".repeat(16), result);
@@ -123,8 +146,11 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void stderrCanBeMergedIntoStdout() {
-        CommandResult result = fixtureService().run(call -> call.args("exit", "--stdout=out\n", "--stderr=err\n")
-                .output(OutputMode.MERGED));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("exit", "--stdout=out\n", "--stderr=err\n")
+                .withOutput(OutputMode.MERGED)
+                .execute();
 
         String stdout = normalizeLineEndings(result.stdout());
         assertTrue(stdout.contains("out\n"));
@@ -136,10 +162,9 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void capturedOutputBytesAreAvailableForBinaryWorkflows() {
-        CommandResult result = fixtureService().run(call -> {
-            call.args("binary", "--pattern=nul-ff-ascii");
-            ScenarioPresets.binaryOutputCapture(Duration.ofSeconds(1), 16).accept(call);
-        });
+        CommandResult result = ScenarioPresets.binaryOutputCapture(
+                        fixtureService().run().withArgs("binary", "--pattern=nul-ff-ascii"), Duration.ofSeconds(1), 16)
+                .execute();
 
         assertTrue(result.succeeded());
         assertEquals(java.util.List.of((byte) 0x00, (byte) 0xFF, (byte) 0x41), boxed(result.stdoutBytes()));
@@ -148,10 +173,11 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void launchFailureDoesNotExposeRawArguments() {
-        CommandService service = CommandService.forCommand("procwright-missing-executable-" + System.nanoTime());
+        CommandService service = Procwright.command("procwright-missing-executable-" + System.nanoTime());
 
         CommandExecutionException exception = assertThrows(
-                CommandExecutionException.class, () -> service.run(call -> call.args("--token", "secret-argument")));
+                CommandExecutionException.class,
+                () -> service.run().withArgs("--token", "secret-argument").execute());
 
         assertTrue(exception.getMessage().contains("argumentCount=2"));
         assertFalse(exception.getMessage().contains("--token"));
@@ -161,7 +187,9 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void invalidEnvironmentValueDoesNotExposeRawValue() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> fixtureService()
-                .run(call -> call.putEnvironment("SECRET_VALUE", "hidden\0value")));
+                .run()
+                .withEnvironment("SECRET_VALUE", "hidden\0value")
+                .execute());
 
         assertFalse(exception.getMessage().contains("hidden"));
     }
@@ -169,7 +197,10 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void hugeTimeoutIsSaturatedInsteadOfOverflowing() {
         CommandResult result = fixtureService()
-                .run(call -> call.args("exit", "--stdout=ok\n").timeout(Duration.ofSeconds(Long.MAX_VALUE)));
+                .run()
+                .withArgs("exit", "--stdout=ok\n")
+                .withTimeout(Duration.ofSeconds(Long.MAX_VALUE))
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("ok\n", result);
@@ -177,8 +208,11 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void zeroTimeoutDisablesRunTimeoutAndAwaitsCompletion() {
-        CommandResult result = fixtureService().run(call -> call.args("sleep", "--millis=300", "--finished=true")
-                .timeout(Duration.ZERO));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("sleep", "--millis=300", "--finished=true")
+                .withTimeout(Duration.ZERO)
+                .execute();
 
         assertTrue(result.succeeded());
         assertFalse(result.timedOut());
@@ -188,7 +222,10 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void negativeTimeoutIsRejectedBeforeLaunch() {
         assertThrows(IllegalArgumentException.class, () -> fixtureService()
-                .run(call -> call.args("exit").timeout(Duration.ofMillis(-1))));
+                .run()
+                .withArgs("exit")
+                .withTimeout(Duration.ofMillis(-1))
+                .execute());
     }
 
     @Test
@@ -196,10 +233,12 @@ final class OneShotExecutionIntegrationTest {
         Path stdoutFile = directory.resolve("stdout.log");
         Path stderrFile = directory.resolve("stderr.log");
 
-        CommandResult result = fixtureService().run(call -> call.args(
-                        "burst", "--stdout-bytes=2m", "--stdout-byte=x", "--stderr-bytes=64", "--stderr-byte=e")
-                .capture(CapturePolicy.toPath(stdoutFile, stderrFile))
-                .timeout(Duration.ofSeconds(30)));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("burst", "--stdout-bytes=2m", "--stdout-byte=x", "--stderr-bytes=64", "--stderr-byte=e")
+                .withCapture(CapturePolicy.toPath(stdoutFile, stderrFile))
+                .withTimeout(Duration.ofSeconds(30))
+                .execute();
 
         assertTrue(result.succeeded());
         assertEquals(2 * 1024 * 1024, java.nio.file.Files.size(stdoutFile));
@@ -214,9 +253,12 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void discardCaptureDropsOutputWithoutFailing() {
-        CommandResult result = fixtureService().run(call -> call.args("burst", "--stdout-bytes=2m", "--stdout-byte=x")
-                .capture(CapturePolicy.discard())
-                .timeout(Duration.ofSeconds(30)));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("burst", "--stdout-bytes=2m", "--stdout-byte=x")
+                .withCapture(CapturePolicy.discard())
+                .withTimeout(Duration.ofSeconds(30))
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("", result);
@@ -229,9 +271,12 @@ final class OneShotExecutionIntegrationTest {
     void mergedSingleFileCaptureReceivesBothStreams(@TempDir Path directory) throws IOException {
         Path mergedFile = directory.resolve("merged.log");
 
-        CommandResult result = fixtureService().run(call -> call.args("exit", "--stdout=out\n", "--stderr=err\n")
-                .output(OutputMode.MERGED)
-                .capture(CapturePolicy.toPath(mergedFile)));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("exit", "--stdout=out\n", "--stderr=err\n")
+                .withOutput(OutputMode.MERGED)
+                .withCapture(CapturePolicy.toPath(mergedFile))
+                .execute();
 
         assertTrue(result.succeeded());
         String merged = normalizeLineEndings(java.nio.file.Files.readString(mergedFile));
@@ -245,7 +290,10 @@ final class OneShotExecutionIntegrationTest {
         Path mergedFile = directory.resolve("merged.log");
 
         assertThrows(IllegalArgumentException.class, () -> fixtureService()
-                .run(call -> call.args("exit").capture(CapturePolicy.toPath(mergedFile))));
+                .run()
+                .withArgs("exit")
+                .withCapture(CapturePolicy.toPath(mergedFile))
+                .execute());
         assertFalse(java.nio.file.Files.exists(mergedFile));
     }
 
@@ -254,10 +302,13 @@ final class OneShotExecutionIntegrationTest {
         Path stdoutFile = directory.resolve("stdout.log");
         Path stderrFile = directory.resolve("stderr.log");
 
-        CommandResult result = fixtureService().run(call -> call.args("sleep", "--millis=5000", "--finished=false")
-                .capture(CapturePolicy.toPath(stdoutFile, stderrFile))
-                .timeout(timeoutAfterFixtureStartup())
-                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withCapture(CapturePolicy.toPath(stdoutFile, stderrFile))
+                .withTimeout(timeoutAfterFixtureStartup())
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .execute();
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
@@ -271,9 +322,12 @@ final class OneShotExecutionIntegrationTest {
         java.util.Arrays.fill(payload, (byte) 'x');
         java.nio.file.Files.write(stdinFile, payload);
 
-        CommandResult result = fixtureService().run(call -> call.args("stdin-echo", "--mode=bytes-count")
-                .input(io.github.ulviar.procwright.command.CommandInput.fromPath(stdinFile))
-                .timeout(Duration.ofSeconds(30)));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("stdin-echo", "--mode=bytes-count")
+                .withInput(io.github.ulviar.procwright.command.CommandInput.fromPath(stdinFile))
+                .withTimeout(Duration.ofSeconds(30))
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("bytes:" + payload.length + "\n", result);
@@ -283,9 +337,11 @@ final class OneShotExecutionIntegrationTest {
     void stdinFromMissingFileFailsWithTypedLaunchFailure(@TempDir Path directory) {
         Path missing = directory.resolve("missing-input.bin");
 
-        CommandExecutionException exception = assertThrows(
-                CommandExecutionException.class, () -> fixtureService().run(call -> call.args("stdin-echo")
-                        .input(io.github.ulviar.procwright.command.CommandInput.fromPath(missing))));
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs("stdin-echo")
+                .withInput(io.github.ulviar.procwright.command.CommandInput.fromPath(missing))
+                .execute());
 
         assertEquals(CommandExecutionException.Reason.LAUNCH_FAILED, exception.reason());
     }
@@ -293,8 +349,10 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void outputIsDecodedWithConfiguredCharset() {
         CommandResult result = fixtureService()
-                .run(call -> call.args("binary", "--pattern=hex", "--hex=d09fd180d0b8d0b2d0b5d1820a")
-                        .charset(StandardCharsets.UTF_8));
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=d09fd180d0b8d0b2d0b5d1820a")
+                .withCharset(StandardCharsets.UTF_8)
+                .execute();
 
         assertStdoutEquals("Привет\n", result);
     }
@@ -302,17 +360,173 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void strictCharsetPolicyReportsDecodeErrorAsTypedFailure() {
         CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run(call -> call.args("binary", "--pattern=hex", "--hex=ff")
-                        .charsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))));
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=ff", "--stream=both")
+                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
+                .execute());
 
         assertEquals(CommandExecutionException.Reason.DECODE_ERROR, exception.reason());
+        CommandResult snapshot = exception.result().orElseThrow();
+        assertEquals(0, snapshot.exitCode().orElseThrow());
+        assertEquals((byte) 0xFF, snapshot.stdoutBytes()[0]);
+        assertEquals((byte) 0xFF, snapshot.stderrBytes()[0]);
+        assertTrue(snapshot.stdout().contains("\uFFFD"));
+        assertTrue(snapshot.stderr().contains("\uFFFD"));
+    }
+
+    @Test
+    void binaryOutputCaptureOverridesStrictDecodingAndPreservesExactBytes() {
+        byte[] expected = {0x00, (byte) 0xFF, 0x41};
+        RunScenario.Draft strict = fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=00ff41", "--stream=both")
+                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
+
+        CommandResult result = ScenarioPresets.binaryOutputCapture(strict, Duration.ofSeconds(2), 1024)
+                .execute();
+
+        assertTrue(result.succeeded());
+        assertArrayEquals(expected, result.stdoutBytes());
+        assertArrayEquals(expected, result.stderrBytes());
+        assertEquals(new String(expected, StandardCharsets.UTF_8), result.stdout());
+        assertEquals(new String(expected, StandardCharsets.UTF_8), result.stderr());
+    }
+
+    @Test
+    void commandAutomationPreservesStrictDecodingPolicy() {
+        RunScenario.Draft strict = fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=ff")
+                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
+
+        CommandExecutionException failure =
+                assertThrows(CommandExecutionException.class, () -> ScenarioPresets.commandAutomation(
+                                strict, Duration.ofSeconds(2), 1024)
+                        .execute());
+
+        assertEquals(CommandExecutionException.Reason.DECODE_ERROR, failure.reason());
+    }
+
+    @Test
+    void strictCharsetPolicyAcceptsValidOutputTruncatedInsideFinalCodePoint() {
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=e282ac")
+                .withCapture(CapturePolicy.bounded(2))
+                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
+                .execute();
+
+        assertTrue(result.stdoutTruncated());
+        assertEquals(2, result.stdoutBytes().length);
+        assertEquals("", result.stdout());
+    }
+
+    @Test
+    void truncatedDecodeRejectsOverflowWithoutInputOrOutputProgress() {
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=4142")
+                .withCapture(CapturePolicy.bounded(1))
+                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(false)))
+                .execute());
+
+        assertDecodeFailureRetainsCapturedPrefix(exception);
+    }
+
+    @Test
+    void truncatedDecodeBoundsOutputProducedWithoutConsumingInput() {
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=4142")
+                .withCapture(CapturePolicy.bounded(1))
+                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(true)))
+                .execute());
+
+        assertDecodeFailureRetainsCapturedPrefix(exception);
+    }
+
+    @Test
+    void decoderCreationRuntimeFailureIsTypedAndRetainsResult() {
+        IllegalStateException decoderFailure = new IllegalStateException("decoder creation failed");
+
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=41")
+                .withCharsetPolicy(
+                        CharsetPolicy.report(new FailingCharset(DecoderFailureStage.NEW_DECODER, decoderFailure)))
+                .execute());
+
+        assertTypedDecodeFailure(exception, decoderFailure, false);
+    }
+
+    @Test
+    void decoderConfigurationRuntimeFailureIsTypedAndRetainsResult() {
+        IllegalStateException decoderFailure = new IllegalStateException("decoder configuration failed");
+
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=41")
+                .withCharsetPolicy(
+                        CharsetPolicy.report(new FailingCharset(DecoderFailureStage.CONFIGURE, decoderFailure)))
+                .execute());
+
+        assertTypedDecodeFailure(exception, decoderFailure, false);
+    }
+
+    @Test
+    void decoderMalfunctionDuringDecodeIsTypedAndRetainsResult() {
+        CoderMalfunctionError decoderFailure = new CoderMalfunctionError(new IllegalStateException("decode failed"));
+
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=41")
+                .withCharsetPolicy(CharsetPolicy.report(new FailingCharset(DecoderFailureStage.DECODE, decoderFailure)))
+                .execute());
+
+        assertTypedDecodeFailure(exception, decoderFailure, false);
+    }
+
+    @Test
+    void decoderMalfunctionDuringFlushIsTypedAndRetainsResult() {
+        CoderMalfunctionError decoderFailure = new CoderMalfunctionError(new IllegalStateException("flush failed"));
+
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=41")
+                .withCharsetPolicy(CharsetPolicy.report(new FailingCharset(DecoderFailureStage.FLUSH, decoderFailure)))
+                .execute());
+
+        assertTypedDecodeFailure(exception, decoderFailure, false);
+    }
+
+    @Test
+    void decoderErrorOutsideTypedBoundaryPreservesIdentity() {
+        AssertionError decoderFailure = new AssertionError("decoder failed irrecoverably");
+
+        AssertionError thrown = assertThrows(AssertionError.class, () -> fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=hex", "--hex=41")
+                .withCharsetPolicy(
+                        CharsetPolicy.report(new FailingCharset(DecoderFailureStage.NEW_DECODER, decoderFailure)))
+                .execute());
+
+        assertSame(decoderFailure, thrown);
     }
 
     @Test
     void capturedOutputPreservesEmittedNewlineStyleWithoutNormalization() {
-        CommandResult lf = fixtureService().run(call -> call.args("platform-newlines", "--style=lf"));
-        CommandResult crlf = fixtureService().run(call -> call.args("platform-newlines", "--style=crlf"));
-        CommandResult crOnly = fixtureService().run(call -> call.args("platform-newlines", "--style=cr"));
+        CommandResult lf = fixtureService()
+                .run()
+                .withArgs("platform-newlines", "--style=lf")
+                .execute();
+        CommandResult crlf = fixtureService()
+                .run()
+                .withArgs("platform-newlines", "--style=crlf")
+                .execute();
+        CommandResult crOnly = fixtureService()
+                .run()
+                .withArgs("platform-newlines", "--style=cr")
+                .execute();
 
         assertEquals("out:0\nout:1\n", lf.stdout());
         assertEquals("out:0\r\nout:1\r\n", crlf.stdout());
@@ -333,7 +547,7 @@ final class OneShotExecutionIntegrationTest {
                 new java.util.concurrent.atomic.AtomicBoolean();
         Thread caller = new Thread(() -> {
             try {
-                service.run(call -> call.args("never-exit").timeout(Duration.ZERO));
+                service.run().withArgs("never-exit").withTimeout(Duration.ZERO).execute();
             } catch (Throwable throwable) {
                 thrown.set(throwable);
                 interruptedAfterCatch.set(Thread.currentThread().isInterrupted());
@@ -354,11 +568,140 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
-    void shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal(@TempDir Path directory) throws Exception {
-        if (isWindows()) {
-            // destroy() is already forceful on Windows, so there is no SIGTERM-then-KILL escalation to prove.
-            return;
+    void earlyBrokenPipeBeatsLongTimeoutAndStopsRootAndDescendant(@TempDir Path directory) throws Exception {
+        Path childPidFile = directory.resolve("broken-pipe-child.pid");
+        AtomicLong rootPid = new AtomicLong(-1);
+        AtomicLong childPid = new AtomicLong(-1);
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> {
+            rootPid.set(process.pid());
+            childPid.set(waitForPositivePidUnchecked(childPidFile, Duration.ofSeconds(5)));
+            waitForDescendantUnchecked(process, childPid.get(), Duration.ofSeconds(5));
+        }));
+        java.time.Instant started = java.time.Instant.now();
+
+        CommandExecutionException failure = assertThrows(CommandExecutionException.class, () -> service.run()
+                .withArgs(
+                        "spawn-child",
+                        "--close-stdin=true",
+                        "--child-scenario=never-exit",
+                        "--pid-file=" + childPidFile,
+                        "--wait=true")
+                .withInput(CommandInput.bytes(new byte[8 * 1024 * 1024]))
+                .withTimeout(Duration.ofSeconds(30))
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(2)))
+                .execute());
+
+        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, failure.reason());
+        assertTrue(failure.getCause() instanceof IOException, () -> "unexpected writer cause: " + failure.getCause());
+        assertTrue(
+                Duration.between(started, java.time.Instant.now()).compareTo(Duration.ofSeconds(10)) < 0,
+                "writer failure waited for the run deadline");
+        assertProcessEventuallyStops(rootPid.get());
+        assertProcessEventuallyStops(childPid.get());
+    }
+
+    @Test
+    void callerInterruptDuringBlockedStdinWriteStopsRootAndDescendant(@TempDir Path directory) throws Exception {
+        Path childPidFile = directory.resolve("interrupted-stdin-child.pid");
+        java.util.concurrent.CountDownLatch processReady = new java.util.concurrent.CountDownLatch(1);
+        AtomicLong rootPid = new AtomicLong(-1);
+        AtomicLong childPid = new AtomicLong(-1);
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> {
+            rootPid.set(process.pid());
+            childPid.set(waitForPositivePidUnchecked(childPidFile, Duration.ofSeconds(5)));
+            waitForDescendantUnchecked(process, childPid.get(), Duration.ofSeconds(5));
+            processReady.countDown();
+        }));
+        java.util.concurrent.atomic.AtomicReference<Throwable> thrown =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean interruptRestored = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread caller = new Thread(
+                () -> {
+                    try {
+                        service.run()
+                                .withArgs(
+                                        "spawn-child",
+                                        "--child-scenario=never-exit",
+                                        "--pid-file=" + childPidFile,
+                                        "--wait=true")
+                                .withInput(CommandInput.bytes(new byte[8 * 1024 * 1024]))
+                                .withTimeout(Duration.ZERO)
+                                .withShutdown(
+                                        ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(2)))
+                                .execute();
+                    } catch (Throwable failure) {
+                        thrown.set(failure);
+                        interruptRestored.set(Thread.currentThread().isInterrupted());
+                    }
+                },
+                "procwright-interrupted-stdin-integration");
+
+        try {
+            caller.start();
+            assertTrue(processReady.await(10, TimeUnit.SECONDS));
+            caller.interrupt();
+            caller.join(TimeUnit.SECONDS.toMillis(10));
+
+            assertFalse(caller.isAlive(), "interrupted run remained blocked in stdin writer cleanup");
+            assertTrue(thrown.get() instanceof CommandExecutionException, () -> "unexpected failure: " + thrown.get());
+            assertTrue(interruptRestored.get());
+            assertProcessEventuallyStops(rootPid.get());
+            assertProcessEventuallyStops(childPid.get());
+        } finally {
+            bestEffortDestroyPid(rootPid.get());
+            bestEffortDestroyPid(childPid.get());
         }
+    }
+
+    @Test
+    void callerInterruptUsesConfiguredGracefulShutdown(@TempDir Path directory) throws Exception {
+        assumeFalse(isWindows(), "POSIX signal shutdown semantics are not available on Windows");
+        Path hookFile = directory.resolve("interrupt-shutdown-hook.txt");
+        Path readyFile = directory.resolve("interrupt-ready.txt");
+        java.util.concurrent.CountDownLatch processStarted = new java.util.concurrent.CountDownLatch(1);
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> processStarted.countDown()));
+        java.util.concurrent.atomic.AtomicReference<Throwable> thrown =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean interruptedAfterCatch =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        Thread caller = new Thread(() -> {
+            try {
+                service.run()
+                        .withArgs(
+                                "shutdown-hook",
+                                "--hook-delay-millis=50",
+                                "--hook-file=" + hookFile,
+                                "--ready-file=" + readyFile)
+                        .withTimeout(Duration.ZERO)
+                        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(1), Duration.ofSeconds(1)))
+                        .execute();
+            } catch (Throwable failure) {
+                thrown.set(failure);
+                interruptedAfterCatch.set(Thread.currentThread().isInterrupted());
+            }
+        });
+
+        caller.start();
+        assertTrue(processStarted.await(10, java.util.concurrent.TimeUnit.SECONDS));
+        long readyDeadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (!java.nio.file.Files.exists(readyFile) && System.nanoTime() < readyDeadline) {
+            Thread.sleep(10);
+        }
+        assertTrue(java.nio.file.Files.exists(readyFile));
+        caller.interrupt();
+        caller.join(java.util.concurrent.TimeUnit.SECONDS.toMillis(5));
+
+        assertFalse(caller.isAlive());
+        assertTrue(thrown.get() instanceof CommandExecutionException);
+        assertTrue(interruptedAfterCatch.get());
+        String hookMarkers = java.nio.file.Files.readString(hookFile);
+        assertTrue(hookMarkers.contains("shutdown-hook:start"));
+        assertTrue(hookMarkers.contains("shutdown-hook:end"));
+    }
+
+    @Test
+    void shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal(@TempDir Path directory) throws Exception {
+        assumeFalse(isWindows(), "Windows destroy() does not expose a SIGTERM-then-KILL escalation");
         Path hookFile = directory.resolve("shutdown-hook.txt");
         Duration interruptGrace = Duration.ofSeconds(2);
         AtomicLong childPid = new AtomicLong(-1);
@@ -367,19 +710,19 @@ final class OneShotExecutionIntegrationTest {
 
         // The shutdown hook blocks for 60 s, so the interrupt signal alone cannot end the process;
         // only the force-kill escalation after the interrupt grace can explain a bounded, dead
-        // process. The hook records its progress in a file because Process.destroy() closes the
-        // parent-side stdout pipe, so post-signal stdout never reaches the captured result. The
-        // 2 s run timeout leaves the fixture JVM time to register its hook before the signal.
+        // process. The hook records its progress in a file because output emitted during shutdown is inherently racy
+        // with pipe draining. The 2 s run timeout leaves the fixture JVM time to register its hook before the signal.
         java.time.Instant stopStarted = java.time.Instant.now();
-        CommandResult result =
-                service.run(call -> call.args("shutdown-hook", "--hook-delay-millis=60000", "--hook-file=" + hookFile)
-                        .timeout(Duration.ofSeconds(2))
-                        .shutdown(ShutdownPolicy.interruptThenKill(interruptGrace, Duration.ofSeconds(5))));
+        CommandResult result = service.run()
+                .withArgs("shutdown-hook", "--hook-delay-millis=60000", "--hook-file=" + hookFile)
+                .withTimeout(Duration.ofSeconds(2))
+                .withShutdown(ShutdownPolicy.interruptThenKill(interruptGrace, Duration.ofSeconds(5)))
+                .execute();
         Duration wallClockElapsed = Duration.between(stopStarted, java.time.Instant.now());
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
-        assertStdoutEquals("started\n", result);
+        assertTrue(normalizeLineEndings(result.stdout()).startsWith("started\n"));
         String hookMarkers = java.nio.file.Files.exists(hookFile) ? java.nio.file.Files.readString(hookFile) : "";
         assertTrue(
                 hookMarkers.contains("shutdown-hook:start"),
@@ -397,8 +740,33 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
+    void shutdownEscalationIsNotBlockedByAFullStdinPipe(@TempDir Path directory) throws Exception {
+        assumeFalse(isWindows(), "POSIX signal shutdown semantics are not available on Windows");
+        Path hookFile = directory.resolve("full-stdin-shutdown-hook.txt");
+        AtomicLong childPid = new AtomicLong(-1);
+        CommandService service =
+                fixtureService(ProcessKernel.withPostStartHook(process -> childPid.set(process.pid())));
+
+        java.time.Instant started = java.time.Instant.now();
+        CommandResult result = service.run()
+                .withArgs("shutdown-hook", "--hook-delay-millis=60000", "--hook-file=" + hookFile)
+                .withInput(CommandInput.bytes(new byte[8 * 1024 * 1024]))
+                .withTimeout(Duration.ofSeconds(2))
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(200), Duration.ofSeconds(5)))
+                .execute();
+        Duration elapsed = Duration.between(started, java.time.Instant.now());
+
+        assertTrue(result.timedOut());
+        assertTrue(elapsed.compareTo(Duration.ofSeconds(15)) < 0, () -> "shutdown took " + elapsed);
+        assertProcessEventuallyStops(childPid.get());
+    }
+
+    @Test
     void runScenarioClosesStdinByDefault() {
-        CommandResult result = fixtureService().run(call -> call.args("stdin-echo", "--mode=bytes-count"));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("stdin-echo", "--mode=bytes-count")
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("bytes:0\n", result);
@@ -406,8 +774,11 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void inputOverrideWritesStdinBeforeClosingIt() {
-        CommandResult result =
-                fixtureService().run(call -> call.args("stdin-echo").input("payload\n"));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("stdin-echo")
+                .withInput("payload\n")
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("payload\n", result);
@@ -415,9 +786,12 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void inputCharsetIsIndependentFromOutputCharset() {
-        CommandResult result = fixtureService().run(call -> call.args("stdin-echo", "--mode=hex")
-                .input("é", Charset.forName("ISO-8859-1"))
-                .charset(StandardCharsets.US_ASCII));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("stdin-echo", "--mode=hex")
+                .withInput("é", Charset.forName("ISO-8859-1"))
+                .withCharset(StandardCharsets.US_ASCII)
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("e9\n", result);
@@ -425,9 +799,12 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void timeoutStopsProcessAndReturnsDiagnosticResult() {
-        CommandResult result = fixtureService().run(call -> call.args("sleep", "--millis=5000", "--finished=false")
-                .timeout(timeoutAfterFixtureStartup())
-                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withTimeout(timeoutAfterFixtureStartup())
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .execute();
 
         assertTrue(result.timedOut());
         assertFalse(result.succeeded());
@@ -437,10 +814,13 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void timeoutIsEnforcedWhileWritingInput() {
         java.time.Instant started = java.time.Instant.now();
-        CommandResult result = fixtureService().run(call -> call.args("ignore-stdin", "--millis=5000")
-                .input("x".repeat(8 * 1024 * 1024))
-                .timeout(Duration.ofMillis(100))
-                .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200))));
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("ignore-stdin", "--millis=5000")
+                .withInput("x".repeat(8 * 1024 * 1024))
+                .withTimeout(Duration.ofMillis(100))
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .execute();
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
         assertTrue(result.timedOut());
@@ -455,9 +835,11 @@ final class OneShotExecutionIntegrationTest {
     void timeoutCleanupIsBoundedWhileStdoutAndStderrPumpsAreActive() {
         java.time.Instant started = java.time.Instant.now();
         CommandResult result = fixtureService()
-                .run(call -> call.args("long-run", "--ticks=100000", "--interval-millis=20", "--stderr-every=1")
-                        .timeout(timeoutAfterFixtureStartup())
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250))));
+                .run()
+                .withArgs("long-run", "--ticks=100000", "--interval-millis=20", "--stderr-every=1")
+                .withTimeout(timeoutAfterFixtureStartup())
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
+                .execute();
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
         assertTrue(result.timedOut());
@@ -471,9 +853,11 @@ final class OneShotExecutionIntegrationTest {
     @Test
     void timeoutStopsDescendantProcesses() {
         CommandResult result = fixtureService()
-                .run(call -> call.args("spawn-child", "--child-scenario=sleep", "--child-millis=10000", "--wait=true")
-                        .timeout(descendantStartupTimeout())
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(500))));
+                .run()
+                .withArgs("spawn-child", "--child-scenario=sleep", "--child-millis=10000", "--wait=true")
+                .withTimeout(descendantStartupTimeout())
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(500)))
+                .execute();
         long childPid = result.stdout()
                 .lines()
                 .filter(line -> line.startsWith("child:"))
@@ -488,6 +872,42 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
+    void timeoutStopsDescendantCreatedDuringGracefulShutdown(@TempDir Path directory) throws Exception {
+        assumeFalse(isWindows(), "POSIX shutdown hooks require a graceful termination signal");
+        Path readyFile = directory.resolve("late-descendant-ready.txt");
+        Path childPidFile = directory.resolve("late-descendant.pid");
+        CommandService service = fixtureService(
+                ProcessKernel.withPostStartHook(process -> waitForFileUnchecked(readyFile, Duration.ofSeconds(5))));
+        long childPid = -1;
+        try {
+            CommandResult result = service.run()
+                    .withArgs(
+                            "shutdown-hook",
+                            "--ready-file=" + readyFile,
+                            "--hook-child-pid-file=" + childPidFile,
+                            "--hook-delay-millis=1000")
+                    .withTimeout(Duration.ofSeconds(2))
+                    .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(1)))
+                    .execute();
+
+            childPid = waitForPositivePid(childPidFile, Duration.ofSeconds(2));
+            assertTrue(result.timedOut());
+            assertTrue(
+                    normalizeLineEndings(result.stdout()).contains("shutdown-hook:start"),
+                    () -> "graceful shutdown hook did not retain stdout: stdout='"
+                            + normalizeLineEndings(result.stdout())
+                            + "', stderr='"
+                            + normalizeLineEndings(result.stderr())
+                            + "'");
+            assertFalse(
+                    ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false),
+                    "cleanup left a descendant created by the shutdown hook alive");
+        } finally {
+            bestEffortDestroyCapturedPid(childPid, childPidFile);
+        }
+    }
+
+    @Test
     void postStartFailureStopsStartedProcessAndPreservesPrimaryException() throws Exception {
         AtomicLong childPid = new AtomicLong(-1);
         IllegalStateException failure = new IllegalStateException("synthetic post-start failure");
@@ -498,10 +918,10 @@ final class OneShotExecutionIntegrationTest {
             childPid.set(process.pid());
             throw failure;
         }));
-        exception = assertThrows(
-                IllegalStateException.class,
-                () -> service.run(call -> call.args("sleep", "--millis=5000", "--finished=false")
-                        .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))));
+        exception = assertThrows(IllegalStateException.class, () -> service.run()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
+                .execute());
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
         assertEquals(failure, exception);
@@ -511,16 +931,143 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
+    void postStartErrorStopsStartedProcessAndPreservesPrimaryError() throws Exception {
+        AtomicLong childPid = new AtomicLong(-1);
+        AssertionError failure = new AssertionError("synthetic post-start error");
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> {
+            childPid.set(process.pid());
+            throw failure;
+        }));
+
+        AssertionError thrown = assertThrows(AssertionError.class, () -> service.run()
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
+                .execute());
+
+        assertEquals(failure, thrown);
+        assertTrue(childPid.get() > 0);
+        assertFalse(ProcessHandle.of(childPid.get()).map(ProcessHandle::isAlive).orElse(false));
+    }
+
+    @Test
+    void cyclicPostStartFailureTerminatesAndStopsRootAndDescendant(@TempDir Path directory) throws Exception {
+        Path childPidFile = directory.resolve("cyclic-failure-child.pid");
+        AtomicLong rootPid = new AtomicLong(-1);
+        AtomicLong childPid = new AtomicLong(-1);
+        IllegalStateException primary = new IllegalStateException("cyclic post-start failure");
+        IllegalArgumentException cycle = new IllegalArgumentException("cycle");
+        primary.initCause(cycle);
+        cycle.initCause(primary);
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> {
+            rootPid.set(process.pid());
+            childPid.set(waitForPositivePidUnchecked(childPidFile, Duration.ofSeconds(5)));
+            waitForDescendantUnchecked(process, childPid.get(), Duration.ofSeconds(5));
+            throw primary;
+        }));
+
+        FutureTask<Throwable> invocation = new FutureTask<>(() -> {
+            try {
+                service.run()
+                        .withArgs(
+                                "spawn-child",
+                                "--child-scenario=never-exit",
+                                "--pid-file=" + childPidFile,
+                                "--wait=true")
+                        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(2)))
+                        .execute();
+                return null;
+            } catch (Throwable failure) {
+                return failure;
+            }
+        });
+        Thread worker = new Thread(invocation, "cyclic-post-start-failure-test");
+        worker.setDaemon(true);
+        worker.start();
+
+        try {
+            Throwable thrown;
+            try {
+                thrown = invocation.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException timeout) {
+                String diagnostic = cyclicFailureDiagnostic(worker, rootPid.get(), childPid.get(), childPidFile);
+                worker.interrupt();
+                bestEffortDestroyPid(rootPid.get());
+                bestEffortDestroyCapturedPid(childPid.get(), childPidFile);
+                worker.join(TimeUnit.SECONDS.toMillis(5));
+                throw new AssertionError(
+                        "cyclic post-start cleanup exceeded its composed budget: " + diagnostic, timeout);
+            }
+
+            assertSame(primary, thrown);
+            assertTrue(rootPid.get() > 0, "root pid was not captured");
+            assertTrue(childPid.get() > 0, "descendant pid was not captured");
+            assertProcessEventuallyStops(rootPid.get());
+            assertProcessEventuallyStops(childPid.get());
+        } finally {
+            bestEffortDestroyPid(rootPid.get());
+            bestEffortDestroyCapturedPid(childPid.get(), childPidFile);
+        }
+    }
+
+    @Test
+    void callerInterruptDuringOrphanedOutputDrainWaitsForDescendantCleanup(@TempDir Path directory) throws Exception {
+        Path childPidFile = directory.resolve("drain-child.pid");
+        AtomicLong rootPid = new AtomicLong(-1);
+        CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> rootPid.set(process.pid())));
+        java.util.concurrent.atomic.AtomicReference<Throwable> thrown =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean interruptedAfterCatch =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        Thread caller = new Thread(() -> {
+            try {
+                service.run()
+                        .withArgs(
+                                "spawn-child",
+                                "--child-scenario=never-exit",
+                                "--inherit-output=true",
+                                "--pid-file=" + childPidFile,
+                                "--linger-millis=500")
+                        .withTimeout(Duration.ofSeconds(10))
+                        .execute();
+            } catch (Throwable failure) {
+                thrown.set(failure);
+                interruptedAfterCatch.set(Thread.currentThread().isInterrupted());
+            }
+        });
+
+        caller.start();
+        long childPid = waitForPositivePid(childPidFile, Duration.ofSeconds(10));
+        waitForProcessExit(rootPid.get(), Duration.ofSeconds(10));
+        try {
+            caller.interrupt();
+            caller.join(TimeUnit.SECONDS.toMillis(10));
+
+            assertFalse(caller.isAlive());
+            assertTrue(thrown.get() instanceof CommandExecutionException, () -> "unexpected failure: " + thrown.get());
+            assertTrue(interruptedAfterCatch.get());
+            assertFalse(ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false));
+            assertFalse(java.util.Arrays.stream(thrown.get().getSuppressed())
+                    .anyMatch(failure -> failure.getMessage() != null
+                            && failure.getMessage().contains("Interrupted while waiting for command cleanup")));
+        } finally {
+            ProcessHandle.of(childPid).ifPresent(ProcessHandle::destroyForcibly);
+        }
+    }
+
+    @Test
     void processWritingLargeStderrDoesNotBlockStdoutCompletion() {
-        CommandResult result = fixtureService().run(call -> call.args(
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs(
                         "burst",
                         "--stdout-first=false",
                         "--stdout-bytes=5",
                         "--stdout-byte=d",
                         "--stderr-bytes=2m",
                         "--stderr-byte=e")
-                .capture(CapturePolicy.bounded(1024))
-                .timeout(Duration.ofSeconds(5)));
+                .withCapture(CapturePolicy.bounded(1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("ddddd", result);
@@ -529,35 +1076,183 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void orphanedDescendantHoldingOutputPipeIsKilledAndFailureExplainsCause(@TempDir Path directory) throws Exception {
-        if (isWindows()) {
-            return;
-        }
+        assumeFalse(isWindows(), "The orphaned POSIX pipe fixture is not portable to Windows");
         Path pidFile = directory.resolve("grandchild.pid");
 
-        CommandExecutionException exception = assertThrows(
-                CommandExecutionException.class, () -> fixtureService().run(call -> call.args(
-                                "spawn-child",
-                                "--child-scenario=never-exit",
-                                "--inherit-output=true",
-                                "--pid-file=" + pidFile,
-                                "--linger-millis=500")
-                        .timeout(Duration.ofSeconds(10))));
+        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .run()
+                .withArgs(
+                        "spawn-child",
+                        "--child-scenario=never-exit",
+                        "--inherit-output=true",
+                        "--pid-file=" + pidFile,
+                        "--linger-millis=500")
+                .withTimeout(Duration.ofSeconds(10))
+                .execute());
 
         assertTrue(
                 exception.getMessage().contains("a descendant process that inherited stdout or stderr"),
                 () -> "failure message must explain the orphaned pipe holder: " + exception.getMessage());
-        long orphanPid = Long.parseLong(java.nio.file.Files.readString(pidFile).trim());
+        long orphanPid = waitForPositivePid(pidFile, Duration.ofSeconds(5));
         assertProcessEventuallyStops(orphanPid);
     }
 
     @Test
     void shellModeIsExplicitAndReceivesEnvironmentOverride() {
-        CommandService shell = CommandService.forShellCommand(shellEchoEnvironmentCommand("PROCWRIGHT_SHELL_VALUE"));
+        CommandService shell =
+                Procwright.command(CommandSpec.shell(shellEchoEnvironmentCommand("PROCWRIGHT_SHELL_VALUE")));
 
-        CommandResult result = shell.run(call -> call.putEnvironment("PROCWRIGHT_SHELL_VALUE", "configured"));
+        CommandResult result = shell.run()
+                .withEnvironment("PROCWRIGHT_SHELL_VALUE", "configured")
+                .execute();
 
         assertTrue(result.succeeded());
         assertStdoutEquals("shell:configured\n", result);
+    }
+
+    @Test
+    void windowsShellIgnoresPoisonedJvmWorkingDirectoryWithInheritedEnvironment(@TempDir Path directory)
+            throws Exception {
+        assumeTrue(isWindows(), "Windows executable-search regression requires Windows");
+
+        assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(directory, false);
+    }
+
+    @Test
+    void windowsShellIgnoresPoisonedJvmWorkingDirectoryWithCleanEnvironment(@TempDir Path directory) throws Exception {
+        assumeTrue(isWindows(), "Windows executable-search regression requires Windows");
+
+        assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(directory, true);
+    }
+
+    private static void assertDecodeFailureRetainsCapturedPrefix(CommandExecutionException exception) {
+        assertEquals(CommandExecutionException.Reason.DECODE_ERROR, exception.reason());
+        CommandResult result = exception.result().orElseThrow();
+        assertEquals(List.of((byte) 'A'), boxed(result.stdoutBytes()));
+        assertEquals("A", result.stdout());
+        assertTrue(result.stdoutTruncated());
+    }
+
+    private static void assertTypedDecodeFailure(
+            CommandExecutionException exception, Throwable decoderFailure, boolean truncated) {
+        assertEquals(CommandExecutionException.Reason.DECODE_ERROR, exception.reason());
+        assertSame(decoderFailure, exception.getCause());
+        CommandResult result = exception.result().orElseThrow();
+        assertEquals(List.of((byte) 'A'), boxed(result.stdoutBytes()));
+        assertEquals("A", result.stdout());
+        assertEquals(truncated, result.stdoutTruncated());
+    }
+
+    private abstract static class TestCharset extends Charset {
+
+        private TestCharset(String canonicalName) {
+            super(canonicalName, null);
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return charset == this;
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+    }
+
+    private static final class OverflowProbeCharset extends TestCharset {
+
+        private final boolean produceOutput;
+        private int decoderCreations;
+
+        private OverflowProbeCharset(boolean produceOutput) {
+            super(produceOutput ? "x-procwright-output-overflow" : "x-procwright-no-progress-overflow");
+            this.produceOutput = produceOutput;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            if (decoderCreations++ > 0) {
+                return StandardCharsets.US_ASCII.newDecoder();
+            }
+            return new CharsetDecoder(this, 1, 1) {
+                private int calls;
+
+                @Override
+                protected CoderResult decodeLoop(ByteBuffer input, CharBuffer output) {
+                    if (input.hasRemaining() && calls++ < 8) {
+                        if (produceOutput) {
+                            output.put('x');
+                        }
+                        return CoderResult.OVERFLOW;
+                    }
+                    return CoderResult.UNDERFLOW;
+                }
+            };
+        }
+    }
+
+    private enum DecoderFailureStage {
+        NEW_DECODER,
+        CONFIGURE,
+        DECODE,
+        FLUSH
+    }
+
+    private static final class FailingCharset extends TestCharset {
+
+        private final DecoderFailureStage stage;
+        private final Throwable failure;
+
+        private FailingCharset(DecoderFailureStage stage, Throwable failure) {
+            super("x-procwright-failing-" + stage.name().toLowerCase(java.util.Locale.ROOT));
+            this.stage = stage;
+            this.failure = failure;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            if (stage == DecoderFailureStage.NEW_DECODER) {
+                throwUnchecked(failure);
+            }
+            return new CharsetDecoder(this, 1, 1) {
+                @Override
+                protected void implOnMalformedInput(CodingErrorAction newAction) {
+                    if (stage == DecoderFailureStage.CONFIGURE) {
+                        throwUnchecked(failure);
+                    }
+                }
+
+                @Override
+                protected CoderResult decodeLoop(ByteBuffer input, CharBuffer output) {
+                    if (stage == DecoderFailureStage.DECODE) {
+                        throwUnchecked(failure);
+                    }
+                    while (input.hasRemaining() && output.hasRemaining()) {
+                        output.put((char) Byte.toUnsignedInt(input.get()));
+                    }
+                    return input.hasRemaining() ? CoderResult.OVERFLOW : CoderResult.UNDERFLOW;
+                }
+
+                @Override
+                protected CoderResult implFlush(CharBuffer output) {
+                    if (stage == DecoderFailureStage.FLUSH) {
+                        throwUnchecked(failure);
+                    }
+                    return CoderResult.UNDERFLOW;
+                }
+            };
+        }
+    }
+
+    private static void throwUnchecked(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new AssertionError("test failure must be unchecked", failure);
     }
 
     private static CommandService fixtureService() {
@@ -565,17 +1260,7 @@ final class OneShotExecutionIntegrationTest {
     }
 
     private static CommandService fixtureService(ProcessKernel processKernel) {
-        return new CommandService(
-                TestCliSupport.command(),
-                RunOptions.defaults(),
-                SessionOptions.defaults(),
-                LineSessionOptions.defaults(),
-                StreamOptions.defaults(),
-                PooledLineSessionOptions.defaults(),
-                ProtocolSessionOptions.defaults(),
-                PooledProtocolSessionOptions.defaults(),
-                DiagnosticsOptions.defaults(),
-                processKernel);
+        return new CommandService(TestCliSupport.command(), processKernel);
     }
 
     private static String shellEchoEnvironmentCommand(String variableName) {
@@ -583,6 +1268,39 @@ final class OneShotExecutionIntegrationTest {
             return "echo shell:%" + variableName + "%";
         }
         return "printf 'shell:%s\\n' \"$" + variableName + "\"";
+    }
+
+    private static void assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(
+            Path workingDirectory, boolean cleanEnvironment) throws Exception {
+        Path javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
+        Files.copy(javaExecutable, workingDirectory.resolve("cmd.exe"));
+
+        ProcessBuilder builder = new ProcessBuilder(
+                        javaExecutable.toString(),
+                        "-cp",
+                        absoluteClasspath(),
+                        WindowsShellPoisonProbe.class.getName(),
+                        Boolean.toString(cleanEnvironment))
+                .directory(workingDirectory.toFile())
+                .redirectErrorStream(true);
+        String originalPath = builder.environment().getOrDefault("PATH", "");
+        builder.environment().put("PATH", workingDirectory + File.pathSeparator + originalPath);
+
+        Process process = builder.start();
+        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+        }
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertTrue(finished, "nested Windows shell probe did not finish");
+        assertEquals(0, process.exitValue(), () -> "nested Windows shell probe failed:\n" + output);
+    }
+
+    private static String absoluteClasspath() {
+        return Pattern.compile(Pattern.quote(File.pathSeparator))
+                .splitAsStream(System.getProperty("java.class.path"))
+                .map(entry -> Path.of(entry).toAbsolutePath().normalize().toString())
+                .collect(java.util.stream.Collectors.joining(File.pathSeparator));
     }
 
     private static boolean isWindows() {
@@ -602,6 +1320,165 @@ final class OneShotExecutionIntegrationTest {
         throw new AssertionError("orphaned descendant process " + pid + " is still alive");
     }
 
+    private static void bestEffortDestroyCapturedPid(long capturedPid, Path pidFile) {
+        long pid = capturedPid > 0 ? capturedPid : readPositivePidBestEffort(pidFile, Duration.ofSeconds(2));
+        if (pid <= 0) {
+            return;
+        }
+        try {
+            ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly);
+            waitForProcessStopBestEffort(pid, Duration.ofSeconds(2));
+        } catch (RuntimeException ignored) {
+            // Test cleanup is best-effort and must not replace the behavioral assertion failure.
+        }
+    }
+
+    private static void bestEffortDestroyPid(long pid) {
+        if (pid <= 0) {
+            return;
+        }
+        try {
+            ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly);
+            waitForProcessStopBestEffort(pid, Duration.ofSeconds(2));
+        } catch (RuntimeException ignored) {
+            // Test cleanup is best-effort and must not replace the behavioral assertion failure.
+        }
+    }
+
+    private static String cyclicFailureDiagnostic(Thread worker, long rootPid, long childPid, Path childPidFile) {
+        String pidFileState;
+        try {
+            pidFileState = java.nio.file.Files.exists(childPidFile)
+                    ? java.nio.file.Files.readString(childPidFile).trim()
+                    : "<missing>";
+        } catch (IOException failure) {
+            pidFileState = "<unreadable: " + failure.getClass().getSimpleName() + ">";
+        }
+        return "workerState=" + worker.getState()
+                + ", rootPid=" + rootPid
+                + ", rootAlive=" + processAliveBestEffort(rootPid)
+                + ", childPid=" + childPid
+                + ", childAlive=" + processAliveBestEffort(childPid)
+                + ", pidFile='" + pidFileState + "'";
+    }
+
+    private static boolean processAliveBestEffort(long pid) {
+        if (pid <= 0) {
+            return false;
+        }
+        try {
+            return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static long waitForPositivePid(Path path, Duration timeout) throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        String lastContent = "";
+        IOException lastReadFailure = null;
+        while (System.nanoTime() < deadlineNanos) {
+            if (java.nio.file.Files.isRegularFile(path)) {
+                try {
+                    lastContent = java.nio.file.Files.readString(path).trim();
+                    long pid = Long.parseLong(lastContent);
+                    if (pid > 0) {
+                        return pid;
+                    }
+                } catch (IOException exception) {
+                    lastReadFailure = exception;
+                } catch (NumberFormatException ignored) {
+                    // The producer may still be replacing a partial PID marker.
+                }
+            }
+            Thread.sleep(10);
+        }
+        AssertionError failure = new AssertionError(
+                "PID file did not contain a positive process id: " + path + " (last content: '" + lastContent + "')");
+        if (lastReadFailure != null) {
+            failure.initCause(lastReadFailure);
+        }
+        throw failure;
+    }
+
+    private static long readPositivePidBestEffort(Path path, Duration timeout) {
+        try {
+            return waitForPositivePid(path, timeout);
+        } catch (AssertionError ignored) {
+            return -1;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return -1;
+        }
+    }
+
+    private static long waitForPositivePidUnchecked(Path path, Duration timeout) {
+        try {
+            return waitForPositivePid(path, timeout);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while waiting for a positive PID in " + path, exception);
+        }
+    }
+
+    private static void waitForProcessStopBestEffort(long pid, Duration timeout) {
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        try {
+            while (System.nanoTime() < deadlineNanos
+                    && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) {
+                Thread.sleep(10);
+            }
+        } catch (RuntimeException ignored) {
+            // Cleanup remains best-effort when process liveness cannot be observed.
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void waitForFile(Path path, Duration timeout) throws Exception {
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        while (!java.nio.file.Files.exists(path) && System.nanoTime() < deadlineNanos) {
+            Thread.sleep(10);
+        }
+        assertTrue(java.nio.file.Files.exists(path), () -> "timed out waiting for " + path);
+    }
+
+    private static void waitForFileUnchecked(Path path, Duration timeout) {
+        try {
+            waitForFile(path, timeout);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while waiting for " + path, exception);
+        } catch (Exception exception) {
+            throw new AssertionError("could not wait for " + path, exception);
+        }
+    }
+
+    private static void waitForProcessExit(long pid, Duration timeout) throws Exception {
+        assertTrue(pid > 0, "process pid was not captured");
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        while (ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) && System.nanoTime() < deadlineNanos) {
+            Thread.sleep(10);
+        }
+        assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false), "process did not exit");
+    }
+
+    private static void waitForDescendantUnchecked(Process process, long descendantPid, Duration timeout) {
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        try {
+            while (System.nanoTime() < deadlineNanos) {
+                if (process.descendants().anyMatch(handle -> handle.pid() == descendantPid)) {
+                    return;
+                }
+                Thread.sleep(10);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while waiting for descendant " + descendantPid, exception);
+        }
+        throw new AssertionError("process " + process.pid() + " did not expose descendant " + descendantPid);
+    }
+
     private static Duration timeoutAfterFixtureStartup() {
         return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
     }
@@ -617,14 +1494,15 @@ final class OneShotExecutionIntegrationTest {
         return Duration.ofSeconds(2);
     }
 
-    private static void putWindowsSystemRootIfNeeded(CommandInvocation.Builder call) {
+    private static RunScenario.Draft putWindowsSystemRootIfNeeded(RunScenario.Draft draft) {
         if (!isWindows()) {
-            return;
+            return draft;
         }
         String systemRoot = System.getenv("SystemRoot");
         if (systemRoot != null && !systemRoot.isBlank()) {
-            call.putEnvironment("SystemRoot", systemRoot);
+            return draft.withEnvironment("SystemRoot", systemRoot);
         }
+        return draft;
     }
 
     private static void assertStdoutEquals(String expected, CommandResult result) {

@@ -13,7 +13,7 @@ public final class GettingStartedExample {
     public static void main(String[] args) {
         CommandService java = Procwright.command("java");
 
-        CommandResult result = java.run().execute("--version");
+        CommandResult result = java.run().withArg("--version").execute();
 
         if (!result.succeeded()) {
             throw result.toException();

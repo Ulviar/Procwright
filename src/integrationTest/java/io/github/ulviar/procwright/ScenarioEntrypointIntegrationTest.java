@@ -62,7 +62,7 @@ final class ScenarioEntrypointIntegrationTest {
     @Test
     void protocolSessionScenarioOpensTypedWorker() {
         try (ProtocolSession<String, String> session = Procwright.command(TestCliSupport.command())
-                .protocolSession(new FramedStringAdapter())
+                .protocolSession(FramedStringAdapter::new)
                 .withArgs("length-line-frame")
                 .withRequestTimeout(Duration.ofSeconds(2))
                 .open()) {

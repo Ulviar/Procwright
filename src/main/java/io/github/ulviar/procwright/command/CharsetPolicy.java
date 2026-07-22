@@ -11,7 +11,7 @@ import java.util.Objects;
 /**
  * Text decoding policy for command and session output.
  *
- * <p>{@link CodingErrorAction#REPLACE} preserves the historical, forgiving JDK decoding behavior. {@link
+ * <p>{@link CodingErrorAction#REPLACE} uses the forgiving JDK replacement behavior. {@link
  * CodingErrorAction#REPORT} turns malformed or unmappable bytes into typed Procwright failures instead of silently inserting
  * replacement characters.
  *

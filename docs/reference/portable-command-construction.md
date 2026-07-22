@@ -1,69 +1,58 @@
-# Portable Command Construction
+# Portable command construction
 
-Procwright keeps command construction explicit. Portability is not achieved by hiding platform differences behind shell
-strings; it is achieved by choosing direct argv by default and making platform boundaries visible.
+Pass the executable and each argument separately. The JDK process API then preserves argument boundaries without a shell.
 
-## Direct argv is the default
-
-Use `Procwright.command("tool")`, `CommandSpec.of("tool")`, or `CommandSpec.builder("tool")` for direct
-execution. Add arguments as separate values with `args(...)`.
-
-Direct argv avoids shell quoting rules and keeps user-provided values from becoming shell syntax.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
 ```java
-CommandService git = Procwright.command("git");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-CommandResult result = git.run().execute("status", "--short");
+package io.github.ulviar.procwright.examples;
 
-if (!result.succeeded()) {
-    throw result.toException();
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CommandResult;
+import java.nio.file.Path;
+import java.time.Duration;
+
+public final class RunExample {
+
+    private RunExample() {}
+
+    public static void main(String[] args) {
+        CommandResult result = Procwright.command(javaExecutable())
+                .run()
+                .withArgs("--version")
+                .withCapture(CapturePolicy.bounded(256 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
+
+        System.out.print(result.stdout());
+        System.err.print(result.stderr());
+        System.err.printf(
+                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
+                result.exitCode().isPresent()
+                        ? Integer.toString(result.exitCode().getAsInt())
+                        : "unavailable",
+                result.timedOut(),
+                result.stdoutTruncated(),
+                result.stderrTruncated());
+
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+    }
+
+    private static String javaExecutable() {
+        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", name).toString();
+    }
 }
 ```
 
-## Shell is explicit
+[Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
 
-Use `Procwright.shellCommand(...)` or `CommandSpec.shell(...)` only when shell syntax is the actual requirement:
-pipelines, redirects, shell built-ins, command substitution, or platform scripts that must be interpreted by a shell.
+Resolve executable paths in the application when PATH contents are not trusted. Do not pass untrusted values through
+`CommandSpec.shell`; shell escaping is platform-specific and remains the caller's responsibility.
 
-Do not build shell command lines by concatenating untrusted input. Prefer direct argv and pass untrusted values as
-arguments.
-
-```java
-CommandService shell = Procwright.shellCommand("printf '%s\\n' \"$MESSAGE\"");
-
-shell.run().withEnvironment("MESSAGE", "hello").execute();
-```
-
-## Platform-specific executable selection
-
-The application owns platform-specific executable selection:
-
-- choose `.cmd` or `.bat` on Windows when the tool only ships as a Windows script;
-- choose POSIX scripts on Unix-like systems when the tool expects POSIX shell behavior;
-- use absolute paths when the surrounding application already resolved a toolchain;
-- keep PATH probing, package-manager lookup, and installation outside the current Procwright core.
-
-Procwright validates and launches the command it is given. It does not currently implement a command discovery service.
-
-## Working directory and environment
-
-Use `CommandSpec` for stable working directory and environment defaults. Use scenario methods for operation-specific
-overrides.
-
-The default environment policy inherits the current process environment and applies explicit overrides. Use
-`cleanEnvironment()` when reproducibility or isolation matters. On Windows, a very small clean environment may need
-system variables required by the target executable.
-
-## Newlines and terminal behavior
-
-Do not assume one newline convention across all tools. Normalize output in the application when the domain allows it.
-
-Do not assume that an interactive command can run over ordinary pipes. If a CLI needs terminal behavior, use a
-session-family scenario with [`TerminalPolicy.REQUIRED`](../scenarios/terminal.md).
-
-## Related references
-
-- [Command model](command-model.md)
-- [Policies](policies.md)
-- [Security](security.md)
-- [Platforms and PTY](platforms-and-pty.md)
+Use `CommandSpec.of(executable).withArgs(...)` for reusable base argv. Scenario-level `withArgs(...)` appends arguments
+for one workflow branch.

@@ -3,18 +3,20 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.DurationSupport;
+import io.github.ulviar.procwright.internal.LineSessionSettings;
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.LineSessionException;
+import io.github.ulviar.procwright.session.LineTranscript;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledLineSessionException;
 import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
-import io.github.ulviar.procwright.session.PooledLineSessionOptions;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -25,19 +27,69 @@ import java.util.function.Supplier;
  */
 public final class DefaultPooledLineSession implements PooledLineSession {
 
-    private final PooledLineSessionOptions options;
-    private final WorkerPoolController<LineSession> pool;
+    private final WorkerPoolSettings<LineSession> options;
+    private final LineSessionSettings lineOptions;
+    private final WorkerPoolController<DefaultLineSession> pool;
 
-    public DefaultPooledLineSession(Supplier<LineSession> workerFactory, PooledLineSessionOptions options) {
-        Objects.requireNonNull(workerFactory, "workerFactory");
-        this.options = Objects.requireNonNull(options, "options");
-        this.pool = new WorkerPoolController<>(
+    public DefaultPooledLineSession(
+            Supplier<LineSession> workerFactory,
+            LineSessionSettings lineOptions,
+            WorkerPoolSettings<LineSession> options) {
+        this(workerFactory, lineOptions, options, System::nanoTime);
+    }
+
+    DefaultPooledLineSession(
+            Supplier<LineSession> workerFactory,
+            LineSessionSettings lineOptions,
+            WorkerPoolSettings<LineSession> options,
+            WorkerPoolController.NanoClock metricsClock) {
+        this(
                 workerFactory,
-                LineSession::close,
+                lineOptions,
+                options,
+                metricsClock,
+                PoolRetirementDispatcher::execute,
+                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                        session, session.onExit(), session.physicalOutputCleanup(), admission));
+    }
+
+    DefaultPooledLineSession(
+            Supplier<LineSession> workerFactory,
+            LineSessionSettings lineOptions,
+            WorkerPoolSettings<LineSession> options,
+            WorkerPoolController.NanoClock metricsClock,
+            WorkerPoolController.TerminalRetirementDispatcher terminalDispatcher) {
+        this(
+                workerFactory,
+                lineOptions,
+                options,
+                metricsClock,
+                terminalDispatcher,
+                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                        session, session.onExit(), session.physicalOutputCleanup(), admission, terminalDispatcher));
+    }
+
+    DefaultPooledLineSession(
+            Supplier<LineSession> workerFactory,
+            LineSessionSettings lineOptions,
+            WorkerPoolSettings<LineSession> options,
+            WorkerPoolController.NanoClock metricsClock,
+            WorkerPoolController.TerminalRetirementDispatcher terminalDispatcher,
+            WorkerPoolController.WorkerCloseAction<DefaultLineSession> workerCloser) {
+        Objects.requireNonNull(workerFactory, "workerFactory");
+        this.lineOptions = Objects.requireNonNull(lineOptions, "lineOptions");
+        this.options = Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(terminalDispatcher, "terminalDispatcher");
+        Objects.requireNonNull(workerCloser, "workerCloser");
+        this.pool = new WorkerPoolController<>(
+                () -> requireDefaultSession(workerFactory.get()),
+                workerCloser,
                 new LinePoolOptions(options),
                 LinePoolFailures.INSTANCE,
                 "pooled line-session worker",
-                "procwright-line-pool-replenish-");
+                "procwright-line-pool-replenish-",
+                metricsClock,
+                terminalDispatcher);
     }
 
     /**
@@ -47,37 +99,8 @@ public final class DefaultPooledLineSession implements PooledLineSession {
      * @return decoded response
      */
     public LineResponse request(String line) {
-        requireRequestLine(line);
-        WorkerPoolController.Worker<LineSession> worker = null;
-        boolean reusable = false;
-        PooledWorkerRetireReason retireReason = PooledWorkerRetireReason.WORKER_FAILED;
-        long requestStarted = 0;
-        try {
-            worker = acquire();
-            requestStarted = System.nanoTime();
-            LineResponse response = worker.session().request(line);
-            worker.recordRequest();
-            runReset(worker.session());
-            pool.completedRequests(requestStarted);
-            reusable = true;
-            return response;
-        } catch (LineSessionException exception) {
-            retireReason = retireReasonFor(exception);
-            pool.failedRequests(requestStarted);
-            throw exception;
-        } catch (PooledLineSessionException exception) {
-            retireReason = retireReasonFor(exception);
-            pool.failedRequests(requestStarted);
-            throw exception;
-        } catch (RuntimeException exception) {
-            pool.failedRequests(requestStarted);
-            throw new PooledLineSessionException(
-                    PooledLineSessionException.Reason.WORKER_FAILED, "Pooled line-session worker failed", exception);
-        } finally {
-            if (worker != null) {
-                pool.release(worker, reusable, retireReason);
-            }
-        }
+        LineRequestEncoder.validate(line);
+        return requestObserved(line, lineOptions.requestTimeout());
     }
 
     /**
@@ -88,33 +111,54 @@ public final class DefaultPooledLineSession implements PooledLineSession {
      * @return decoded response
      */
     public LineResponse request(String line, Duration timeout) {
-        requireRequestLine(line);
-        requirePositive(timeout, "timeout");
-        WorkerPoolController.Worker<LineSession> worker = null;
+        LineRequestEncoder.validate(line);
+        return requestObserved(line, requirePositive(timeout, "timeout"));
+    }
+
+    private LineResponse requestObserved(String line, Duration requestTimeout) {
+        WorkerPoolController<DefaultLineSession>.RequestObservation observation = pool.observeRequest();
+        WorkerPoolController.Worker<DefaultLineSession> worker = null;
         boolean reusable = false;
         PooledWorkerRetireReason retireReason = PooledWorkerRetireReason.WORKER_FAILED;
-        long requestStarted = 0;
         try {
+            EncodedRequest encodedRequest = encodeRequest(line, requestTimeout);
+            observation.pauseForAcquire();
             worker = acquire();
-            requestStarted = System.nanoTime();
-            LineResponse response = worker.session().request(line, timeout);
+            observation.resumeAfterAcquire();
+            LineResponse response =
+                    worker.session().requestEncoded(encodedRequest.bytes(), encodedRequest.remainingTimeout());
             worker.recordRequest();
-            runReset(worker.session());
-            pool.completedRequests(requestStarted);
+            if (pool.retirementReasonFor(worker) == null) {
+                try {
+                    runReset(worker.session());
+                } catch (RuntimeException resetFailure) {
+                    retireReason = PooledWorkerRetireReason.RESET_FAILED;
+                    observation.succeed();
+                    return response;
+                } catch (Error resetError) {
+                    retireReason = PooledWorkerRetireReason.RESET_FAILED;
+                    observation.succeed();
+                    throw resetError;
+                }
+            }
+            observation.succeed();
             reusable = true;
             return response;
         } catch (LineSessionException exception) {
             retireReason = retireReasonFor(exception);
-            pool.failedRequests(requestStarted);
+            observation.fail();
             throw exception;
         } catch (PooledLineSessionException exception) {
             retireReason = retireReasonFor(exception);
-            pool.failedRequests(requestStarted);
+            observation.fail();
             throw exception;
         } catch (RuntimeException exception) {
-            pool.failedRequests(requestStarted);
+            observation.fail();
             throw new PooledLineSessionException(
                     PooledLineSessionException.Reason.WORKER_FAILED, "Pooled line-session worker failed", exception);
+        } catch (Error error) {
+            observation.fail();
+            throw error;
         } finally {
             if (worker != null) {
                 pool.release(worker, reusable, retireReason);
@@ -128,7 +172,15 @@ public final class DefaultPooledLineSession implements PooledLineSession {
      * @return metrics snapshot
      */
     public PooledLineSessionMetrics metrics() {
-        WorkerPoolController.MetricsSnapshot metrics = pool.metrics();
+        return publicMetrics(pool.metrics());
+    }
+
+    boolean awaitMetrics(Predicate<PooledLineSessionMetrics> condition, Duration timeout) throws InterruptedException {
+        Objects.requireNonNull(condition, "condition");
+        return pool.awaitMetrics(metrics -> condition.test(publicMetrics(metrics)), timeout);
+    }
+
+    private static PooledLineSessionMetrics publicMetrics(WorkerPoolController.MetricsSnapshot metrics) {
         return new PooledLineSessionMetrics(
                 metrics.size(),
                 metrics.idle(),
@@ -140,64 +192,40 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 metrics.completedRequests(),
                 metrics.failedRequests(),
                 metrics.failedStartups(),
+                metrics.failedWorkerCloses(),
                 metrics.totalAcquireWaitNanos(),
                 metrics.totalRequestDurationNanos(),
                 metrics.totalWorkerStartupNanos(),
                 metrics.retireReasons());
     }
 
-    /**
-     * Returns a future that completes once the pool is closed and all workers have exited the pool.
-     *
-     * @return drain future view
-     */
-    public CompletableFuture<Void> onDrained() {
-        return pool.onDrained();
+    @Override
+    public CompletableFuture<Void> closeAsync() {
+        return PoolCloseSupport.asyncView(pool.closeAsync(), LinePoolFailures.INSTANCE);
     }
 
-    /**
-     * Waits for the pool to drain after close.
-     *
-     * @param timeout maximum wait time
-     * @return whether the pool drained before the timeout
-     */
-    public boolean awaitDrained(Duration timeout) {
-        requirePositive(timeout, "timeout");
-        try {
-            pool.onDrained().get(Math.max(1, DurationSupport.saturatedMillis(timeout)), TimeUnit.MILLISECONDS);
-            return true;
-        } catch (java.util.concurrent.TimeoutException exception) {
-            return false;
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            return false;
-        } catch (java.util.concurrent.ExecutionException exception) {
-            throw new PooledLineSessionException(
-                    PooledLineSessionException.Reason.WORKER_FAILED, "Pool drain failed", exception.getCause());
-        }
+    CompletableFuture<Void> slotReleaseCompletion() {
+        return pool.slotReleaseCompletion();
     }
 
-    /**
-     * Closes the pool. Idle workers are closed immediately; leased workers are closed when their current request
-     * finishes.
-     */
     @Override
     public void close() {
-        pool.close();
+        PoolCloseSupport.await(pool.closeAsync(), options.closeTimeout(), LinePoolFailures.INSTANCE);
     }
 
-    private WorkerPoolController.Worker<LineSession> acquire() {
+    private WorkerPoolController.Worker<DefaultLineSession> acquire() {
         return pool.acquire(this::isHealthy);
     }
 
-    private boolean isHealthy(LineSession session, long acquireDeadlineNanos) {
+    private WorkerPoolController.HealthOutcome isHealthy(DefaultLineSession session, long acquireDeadlineNanos) {
+        if (session.exitCompleted()) {
+            return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
+        }
         Duration timeout = WorkerHookSupport.boundedTimeout(options.hookTimeout(), acquireDeadlineNanos);
         if (timeout.isZero()) {
-            throw new PooledLineSessionException(
-                    PooledLineSessionException.Reason.ACQUIRE_TIMEOUT,
-                    "Timed out waiting for pooled line-session health check");
+            return WorkerPoolController.HealthOutcome.ACQUIRE_TIMEOUT;
         }
-        return WorkerHookSupport.run(
+        boolean accepted = WorkerHookSupport.run(
                 "procwright-line-pool-health-",
                 timeout,
                 () -> options.healthCheck().test(session),
@@ -211,6 +239,10 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                         PooledLineSessionException.Reason.WORKER_FAILED,
                         "Pooled line-session health check failed",
                         exception));
+        if (session.exitCompleted()) {
+            return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
+        }
+        return accepted ? WorkerPoolController.HealthOutcome.HEALTHY : WorkerPoolController.HealthOutcome.HEALTH_FAILED;
     }
 
     private void runReset(LineSession session) {
@@ -233,11 +265,11 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                         exception));
     }
 
-    private static PooledWorkerRetireReason retireReasonFor(LineSessionException exception) {
+    static PooledWorkerRetireReason retireReasonFor(LineSessionException exception) {
         return switch (exception.reason()) {
             case TIMEOUT -> PooledWorkerRetireReason.TIMEOUT;
             case DECODE_ERROR, DECODER_FAILED -> PooledWorkerRetireReason.DECODER_FAILED;
-            case EOF -> PooledWorkerRetireReason.PROCESS_EXITED;
+            case EOF, PROCESS_EXITED -> PooledWorkerRetireReason.PROCESS_EXITED;
             default -> PooledWorkerRetireReason.WORKER_FAILED;
         };
     }
@@ -249,12 +281,38 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         };
     }
 
-    private static String requireRequestLine(String line) {
-        Objects.requireNonNull(line, "line");
-        if (line.indexOf('\n') >= 0 || line.indexOf('\r') >= 0) {
-            throw new IllegalArgumentException("line must not contain line separators");
+    private EncodedRequest encodeRequest(String line, Duration timeout) {
+        long deadlineNanos = DurationSupport.deadlineFromNow(timeout);
+        byte[] bytes = LineRequestEncoder.encodeUntil(
+                line,
+                lineOptions,
+                message -> new LineSessionException(
+                        LineSessionException.Reason.REQUEST_TOO_LARGE, new LineTranscript("", false, false), message),
+                () -> requestFailure(LineSessionException.Reason.TIMEOUT, "Line request timed out", null),
+                exception -> requestFailure(
+                        LineSessionException.Reason.FAILURE, "Interrupted while encoding line request", exception),
+                deadlineNanos);
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+            throw requestFailure(LineSessionException.Reason.TIMEOUT, "Line request timed out", null);
         }
-        return line;
+        return new EncodedRequest(bytes, Duration.ofNanos(remainingNanos));
+    }
+
+    private static LineSessionException requestFailure(
+            LineSessionException.Reason reason, String message, Throwable cause) {
+        if (cause == null) {
+            return new LineSessionException(reason, new LineTranscript("", false, false), message);
+        }
+        return new LineSessionException(reason, new LineTranscript("", false, false), message, cause);
+    }
+
+    private static DefaultLineSession requireDefaultSession(LineSession session) {
+        Objects.requireNonNull(session, "workerFactory returned null");
+        if (session instanceof DefaultLineSession defaultSession) {
+            return defaultSession;
+        }
+        throw new IllegalArgumentException("workerFactory must create a Procwright line session");
     }
 
     private static Duration requirePositive(Duration duration, String name) {
@@ -265,7 +323,8 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         return duration;
     }
 
-    private record LinePoolOptions(PooledLineSessionOptions options) implements WorkerPoolController.PoolOptions {
+    private record LinePoolOptions(WorkerPoolSettings<LineSession> options)
+            implements WorkerPoolController.PoolOptions {
 
         private LinePoolOptions {
             Objects.requireNonNull(options, "options");
@@ -292,6 +351,11 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         }
 
         @Override
+        public Duration closeTimeout() {
+            return options.closeTimeout();
+        }
+
+        @Override
         public int maxRequestsPerWorker() {
             return options.maxRequestsPerWorker();
         }
@@ -307,7 +371,15 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         }
     }
 
-    private enum LinePoolFailures implements WorkerPoolController.FailureFactory {
+    private record EncodedRequest(byte[] bytes, Duration remainingTimeout) {
+
+        private EncodedRequest {
+            Objects.requireNonNull(bytes, "bytes");
+            Objects.requireNonNull(remainingTimeout, "remainingTimeout");
+        }
+    }
+
+    private enum LinePoolFailures implements WorkerPoolController.FailureFactory, PoolCloseSupport.FailureFactory {
         INSTANCE;
 
         @Override
@@ -329,6 +401,34 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         @Override
         public RuntimeException startupFailed(String message, Throwable cause) {
             return new PooledLineSessionException(PooledLineSessionException.Reason.STARTUP_FAILED, message, cause);
+        }
+
+        @Override
+        public RuntimeException retirementFailed(String message, Throwable cause) {
+            return new PooledLineSessionException(PooledLineSessionException.Reason.WORKER_FAILED, message, cause);
+        }
+
+        @Override
+        public RuntimeException drainTimeout(Duration timeout) {
+            return new PooledLineSessionException(
+                    PooledLineSessionException.Reason.DRAIN_TIMEOUT,
+                    "Pooled line session did not drain within " + timeout);
+        }
+
+        @Override
+        public RuntimeException interrupted(InterruptedException cause) {
+            return new PooledLineSessionException(
+                    PooledLineSessionException.Reason.INTERRUPTED,
+                    "Interrupted while closing pooled line session",
+                    cause);
+        }
+
+        @Override
+        public RuntimeException workerFailed(Throwable cause) {
+            return new PooledLineSessionException(
+                    PooledLineSessionException.Reason.WORKER_FAILED,
+                    "Pooled line-session worker cleanup failed",
+                    cause);
         }
     }
 }

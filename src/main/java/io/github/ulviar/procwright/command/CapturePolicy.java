@@ -52,6 +52,11 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded, CapturePoli
      * <p>This form requires {@link OutputMode#SEPARATE}. Existing file content is overwritten. No output pump
      * threads run, so memory usage stays constant regardless of output volume. {@link CommandResult#stdout()} and
      * {@link CommandResult#stderr()} are empty and the truncation flags are {@code false}.
+     * Immediately before launch, Procwright rejects targets that resolve to the same file, including aliases through
+     * symlinked directories. It also rejects any pair of target names that differ only by case, canonical Unicode
+     * representation, or trailing dots and spaces, even when both files already exist and the local filesystem treats
+     * them as distinct. Do not replace or relink either path concurrently with process launch: the JDK redirect API does
+     * not provide an atomic two-target identity check and open operation.
      *
      * @param stdout target file for standard output
      * @param stderr target file for standard error, distinct from {@code stdout}

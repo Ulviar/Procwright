@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.examples;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,6 +70,7 @@ final class ScenarioCookbookCoverageTest {
     private static Set<String> coreExampleMethods() {
         return Arrays.stream(CommandServiceApiExamples.class.getDeclaredMethods())
                 .filter(method -> !method.isSynthetic())
+                .filter(method -> !Modifier.isPrivate(method.getModifiers()))
                 .map(Method::getName)
                 .collect(Collectors.toUnmodifiableSet());
     }
@@ -123,7 +125,6 @@ final class ScenarioCookbookCoverageTest {
             }
             if (columns[2].contains(":procwright-integrations")
                     || columns[2].contains("JsonLineSession")
-                    || columns[2].contains("CancellableCall")
                     || columns[2].contains("ContentLengthJsonFrames")) {
                 continue;
             }

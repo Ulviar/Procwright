@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.LinkedHashMap;
@@ -20,6 +21,28 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 final class JsonCodecTest {
+
+    @Test
+    void utf8SerializerWritesHugeStringsInBoundedChunksWithoutAJsonTreeOrBodyCopy() throws Exception {
+        int stringLength = 4 * 1024 * 1024;
+        JsonValue value = JsonValue.string("x".repeat(stringLength));
+        TrackingSink sink = new TrackingSink();
+
+        JsonCodec.writeUtf8(value, sink);
+
+        assertEquals(stringLength + 2L, sink.bytesWritten);
+        assertTrue(sink.largestWrite <= 16 * 1024, "Jackson output buffering must stay bounded");
+    }
+
+    @Test
+    void countingAndTextSerializationUseTheCanonicalNumberSnapshot() throws Exception {
+        AdversarialBigDecimal input = new AdversarialBigDecimal("1.500");
+        JsonValue value = JsonValue.number(input);
+
+        assertEquals(5, JsonCodec.utf8Length(value, 5));
+        assertEquals("1.500", JsonCodec.write(value));
+        assertEquals(0, input.stringCalls());
+    }
 
     @Test
     void writesAndParsesJsonValues() {
@@ -63,6 +86,26 @@ final class JsonCodecTest {
         assertThrows(JsonParseException.class, () -> JsonCodec.parse("\"\\"));
         assertThrows(JsonParseException.class, () -> JsonCodec.parse("\"\\u12\""));
         assertThrows(JsonParseException.class, () -> JsonCodec.parse("\"\\u12xz\""));
+    }
+
+    @Test
+    void codecAndJsonLinesRejectEscapedUnpairedUtf16Surrogates() {
+        for (String malformed : List.of("\"\\uD800\"", "\"\\uDC00\"")) {
+            assertThrows(JsonParseException.class, () -> JsonCodec.parse(malformed));
+            assertThrows(JsonParseException.class, () -> JsonLines.parseLine(malformed));
+        }
+    }
+
+    @Test
+    void codecAndJsonLinesPreserveBmpAndSupplementaryCharactersExactly() {
+        JsonValue value = JsonValue.object(Map.of("ключ-🚀", JsonValue.string("é-🚀")));
+
+        String json = JsonCodec.write(value);
+
+        assertEquals("{\"ключ-🚀\":\"é-🚀\"}", json);
+        assertEquals(json, JsonLines.line(value));
+        assertEquals(value, JsonCodec.parse(json));
+        assertEquals(value, JsonLines.parseLine(json));
     }
 
     @Test
@@ -222,5 +265,22 @@ final class JsonCodecTest {
 
         assertThrows(JsonParseException.class, () -> JsonCodec.fromJackson(rootNode));
         assertThrows(JsonParseException.class, () -> JsonCodec.toJackson(value));
+    }
+
+    private static final class TrackingSink extends OutputStream {
+        private long bytesWritten;
+        private int largestWrite;
+
+        @Override
+        public void write(int value) {
+            bytesWritten++;
+            largestWrite = Math.max(largestWrite, 1);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) {
+            bytesWritten += length;
+            largestWrite = Math.max(largestWrite, length);
+        }
     }
 }

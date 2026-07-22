@@ -1,197 +1,93 @@
-# Kotlin API
+# Kotlin extensions
 
-The `io.github.ulviar:procwright-kotlin` artifact is optional. It adds Kotlin ergonomics over the Java core without changing
-the underlying scenario model.
-
-Add it next to the core dependency:
+After [installing Procwright from this checkout](../getting-started.md), configure a Kotlin/JVM 17 project:
 
 ```kotlin
+plugins {
+    kotlin("jvm") version "2.3.21"
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
 dependencies {
-    implementation("io.github.ulviar:procwright:0.1.0")
     implementation("io.github.ulviar:procwright-kotlin:0.1.0")
 }
-```
 
-Maven:
-
-```xml
-<dependency>
-    <groupId>io.github.ulviar</groupId>
-    <artifactId>procwright-kotlin</artifactId>
-    <version>0.1.0</version>
-</dependency>
-```
-
-Use the package `io.github.ulviar.procwright.kotlin` for extensions. The module depends on
-`kotlinx-coroutines-core`; Gradle and Maven receive that dependency transitively. Full optional-module coordinates are
-listed in [Installation](../release/installation.md#optional-modules).
-
-The examples below use these imports:
-
-```kotlin
-import io.github.ulviar.procwright.Procwright
-import io.github.ulviar.procwright.kotlin.*
-import java.time.Duration
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.runBlocking
-import kotlin.time.Duration.Companion.seconds
-```
-
-## Receiver-style command calls
-
-`runCommand` keeps the Java `run` scenario but lets the invocation builder be used as a Kotlin receiver.
-
-```kotlin
-val service = Procwright.command("git")
-
-val result = service.runCommand {
-    args("status", "--short")
-    timeout(2.seconds)
-}
-
-if (!result.succeeded()) {
-    throw result.toException()
+kotlin {
+    jvmToolchain(17)
 }
 ```
 
-Kotlin duration overloads are available for the Kotlin extensions and DSL scopes. The Java API still uses
-`java.time.Duration`.
+The Kotlin artifact brings in Procwright core, Kotlin standard library, and coroutines transitively. It requires a
+compiler that can read Kotlin 2.3 metadata. The Java persistent Draft API remains the primary API; this module adds
+type-safe durations, coroutine terminals, Flow streaming, and a protocol adapter factory DSL.
 
-Use `runCommandAwait` from coroutines when the caller should not block its coroutine thread while Procwright supervises the
-process on an IO dispatcher.
+Use the [generated Kotlin API](../api/kotlin/index.html) for exact receivers and overloads. This page focuses on the
+contracts needed to choose and use those extensions safely.
 
-```kotlin
-runBlocking {
-    val service = Procwright.command("java")
-    val result = service.runCommandAwait {
-        args("--version")
-    }
+Core's exported packages use JSpecify `@NullMarked`: Kotlin callers must pass non-null command arguments and vararg
+elements, and protocol request and response types are non-null (`I : Any`, `O : Any`).
 
-    check(result.succeeded())
+For a named JPMS application, require only the Kotlin module:
+
+```java
+module example.application {
+    requires io.github.ulviar.procwright.kotlin;
 }
 ```
 
-## Sessions
-
-`openSession` opens the same raw interactive `Session` as the Java API.
+The module transitively requires core, Kotlin stdlib, and coroutines.
 
 ```kotlin
-runBlocking {
-    val service = Procwright.command("tool")
-
-    service.openSession {
-        args("repl")
-    }.use { session ->
-        session.sendLine("status")
-        val exit = session.awaitExit()
-        check(exit.exitCode().isPresent)
-    }
-}
+--8<-- "examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt"
 ```
 
-`awaitExit` is available for raw `Session` and `StreamSession`. Cancelling the waiting coroutine does not cancel the
-shared `onExit()` future or bypass Procwright shutdown policy.
+[Open `KotlinExample.kt`](../examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt) and the
+[optional-module example sources](../examples.md#optional-modules).
 
-## Line sessions
+## Durations
 
-`requestAwait` runs a line-session request from a coroutine-friendly blocking boundary.
+Scenario Draft timeouts, request calls, `Expect`, pool acquisition, hooks, and `withCloseTimeout` accept
+`kotlin.time.Duration`. The extensions return the same Java Draft types. Pool `use` is safe because core `close()` performs
+a bounded synchronous drain.
 
-```kotlin
-runBlocking {
-    val service = Procwright.command("tool")
+## Coroutines
 
-    service.lineSession().withArgs("line-worker").open().use { session ->
-        val response = session.requestAwait("status", Duration.ofSeconds(1))
-        check(response.text().isNotBlank())
-    }
-}
-```
+- `RunScenario.Draft.executeAwait()` executes on an interruptible I/O dispatcher. Cancellation interrupts the core call,
+  which applies the Draft's shutdown policy to its process.
+- Direct and pooled `requestAwait(...)` variants preserve core request and acquisition timeouts. Cancelling while waiting
+  for a direct line or protocol request slot abandons only that call; no request is handed to stdin and the session remains
+  reusable. A line request remains retryable until stdin handoff; a protocol request becomes terminal once it acquires the
+  serialized slot, even if callback scheduling has not written yet. Cancelling an active pooled request retires its worker,
+  while cancellation during worker acquisition abandons only that wait.
+- `awaitExit()` waits for interactive, line, protocol, or stream exit. Cancelling the waiter does not close the session or
+  cancel its shared exit future.
 
-The same line-session invariants still apply: one request at a time, bounded transcript diagnostics, request timeout,
-and session close after protocol failure.
+There is no suspending `openAwait()`. Resource-returning terminals remain explicit `open()` calls so ownership cannot be
+lost in a cancellation race.
 
-`requestAwait` is also available for typed `ProtocolSession` workers and for pooled workers (`PooledLineSession` and
-`PooledProtocolSession`), each with a `kotlin.time.Duration` overload. Omitting the timeout uses the session or worker
-default request timeout.
+## Flow
 
-## Pooled line-session DSL
+`StreamScenario.Draft.openFlow()` is cold. Calling it does not start a process. Every collection opens and owns a fresh
+`StreamSession`; cancellation closes only that collector's session. A rendezvous channel applies backpressure instead of
+silently dropping chunks.
 
-`pooledLineSession` keeps the pooled line-session scenario but gives Kotlin callers separate worker and pool scopes.
+The Flow emits only `StreamChunk` values. It does not expose the normal `StreamExit` outcome: exit code, whether timeout or
+caller close terminated the process, duration, and diagnostic transcript are discarded after completion. When that outcome
+matters, use `listen().onOutput(...).open()` and inspect the session with `awaitExit()` or `onExit()`. `openFlow()` installs
+its own output callback and replaces any listener previously set with `onOutput` on that Draft.
 
-```kotlin
-val service = Procwright.command("tool")
+## Protocol adapter factory
 
-service.pooledLineSession {
-    worker {
-        args("line-worker")
-        requestTimeout(1.seconds)
-    }
+`protocolAdapterFactory<I, O> { ... }` returns a `Supplier<ProtocolAdapter<I, O>>`. Its configuration block runs for every
+factory call, so each session and pool worker receives isolated adapter state. Both `writeRequest` and `readResponse` are
+required; omission fails before a process starts.
 
-    maxSize(4)
-    minIdle(1)
-    acquireTimeout(1.seconds)
-    maxRequestsPerWorker(1_000)
-}.use { pool ->
-    val response = pool.request("status")
-    check(response.text().isNotBlank())
-}
-```
-
-The DSL does not expose worker leases. Worker launch settings stay under `worker { ... }`; pool lifecycle settings stay
-on the outer scope.
-
-## Protocol adapter DSL
-
-Use `protocolAdapter` when a small typed protocol is clearer as Kotlin handlers than as an anonymous Java class.
-
-```kotlin
-val adapter = protocolAdapter<String, String> {
-    writeRequest { request, writer ->
-        writer.writeLine(request)
-        writer.flush()
-    }
-
-    readResponse { readers ->
-        readers.stdout().readLine(4096)
-    }
-}
-
-Procwright.command("tool")
-    .protocolSession(adapter)
-    .withArgs("line-worker")
-    .open()
-    .use { session ->
-        val response = session.request("status")
-        check(response.isNotBlank())
-    }
-```
-
-Both handlers are required. The adapter uses the core `ProtocolAdapter` runtime and keeps the same timeout, transcript,
-charset, and protocol-failure guarantees.
-
-## Streaming as Flow
-
-`listenFlow` exposes `listen` as a cold `Flow<StreamChunk>`.
-
-```kotlin
-runBlocking {
-    val service = Procwright.command("tool")
-    val chunks = service.listenFlow {
-        args("logs", "--follow")
-        timeout(Duration.ofSeconds(30))
-    }
-
-    chunks.collect { chunk ->
-        print(chunk.text())
-    }
-}
-```
-
-The flow adapter intentionally does not expose `onOutput`. Flow owns chunk delivery and uses rendezvous buffering so a
-slow collector applies backpressure instead of creating an unbounded queue.
-
-## Public surface
-
-The Kotlin artifact publishes receiver-style extensions for `CommandService`, suspending helpers for session waits and
-for line, protocol, and pooled requests, Kotlin duration overloads, `listenFlow`, pooled line-session DSL scopes, and
-`protocolAdapter` DSL scopes.
+Concurrent session opens and pool startup may invoke the supplier and configuration block concurrently. They must be
+thread-safe and return a fresh adapter each time. Put mutable per-adapter state inside the configuration block or
+factory call. One adapter's `writeRequest` and `readResponse` handlers are serialized by its session, but handlers on
+different adapters can run concurrently. Mutable state captured from outside remains shared and must be synchronized or
+avoided.

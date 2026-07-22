@@ -3,12 +3,9 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.DurationSupport;
-import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -31,21 +28,12 @@ final class WorkerHookSupport {
         Objects.requireNonNull(interrupted, "interrupted");
         Objects.requireNonNull(failed, "failed");
 
-        CompletableFuture<T> completion = new CompletableFuture<>();
-        Thread thread = Threading.start(threadPrefix, () -> {
-            try {
-                completion.complete(hook.get());
-            } catch (Throwable throwable) {
-                completion.completeExceptionally(throwable);
-            }
-        });
+        long deadlineNanos = DurationSupport.deadlineFromNow(timeout);
         try {
-            return completion.get(Math.max(1, DurationSupport.saturatedMillis(timeout)), TimeUnit.MILLISECONDS);
+            return BoundedTaskRunner.run(BoundedTaskRunner.WORKER_HOOKS, threadPrefix, deadlineNanos, hook::get);
         } catch (TimeoutException exception) {
-            thread.interrupt();
             throw timedOut.get();
         } catch (InterruptedException exception) {
-            thread.interrupt();
             Thread.currentThread().interrupt();
             throw interrupted.apply(exception);
         } catch (ExecutionException exception) {

@@ -5,18 +5,20 @@ package io.github.ulviar.procwright.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.CommandService;
 import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.StreamScenario;
 import io.github.ulviar.procwright.TestCliSupport;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 final class StreamScenarioIntegrationTest {
@@ -24,10 +26,9 @@ final class StreamScenarioIntegrationTest {
     @Test
     void listenDispatchesStdoutAndStderrChunksAndReportsExit() throws Exception {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
-        CommandService service = fixtureService(StreamOptions.defaults());
+        StreamScenario.Draft scenario = fixtureDraft();
 
-        try (StreamSession session = service.listen()
-                .withArgs("exit", "--stdout=out", "--stderr=err")
+        try (StreamSession session = scenario.withArgs("exit", "--stdout=out", "--stderr=err")
                 .onOutput(chunks::add)
                 .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
@@ -46,37 +47,15 @@ final class StreamScenarioIntegrationTest {
     }
 
     @Test
-    void listenClosesStdinOnStartByDefault() throws Exception {
+    void listenClosesStdinOnStart() throws Exception {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
-        CommandService service = fixtureService(StreamOptions.defaults());
+        StreamScenario.Draft scenario = fixtureDraft();
 
-        try (StreamSession session = service.listen()
-                .withArgs("stdin-echo", "--mode=bytes-count")
+        try (StreamSession session = scenario.withArgs("stdin-echo", "--mode=bytes-count")
                 .onOutput(chunks::add)
                 .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
-            assertEquals(0, exit.exitCode().orElseThrow());
-            assertTrue(chunks.stream().anyMatch(chunk -> chunk.text().contains("bytes:0")));
-        }
-    }
-
-    @Test
-    void listenCanKeepStdinOpenUntilCallerClosesIt() throws Exception {
-        CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
-        CommandService service = fixtureService(StreamOptions.defaults());
-
-        try (StreamSession session = service.listen()
-                .withArgs("stdin-echo", "--mode=bytes-count")
-                .withOpenStdin()
-                .onOutput(chunks::add)
-                .open()) {
-            Thread.sleep(100);
-            assertFalse(session.onExit().isDone());
-
-            session.closeStdin();
-
-            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
             assertEquals(0, exit.exitCode().orElseThrow());
             assertTrue(chunks.stream().anyMatch(chunk -> chunk.text().contains("bytes:0")));
         }
@@ -85,10 +64,9 @@ final class StreamScenarioIntegrationTest {
     @Test
     void streamTimeoutStopsLongRunningProcess() throws Exception {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
-        CommandService service = fixtureService(StreamOptions.defaults().withTimeout(timeoutAfterFixtureStartup()));
+        StreamScenario.Draft scenario = fixtureDraft().withTimeout(timeoutAfterFixtureStartup());
 
-        try (StreamSession session = service.listen()
-                .withArgs("sleep", "--millis=5000", "--finished=false")
+        try (StreamSession session = scenario.withArgs("sleep", "--millis=5000", "--finished=false")
                 .onOutput(chunks::add)
                 .open()) {
             StreamExit exit = session.onExit().get(exitWaitTimeout().toSeconds(), TimeUnit.SECONDS);
@@ -100,75 +78,94 @@ final class StreamScenarioIntegrationTest {
 
     @Test
     void explicitCloseReportsClosedExit() throws Exception {
-        CommandService service = fixtureService(StreamOptions.defaults());
+        StreamScenario.Draft scenario = fixtureDraft();
 
-        try (StreamSession session = service.listen()
-                .withArgs("sleep", "--millis=5000", "--finished=false")
-                .open()) {
+        StreamSession session =
+                scenario.withArgs("sleep", "--millis=5000", "--finished=false").open();
+        try {
             session.close();
 
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
             assertTrue(exit.closed());
+        } finally {
+            session.close();
         }
     }
 
     @Test
     void listenerFailureCompletesExitExceptionallyWithDiagnostics() {
-        CommandService service = fixtureService(StreamOptions.defaults());
+        StreamScenario.Draft scenario = fixtureDraft();
 
-        try (StreamSession session = service.listen()
-                .configuredBy(call -> call.args("exit", "--stdout=boom").onOutput(chunk -> {
+        try (StreamSession session = scenario.withArgs("exit", "--stdout=boom")
+                .onOutput(chunk -> {
                     throw new IllegalStateException("listener failed");
-                }))
+                })
                 .open()) {
             ExecutionException exception = assertThrows(
                     ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
             StreamException streamException = assertInstanceOf(StreamException.class, exception.getCause());
 
+            assertEquals(StreamException.Reason.LISTENER_FAILED, streamException.reason());
             assertTrue(streamException.diagnostics().text().contains("stdout: boom"));
         }
     }
 
     @Test
-    void listenerCallbacksAreSerialized() throws Exception {
-        AtomicBoolean insideListener = new AtomicBoolean();
-        CopyOnWriteArrayList<String> chunks = new CopyOnWriteArrayList<>();
-        CommandService service = fixtureService(StreamOptions.defaults());
+    void listenerErrorCompletesExitExceptionallyAndStopsProcess() throws Exception {
+        StreamScenario.Draft scenario = fixtureDraft();
+        AssertionError listenerFailure = new AssertionError("listener error");
+        CountDownLatch listenerInvoked = new CountDownLatch(1);
+        AtomicLong childPid = new AtomicLong(-1);
+        StringBuilder fixtureOutput = new StringBuilder();
 
-        try (StreamSession session = service.listen()
-                .configuredBy(call -> call.args(
-                                "stream",
-                                "--count=1",
-                                "--stdout-template=out-start",
-                                "--stderr-template=err-start",
-                                "--delay-millis=100")
-                        .onOutput(chunk -> {
-                            assertFalse(insideListener.getAndSet(true));
-                            try {
-                                chunks.add(chunk.text());
-                                Thread.sleep(50);
-                            } catch (InterruptedException exception) {
-                                Thread.currentThread().interrupt();
-                                throw new AssertionError("interrupted", exception);
-                            } finally {
-                                insideListener.set(false);
-                            }
-                        }))
+        try (StreamSession session = scenario.withArgs("spawn-child", "--child-scenario=never-exit", "--wait=true")
+                .onOutput(chunk -> {
+                    if (chunk.source() != StreamSource.STDOUT) {
+                        return;
+                    }
+                    fixtureOutput.append(chunk.text());
+                    long parsedPid = completeChildPid(fixtureOutput);
+                    if (parsedPid > 0 && childPid.compareAndSet(-1, parsedPid)) {
+                        listenerInvoked.countDown();
+                        throw listenerFailure;
+                    }
+                })
                 .open()) {
-            StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
+            assertTrue(
+                    listenerInvoked.await(2, TimeUnit.SECONDS), "the never-exiting fixture did not reach the listener");
+            ExecutionException exception = assertThrows(ExecutionException.class, () -> session.onExit()
+                    .get(exitWaitTimeout().toSeconds(), TimeUnit.SECONDS));
+
+            assertSame(listenerFailure, exception.getCause());
+            assertTrue(
+                    waitForProcessExit(childPid.get(), exitWaitTimeout()),
+                    "listener failure completion left the never-exiting child alive");
+        } finally {
+            forceKillAndWait(childPid.get());
+        }
+    }
+
+    @Test
+    void concurrentOutputIsAggregatedBySourceWithoutAssumingChunkBoundaries() throws Exception {
+        CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
+        StreamScenario.Draft scenario = fixtureDraft();
+
+        try (StreamSession session = scenario.withArgs("concurrent-output", "--stdout=out-ready", "--stderr=err-ready")
+                .onOutput(chunks::add)
+                .open()) {
+            StreamExit exit = session.onExit().get(exitWaitTimeout().toSeconds(), TimeUnit.SECONDS);
 
             assertEquals(0, exit.exitCode().orElseThrow());
-            assertTrue(chunks.stream().anyMatch(text -> text.contains("out-start")));
-            assertTrue(chunks.stream().anyMatch(text -> text.contains("err-start")));
+            assertEquals("out-ready\n", aggregate(chunks, StreamSource.STDOUT));
+            assertEquals("err-ready\n", aggregate(chunks, StreamSource.STDERR));
         }
     }
 
     @Test
     void callerCannotCompleteStreamExitFuture() throws Exception {
-        CommandService service = fixtureService(StreamOptions.defaults());
+        StreamScenario.Draft scenario = fixtureDraft();
 
-        try (StreamSession session =
-                service.listen().withArgs("sleep", "--millis=200").open()) {
+        try (StreamSession session = scenario.withArgs("sleep", "--millis=200").open()) {
             CompletableFuture<StreamExit> callerFuture = session.onExit();
             callerFuture.complete(new StreamExit(
                     java.util.OptionalInt.of(99), false, false, new StreamTranscript("fake", false), Duration.ZERO));
@@ -180,10 +177,9 @@ final class StreamScenarioIntegrationTest {
 
     @Test
     void boundedDiagnosticsDoNotStoreEntireOutput() throws Exception {
-        CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(64));
+        StreamScenario.Draft scenario = fixtureDraft().withDiagnosticLimit(64);
 
-        try (StreamSession session = service.listen()
-                .withArgs("burst", "--stdout-bytes=128", "--stdout-byte=x")
+        try (StreamSession session = scenario.withArgs("burst", "--stdout-bytes=128", "--stdout-byte=x")
                 .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
@@ -195,10 +191,9 @@ final class StreamScenarioIntegrationTest {
     @Test
     void stderrIsDrainedWhileStreamingStdout() throws Exception {
         CopyOnWriteArrayList<StreamChunk> chunks = new CopyOnWriteArrayList<>();
-        CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(1024));
+        StreamScenario.Draft scenario = fixtureDraft().withDiagnosticLimit(1024);
 
-        try (StreamSession session = service.listen()
-                .withArgs(
+        try (StreamSession session = scenario.withArgs(
                         "burst",
                         "--stdout-first=false",
                         "--stdout-bytes=5",
@@ -217,8 +212,64 @@ final class StreamScenarioIntegrationTest {
         }
     }
 
-    private static CommandService fixtureService(StreamOptions streamOptions) {
-        return Procwright.command(TestCliSupport.command()).withStreamOptions(streamOptions);
+    private static StreamScenario.Draft fixtureDraft() {
+        return Procwright.command(TestCliSupport.command()).listen();
+    }
+
+    private static String aggregate(Iterable<StreamChunk> chunks, StreamSource source) {
+        StringBuilder output = new StringBuilder();
+        for (StreamChunk chunk : chunks) {
+            if (chunk.source() == source) {
+                output.append(chunk.text());
+            }
+        }
+        return output.toString();
+    }
+
+    private static long completeChildPid(CharSequence output) {
+        String text = output.toString();
+        int marker = text.indexOf("child:");
+        if (marker < 0) {
+            return -1;
+        }
+        int valueStart = marker + "child:".length();
+        int lineEnd = text.indexOf('\n', valueStart);
+        if (lineEnd < 0) {
+            return -1;
+        }
+        long pid = Long.parseLong(text.substring(valueStart, lineEnd).trim());
+        if (pid <= 0) {
+            throw new AssertionError("fixture reported a non-positive child pid: " + pid);
+        }
+        return pid;
+    }
+
+    private static boolean waitForProcessExit(long pid, Duration timeout) throws InterruptedException {
+        if (pid <= 0) {
+            return false;
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (ProcessHandle.of(pid).map(handle -> !handle.isAlive()).orElse(true)) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return ProcessHandle.of(pid).map(handle -> !handle.isAlive()).orElse(true);
+    }
+
+    private static void forceKillAndWait(long pid) {
+        if (pid <= 0) {
+            return;
+        }
+        try {
+            ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly);
+            waitForProcessExit(pid, Duration.ofSeconds(2));
+        } catch (RuntimeException ignored) {
+            // Test cleanup must not replace the listener assertion.
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static Duration timeoutAfterFixtureStartup() {

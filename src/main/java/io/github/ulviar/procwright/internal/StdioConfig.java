@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * Operating-system level stdio redirections applied at process launch.
  *
- * <p>Defaults to pipes for every stream, which preserves the historical pump-thread capture path. The one-shot
+ * <p>Defaults to pipes for every stream, which selects the pump-thread capture path. The one-shot
  * kernel derives redirections from the resolved {@code CapturePolicy} and {@code CommandInput}; session transports
  * always launch with pipes.
  */

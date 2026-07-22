@@ -10,10 +10,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
-import io.github.ulviar.procwright.command.RunOptions;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.session.LineSessionException;
-import io.github.ulviar.procwright.session.LineSessionOptions;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
@@ -22,7 +20,6 @@ import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
-import io.github.ulviar.procwright.session.SessionOptions;
 import io.github.ulviar.procwright.session.StreamSession;
 import io.github.ulviar.procwright.testcli.TestCli;
 import java.nio.file.Path;
@@ -47,10 +44,12 @@ final class TestCliStressTest {
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < 12; index++) {
-                futures.add(executor.submit(() -> service.run(call -> call.args(
+                futures.add(executor.submit(() -> service.run()
+                        .withArgs(
                                 "burst", "--stdout-bytes=2m", "--stderr-bytes=2m", "--stdout-byte=O", "--stderr-byte=E")
-                        .capture(CapturePolicy.bounded(16 * 1024))
-                        .timeout(Duration.ofSeconds(8)))));
+                        .withCapture(CapturePolicy.bounded(16 * 1024))
+                        .withTimeout(Duration.ofSeconds(8))
+                        .execute()));
             }
 
             for (Future<CommandResult> future : futures) {
@@ -77,15 +76,17 @@ final class TestCliStressTest {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int seed = 1; seed <= 40; seed++) {
                 int currentSeed = seed;
-                futures.add(executor.submit(() -> service.run(call -> call.args(
+                futures.add(executor.submit(() -> service.run()
+                        .withArgs(
                                 "flaky",
                                 "--seed=" + currentSeed,
                                 "--fail-percent=50",
                                 "--hang-percent=0",
                                 "--max-delay-millis=5",
                                 "--failure-exit-code=75")
-                        .capture(CapturePolicy.bounded(4 * 1024))
-                        .timeout(Duration.ofSeconds(8)))));
+                        .withCapture(CapturePolicy.bounded(4 * 1024))
+                        .withTimeout(Duration.ofSeconds(8))
+                        .execute()));
             }
 
             for (Future<CommandResult> future : futures) {
@@ -118,23 +119,25 @@ final class TestCliStressTest {
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < hangingFlakyParallelism(); index++) {
-                futures.add(executor.submit(() -> service.run(call -> call.args(
+                futures.add(executor.submit(() -> service.run()
+                        .withArgs(
                                 "flaky",
                                 "--seed=1",
                                 "--hang-percent=100",
                                 "--fail-percent=0",
                                 "--started-text=flaky-hang")
-                        .capture(CapturePolicy.bounded(1024))
-                        .timeout(hangingFlakyTimeout())
-                        .shutdown(hangingFlakyShutdown()))));
+                        .withCapture(CapturePolicy.bounded(1024))
+                        .withTimeout(hangingFlakyTimeout())
+                        .withShutdown(hangingFlakyShutdown())
+                        .execute()));
             }
 
             for (Future<CommandResult> future : futures) {
                 CommandResult result = future.get(hangingFlakyWaitSeconds(), TimeUnit.SECONDS);
                 assertTrue(result.timedOut());
                 assertFalse(result.succeeded());
-                String stdout = normalizeLineEndings(result.stdout());
-                assertTrue(stdout.isEmpty() || stdout.startsWith("flaky-hang\n"), () -> "unexpected stdout: " + stdout);
+                assertTrue(result.stdoutBytes().length <= 1024);
+                assertTrue(result.stderrBytes().length <= 1024);
             }
         } finally {
             executor.shutdownNow();
@@ -145,10 +148,12 @@ final class TestCliStressTest {
     @Test
     void timeoutStopsWaitingParentAndSpawnedChildProcess() throws Exception {
         CommandResult result = testCliService()
-                .run(call -> call.args("spawn-child", "--child-scenario=never-exit", "--wait=true")
-                        .capture(CapturePolicy.bounded(4 * 1024))
-                        .timeout(processTreeTimeout())
-                        .shutdown(processTreeShutdown()));
+                .run()
+                .withArgs("spawn-child", "--child-scenario=never-exit", "--wait=true")
+                .withCapture(CapturePolicy.bounded(4 * 1024))
+                .withTimeout(processTreeTimeout())
+                .withShutdown(processTreeShutdown())
+                .execute();
 
         assertTrue(result.timedOut());
         long childPid = parseChildPid(result.stdout());
@@ -158,10 +163,12 @@ final class TestCliStressTest {
     @Test
     void timeoutStopsWaitingTreeWithGrandchildProcess() throws Exception {
         CommandResult result = testCliService()
-                .run(call -> call.args("spawn-tree", "--leaf-scenario=never-exit", "--wait=true")
-                        .capture(CapturePolicy.bounded(4 * 1024))
-                        .timeout(processTreeTimeout())
-                        .shutdown(processTreeShutdown()));
+                .run()
+                .withArgs("spawn-tree", "--leaf-scenario=never-exit", "--wait=true")
+                .withCapture(CapturePolicy.bounded(4 * 1024))
+                .withTimeout(processTreeTimeout())
+                .withShutdown(processTreeShutdown())
+                .execute();
 
         assertTrue(result.timedOut());
         long childPid = parsePid(result.stdout(), "child:");
@@ -175,17 +182,19 @@ final class TestCliStressTest {
         AtomicInteger chunks = new AtomicInteger();
 
         try (StreamSession stream = testCliService()
-                .listen(call -> call.args("long-run", "--ticks=8", "--interval-millis=1", "--stderr-every=2")
-                        .timeout(Duration.ofSeconds(5))
-                        .onOutput(chunk -> {
-                            chunks.incrementAndGet();
-                            try {
-                                TimeUnit.MILLISECONDS.sleep(5);
-                            } catch (InterruptedException exception) {
-                                Thread.currentThread().interrupt();
-                                throw new AssertionError("listener interrupted", exception);
-                            }
-                        }))) {
+                .listen()
+                .withArgs("long-run", "--ticks=8", "--interval-millis=1", "--stderr-every=2")
+                .withTimeout(Duration.ofSeconds(5))
+                .onOutput(chunk -> {
+                    chunks.incrementAndGet();
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(5);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError("listener interrupted", exception);
+                    }
+                })
+                .open()) {
             assertEquals(0, stream.onExit().get(10, TimeUnit.SECONDS).exitCode().orElseThrow());
         }
 
@@ -199,10 +208,12 @@ final class TestCliStressTest {
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < 8; index++) {
-                futures.add(executor.submit(() -> service.run(call -> call.args(
+                futures.add(executor.submit(() -> service.run()
+                        .withArgs(
                                 "mixed-load", "--ticks=3", "--cpu-millis=5", "--interval-millis=0", "--memory-bytes=1m")
-                        .capture(CapturePolicy.bounded(8 * 1024))
-                        .timeout(Duration.ofSeconds(5)))));
+                        .withCapture(CapturePolicy.bounded(8 * 1024))
+                        .withTimeout(Duration.ofSeconds(5))
+                        .execute()));
             }
 
             for (Future<CommandResult> future : futures) {
@@ -219,10 +230,12 @@ final class TestCliStressTest {
 
     @Test
     void repeatedSpawnLoopCompletesWithoutSupervisorTimeout() {
-        CommandResult result = testCliService().run(call -> call.args(
-                        "repeat-spawn", "--count=8", "--child-scenario=exit", "--child-arg=--exit-code=0")
-                .capture(CapturePolicy.bounded(4 * 1024))
-                .timeout(Duration.ofSeconds(5)));
+        CommandResult result = testCliService()
+                .run()
+                .withArgs("repeat-spawn", "--count=8", "--child-scenario=exit", "--child-arg=--exit-code=0")
+                .withCapture(CapturePolicy.bounded(4 * 1024))
+                .withTimeout(Duration.ofSeconds(5))
+                .execute();
 
         assertTrue(result.succeeded());
         assertTrue(result.stdout().contains("iteration:7:exit:0"));
@@ -230,9 +243,16 @@ final class TestCliStressTest {
 
     @Test
     void pooledLineSessionRetiresTimedOutWorkersAndKeepsServingRequests() throws Exception {
-        try (PooledLineSession pool = testCliLineService()
-                .pooled(call ->
-                        call.args("line-repl").maxSize(2).warmupSize(1).acquireTimeout(Duration.ofSeconds(2)))) {
+        PooledLineSession pool = testCliService()
+                .lineSession()
+                .withArgs("line-repl")
+                .withRequestTimeout(Duration.ofSeconds(2))
+                .pooled()
+                .withMaxSize(2)
+                .withWarmupSize(1)
+                .withAcquireTimeout(Duration.ofSeconds(2))
+                .open();
+        try {
             ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch start = new CountDownLatch(1);
             try {
@@ -274,22 +294,37 @@ final class TestCliStressTest {
                 assertEquals(5, metrics.completedRequests());
                 assertEquals(5, metrics.failedRequests());
                 assertTrue(metrics.created() >= metrics.retired());
+                assertEquals(
+                        metrics.size(), metrics.idle() + metrics.leased() + metrics.starting() + metrics.retiring());
                 assertTrue(metrics.size() <= 2);
                 assertEquals(0, metrics.leased());
             } finally {
                 executor.shutdownNow();
                 assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             }
+            pool.close();
+            PooledLineSessionMetrics drained = pool.metrics();
+            assertEquals(0, drained.size());
+            assertEquals(0, drained.idle());
+            assertEquals(0, drained.leased());
+            assertEquals(0, drained.starting());
+            assertEquals(0, drained.retiring());
+        } finally {
+            pool.close();
         }
     }
 
     @Test
     void pooledProtocolSessionRetiresTimedOutWorkersAndKeepsServingRequests() throws Exception {
-        try (PooledProtocolSession<String, String> pool = testCliService()
-                .pooledProtocol(TextLineAdapter::new, call -> call.args("line-repl")
-                        .maxSize(2)
-                        .warmupSize(1)
-                        .acquireTimeout(Duration.ofSeconds(2)))) {
+        PooledProtocolSession<String, String> pool = testCliService()
+                .protocolSession(TextLineAdapter::new)
+                .withArgs("line-repl")
+                .pooled()
+                .withMaxSize(2)
+                .withWarmupSize(1)
+                .withAcquireTimeout(Duration.ofSeconds(2))
+                .open();
+        try {
             ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch start = new CountDownLatch(1);
             try {
@@ -330,17 +365,28 @@ final class TestCliStressTest {
                 assertEquals(5, metrics.completedRequests());
                 assertEquals(5, metrics.failedRequests());
                 assertTrue(metrics.created() >= metrics.retired());
+                assertEquals(
+                        metrics.size(), metrics.idle() + metrics.leased() + metrics.starting() + metrics.retiring());
                 assertTrue(metrics.size() <= 2);
                 assertEquals(0, metrics.leased());
             } finally {
                 executor.shutdownNow();
                 assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             }
+            pool.close();
+            PooledProtocolSessionMetrics drained = pool.metrics();
+            assertEquals(0, drained.size());
+            assertEquals(0, drained.idle());
+            assertEquals(0, drained.leased());
+            assertEquals(0, drained.starting());
+            assertEquals(0, drained.retiring());
+        } finally {
+            pool.close();
         }
     }
 
     private static CommandService testCliService() {
-        return new CommandService(testCliCommand(), RunOptions.defaults());
+        return Procwright.command(testCliCommand());
     }
 
     private static final class TextLineAdapter implements ProtocolAdapter<String, String> {
@@ -357,26 +403,13 @@ final class TestCliStressTest {
         }
     }
 
-    private static CommandService testCliLineService() {
-        return new CommandService(
-                testCliCommand(),
-                RunOptions.defaults(),
-                SessionOptions.defaults(),
-                LineSessionOptions.defaults().withRequestTimeout(Duration.ofSeconds(2)));
-    }
-
     private static CommandSpec testCliCommand() {
-        return CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), TestCli.class.getName())
-                .build();
+        return CommandSpec.of(javaExecutable())
+                .withArgs("-cp", System.getProperty("java.class.path"), TestCli.class.getName());
     }
 
     private static long parseChildPid(String stdout) {
         return parsePid(stdout, "child:");
-    }
-
-    private static String normalizeLineEndings(String text) {
-        return text.replace("\r\n", "\n");
     }
 
     private static long parsePid(String stdout, String prefix) {

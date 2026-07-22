@@ -35,17 +35,6 @@ public sealed interface ToolCallResult<T> permits ToolCallResult.Success, ToolCa
     }
 
     /**
-     * Maps a throwable to a failed result.
-     *
-     * @param throwable failure
-     * @param <T> payload type
-     * @return failure result
-     */
-    static <T> ToolCallResult<T> failure(Throwable throwable) {
-        return failure(CliAdapterError.from(throwable));
-    }
-
-    /**
      * Returns whether this result is successful.
      *
      * @return {@code true} for success

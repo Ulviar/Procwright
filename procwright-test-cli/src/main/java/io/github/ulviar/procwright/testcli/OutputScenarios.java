@@ -7,6 +7,9 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class OutputScenarios {
 
@@ -29,6 +32,45 @@ final class OutputScenarios {
             context.sleepMillis(delayMillis);
         }
         context.flush();
+        return options.integer("exit-code", 0);
+    }
+
+    static int concurrentOutput(ScenarioContext context) throws Exception {
+        CliOptions options = context.options();
+        CountDownLatch writersReady = new CountDownLatch(2);
+        CountDownLatch releaseWriters = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread stdoutWriter = outputWriter(
+                "test-cli-stdout-writer",
+                context.stdout(),
+                options.string("stdout", "out-ready"),
+                writersReady,
+                releaseWriters,
+                failure,
+                context);
+        Thread stderrWriter = outputWriter(
+                "test-cli-stderr-writer",
+                context.stderr(),
+                options.string("stderr", "err-ready"),
+                writersReady,
+                releaseWriters,
+                failure,
+                context);
+        stdoutWriter.start();
+        stderrWriter.start();
+        try {
+            if (!writersReady.await(2, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("concurrent output writers did not reach the release barrier");
+            }
+            releaseWriters.countDown();
+            joinWriter(stdoutWriter);
+            joinWriter(stderrWriter);
+        } finally {
+            releaseWriters.countDown();
+            stdoutWriter.interrupt();
+            stderrWriter.interrupt();
+        }
+        rethrowWriterFailure(failure.get());
         return options.integer("exit-code", 0);
     }
 
@@ -76,7 +118,7 @@ final class OutputScenarios {
         return options.integer("exit-code", 0);
     }
 
-    static int binary(ScenarioContext context) throws IOException {
+    static int binary(ScenarioContext context) throws Exception {
         CliOptions options = context.options();
         byte[] pattern = binaryPattern(options);
         int repeat = options.integer("repeat", 1);
@@ -90,6 +132,7 @@ final class OutputScenarios {
             }
         }
         context.flush();
+        context.sleepMillis(options.longValue("hold-millis", 0));
         return options.integer("exit-code", 0);
     }
 
@@ -113,6 +156,49 @@ final class OutputScenarios {
         if (flush) {
             stream.flush();
         }
+    }
+
+    private static Thread outputWriter(
+            String name,
+            OutputStream stream,
+            String text,
+            CountDownLatch writersReady,
+            CountDownLatch releaseWriters,
+            AtomicReference<Throwable> failure,
+            ScenarioContext context) {
+        return new Thread(
+                () -> {
+                    writersReady.countDown();
+                    try {
+                        if (!releaseWriters.await(2, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("concurrent output release barrier timed out");
+                        }
+                        writeChunk(stream, text, true, true, context);
+                    } catch (Throwable writerFailure) {
+                        failure.compareAndSet(null, writerFailure);
+                    }
+                },
+                name);
+    }
+
+    private static void joinWriter(Thread writer) throws InterruptedException {
+        writer.join(TimeUnit.SECONDS.toMillis(2));
+        if (writer.isAlive()) {
+            throw new IllegalStateException(writer.getName() + " did not finish within the bounded fixture deadline");
+        }
+    }
+
+    private static void rethrowWriterFailure(Throwable failure) throws Exception {
+        if (failure == null) {
+            return;
+        }
+        if (failure instanceof Exception exception) {
+            throw exception;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new IllegalStateException("concurrent output writer failed", failure);
     }
 
     private static byte singleByte(String value) {

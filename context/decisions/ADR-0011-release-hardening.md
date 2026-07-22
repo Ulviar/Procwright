@@ -2,7 +2,7 @@
 
 ## Статус
 
-Accepted.
+Принято.
 
 ## Контекст
 
@@ -20,8 +20,8 @@ pooling, presets, CLI-backed integrations и bounded stress suite. Для пуб
 - публичные пакеты стабилизируются на уровне core package family из ADR-0014, `io.github.ulviar.procwright.kotlin` и
   `io.github.ulviar.procwright.integration`;
 - Gradle `check` включает unit, integration, Kotlin, integrations и bounded stress tests;
-- Kotlin public API покрывается KDoc source check в `:procwright-kotlin:kotlinApiDocsCheck`; Java modules собирают Javadoc и
-  Javadoc artifacts;
+- `:procwright-kotlin:kotlinApiDocsCheck` запускает Dokka parser-backed проверку с
+  `reportUndocumented=true` и `failOnWarning=true`; Java modules собирают Javadoc и Javadoc artifacts;
 - CI запускает `check` и `javadoc` на Linux, macOS и Windows;
 - POSIX shell/PTTY fixtures skip-аются на Windows, если сценарий реально требует `sh` или системный PTY provider;
 - release policy, compatibility policy, dependency review и release checklist живут в `context/release/`.

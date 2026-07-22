@@ -23,6 +23,10 @@
 Для session-сценариев добавить узкий public `PtyProvider` SPI и `PtyRequest`. В core реализовать системный Unix
 provider через `script(1)`, без внешней PTY dependency.
 
+System provider допускает только exact capability, доказанную bounded startup probe. Transport wrapper запускается с
+минимальным фиксированным environment, а child environment и argv передаются как данные после отключения echo и
+применяются только перед final exec. Неизвестный `script(1)` fail-closed недоступен.
+
 Минимальные терминальные данные:
 
 - `TerminalSize` хранит requested columns/rows;
@@ -37,8 +41,8 @@ Windows ConPTY фиксируется как explicit unsupported behavior в т
 
 1. Подключить внешнюю PTY dependency сразу в core.
    - Отклонено: PTY complexity не должна попадать в ядро раньше устойчивой transport boundary.
-2. Спрятать terminal preference только в `SessionOptions`.
-   - Отклонено: per-call сценарий должен уметь явно сказать "этому запуску нужен terminal".
+2. Спрятать terminal preference в общем service-level configuration.
+   - Отклонено: конкретный session Draft должен явно сказать "этому запуску нужен terminal".
 3. Делать PTY только через shell strings.
    - Отклонено: это ломает direct argv invariant и усложняет quoting.
 
@@ -54,5 +58,7 @@ Windows ConPTY фиксируется как explicit unsupported behavior в т
 Минусы:
 
 - `script(1)` имеет терминальные особенности: echo, CRLF/control output и merged child stdout/stderr;
+- system provider требует абсолютные `/bin/sh`, `script`, `stty`, `env` и `dd`; executable token с `=` отклоняется из-за
+  неустранимой двусмысленности portable `env`;
 - полноценная process-group/signal модель не закрыта, есть только проверенный interrupt control-byte mapping;
 - возможен будущий optional artifact для нативного PTY/ConPTY provider.

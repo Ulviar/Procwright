@@ -6,11 +6,12 @@ Report privately via GitHub: open the **Security** tab on
 [`Ulviar/Procwright`](https://github.com/Ulviar/Procwright/security/advisories/new) and choose **Report a
 vulnerability**. Do not open public issues for vulnerabilities.
 
-You can expect an acknowledgment within a few days. Fixes are coordinated with the reporter before public disclosure.
+The report will be reviewed privately before any public disclosure.
 
 ## Supported versions
 
-The latest `0.x` release line receives security fixes.
+There is no supported release yet. This section will name supported versions when the first public release is
+published.
 
 ## Scope
 
@@ -28,5 +29,5 @@ Not vulnerabilities:
 
 - executing untrusted commands or building shell command lines from untrusted input — running arbitrary CLIs is
   inherently dangerous;
-- documented behavior of `Procwright.shellCommand(...)` / `CommandSpec.shell(...)`, which explicitly hand a command
-  string to the operating-system shell.
+- documented behavior of `Procwright.command(CommandSpec.shell(...))`, which explicitly hands a command string to the
+  operating-system shell.

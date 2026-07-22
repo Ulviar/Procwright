@@ -7,7 +7,9 @@ import java.util.Objects;
 final class BoundedTranscriptBuffer {
 
     private final int limit;
-    private final StringBuilder text = new StringBuilder();
+    private final char[] text;
+    private int start;
+    private int size;
     private String currentLabel;
     private boolean atLineStart = true;
     private boolean truncated;
@@ -17,21 +19,18 @@ final class BoundedTranscriptBuffer {
             throw new IllegalArgumentException("limit must be positive");
         }
         this.limit = limit;
-    }
-
-    int limit() {
-        return limit;
+        this.text = new char[limit];
     }
 
     synchronized void appendAction(String action) {
         Objects.requireNonNull(action, "action");
         if (!atLineStart) {
-            text.append('\n');
+            append('\n');
         }
-        text.append(action).append('\n');
+        append(action);
+        append('\n');
         atLineStart = true;
         currentLabel = null;
-        trim();
     }
 
     synchronized boolean appendStream(String label, char[] chars, int count) {
@@ -42,7 +41,6 @@ final class BoundedTranscriptBuffer {
         for (int index = 0; index < count; index++) {
             appendLabeledChar(label, chars[index]);
         }
-        trim();
         return truncated && !alreadyTruncated;
     }
 
@@ -53,35 +51,55 @@ final class BoundedTranscriptBuffer {
         for (int index = 0; index < chunk.length(); index++) {
             appendLabeledChar(label, chunk.charAt(index));
         }
-        trim();
         return truncated && !alreadyTruncated;
     }
 
     synchronized Snapshot snapshot() {
-        return new Snapshot(text.toString(), truncated);
+        char[] snapshot = new char[size];
+        int firstPart = Math.min(size, limit - start);
+        System.arraycopy(text, start, snapshot, 0, firstPart);
+        if (firstPart < size) {
+            System.arraycopy(text, 0, snapshot, firstPart, size - firstPart);
+        }
+        return new Snapshot(new String(snapshot), truncated);
+    }
+
+    int limit() {
+        return limit;
     }
 
     private void appendLabeledChar(String label, char value) {
         if (atLineStart || !label.equals(currentLabel)) {
             if (!atLineStart) {
-                text.append('\n');
+                append('\n');
             }
-            text.append(label).append(": ");
+            append(label);
+            append(": ");
             atLineStart = false;
             currentLabel = label;
         }
-        text.append(value);
+        append(value);
         if (value == '\n') {
             atLineStart = true;
             currentLabel = null;
         }
     }
 
-    private void trim() {
-        if (text.length() > limit) {
-            text.delete(0, text.length() - limit);
-            truncated = true;
+    private void append(CharSequence value) {
+        for (int index = 0; index < value.length(); index++) {
+            append(value.charAt(index));
         }
+    }
+
+    private void append(char value) {
+        if (size < limit) {
+            text[(start + size) % limit] = value;
+            size++;
+            return;
+        }
+        text[start] = value;
+        start = (start + 1) % limit;
+        truncated = true;
     }
 
     record Snapshot(String text, boolean truncated) {

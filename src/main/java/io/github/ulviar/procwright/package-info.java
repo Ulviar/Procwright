@@ -19,8 +19,9 @@
  * <pre>{@code
  * CommandResult result = Procwright.command("git")
  *         .run()
+ *         .withArgs("status", "--short")
  *         .withTimeout(Duration.ofSeconds(10))
- *         .execute("status", "--short");
+ *         .execute();
  *
  * if (!result.succeeded()) {
  *     throw result.toException();
@@ -28,7 +29,10 @@
  * }</pre>
  *
  * <p>Wide behavior is composed from small value objects and policies (capture, shutdown, charset, environment,
- * terminal) rather than low-level flags; invalid combinations are rejected when options are built or resolved, before
- * a process starts.
+ * terminal) rather than low-level flags. Every {@code with*} operation returns a new immutable draft, and terminal
+ * operations snapshot that draft once before launching a process.
  */
+@NullMarked
 package io.github.ulviar.procwright;
+
+import org.jspecify.annotations.NullMarked;

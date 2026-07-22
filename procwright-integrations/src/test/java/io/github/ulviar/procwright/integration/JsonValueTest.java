@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
@@ -62,6 +63,34 @@ final class JsonValueTest {
         assertThrows(NullPointerException.class, () -> JsonValue.string(null));
         assertThrows(NullPointerException.class, () -> JsonValue.number((String) null));
         assertThrows(NullPointerException.class, () -> JsonValue.number((BigDecimal) null));
+    }
+
+    @Test
+    void numberCanonicalizesAdversarialBigDecimalSubclassesAtConstruction() {
+        AdversarialBigDecimal input = new AdversarialBigDecimal("1.500");
+
+        JsonValue.JsonNumber number = JsonValue.number(input);
+
+        assertSame(BigDecimal.class, number.value().getClass());
+        assertEquals(new BigDecimal("1.500"), number.value());
+        assertEquals(3, number.value().scale());
+        assertEquals(0, input.stringCalls());
+    }
+
+    @Test
+    void stringsAndMemberNamesRejectUnpairedUtf16SurrogatesAtConstruction() {
+        assertMalformedUtf16(
+                () -> JsonValue.string("\uD800"), "JSON string contains an unpaired UTF-16 surrogate at index 0");
+        assertMalformedUtf16(
+                () -> JsonValue.string("\uDC00"), "JSON string contains an unpaired UTF-16 surrogate at index 0");
+        assertMalformedUtf16(
+                () -> JsonValue.object(Map.of("bad-\uD800", JsonValue.nullValue())),
+                "JSON member name contains an unpaired UTF-16 surrogate at index 4");
+    }
+
+    private static void assertMalformedUtf16(Runnable action, String message) {
+        JsonParseException failure = assertThrows(JsonParseException.class, action::run);
+        assertEquals(message, failure.getMessage());
     }
 
     private static Map<String, JsonValue> membersWithNullName() {

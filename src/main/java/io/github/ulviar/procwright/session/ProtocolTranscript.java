@@ -10,9 +10,8 @@ import java.util.Objects;
  * @param text retained transcript text
  * @param truncated whether older transcript content was discarded
  * @param malformed whether output contained bytes that were malformed for transcript decoding
- * @param redacted whether transcript content was intentionally redacted
  */
-public record ProtocolTranscript(String text, boolean truncated, boolean malformed, boolean redacted) {
+public record ProtocolTranscript(String text, boolean truncated, boolean malformed) {
 
     /**
      * Creates a protocol transcript snapshot.
@@ -20,7 +19,6 @@ public record ProtocolTranscript(String text, boolean truncated, boolean malform
      * @param text retained transcript text
      * @param truncated whether older transcript content was discarded
      * @param malformed whether output contained bytes that were malformed for transcript decoding
-     * @param redacted whether transcript content was intentionally redacted
      */
     public ProtocolTranscript {
         Objects.requireNonNull(text, "text");

@@ -1,66 +1,26 @@
 # Procwright
 
-Procwright is a JVM library for calling external command-line processes through task-shaped APIs. Choose the workflow first:
-run a finite command, automate prompts, talk to a worker, follow output, or reuse warm workers.
+Procwright controls external command-line processes through workflow-specific APIs. Start with the process behavior you
+need, configure its immutable Draft with `with*` methods, then call `execute()` or `open()`.
 
-The current public version is `0.1.0`. Use Java 17 or newer; published artifacts target Java 17.
+## Start here
 
-!!! note "Not yet on Maven Central"
-    `0.1.0` is not yet available on Maven Central; publication is pending. Until then, build from source and use
-    `./gradlew publishToMavenLocal`. See [Installation](release/installation.md).
+- [Install Procwright and run a command](getting-started.md).
+- [Choose the right process scenario](how-to/choose-process-scenario.md).
+- [Open a complete, runnable example](examples.md).
+- [Check lifecycle, timeout, output, and error contracts](reference/index.md).
+- [Use the optional Kotlin extensions](reference/kotlin-api.md).
 
-If you are new to Procwright, start with one question: what shape does the external process have? A command that exits belongs
-to `run`. A raw live process belongs to `interactive`. Prompt automation uses `interactive` + `Expect`. A long-lived
-worker with one line per response belongs to `lineSession`. A framed or typed protocol belongs to `protocolSession`. A
-process that emits output continuously belongs to `listen`.
+## Scenario map
 
-## What Procwright is for
+| Task | Scenario |
+| --- | --- |
+| Run a finite command and capture a result | [`run`](scenarios/run.md) |
+| Control a live process or automate prompts | [`interactive`](scenarios/interactive.md) and [`Expect`](scenarios/expect.md) |
+| Exchange line requests | [`lineSession`](scenarios/line-session.md) |
+| Implement a custom framed protocol | [`protocolSession`](scenarios/protocol-session.md) |
+| Consume output as it arrives | [`listen`](scenarios/streaming.md) |
+| Reuse initialized workers | [pooling](scenarios/pooling.md) |
 
-Procwright is intended for applications that need to call external CLIs without owning a custom process harness:
-
-- run one command and receive a typed result;
-- interact with a long-running process through stdin/stdout;
-- automate prompt-oriented dialogues;
-- use line-oriented request/response workers;
-- use framed, multi-line, byte, or typed protocol workers;
-- consume streaming output without retaining all data in memory;
-- reuse warm line-session or typed protocol workers;
-- wrap a CLI as a structured integration boundary.
-
-## First useful call
-
-```java
-import io.github.ulviar.procwright.CommandService;
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CommandResult;
-
-public final class GettingStartedExample {
-
-    private GettingStartedExample() {}
-
-    public static void main(String[] args) {
-        CommandService java = Procwright.command("java");
-
-        CommandResult result = java.run().execute("--version");
-
-        if (!result.succeeded()) {
-            throw result.toException();
-        }
-
-        System.out.print(result.stdout());
-        System.err.print(result.stderr());
-    }
-}
-```
-
-This is the smallest scenario: choose a command, choose `run`, execute with arguments, then inspect a typed result.
-
-## Main entry points
-
-- [Getting Started](getting-started.md) for installation and the first command.
-- [How-to Guides](how-to/index.md) for common CLI automation tasks.
-- [Reference](reference/index.md) for scenario contracts, policies, results, errors, and generated API docs.
-- [Examples](examples.md) for selected scenario snippets.
-- [Kotlin API](reference/kotlin-api.md) for the optional Kotlin module.
-- [Explanations](explanations/index.md) for design rationale and scope boundaries.
-- [Version and Compatibility](release/index.md) for installation, compatibility, and limitations.
+The planned first release is `0.1.0`. It targets Java 17 and runs on Java 17 or newer. No public artifact has been
+published yet; [installation](release/installation.md) uses Maven Local from this checkout.

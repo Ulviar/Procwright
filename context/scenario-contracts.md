@@ -1,289 +1,219 @@
 # Контракты scenario-first API
 
-## Назначение
+## Общий контракт
 
-Этот документ фиксирует public contracts канонических сценариев Procwright. Он описывает только реализованное поведение,
-которое подтверждается тестами или compile-tested examples. Release gates проверяют, что API, документация, примеры и
-тесты остаются согласованными. Если будущая возможность не укладывается в эти контракты, она требует нового ADR или
-изменения существующего сценария.
+Канонические пути:
 
-Канонические сценарии core:
-
-- `run`;
-- `lineSession`;
-- `protocolSession`;
-- `interactive`;
-- `expect`;
-- `listen`;
+- `Procwright.command(...).run()`;
+- `Procwright.command(...).interactive()`;
+- `Procwright.command(...).lineSession()`;
+- `Procwright.command(...).protocolSession(adapterFactory)`;
+- `Procwright.command(...).listen()`;
 - `lineSession().pooled()`;
-- `protocolSession(factory).pooled()`.
+- `protocolSession(adapterFactory).pooled()`;
+- `Session.expect()`.
 
-Terminal/PTY — capability внутри session-family сценариев (`interactive`, `lineSession`, `protocolSession`), а не
-отдельный сценарий core. Command-backed tools —
-optional integration layer поверх process scenarios, а не часть core process workflow.
-`ScenarioPresets` — typed customizers для существующих scenario builders, а не отдельный сценарий.
-Pooled workers наследуют terminal capability только через `LineSession` или `ProtocolSession`; отдельного PTY pool
-runtime нет.
+Все configuration objects в этих путях — immutable persistent Draft. Методы `with*` fail fast для локально
+невалидного скалярного значения и возвращают новый snapshot. Проверки, зависящие от сочетания settings или
+нормализованного plan, выполняются в `execute()`/`open()` до запуска процесса; поэтому Draft может временно хранить
+несогласованные поля. `execute()`/`open()` являются явными resource terminals. Presets, Kotlin extensions и integrations
+не создают параллельный API запуска.
 
-## Общие правила всех сценариев
+Общие гарантии runtime:
 
-- Builder/lambda остается draft layer.
-- Resolver/domain layer превращает draft в валидированный invocation/execution plan.
-- Runtime получает только валидированный plan.
-- Timeout, explicit close, bounded retention, stream draining, cleanup, diagnostics и lifecycle не перекладываются на
-  пользователя; integration-level cancellable calls описываются в optional integration layer.
-- Timeout, explicit close и failure shutdown завершают process tree в пределах возможностей JDK `ProcessHandle`, а не
-  только direct child process.
-- Environment inheritance является явной policy: default совместимости — inherit, для недоверенных CLI доступен
-  `cleanEnvironment()` с allowlist-style overrides через `putEnvironment(...)`.
-- Public results и exceptions должны сохранять диагностически важный контекст.
-- Backend-specific и dependency-specific types не попадают в core public API.
-- Output ownership у интерактивных сценариев единственный: первая операция над публичным stdout/stderr выбирает raw
-  stream mode, а claim higher-level helper выбирает helper mode. Второй mode после этого fail fast вместо
-  конкурирующего чтения из того же процесса.
+- direct argv и inherited environment являются compatibility defaults; shell и clean environment включаются явно;
+- timeout, close и failure используют общую shutdown policy и process-tree cleanup;
+- stdout/stderr draining, retention и очереди ограничены владельцем сценария;
+- readiness завершается до возврата session/worker;
+- result/failure сохраняет безопасный диагностический snapshot;
+- raw argv/env и unbounded output не попадают в сообщения по умолчанию;
+- interruption и cancellation не обходят cleanup;
+- `Duration.ZERO` отключает те timeout, контракт которых допускает отсутствие deadline; отрицательные значения
+  отклоняются до запуска.
 
 ## `run`
 
-One-shot execution для команды, которая должна завершиться и вернуть результат.
+`RunScenario.Draft.execute()` запускает конечную команду.
 
-Библиотека гарантирует:
+Гарантии:
 
-- stdin закрывается, если input не задан явно;
-- stdout и stderr дренируются параллельно;
-- capture bounded по умолчанию и выставляет truncation flags;
-- timeout проходит через `ShutdownPolicy`;
-- `CommandResult` различает exit code, timeout, stdout/stderr и elapsed time;
-- non-zero exit остается результатом процесса, а launch/supervision/capture failure становится
-  `CommandExecutionException`.
+- stdin закрывается, если input не задан;
+- stdout/stderr дренируются параллельно;
+- capture bounded и независимо помечает truncation;
+- discard/file capture перенаправляется на уровне ОС без pump retention;
+- strict decoding возвращает typed `DECODE_ERROR`, а raw captured bytes остаются доступными;
+- non-progressing или нарушающий charset contract decoder не может бесконечно удерживать runtime;
+- timeout включает input writing, ожидание процесса, output drain и bounded cleanup;
+- non-zero exit остается `CommandResult`; launch, supervision, I/O и decode failures — `CommandExecutionException`.
 
-Пользователь отвечает за:
-
-- интерпретацию domain-level exit code;
-- выбор capture limit, если default недостаточен;
-- выбор shell mode только когда shell semantics действительно нужны.
-
-Граница scenario:
-
-- `run` не запрашивает terminal capability;
-- если CLI требует terminal или долгий interactive lifecycle, нужно использовать `interactive` или `lineSession`.
-
-## `lineSession`
-
-Line-oriented request/response workflow для REPL-like процессов.
-
-Библиотека гарантирует:
-
-- один request/response cycle декодируется за раз;
-- response decoder владеет правилом завершения ответа;
-- request timeout относится к одному циклу;
-- stdout backlog bounded отдельно от transcript window;
-- одна незавершенная stdout line bounded отдельной `maxLineChars` policy;
-- stderr дренируется в transcript для diagnostics;
-- timeout, EOF и decoder/read failure различаются;
-- failure закрывает session, чтобы не продолжать работу в неизвестном protocol state.
-- публичные raw stdout/stderr underlying session больше не читаются после того, как output передан `LineSession`;
-- `LineSession` не создается, если public stdout/stderr уже выбрал raw stream mode.
-
-Пользователь отвечает за:
-
-- выбор decoder, соответствующего протоколу процесса;
-- отсутствие заранее запущенных конкурирующих raw reads перед созданием `LineSession`;
-- protocol reset/health semantics, если процесс используется через pool.
-
-Граница scenario:
-
-- terminal capability допустима как `TerminalPolicy` только если line protocol действительно работает под terminal
-  transport;
-- dependency-specific expect/PTY APIs не должны подменять line-session contract.
-
-## `protocolSession`
-
-Generic request/response workflow для framed, multi-line, byte-oriented или typed worker protocols.
-
-Библиотека гарантирует:
-
-- один request/response cycle декодируется за раз;
-- caller-provided `ProtocolAdapter<I, O>` владеет request writer и response decoder;
-- request writer может писать `byte[]` или `String`, а не только одну line;
-- response decoder читает stdout/stderr через deadline-aware readers;
-- request timeout относится к одному циклу;
-- request bytes/chars и response bytes/chars имеют отдельные limits;
-- output backlog bounded per stream;
-- strict charset policy может fail fast с `DECODE_ERROR` вместо silent replacement;
-- transcript bounded и маркирует truncated/malformed/redacted state;
-- timeout, EOF, broken pipe, decode failure, oversized request/response, output backlog overflow и protocol decoder
-  failure различаются;
-- failure закрывает session, чтобы не продолжать работу в неизвестном protocol state;
-- readiness probe выполняется после launch и до возврата `ProtocolSession`.
-
-Пользователь отвечает за:
-
-- protocol framing и domain decoding внутри adapter;
-- выбор size limits, соответствующих протоколу;
-- reset/health semantics, если процесс используется через pool;
-- отсутствие конкурирующих raw reads перед созданием `ProtocolSession`.
-
-Граница scenario:
-
-- `protocolSession` не является raw stream parser API;
-- common adapters живут в optional `:procwright-integrations`, а не создают второй process runtime.
+Caller выбирает timeout, capture budget, charset policy, input, output mode и shutdown escalation.
 
 ## `interactive`
 
-Raw interactive process handle для caller-driven protocol.
+`InteractiveScenario.Draft.open()` возвращает raw `Session`.
 
-Библиотека гарантирует:
+Гарантии:
 
-- explicit lifecycle через `close()`, `closeStdin()` и `onExit()`;
-- `close()` idempotent;
-- stdin защищен от записи после close/closed stdin;
-- idle timeout и explicit close проходят через общий shutdown path;
-- raw stdout/stderr защищены от чтения/закрытия после передачи output higher-level helper;
-- первая операция над raw stdout/stderr фиксирует raw stream mode и запрещает поздний helper claim;
-- terminal capability выражается через `TerminalPolicy`, а transport details остаются за provider boundary.
+- `close()` идемпотентен;
+- `closeStdin()` и session cleanup используют bounded close capacity и не ждут бесконечно заблокированный stream;
+- `onExit()` завершается после process exit и cleanup;
+- idle timeout учитывает caller-visible I/O activity;
+- terminal policy относится только к session family;
+- readiness probe выполняется до возврата handle;
+- первая raw stdout/stderr operation выбирает raw ownership mode;
+- после helper claim raw stream wrappers отклоняют read/close, а helper claim после raw operation fail fast.
 
-Пользователь отвечает за:
+Caller владеет parsing и ordering raw protocol. Для сериализованного line/typed workflow используются отдельные
+сценарии.
 
-- ordering, parsing и protocol state;
-- выбор одного output access model: raw чтение или передача ownership higher-level helper;
-- создание helper до первого raw output operation, если нужны гарантии `Expect`, `LineSession` или `StreamSession`;
-- то, что raw streams не имеют line-session serialization guarantees.
+## `Session.expect()`
 
-Граница scenario:
+`Session.expect()` возвращает неизменяемый `Expect.Draft` и не захватывает output ownership; каждый `with*` создает новую
+ветку. `Expect.Draft.open()` захватывает оба output streams. Получение raw wrapper само по себе не конфликтует с `open()`,
+но первая фактическая raw operation, другой helper claim или session cleanup приводят к `IllegalStateException`.
 
-- `interactive` предоставляет raw handle, но не становится generic process-builder flag surface;
-- higher-level automation должна идти через `Expect` или `LineSession`, если нужны их гарантии.
+Гарантии:
 
-## `expect`
+- literal/regex matching имеет bounded timeout и match buffer;
+- transcript bounded и доступен в `ExpectException`;
+- send/expect values редактируются в transcript по умолчанию;
+- EOF, timeout, closed session и read failure имеют разные reasons;
+- встроенное incremental stripping для 7-bit CSI sequences с префиксом `ESC [` применяется до matching и transcript
+  retention, ведет независимое bounded state для stdout/stderr и сохраняет incomplete, malformed и overlong candidates
+  как text;
+- закрытие `Expect` закрывает underlying `Session` и не возвращает output streams raw caller;
+- concurrent `open()` одного `Expect.Draft` не может создать двух владельцев: только один claim успешен.
 
-Prompt automation helper поверх уже открытого `Session`.
+## `lineSession`
 
-Библиотека гарантирует:
+`LineSessionScenario.Draft.open()` возвращает `LineSession` с одним request/response cycle за раз.
 
-- `Expect` владеет output streams underlying session на уровне Procwright helpers: второй helper не может забрать output
-  ownership;
-- literal/regex matching имеет bounded timeout;
-- transcript bounded и попадает в `ExpectException`;
-- caller-provided send/expect values в transcript redacted by default; verbatim transcript values требуют явного opt-in;
-- EOF, timeout, closed и read failure различаются;
-- optional output filters применяются перед matching и transcript retention;
-- closing `Expect` closes underlying `Session`;
-- публичные raw stdout/stderr underlying session больше не читаются и не закрываются после claim;
-- `Expect` не создается, если public stdout/stderr уже выбрал raw stream mode.
+Гарантии:
 
-Пользователь отвечает за:
+- request deadline охватывает validation, bounded encoding, lock acquisition, write и decode;
+- request byte/char, response line/char, unfinished-line и pending backlog limits независимы;
+- LF/CRLF и unfinished EOF line учитываются по содержимому; trailing `\r` без `\n` является содержимым;
+- incremental decoder ограничивает undecoded input и output без input consumption;
+- custom `ResponseDecoder` единолично определяет завершение response;
+- stderr дренируется в bounded transcript;
+- timeout, EOF, broken pipe, decode, oversize и backlog overflow различаются;
+- validation, request-size, encoding и ожидание сохраняют session, если request не передан на stdin write и гарантированно
+  не сможет записаться позже;
+- после передачи request writer-у timeout, interruption или write failure закрывает session, даже если факт получения
+  первого byte процессом неизвестен;
+- response и остальные protocol failures закрывают session.
 
-- порядок `send`/`expect`;
-- pattern semantics и устойчивость prompt matching;
-- выбор transcript/match buffer limits;
-- создание `Expect` до первого raw output operation, если prompt automation должна владеть output.
+Caller выбирает decoder и limits, соответствующие worker protocol.
 
-Граница scenario:
+## `protocolSession`
 
-- `Expect` не запускает процесс самостоятельно;
-- он автоматизирует `Session`, но не добавляет второй process runtime.
+`ProtocolSessionScenario.Draft.open()` возвращает typed `ProtocolSession<I, O>`.
+
+Гарантии:
+
+- factory создает отдельный `ProtocolAdapter<I, O>` до запуска каждого session/worker;
+- concurrent terminal calls могут вызывать factory конкурентно; factory должна быть thread-safe;
+- adapter factory `null`, `RuntimeException` и `Error` не запускают процесс и сохраняют исходный failure;
+- один request/response cycle выполняется одновременно;
+- `ProtocolWriter` и `ProtocolReaders` применяют единый request deadline;
+- request/response byte и char limits глобальны для всего response, даже если adapter делает несколько reads;
+- stdout/stderr backlog и transcript retention ограничены независимо;
+- strict/replace charset behavior выбирается явно;
+- timeout, EOF, broken pipe, decode, oversized data, backlog overflow и adapter failure имеют стабильные reasons;
+- protocol failure закрывает session.
+
+Adapter владеет framing и domain decoding. Runtime владеет процессом, readers/writer, deadline, bounds и diagnostics.
 
 ## `listen`
 
-Listen-only streaming workflow для `tail`, `logs --follow` и похожих процессов.
+`StreamScenario.Draft.open()` возвращает `StreamSession`.
 
-Библиотека гарантирует:
+Гарантии:
 
-- stdout и stderr дренируются параллельно;
-- listener callbacks сериализованы для одного stream session;
-- медленный listener создает process-pipe backpressure, а не unbounded memory queue;
-- retained diagnostics bounded и доступны в `StreamExit`/`StreamException`;
-- stdin закрывается на старте по умолчанию;
-- `keepStdinOpen()` требует явного `closeStdin()`;
-- timeout и listener failure завершают session через общий shutdown path;
-- `onExit()` completes после process exit и drain pumps.
-- underlying session output ownership принадлежит `StreamSession`, поэтому публичные raw stream wrappers не могут
-  конкурировать с streaming pumps.
-- `StreamSession` не создается, если public stdout/stderr уже выбрал raw stream mode.
+- stdout/stderr дренируются параллельно;
+- listener callbacks сериализованы;
+- медленный callback создает pipe backpressure, а не unbounded очередь;
+- stdin всегда закрывается на старте; для записи в stdin используется `interactive()`;
+- timeout и любой listener failure, включая `Error`, проходят через общий shutdown path;
+- reason различает listener, output-read и process failure;
+- construction failure после launch закрывает уже открытый процесс;
+- `onExit()` завершается после process exit и pump completion;
+- retained diagnostics bounded.
 
-Пользователь отвечает за:
+Listener должен быстро завершаться; тяжелая обработка выносится во внешнюю bounded очередь/executor.
 
-- быструю, bounded работу listener callback;
-- перенос тяжелой обработки из callback во внешний bounded executor/queue;
-- явное закрытие stdin, если выбран `keepStdinOpen()`.
+## Пулы line/protocol sessions
 
-Граница scenario:
+`Draft.pooled()` фиксирует worker snapshot и возвращает unopened `PoolDraft`. `PoolDraft.open()` создает pool.
 
-- `listen` не является full-output capture API;
-- если нужен completed result с bounded output, используется `run`.
+Гарантии:
 
-## `lineSession().pooled()` / `protocolSession(factory).pooled()`
+- pool переиспользует direct line/protocol runtime;
+- lease не раскрывается;
+- live worker находится ровно в одном состоянии: starting, idle, leased или retiring;
+- `withMaxSize` сразу отклоняет неположительный `maxSize`; `PoolDraft.open()` до запуска workers отклоняет
+  `maxSize > 256`, `warmupSize > maxSize`, `minIdle > maxSize` и `minIdle > 0` без background replenishment;
+- после проверки в terminal `maxSize` ограничивает все live slots одного pool, включая startup/retirement, и не
+  резервирует process-wide capacity;
+- независимый process-wide worker admission допускает суммарно не более 256 workers всех pools; admission захватывается
+  до worker factory и удерживается через startup/live/retirement до завершения physical close;
+- независимый process-wide pool-completion admission удерживает не более 256 completion owners/pools одновременно; он
+  захватывается до запуска completion owner и warmup, удерживается до terminal completion и не расходует worker admission;
+- завершившийся close, включая close с ошибкой, освобождает worker admission, а незавершившийся close сохраняет
+  backpressure; порядок получения освободившегося admission разными pools не является контрактом;
+- warmup failure закрывает уже созданных workers;
+- worker становится idle только после readiness;
+- acquire timeout и request timeout различаются;
+- request duration metric не включает acquire wait;
+- timeout, protocol/decoder failure и process exit retire worker;
+- reset выполняется после успешного response, health — перед повторным использованием;
+- hook timeout ограничивает reset/health;
+- `maxRequestsPerWorker`, `maxWorkerAge`, `minIdle` и background replenishment не раскрывают lifecycle caller-у;
+- `close()` bounded синхронно запрещает новые requests, закрывает idle workers и ждет retirement активных после request;
+- `closeAsync()` запускает тот же terminal cleanup и возвращает cancellation-isolated future;
+- `DRAIN_TIMEOUT` не отменяет cleanup; failed worker close дает `WORKER_FAILED` и остается видимым в metrics/outcome;
+- retirement dispatch bounded; saturation observable и не создает новый thread;
+- metrics дают согласованный snapshot counters, durations, live states и retire reasons.
 
-Pooled line-oriented или typed protocol workers для CLI/REPL с дорогим startup.
+Protocol pool дополнительно гарантирует отдельный adapter на worker. Persistent branches разделяют factory reference,
+но не adapter state.
 
-Библиотека гарантирует:
+## Diagnostics
 
-- pool использует существующий `LineSession` или `ProtocolSession` runtime;
-- worker lease не раскрывается пользователю;
-- `request(...)` сам берет worker, выполняет request и возвращает/retire worker;
-- `maxSize` ограничивает live workers;
-- `warmupSize` запускает bounded subset заранее;
-- `minIdle` и background replenishment держат дорогие workers готовыми без раскрытия leases;
-- acquire timeout отличим от request timeout;
-- reset/health hooks работают через выбранный session type, имеют typed worker handle и ограничены hook timeout;
-- `protocolSession(factory).pooled()` получает serialized factory adapter-ов, чтобы каждый worker владел собственным
-  protocol state;
-- metrics различают acquire wait, request duration без acquire wait, worker startup duration, failed startup count, live
-  states и retire reasons;
-- `close()` запрещает новые requests, закрывает idle workers и дает leased workers завершить текущий request.
+Scenario Draft подключает `DiagnosticListener` и `DiagnosticTranscriptSink` напрямую через `with*`.
 
-Пользователь отвечает за:
+- diagnostics не изменяет command/session outcome;
+- доставка best-effort и bounded;
+- recipients одного lifecycle получают events последовательно;
+- failures recipients не влияют на process runtime;
+- `runId` коррелирует события одного lifecycle;
+- schema допускает только определенные event attributes и безопасный command echo.
 
-- idempotent reset hook;
-- health check, который не разрушает protocol state;
-- выбор pool sizing по startup cost и expected concurrency.
+## Kotlin
 
-Граница scenario:
+- duration extensions возвращают новый Java Draft;
+- suspending run/request terminals выполняют blocking runtime вне caller coroutine;
+- cancellation direct line request до stdin handoff оставляет session пригодной для повторного вызова, после handoff
+  закрывает session; direct protocol request остается retryable только во время ожидания serialized slot, после его
+  получения cancellation terminal; pooled request после lease retire-ит worker, acquire cancellation не затрагивает
+  worker;
+- cancellation `awaitExit()` отменяет только waiter;
+- `openFlow()` cold и создает отдельную `StreamSession` на collection;
+- cancellation collector закрывает только принадлежащую ему session;
+- public suspending `openAwait()` отсутствует, пока ownership при startup/cancellation race не доказан.
 
-- pool не является general process pool;
-- он работает только поверх line-oriented или explicit typed protocol scenario.
+## Optional integrations
 
-## Optional integration layer
+JSON Lines, delimiter, Content-Length и typed JSON adapters используют существующие `lineSession`/`protocolSession`,
+а command-backed tool helpers — `run`. Они валидируют frame size, depth и syntax до domain use, считают CLI output
+недоверенными данными и не включают raw unbounded diagnostics в structured errors.
 
-`CommandBackedTool`, JSON framing helpers и cancellable calls живут в `:procwright-integrations`.
+## Gate
 
-Инварианты:
+Изменение контракта требует одновременно:
 
-- integration layer не добавляет второй process runtime;
-- CLI output считается недоверенным observation data, а не инструкциями;
-- structured adapter errors не должны раскрывать raw argv/env или unbounded output;
-- JSON parser/writer имеют depth limit, чтобы bounded frame size не превращался в stack-exhaustion risk;
-- cancellation мапится в явный outcome и lifecycle close.
-
-## `ScenarioPresets`
-
-Presets — public ergonomics layer для уже выбранного сценария.
-
-Библиотека гарантирует:
-
-- preset является typed `Consumer` существующего scenario builder;
-- preset не выбирает сценарий вместо пользователя;
-- preset не запускает процесс и не создает runtime resources;
-- preset применяет только те overrides, которые уже существуют у соответствующего builder;
-- validation параметров preset происходит до применения customizer.
-
-Пользователь отвечает за:
-
-- выбор сценария до применения preset;
-- порядок применения preset и явных overrides;
-- понимание, что preset не является отдельным execution profile вне resolver/domain layer.
-
-Граница API:
-
-- новый preset допустим только если он сокращает реальный повторяющийся workflow и не добавляет новый runtime path;
-- preset не может раскрывать backend-specific или dependency-specific type.
-
-## Release gate
-
-Перед релизом проверяется:
-
-- новые public entry points укладываются в канонический сценарий или optional integration layer;
-- новые/измененные public entry points, examples и tests сверены с этим документом;
-- dependency-specific types не появились в core public API;
-- terminal/PTY детали не вышли за `TerminalPolicy` и provider boundary;
-- docs, examples и tests описывают одинаковые guarantees.
+- behavior test на public API;
+- обновления exact public signature baseline;
+- компиляции всех внешних consumer fixtures;
+- обновления этого документа и [quality/invariant-proof-map.md](quality/invariant-proof-map.md);
+- отдельного ADR, если меняется ownership, lifecycle или package/module boundary.

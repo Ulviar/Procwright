@@ -89,13 +89,21 @@ final class CommandResultTest {
                 Duration.ZERO);
 
         stdout[0] = 99;
+        stderr[0] = 99;
         byte[] stdoutCopy = result.stdoutBytes();
+        byte[] stderrCopy = result.stderrBytes();
         stdoutCopy[1] = 99;
+        stderrCopy[1] = 99;
+        byte[] secondStderrCopy = result.stderrBytes();
+        secondStderrCopy[0] = 99;
 
         assertEquals(0, result.stdoutBytes()[0]);
         assertEquals(1, result.stdoutBytes()[1]);
         assertEquals(3, result.stderrBytes()[0]);
+        assertEquals(4, result.stderrBytes()[1]);
         assertNotSame(stdoutCopy, result.stdoutBytes());
+        assertNotSame(stderrCopy, secondStderrCopy);
+        assertNotSame(secondStderrCopy, result.stderrBytes());
     }
 
     @Test

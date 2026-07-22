@@ -7,6 +7,7 @@ import io.github.ulviar.procwright.ProcwrightException;
 /**
  * Signals invalid JSON text.
  */
+@SuppressWarnings("serial")
 public final class JsonParseException extends ProcwrightException {
 
     /**

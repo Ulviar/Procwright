@@ -2,18 +2,20 @@
 
 ## Назначение
 
-Этот документ фиксирует intended public surface для baseline `0.1.0`. Защита состоит из двух слоев:
+Baseline фиксирует намеренную JVM-поверхность первого выпуска. Он защищается тремя независимыми механизмами:
 
-- public API surface tests фиксируют approved public packages и public types;
-- `apiCompatibilityCheck` сравнивает текущие JVM signatures core, integrations и Kotlin artifacts с машинным baseline
-  в `config/api-compatibility/0.1.0/`.
+- surface tests проверяют public packages/types, JPMS exports и отсутствие internal/external types;
+- exact signature checker сравнивает methods, generic bounds и checked `throws` с файлами
+  `config/api-compatibility/0.1.0/`;
+- external consumer modules компилируют канонические Java, Kotlin и integrations scenarios.
 
-Такой guard ловит не только случайное удаление типа, но и изменение/добавление публичной JVM-сигнатуры без явного
-решения.
+Machine-readable core/integrations signatures, Kotlin JVM signatures и Kotlin ABI baseline синхронизированы с принятым
+Draft API. Это состояние source, а не зеленый same-commit release proof: перед выпуском exact signature, ABI и external
+consumer gates должны успешно пройти на том же clean commit.
 
 ## Core module
 
-Модуль `io.github.ulviar.procwright` экспортирует только пакеты:
+`io.github.ulviar.procwright` экспортирует только:
 
 - `io.github.ulviar.procwright`;
 - `io.github.ulviar.procwright.command`;
@@ -22,58 +24,77 @@
 - `io.github.ulviar.procwright.session`;
 - `io.github.ulviar.procwright.terminal`.
 
-Публичная поверхность core проверяется тестом
-`src/test/java/io/github/ulviar/procwright/PublicApiSurfaceTest.java`.
+`internal` packages не экспортируются и не входят в compatibility surface.
 
-Эти проверки являются release-relevant guard:
+## Public nullness contract
 
-- точный набор public API types должен совпадать с approved baseline;
-- JPMS descriptor должен экспортировать только approved public packages;
-- публичные signatures могут ссылаться только на JDK types или approved Procwright public API types;
-- public JVM signatures должны совпадать с `config/api-compatibility/0.1.0/procwright.txt`;
-- non-exported `internal` packages не считаются пользовательским API даже если отдельные implementation classes имеют
-  `public` modifier из-за межпакетных границ внутри модуля.
+Все экспортируемые Java packages core и integrations помечены `@NullMarked`. Допустимые отклонения ограничены
+точными `@Nullable` type-use positions и JSpecify `UNION_NULL` semantics для generated record `equals`; ослабление
+через `@NullnessUnspecified` в public contract запрещено. Kotlin artifact использует собственную Kotlin nullability
+metadata, а его strict consumers обязаны видеть JSpecify contract Java API. Publication/module boundary описана в
+[dependency-review.md](dependency-review.md#public-nullness-metadata), владельцы и proofs — в
+[invariant-proof-map.md](../quality/invariant-proof-map.md#api-и-normalization).
 
-Scenario API baseline `0.1.0` включает `run`, `interactive`, `expect`, `lineSession`, `protocolSession`, `listen`,
-`lineSession().pooled()` и `protocolSession(factory).pooled()`. Generic/core async request API и raw session pooling не
-входят в текущую baseline; узкий cancellable JSON Lines helper остается частью optional integrations module.
+Каноническая форма:
 
-`ProcwrightException` входит в baseline как общий unchecked catch boundary для ошибок, произведенных Procwright. Он не заменяет
-сценарные exceptions: structured details остаются в `CommandException`, `CommandExecutionException`,
-`LineSessionException`, `ProtocolSessionException`, pooled/session/stream/expect exceptions и optional integration
-exceptions.
+```text
+Procwright.command(String | CommandSpec) -> CommandService
+CommandService.run() -> RunScenario.Draft -> execute()
+CommandService.interactive() -> InteractiveScenario.Draft -> open()
+CommandService.lineSession() -> LineSessionScenario.Draft -> open()
+CommandService.listen() -> StreamScenario.Draft -> open()
+CommandService.protocolSession(Supplier<ProtocolAdapter<I,O>>)
+  -> ProtocolSessionScenario.Draft<I,O> -> open()
+LineSessionScenario.Draft.pooled() -> LineSessionScenario.PoolDraft -> open()
+ProtocolSessionScenario.Draft.pooled() -> ProtocolSessionScenario.PoolDraft -> open()
+Session.expect() -> Expect.Draft -> open()
+```
 
-## Optional integrations module
+Обязательные surface-инварианты:
 
-Модуль `io.github.ulviar.procwright.integrations` экспортирует только пакет
-`io.github.ulviar.procwright.integration` и requires core module transitively, потому что публичные helpers возвращают и
-принимают core protocol/session types.
+- все Draft write-only, immutable и persistent;
+- scenario-specific `with*` возвращает тот же Draft family;
+- process/resource создается только `execute()` или `open()`;
+- protocol entry point принимает factory, создающую adapter на каждый session/worker;
+- pooled configuration вложена в line/protocol scenario и не раскрывает lease;
+- pool Draft задает bounded close timeout; pool handle предоставляет только synchronous `close()` и cancellation-isolated
+  `closeAsync()` одного terminal cleanup;
+- public scenario configuration carriers вне Draft, root pool shortcuts и второй protocol builder dialect отсутствуют;
+- public handles sealed и принадлежат Procwright, а не являются SPI;
+- exact baseline фиксирует `PermittedSubclasses` этих handles: реализации остаются неэкспортируемыми, но изменение их
+  binary names меняет JVM-метаданные публичной sealed hierarchy;
+- `ProcwrightException` остается общим unchecked catch boundary, не заменяя scenario-specific structured exceptions.
 
-Публичная поверхность optional integration layer проверяется тестом
-`procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/PublicIntegrationApiSurfaceTest.java`.
-JVM signatures проверяются against `config/api-compatibility/0.1.0/procwright-integrations.txt`.
+## Optional integrations
 
-Новые public types в этом модуле допустимы только если они остаются тонким layer над scenario-first core и не добавляют
-process-runtime dependency в public artifacts.
+Модуль `io.github.ulviar.procwright.integrations` экспортирует только
+`io.github.ulviar.procwright.integration`. Его public helpers могут ссылаться на core/Jackson types, необходимые
+пользователю, но не добавляют process runtime. Exact signatures проверяются отдельным baseline и external JPMS
+consumer.
 
-## Optional Kotlin module
+## Optional Kotlin
 
-Модуль `:procwright-kotlin` публикует только package `io.github.ulviar.procwright.kotlin`.
+`:procwright-kotlin` публикует package `io.github.ulviar.procwright.kotlin` и расширяет Java Draft/handles:
 
-Публичная поверхность Kotlin ergonomics layer проверяется тестом
-`procwright-kotlin/src/test/kotlin/io/github/ulviar/procwright/kotlin/PublicKotlinApiSurfaceTest.kt`.
-JVM signatures проверяются against `config/api-compatibility/0.1.0/procwright-kotlin.txt`.
+- overloads для `kotlin.time.Duration`;
+- `RunScenario.Draft.executeAwait()`;
+- `requestAwait(...)` для direct и pooled line/protocol sessions;
+- detached `awaitExit()` для session handles;
+- cold `StreamScenario.Draft.openFlow()`;
+- `protocolAdapterFactory { ... }` с отдельным adapter wrapper на factory call.
 
-Kotlin baseline включает receiver-style extensions, coroutine helpers, Kotlin duration overloads, `listenFlow`, scoped
-pooled line-session DSL и `protocolAdapter` DSL. Новые Kotlin extensions допустимы только если они не создают второй
-dialect поверх Java core и сохраняют явный выбор сценария.
+Kotlin module не публикует mutable scenario scopes, terminal configuration lambdas, `openAwait()` или второй pool
+DSL. Его JVM signatures и Kotlin ABI baseline проверяются вместе с отдельным consumer fixture.
 
-## Правило изменения baseline
+## Изменение baseline
 
-Любое изменение approved public API types требует:
+До первого выпуска approved surface меняется только вместе с:
 
-- изменения соответствующего public API surface test;
-- обновления machine-readable baseline через `./gradlew writeApiCompatibilityBaseline --project-prop=procwright.javaRelease=17`;
-- обновления compile-tested examples, если меняется пользовательская форма вызова;
-- обновления публичной документации в `docs/`;
-- обновления ADR, если изменение является breaking или расширяет сценарную модель.
+- public surface tests;
+- exact core/integrations/Kotlin signatures и Kotlin ABI file;
+- executable external consumers;
+- public documentation/examples;
+- этим документом и релевантным ADR при изменении lifecycle/ownership.
+
+После публикации изменение подчиняется [compatibility-policy.md](compatibility-policy.md) и SemVer. Baseline нельзя
+перезаписывать только ради зеленого gate: diff должен соответствовать осознанному API-решению.

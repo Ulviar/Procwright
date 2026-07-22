@@ -17,6 +17,13 @@
 - Unicode-вывод декодируется заданным charset.
 - Timeout приводит к shutdown-политике и понятному результату или исключению.
 - Timeout при заблокированной записи stdin завершается bounded cleanup, а не оставляет lifecycle task без ожидания.
+- Graceful и forceful shutdown повторно обнаруживают descendants до своего deadline, включая child, созданный root
+  process уже во время graceful termination.
+- `SecurityException`/unsupported access при перечислении descendants или проверке liveness не отменяет попытку
+  остановить root process и не пропускает failure cleanup.
+- Вызовы `Process.destroy()`/`destroyForcibly()`, которые сами зависают, выполняются через общую bounded capacity.
+  Исчерпание capacity дает typed failure без создания fallback threads; немедленный `Error` возвращается caller-у, а
+  поздний failure после окончания окна наблюдения передается uncaught-exception handler.
 - Очень большие значения `Duration` насыщаются во внутреннем runtime и не превращаются в сырой `ArithmeticException`.
 - Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
 - Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.
@@ -38,10 +45,13 @@
 - Streaming-listener получает chunks до завершения процесса.
 - Медленный listener не должен бесконечно раздувать память; текущий `listen` вызывает listener синхронно и
   сериализованно, тем самым применяя backpressure к pipe.
-- `listen` закрывает stdin на старте по умолчанию.
-- `keepStdinOpen()` позволяет отложить EOF, а `StreamSession.closeStdin()` завершает stdin без записи input.
+- `listen` всегда закрывает stdin на старте; для caller-owned stdin используется `interactive()`.
 - Timeout stream-сценария проходит через общий shutdown path и помечает `StreamExit.timedOut()`.
-- Ошибка listener завершает `StreamSession.onExit()` exceptionally с ограниченной диагностикой.
+- Любой failure listener, включая `Error`, завершает `StreamSession.onExit()` exceptionally с ограниченной диагностикой.
+- `StreamException.Reason` различает `LISTENER_FAILED`, `OUTPUT_READ_FAILED` и `PROCESS_FAILED`; integration adapter
+  маппит эти причины без string matching.
+- Failure при создании stream handle после запуска процесса закрывает уже созданную session; ошибка cleanup не заменяет
+  исходную, а добавляется как suppressed.
 - Диагностический transcript ограничен и не хранит весь output.
 
 ## Диагностика
@@ -62,51 +72,59 @@
 ## Cookbook и examples
 
 - `context/scenario-cookbook.md` описывает выбор сценария через пользовательские workflows, а не низкоуровневые knobs.
-- Каждый core compile-tested example из `CommandServiceApiExamples` упомянут в cookbook.
-- Compile-tested integration examples для command-backed tool, JSON Lines, cancellation и Content-Length framing упомянуты
-  в cookbook.
-- Новый cookbook recipe добавляется только вместе с compile-tested example или явным release limitation.
+- Канонические Java examples компилируются и выполняются как внешний consumer; Kotlin и JSON Lines entry points также
+  запускаются отдельными consumer gates.
+- Shared worker/adapter sources перечислены в `docs/examples.md`; страница с прямой ссылкой на canonical entry point
+  должна рядом вести к соответствующему разделу этого manifest.
+- Java, Kotlin и JSON Lines workers явно используют UTF-8. Length framing считает bytes и читает exact byte count;
+  line/protocol/pooled/Kotlin/JSON paths выполняют non-ASCII round-trip.
+- Новый cookbook recipe добавляется только вместе с executable example или явным release limitation.
 
 ## Kotlin-эргономика
 
 - Kotlin module компилируется как отдельный optional Gradle project.
 - Java core не зависит от Kotlin runtime или coroutines.
-- Receiver-style `runCommand` компилируется и запускается.
-- Suspending `runCommandAwait`, `Session.awaitExit`, `LineSession.requestAwait` и `StreamSession.awaitExit` работают без
-  блокировки caller coroutine.
+- Kotlin duration extensions возвращают новые Java Draft и не меняют исходную ветку.
+- Suspending `run().executeAwait()`, `Session.awaitExit`, `LineSession.requestAwait` и `StreamSession.awaitExit` работают
+  без блокировки caller coroutine.
 - Отмена coroutine, ожидающей `Session.awaitExit` или `StreamSession.awaitExit`, не отменяет общий `onExit()` future и не
   обходит session shutdown policy.
-- `listenFlow` раскрывает streaming output как `Flow<StreamChunk>` через узкий `ListenFlowInvocation`, который не позволяет
-  заменить внутренний listener.
-- Медленный `listenFlow` collector не должен молча терять chunks; adapter использует bounded/rendezvous delivery и
+- `listen().openFlow()` возвращает cold `Flow<StreamChunk>`; каждая collection открывает независимую session, а
+  cancellation закрывает только принадлежащую collector-у session.
+- Медленный `openFlow()` collector не должен молча терять chunks; adapter использует bounded/rendezvous delivery и
   сохраняет backpressure вместо бесконечной очереди.
+- `protocolAdapterFactory { ... }` выполняет configuration block на каждый factory call и изолирует adapter state
+  между sessions/workers.
 - Kotlin tests проверяют public extension API на реальных командах.
 
 ## Пул line-сессий
 
 - `lineSession().pooled()` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
 - `warmupSize` заранее создает workers, а `maxSize` ограничивает общий live worker count.
+- Если создание pool падает после частичного warmup или при запуске replenishment, уже созданные workers закрываются.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
 - Acquire timeout отличается от request timeout и дает pool-level failure.
+- Кодирование pooled request использует request deadline, но не смешивает его с отдельным acquire timeout.
 - Request timeout/failure retire worker, а не возвращает его в idle set.
 - `resetHook` выполняется после успешного user request перед возвратом worker в idle set.
+- `Error` из user request сохраняется без оборачивания и учитывается как failed request. `Error` из `resetHook` также
+  сохраняется, но уже полученный response учитывается как completed request, а worker retires с `RESET_FAILED`.
 - `healthCheck` выполняется перед lease; unhealthy worker закрывается и заменяется.
 - `close()` запрещает новые requests, закрывает idle workers сразу и дает leased workers завершить текущий request.
 - `metrics()` возвращает snapshot counters для size, idle, leased, created, retired и request counts.
 
 ## Сценарные presets
 
-- Presets компилируются как typed `Consumer` для существующих invocation builders.
+- Presets компилируются как чистые typed transformations существующих scenario Draft.
 - `commandAutomation` задает bounded capture, timeout и separate output для `run`.
 - `environmentDiagnostics` задает bounded capture, timeout, UTF-8 и merged output для `run`.
-- `binaryOutputCapture` задает bounded capture без per-call text charset override, а `CommandResult` сохраняет byte
-  snapshots captured stdout/stderr.
+- `binaryOutputCapture` задает bounded separate capture и явно заменяет prior decoder policy на UTF-8 replacement, чтобы
+  `CommandResult` всегда сохранял доступные byte snapshots и forgiving text views captured stdout/stderr.
 - `replLineMode` задает idle timeout и terminal policy для `lineSession`.
 - `promptAutomationSession` задает idle timeout, terminal policy и UTF-8 text-send charset для raw `interactive`.
-- `logFollowing` задает absolute stream timeout и close-stdin-on-start для `listen`.
+- `logFollowing` задает absolute stream timeout для `listen`; закрытие stdin остается инвариантом самого сценария.
 - `terminalRequiredSession` задает terminal-required session preset без отдельного runner.
-- `warmWorkerPool` задает max/warmup size и acquire timeout для `lineSession().pooled()`.
-- Невалидные preset policies падают до применения к builder.
+- Невалидные preset policies падают до создания измененного Draft.
 
 ## CLI-backed integrations
 
@@ -117,10 +135,14 @@
 - `JsonLineSession` отправляет JSON request через existing `LineSession` и получает ровно одну JSON response line.
 - Malformed JSON response отличается от command launch failure и мапится в protocol error на adapter layer.
 - Content-Length framed JSON helper проверяет missing/invalid headers, oversized body и EOF before body completion.
-- `CancellableCall.cancel()` сначала фиксирует cancelled outcome, затем закрывает underlying session/lifecycle owner.
-- `ToolCallResult` возвращает structured success/failure, чтобы command-backed tool всегда давал observation.
-- `CliAdapterError` не включает raw stdout/stderr excerpts по умолчанию и сохраняет machine-readable code/details.
-- Compile-tested examples показывают one-shot command-backed tool, JSONL tool, cancellation и Content-Length framing.
+- `CommandBackedTool` передает handler failure в `CliAdapterError`: известный failure, выбранный после снятия только
+  leading `CompletionException`/`ExecutionException`, становится structured `ToolCallResult`. Инспекция primary cause
+  chain ограничена 64 узлами; найденный там `Error` намеренно пробрасывается. При превышении лимита неизвестный runtime
+  failure пробрасывается без изменений, checked failure оборачивается в `IllegalStateException`; suppressed failures
+  в классификации не участвуют.
+- `CliAdapterError` не включает raw stdout/stderr/transcript excerpts по умолчанию и сохраняет machine-readable
+  code/details, включая safe exit/truncation/malformed metadata, когда source exception их предоставляет.
+- Compile-tested examples показывают one-shot command-backed tool, JSONL tool и Content-Length framing.
 
 ## Performance/stress
 
@@ -141,13 +163,17 @@
 - Session открывается и закрывается без утечки процесса.
 - `sendLine` отправляет строку и flush.
 - `closeStdin` корректно сигнализирует EOF.
+- `closeStdin` и общий session cleanup не ждут синхронно потенциально заблокированный `OutputStream.close()`; закрытие
+  выполняется через ограниченную library-managed capacity.
+- Все raw-stdin close paths используют одну bounded capacity. Если она исчерпана, `closeStdin()` возвращает typed
+  runtime failure и закрывает session; unbounded fallback thread не создается.
 - `onExit` завершается после выхода процесса.
 - Caller-visible idle timeout закрывает зависшую session; активность — успешные записи, закрытие stdin и успешные
   чтения через session streams.
 - После передачи output ownership higher-level helper публичные stdout/stderr wrappers не читают и не закрывают process
   output streams.
 - Первая публичная operation над stdout/stderr выбирает raw stream mode; поздний helper claim fail fast, включая
-  in-flight raw read.
+  in-flight raw read, `mark` и `reset`.
 - `close()` и idle timeout проходят через общий shutdown helper (`ProcessLifecycle.stop`); escalation branch этого
   helper (процесс игнорирует interrupt signal и принудительно убивается после interrupt grace) доказан тестом
   `OneShotExecutionIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` (POSIX).
@@ -157,14 +183,39 @@
 
 - Один input дает один response.
 - Параллельные вызовы не перемешивают stdin/stdout.
+- Validation, charset encoding, write и response decoding входят в один request deadline; пользовательский
+  `CharsetEncoder`, который игнорирует interrupt, не может удерживать caller thread за пределами deadline.
+- Если bounded readiness/worker-hook callback завершается с `RuntimeException` или `Error` уже после timeout или
+  interruption caller-а, ошибка не теряется: она ровно один раз передается через bounded failure reporter после
+  перехода task в abandoned state. Ожидаемый `InterruptedException` от отмены не считается поздней runtime-ошибкой.
+- Incremental stdout/stderr decoder ограничивает retained undecoded bytes и output без input consumption; decoder,
+  который сообщает overflow без progress или перемещает input position назад, закрывает session с `DECODE_ERROR`.
+- При `CodingErrorAction.REPLACE` decoder не может опубликовать replacement, если заявленная error length не помещается
+  в оставшийся input; нарушение также становится `DECODE_ERROR`.
 - Response decoder сохраняет значимые переносы строк через `LineResponse.lines()`; `text()` соединяет lines через `\n`.
 - Timeout ожидания response дает bounded transcript.
 - Timeout закрывает `LineSession`, чтобы следующий request не читал хвосты старого ответа.
 - EOF до response отличается от timeout.
 - Stderr дренируется в transcript, чтобы line workflow не зависал на заполненном stderr.
 - Незавершенный partial output попадает в transcript с корректной привязкой к потоку.
+- `maxLineChars` применяется повторно к последней незавершенной строке при EOF, включая строку с одиноким завершающим
+  `\r`.
 - `LineSession` claims output ownership, и публичные raw stdout/stderr operations underlying session fail fast.
 - `LineSession` не создается после уже начатой или завершенной raw stdout/stderr operation.
+
+## Протокольный workflow
+
+- Persistent text decoder сохраняет состояние между request-scoped reads, но pending undecoded bytes и output без
+  input consumption ограничены независимо от response/transcript retention.
+- Decoder rewind, отсутствие progress и некорректная replacement error length дают `DECODE_ERROR`, bounded transcript,
+  закрывают process и сохраняют ту же terminal reason для следующего request.
+- Protocol request timeout после adapter admission дает `TIMEOUT`; `onExit()` завершается после cleanup, а следующий
+  request возвращает сохраненный `TIMEOUT`, а не generic `CLOSED`. Timeout/interrupt во время ожидания serialized slot
+  не допускает adapter к stdin, оставляет session открытой и не уступает уже выбранному terminal/fatal outcome.
+- `ResponseDecoder.Reader`, `ProtocolWriter` и `ProtocolReader` действуют только в одном callback invocation и на его
+  thread; retained или cross-thread capability не может затронуть I/O текущего или следующего request.
+- UTF-8 framed examples считают длину тела в bytes и читают exact byte count, поэтому non-ASCII payload не нарушает
+  framing.
 
 ## Expect helper
 
@@ -174,10 +225,15 @@
 - EOF до ожидаемого output отличается от timeout.
 - Отправка строки после match.
 - Порядок send/sendLine виден в transcript.
-- ANSI/control-sequence filter может нормализовать вывод перед matching.
+- Встроенное incremental CSI stripping удаляет полные 7-bit ECMA-48 CSI sequences с префиксом `ESC [` перед matching и
+  transcript retention, сохраняет incomplete/malformed/overlong candidates и ведет независимое bounded state для
+  stdout/stderr.
 - Один `Expect` владеет output streams сессии.
+- Создание `Expect.Draft` и получение raw stdout/stderr wrappers не выбирают ownership; его выбирает `open()` либо первая
+  фактическая raw operation.
 - Raw stdout/stderr wrappers, полученные до или после создания `Expect`, fail fast после output ownership claim.
 - `Expect` не создается после уже начатой или завершенной raw stdout/stderr operation.
+- Закрытие `Expect` закрывает underlying `Session` и не возвращает streams raw caller.
 - Match buffer ограничен и не растет бесконечно.
 
 ## PTY
@@ -192,6 +248,8 @@
 - real shell проходит под Unix `script(1)` provider;
 - terminal size передается в `PtyRequest` и системный provider выставляет `LINES`/`COLUMNS` плюс делает best-effort `stty`;
 - `Session.sendSignal(TerminalSignal.INTERRUPT)` проверен как Ctrl+C-style mapping под PTY.
+- Linux/JDK 17 CI job требует доступный system PTY и фактическое выполнение PTY tests; остальные платформы могут
+  использовать assumptions для unsupported capability.
 
 Ограничения текущего среза:
 
@@ -210,11 +268,14 @@
 - `quickCheck`, `scenarioCheck`, `regressionCheck` и `releaseCandidateCheck` соответствуют
   [test-tiers.md](test-tiers.md);
 - `javadoc` проходит для Java modules;
-- Kotlin public API проходит KDoc source check через `:procwright-kotlin:kotlinApiDocsCheck`;
+- `:procwright-kotlin:kotlinApiDocsCheck` запускает Dokka parser-backed проверку с
+  `reportUndocumented=true` и `failOnWarning=true`;
+- Kotlin binary API проходит встроенную Kotlin Gradle Plugin ABI validation относительно tracked baseline;
 - public package boundaries покрыты tests;
 - LICENSE присутствует в корне репозитория;
 - versioning policy, compatibility policy, dependency review и release checklist актуальны;
 - session shutdown escalation hardening закрыт тестом
   `OneShotExecutionIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
   shutdown helper `ProcessLifecycle.stop`;
-- CI запускает `check` и `javadoc` на Linux, macOS и Windows.
+- Каждая ячейка Linux/macOS/Windows × JDK 17/21/25 независимо компилирует и проверяет Java 17-targeted build; source
+  targets 21/25 отдельно проходят `check` и Javadoc на соответствующих Linux/JDK.

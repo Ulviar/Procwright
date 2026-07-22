@@ -29,4 +29,7 @@ tasks.named<Javadoc>("javadoc") {
     description = "Disabled because this project is an internal test CLI, not a published API."
 }
 
-tasks.withType<Test>().configureEach { useJUnitPlatform() }
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    systemProperty("procwright.repositoryRoot", rootProject.projectDir.absolutePath)
+}

@@ -4,6 +4,8 @@ package io.github.ulviar.procwright.comparison;
 
 import io.github.ulviar.procwright.CommandService;
 import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.RunScenario;
+import io.github.ulviar.procwright.StreamScenario;
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.CommandInput;
@@ -48,18 +50,18 @@ final class ProcwrightCandidateAdapter implements CandidateAdapter {
     public CommandOutcome run(CommandRequest request, int captureLimit) {
         long started = System.nanoTime();
         try {
-            CommandResult result = service(request.command())
+            RunScenario.Draft draft = service(request.command())
                     .run()
-                    .configuredBy(call -> {
-                        call.capture(CapturePolicy.bounded(captureLimit))
-                                .timeout(request.timeout())
-                                .output(OutputMode.SEPARATE);
-                        request.environment().forEach(call::putEnvironment);
-                        if (request.stdin().length > 0) {
-                            call.input(CommandInput.bytes(request.stdin()));
-                        }
-                    })
-                    .execute();
+                    .withCapture(CapturePolicy.bounded(captureLimit))
+                    .withTimeout(request.timeout())
+                    .withOutput(OutputMode.SEPARATE);
+            for (var entry : request.environment().entrySet()) {
+                draft = draft.withEnvironment(entry.getKey(), entry.getValue());
+            }
+            if (request.stdin().length > 0) {
+                draft = draft.withInput(CommandInput.bytes(request.stdin()));
+            }
+            CommandResult result = draft.execute();
             return new CommandOutcome(
                     result.timedOut() ? OutcomeStatus.TIMEOUT : OutcomeStatus.PASS,
                     result.exitCode(),
@@ -83,28 +85,29 @@ final class ProcwrightCandidateAdapter implements CandidateAdapter {
             BoundedCapture stderr = new BoundedCapture(captureLimit);
             AtomicBoolean observedWhileRunning = new AtomicBoolean();
             AtomicReference<StreamSession> sessionRef = new AtomicReference<>();
-            try (StreamSession session = service(request.command())
+            StreamScenario.Draft draft = service(request.command())
                     .listen()
-                    .configuredBy(call -> {
-                        call.timeout(request.timeout()).onOutput(chunk -> {
-                            StreamSession current = sessionRef.get();
-                            if (current == null || !current.onExit().isDone()) {
-                                observedWhileRunning.set(true);
+                    .withTimeout(request.timeout())
+                    .onOutput(chunk -> {
+                        StreamSession current = sessionRef.get();
+                        if (current == null || !current.onExit().isDone()) {
+                            observedWhileRunning.set(true);
+                        }
+                        try {
+                            switch (chunk.source()) {
+                                case STDOUT ->
+                                    stdout.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                                case STDERR ->
+                                    stderr.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
                             }
-                            try {
-                                switch (chunk.source()) {
-                                    case STDOUT ->
-                                        stdout.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                                    case STDERR ->
-                                        stderr.write(chunk.text().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                                }
-                            } catch (java.io.IOException exception) {
-                                throw new java.io.UncheckedIOException(exception);
-                            }
-                        });
-                        request.environment().forEach(call::putEnvironment);
-                    })
-                    .open()) {
+                        } catch (java.io.IOException exception) {
+                            throw new java.io.UncheckedIOException(exception);
+                        }
+                    });
+            for (var entry : request.environment().entrySet()) {
+                draft = draft.withEnvironment(entry.getKey(), entry.getValue());
+            }
+            try (StreamSession session = draft.open()) {
                 sessionRef.set(session);
                 session.onExit().get(request.timeout().toMillis() + 500, TimeUnit.MILLISECONDS);
             }
@@ -154,7 +157,7 @@ final class ProcwrightCandidateAdapter implements CandidateAdapter {
                         .interactive()
                         .withIdleTimeout(timeout)
                         .open();
-                Expect expect = session.expect()) {
+                Expect expect = session.expect().open()) {
             expect.expectText("ready> ", timeout).sendLine("status").expectText("accepted:status", timeout);
             return new CommandOutcome(
                     OutcomeStatus.PASS,
@@ -291,10 +294,6 @@ final class ProcwrightCandidateAdapter implements CandidateAdapter {
     }
 
     private static CommandService service(List<String> command) {
-        CommandSpec.Builder builder = CommandSpec.builder(command.get(0));
-        if (command.size() > 1) {
-            builder.args(command.subList(1, command.size()));
-        }
-        return Procwright.command(builder.build());
+        return Procwright.command(CommandSpec.of(command.get(0)).withArgs(command.subList(1, command.size())));
     }
 }

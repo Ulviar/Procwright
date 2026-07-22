@@ -4,7 +4,7 @@ site_url: https://ulviar.github.io/Procwright/
 repo_name: Ulviar/Procwright
 repo_url: https://github.com/Ulviar/Procwright
 edit_uri: edit/main/docs/
-docs_dir: docs
+docs_dir: !ENV [PROCWRIGHT_DOCS_DIR, docs]
 site_dir: build/public-docs
 strict: true
 exclude_docs: |
@@ -33,6 +33,12 @@ markdown_extensions:
       permalink: true
   - pymdownx.details
   - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path:
+        - docs
+      check_paths: true
+      restrict_base_path: true
+      url_download: false
   - pymdownx.superfences
 
 nav:
@@ -67,6 +73,7 @@ nav:
           - Integrations: scenarios/integrations.md
       - Command Model: reference/command-model.md
       - Policies: reference/policies.md
+      - Scenario Defaults: reference/defaults.md
       - Output Ownership: reference/output-ownership.md
       - Portable Command Construction: reference/portable-command-construction.md
       - Results and Errors: reference/results-and-errors.md
@@ -74,16 +81,17 @@ nav:
       - Security: reference/security.md
       - Platforms and PTY: reference/platforms-and-pty.md
       - Kotlin API: reference/kotlin-api.md
-      - Generated API Docs: api/index.md
+      - Generated API Docs:
+          - api/index.md
+          - Core Java API: api/java/core/index.html
+          - Integrations Java API: api/java/integrations/index.html
   - Explanation:
       - explanations/index.md
       - Scenario-first Design: explanations/scenario-first.md
       - Output Ownership Rationale: explanations/output-ownership.md
       - Process Cleanup Limits: explanations/process-cleanup-limits.md
-      - Non-goals: explanations/non-goals.md
   - Version:
       - release/index.md
       - Installation: release/installation.md
-      - API Surface: release/api-baseline.md
       - Compatibility: release/compatibility.md
       - Known Limitations: release/known-limitations.md

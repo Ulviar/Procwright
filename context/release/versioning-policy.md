@@ -38,4 +38,6 @@ Root project и optional modules должны иметь одинаковые `g
 
 Типы в `io.github.ulviar.procwright.internal`, hidden runtime support classes, Gradle fixtures, tests и документы в
 `context/` не являются binary compatibility surface. Public package boundary tests должны сканировать весь production
-artifact, а не только ожидаемый package subtree.
+artifact, а не только ожидаемый package subtree. Единственное структурное исключение — binary names внутренних
+реализаций, записанные JVM в `PermittedSubclasses` публичных sealed handles: сами реализации не являются доступным API,
+но изменение этой метаинформации проверяется как изменение публичной sealed hierarchy.

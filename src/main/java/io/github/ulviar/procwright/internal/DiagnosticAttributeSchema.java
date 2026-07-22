@@ -136,7 +136,7 @@ public final class DiagnosticAttributeSchema {
     }
 
     private static void requireReason(String value) {
-        if (!Set.of("timeout", "close", "failure", "idleTimeout").contains(value)) {
+        if (!Set.of("timeout", "close", "failure", "idleTimeout", "interrupted").contains(value)) {
             throw invalidAttribute("reason", "must be a known shutdown reason");
         }
     }

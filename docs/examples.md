@@ -1,144 +1,33 @@
-# Examples
+# Runnable examples
 
-These selected snippets show the main public workflows in one place. Use the how-to guides when you need task steps,
-and the scenario reference when you need exact contracts.
+These sources compile and run in external consumer modules. Most launch included workers; the finite-command and Kotlin
+quick-start examples invoke the current JDK through its absolute path.
 
-## Compile-tested examples
+## Core
 
-The complete examples live in the repository and are compiled as part of the build:
+Most examples share [ExampleSupport.java](examples/java/io/github/ulviar/procwright/examples/ExampleSupport.java) and
+[ExampleWorker.java](examples/java/io/github/ulviar/procwright/examples/ExampleWorker.java). Protocol examples also use
+[LengthLineFrameAdapter.java](examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java) and
+[DocumentProtocol.java](examples/java/io/github/ulviar/procwright/examples/DocumentProtocol.java).
 
-- `src/test/java/io/github/ulviar/procwright/examples/GettingStartedExample.java` — the first one-shot `run` call from
-  Getting Started.
-- `src/test/java/io/github/ulviar/procwright/examples/CommandServiceApiExamples.java` — one method per core workflow:
-  run, explicit command configuration, policy composition, interactive, expect, terminal-required session, line
-  session, protocol session, listen-only streaming, daemon readiness, diagnostics, pooled workers, and scenario
-  presets.
-- `src/test/java/io/github/ulviar/procwright/examples/ReferenceApiExamples.java` — reference-page snippets: command
-  defaults, policy composition, direct argv, and explicit shell mode.
-- `procwright-kotlin/src/test/kotlin/io/github/ulviar/procwright/kotlin/ProcwrightKotlinTest.kt` — the Kotlin
-  extensions in use: `runCommand`, `openSession`, line-session `requestAwait`, the pooled line-session DSL,
-  `protocolAdapter`, and `listenFlow`.
-- `procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/examples/CommandBackedToolExamples.java`
-  — optional integrations: one-shot and JSON-line command-backed tools, cancellable JSON-line calls, and
-  Content-Length framed JSON.
-- `procwright-consumer-examples/src/main/java/io/github/ulviar/procwright/consumer/examples/ConsumerScenarios.java` —
-  a consumer module that resolves Procwright as an external dependency and exercises run, line-session, protocol-session,
-  and pooled workflows.
+- [Finite command](examples/java/io/github/ulviar/procwright/examples/RunExample.java)
+- [Stop a hung command](examples/java/io/github/ulviar/procwright/examples/StopHungCommandExample.java)
+- [Raw interactive streams](examples/java/io/github/ulviar/procwright/examples/InteractiveExample.java)
+- [Prompt automation](examples/java/io/github/ulviar/procwright/examples/ExpectExample.java)
+- [ANSI-decorated prompt automation](examples/java/io/github/ulviar/procwright/examples/AnsiExpectExample.java)
+- [Streaming output](examples/java/io/github/ulviar/procwright/examples/ListenExample.java)
+- [Line session](examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java)
+- [Readiness probe](examples/java/io/github/ulviar/procwright/examples/ReadinessExample.java)
+- [Framed protocol session](examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java)
+- [Line worker pool](examples/java/io/github/ulviar/procwright/examples/LinePoolExample.java)
+- [Protocol worker pool](examples/java/io/github/ulviar/procwright/examples/ProtocolPoolExample.java)
+- [Diagnostics](examples/java/io/github/ulviar/procwright/examples/DiagnosticsExample.java)
+- [Required terminal](examples/java/io/github/ulviar/procwright/examples/TerminalExample.java)
+- [Scenario preset](examples/java/io/github/ulviar/procwright/examples/PresetExample.java)
 
-## Core examples
+## Optional modules
 
-### One-shot command
-
-```java
-CommandService git = Procwright.command("git");
-
-CommandResult result = git.run().execute("status", "--short");
-
-if (!result.succeeded()) {
-    throw result.toException();
-}
-```
-
-### Line worker
-
-```java
-CommandService repl = Procwright.command(CommandSpec.of("tool"));
-
-try (LineSession session = repl.lineSession()
-        .withArgs("repl")
-        .withRequestTimeout(Duration.ofSeconds(2))
-        .open()) {
-    LineResponse response = session.request("status");
-    if (response.text().isBlank()) {
-        throw new IllegalStateException("empty response");
-    }
-}
-```
-
-### Framed protocol worker
-
-```java
-CommandService worker = Procwright.command("tool");
-ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
-
-try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
-        .withArgs("worker")
-        .withRequestTimeout(Duration.ofSeconds(2))
-        .withOutputBacklogLimit(128 * 1024)
-        .withReadiness(ready -> ready.request("ready"))
-        .open()) {
-    String response = session.request("first line\nsecond line");
-    if (response.isBlank()) {
-        throw new IllegalStateException("empty response");
-    }
-}
-```
-
-### Worker pool
-
-```java
-CommandService tool = Procwright.command("tool");
-
-try (PooledLineSession pool = tool.lineSession()
-        .withArgs("repl")
-        .pooled()
-        .withMaxSize(4)
-        .withWarmupSize(1)
-        .withMaxRequestsPerWorker(100)
-        .withReset(worker -> worker.request("reset"))
-        .open()) {
-    LineResponse response = pool.request("status", Duration.ofSeconds(2));
-    PooledLineSessionMetrics metrics = pool.metrics();
-    if (response.text().isBlank() || metrics.size() > 4) {
-        throw new IllegalStateException("unexpected pooled response");
-    }
-}
-```
-
-### Typed protocol worker pool
-
-```java
-CommandService worker = Procwright.command("tool");
-
-try (PooledProtocolSession<String, String> pool = worker.protocolSession(LengthPrefixedTextAdapter::new)
-        .withArgs("worker")
-        .withReadiness(ready -> ready.request("ready"))
-        .pooled()
-        .withMaxSize(4)
-        .withWarmupSize(1)
-        .withMinIdle(1)
-        .open()) {
-    String response = pool.request("document\nbody", Duration.ofSeconds(2));
-    PooledProtocolSessionMetrics metrics = pool.metrics();
-    if (response.isBlank() || metrics.size() > 4) {
-        throw new IllegalStateException("unexpected pooled response");
-    }
-}
-```
-
-More task-focused guides:
-
-- [Choose a process scenario](how-to/choose-process-scenario.md)
-- [Run a finite command](how-to/run-finite-command.md)
-- [Talk to a line worker](how-to/talk-to-line-worker.md)
-- [Reuse workers](how-to/reuse-workers.md)
-
-## Integration examples
-
-Add the optional integrations artifact before using these APIs. See
-[optional modules](release/installation.md#optional-modules).
-
-```java
-CommandService service = Procwright.command("tool");
-
-try (LineSession lineSession = service.lineSession().withArg("json-worker").open();
-        JsonLineSession json = JsonLineSession.over(lineSession)) {
-    CommandBackedTool<String, JsonValue> tool = CommandBackedTool.jsonLine(
-            json, input -> JsonValue.object(Map.of("input", JsonValue.string(input))), Function.identity());
-
-    ToolCallResult<JsonValue> result = tool.call("payload");
-    result.value().ifPresent(System.out::println);
-}
-```
-
-More task-focused guide: [Wrap a CLI tool](how-to/wrap-cli-tool.md).
+- [Kotlin coroutines, Flow, and protocol factory](examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt)
+- [Kotlin pool lifecycle](examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinPoolExample.kt)
+- [JSON Lines integration](examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java)
+- [Typed Content-Length JSON session](examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java)

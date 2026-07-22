@@ -1,33 +1,47 @@
-# Stop Hung Processes
+# Stop a hung command
 
-Use `run` with explicit timeout and shutdown policies when a command can hang or leave child processes behind.
+Set a timeout on the scenario Draft and choose a shutdown policy before the terminal call.
 
-## Steps
-
-1. Keep the workflow as `run` if the command should still be finite.
-2. Set a command timeout.
-3. Choose a `ShutdownPolicy` that gives the process a short graceful window before forceful termination.
-4. Read the timeout outcome from `CommandResult`.
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/StopHungCommandExample.java -->
 ```java
-CommandService logs = Procwright.command("tool");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-CommandResult result = logs.run()
-        .withArgs("logs")
-        .withTimeout(Duration.ofSeconds(30))
-        .withCapture(CapturePolicy.bounded(128 * 1024))
-        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)))
-        .execute();
-if (result.timedOut()) {
-    throw result.toException();
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CommandResult;
+import io.github.ulviar.procwright.command.ShutdownPolicy;
+import java.time.Duration;
+
+public final class StopHungCommandExample {
+
+    private StopHungCommandExample() {}
+
+    public static void main(String[] args) {
+        CommandResult result = Procwright.command(ExampleSupport.workerCommand("hang"))
+                .run()
+                .withCapture(CapturePolicy.bounded(64 * 1024))
+                .withTimeout(Duration.ofMillis(250))
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1)))
+                .execute();
+
+        if (!result.timedOut()) {
+            throw new IllegalStateException("Expected the worker to time out");
+        }
+    }
 }
 ```
 
-## Use this scenario because
+[Open `StopHungCommandExample.java`](../examples/java/io/github/ulviar/procwright/examples/StopHungCommandExample.java) and
+the [shared example sources](../examples.md#core).
 
-Timeout, shutdown escalation, stream draining, and process-tree cleanup are runtime invariants. They should not be
-assembled at every call site with custom watcher threads.
+The first duration limits command execution. The shutdown policy then allows 250 milliseconds for interruption before
+using forceful termination, which gets its own one-second deadline. Inspect `CommandResult.timedOut()` to distinguish
+this outcome from a normal non-zero exit.
 
-Cleanup uses JDK `ProcessHandle` descendant tracking. It covers the process tree visible to the JVM, but it is not an OS
-sandbox: detached children, inaccessible process handles, platform limits, or commands that deliberately escape their
-parent tree may need caller-side containment outside Procwright.
+For sessions, an admitted operation timeout or close shuts down the owned process. A line request that times out before
+stdin handoff, or a protocol request that times out while waiting for its serialized slot, leaves its direct session open
+because it cannot have changed wire state. Cleanup is not an OS sandbox; detached descendants can outlive the observed
+process tree. See
+[process cleanup limits](../explanations/process-cleanup-limits.md).

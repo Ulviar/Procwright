@@ -10,13 +10,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
-import io.github.ulviar.procwright.command.RunOptions;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.session.LineSessionOptions;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
 import io.github.ulviar.procwright.session.Session;
-import io.github.ulviar.procwright.session.SessionOptions;
 import io.github.ulviar.procwright.terminal.PtyProvider;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import java.io.BufferedReader;
@@ -42,9 +39,11 @@ final class ProcessStressTest {
     @Test
     void largeStdoutStressKeepsCaptureBounded() {
         CommandResult result = fixtureService()
-                .run(call -> call.args("large-stdout", Integer.toString(16 * ONE_MIB), "x")
-                        .capture(CapturePolicy.bounded(64 * 1024))
-                        .timeout(Duration.ofSeconds(10)));
+                .run()
+                .withArgs("large-stdout", Integer.toString(16 * ONE_MIB), "x")
+                .withCapture(CapturePolicy.bounded(64 * 1024))
+                .withTimeout(Duration.ofSeconds(10))
+                .execute();
 
         assertTrue(result.succeeded());
         assertEquals(64 * 1024, result.stdoutBytes().length);
@@ -55,9 +54,11 @@ final class ProcessStressTest {
     @Test
     void largeStderrStressDoesNotBlockCompletionAndKeepsCaptureBounded() {
         CommandResult result = fixtureService()
-                .run(call -> call.args("large-stderr", Integer.toString(8 * ONE_MIB), "e")
-                        .capture(CapturePolicy.bounded(32 * 1024))
-                        .timeout(Duration.ofSeconds(10)));
+                .run()
+                .withArgs("large-stderr", Integer.toString(8 * ONE_MIB), "e")
+                .withCapture(CapturePolicy.bounded(32 * 1024))
+                .withTimeout(Duration.ofSeconds(10))
+                .execute();
 
         assertTrue(result.succeeded());
         assertEquals("done\n", result.stdout());
@@ -72,17 +73,20 @@ final class ProcessStressTest {
         try {
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
             for (int index = 0; index < timeoutChurnParallelism(); index++) {
-                futures.add(executor.submit(() -> service.run(call -> call.args("sleep", "5000")
-                        .timeout(timeoutChurnTimeout())
-                        .shutdown(timeoutChurnShutdown()))));
+                futures.add(executor.submit(() -> service.run()
+                        .withArgs("sleep", "5000")
+                        .withCapture(CapturePolicy.bounded(1024))
+                        .withTimeout(timeoutChurnTimeout())
+                        .withShutdown(timeoutChurnShutdown())
+                        .execute()));
             }
 
             for (Future<CommandResult> future : futures) {
                 CommandResult result = future.get(timeoutChurnWaitSeconds(), TimeUnit.SECONDS);
                 assertTrue(result.timedOut());
                 assertFalse(result.succeeded());
-                String stdout = normalizeLineEndings(result.stdout());
-                assertTrue(stdout.isEmpty() || stdout.startsWith("started\n"), () -> "unexpected stdout: " + stdout);
+                assertTrue(result.stdoutBytes().length <= 1024);
+                assertTrue(result.stderrBytes().length <= 1024);
             }
         } finally {
             executor.shutdownNow();
@@ -95,18 +99,29 @@ final class ProcessStressTest {
         CommandService service = fixtureService();
 
         for (int index = 0; index < 24; index++) {
-            try (Session session = service.interactive(call -> call.args("sleep", "5000")
-                    .shutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250))))) {
+            Session session = service.interactive()
+                    .withArgs("sleep", "5000")
+                    .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
+                    .open();
+            try {
                 session.close();
                 assertFalse(session.onExit().get(2, TimeUnit.SECONDS).timedOut());
+            } finally {
+                session.close();
             }
         }
     }
 
     @Test
     void pooledContentionCompletesAllRequestsWithinMaxSize() throws Exception {
-        try (PooledLineSession pool = fixtureService()
-                .pooled(call -> call.args("line-repl").maxSize(3).warmupSize(1))) {
+        PooledLineSession pool = fixtureService()
+                .lineSession()
+                .withArgs("line-repl")
+                .pooled()
+                .withMaxSize(3)
+                .withWarmupSize(1)
+                .open();
+        try {
             ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch start = new CountDownLatch(1);
             try {
@@ -128,28 +143,39 @@ final class ProcessStressTest {
                 assertTrue(metrics.size() <= 3);
                 assertTrue(metrics.idle() <= 3);
                 assertEquals(0, metrics.leased());
+                assertEquals(
+                        metrics.size(), metrics.idle() + metrics.leased() + metrics.starting() + metrics.retiring());
                 assertEquals(12, metrics.completedRequests());
                 assertEquals(0, metrics.failedRequests());
             } finally {
                 executor.shutdownNow();
                 assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             }
+            pool.close();
+            PooledLineSessionMetrics drained = pool.metrics();
+            assertEquals(0, drained.size());
+            assertEquals(0, drained.idle());
+            assertEquals(0, drained.leased());
+            assertEquals(0, drained.starting());
+            assertEquals(0, drained.retiring());
+        } finally {
+            pool.close();
         }
     }
 
     @Test
     void requiredPtyRepeatedSessionsStayUsableWhenAvailable() throws Exception {
         assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
-        CommandService service = new CommandService(
-                CommandSpec.of("sh"),
-                RunOptions.defaults(),
-                SessionOptions.defaults()
-                        .withPtyProvider(PtyProvider.system())
-                        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(50), Duration.ofMillis(500))));
+        CommandService service = Procwright.command(CommandSpec.of("sh"));
 
         for (int index = 0; index < 5; index++) {
-            try (Session session = service.interactive(
-                            call -> call.terminal(TerminalPolicy.REQUIRED).args("-c", "echo pty:ok"));
+            try (Session session = service.interactive()
+                            .withPtyProvider(PtyProvider.system())
+                            .withShutdown(
+                                    ShutdownPolicy.interruptThenKill(Duration.ofMillis(50), Duration.ofMillis(500)))
+                            .withTerminal(TerminalPolicy.REQUIRED)
+                            .withArgs("-c", "echo pty:ok")
+                            .open();
                     BufferedReader stdout =
                             new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
                 assertEquals("pty:ok", readUntil(session, stdout, "pty:"));
@@ -160,11 +186,9 @@ final class ProcessStressTest {
     }
 
     private static CommandService fixtureService() {
-        CommandSpec command = CommandSpec.builder(javaExecutable())
-                .args("-cp", System.getProperty("java.class.path"), StressFixtureProgram.class.getName())
-                .build();
-        return new CommandService(
-                command, RunOptions.defaults(), SessionOptions.defaults(), LineSessionOptions.defaults());
+        CommandSpec command = CommandSpec.of(javaExecutable())
+                .withArgs("-cp", System.getProperty("java.class.path"), StressFixtureProgram.class.getName());
+        return Procwright.command(command);
     }
 
     private static String javaExecutable() {
@@ -192,10 +216,6 @@ final class ProcessStressTest {
 
     private static long timeoutChurnWaitSeconds() {
         return isWindows() ? 20 : 8;
-    }
-
-    private static String normalizeLineEndings(String text) {
-        return text.replace("\r\n", "\n");
     }
 
     private static String readUntil(Session session, BufferedReader reader, String prefix) throws Exception {

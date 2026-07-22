@@ -1,34 +1,37 @@
-# Scenario Presets
+# Scenario presets
 
-`ScenarioPresets` are typed builder customizers for common workflows. They do not launch processes, allocate runtime
-resources, or create separate runners.
+`ScenarioPresets` contains small functions that transform one immutable Draft into another. A preset does not start a
+process and can be applied to any compatible Draft branch.
 
-Use presets when the scenario is already chosen and the same group of policies appears repeatedly.
-
-## Example
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/PresetExample.java -->
 ```java
-CommandService tool = Procwright.command("tool");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-tool.run()
-        .withArgs("env")
-        .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
-        .execute();
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CommandResult;
+import io.github.ulviar.procwright.preset.ScenarioPresets;
+import java.time.Duration;
+
+public final class PresetExample {
+
+    private PresetExample() {}
+
+    public static void main(String[] args) {
+        var base = Procwright.command(ExampleSupport.workerCommand("finite")).run();
+        var diagnostics = ScenarioPresets.environmentDiagnostics(base, Duration.ofSeconds(5), 16 * 1024);
+
+        CommandResult result = diagnostics.execute();
+        if (!result.succeeded()) {
+            throw result.toException();
+        }
+    }
+}
 ```
 
-## Current preset families
+[Open `PresetExample.java`](../examples/java/io/github/ulviar/procwright/examples/PresetExample.java) and the
+[shared example sources](../examples.md#core).
 
-- one-shot command automation;
-- environment diagnostics;
-- binary output capture;
-- line-oriented REPL mode;
-- prompt automation sessions;
-- log following;
-- terminal-required sessions;
-- warm worker pools.
-
-## Boundary
-
-A preset never chooses the scenario for the caller. It only applies policies that already exist on that scenario
-builder. If a repeated workflow needs new behavior, the behavior belongs in the scenario first, then possibly in a
-preset.
+Use a preset only when its documented policy matches the application. Apply additional `with*` calls after it to create a
+new branch; the original Draft remains unchanged.

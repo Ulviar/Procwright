@@ -13,7 +13,6 @@ import io.github.ulviar.procwright.integration.ToolCallResult;
 import io.github.ulviar.procwright.session.LineSession;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.time.Duration;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -46,12 +45,6 @@ final class CommandBackedToolExamples {
             ToolCallResult<JsonValue> result = tool.call("payload");
             result.value().ifPresent(System.out::println);
         }
-    }
-
-    void cancellableJsonLineCall(JsonLineSession json) {
-        var call = json.requestAsync(JsonValue.string("long-running"), Duration.ofSeconds(30));
-
-        call.cancel();
     }
 
     void contentLengthFramedJson(InputStream input, OutputStream output) {

@@ -23,6 +23,7 @@ public final class ComparisonRunner {
 
     private static final int CAPTURE_LIMIT = 64 * 1024;
     private static final Duration DEFAULT_SCENARIO_TIMEOUT = Duration.ofSeconds(5);
+    private static final Path DEFAULT_REPORT_PATH = Path.of("build", "reports", "comparison", "results.md");
 
     private final ComparisonOptions options;
     private final List<CandidateAdapter> candidates;
@@ -42,7 +43,8 @@ public final class ComparisonRunner {
     /**
      * Runs all comparison scenarios and writes a Markdown report.
      *
-     * @param args optional output path, or {@code --verify <output>} for the non-mutating regression gate
+     * @param args optional output path, or {@code --verify <output>} for the regression gate; defaults to
+     *     {@code build/reports/comparison/results.md}
      * @throws Exception when a scenario or report write fails unexpectedly
      */
     public static void main(String[] args) throws Exception {
@@ -489,11 +491,11 @@ public final class ComparisonRunner {
         return results.stream().filter(result -> result.status() == status).count();
     }
 
-    private static Path outputPath(String[] args, boolean verify) {
+    static Path outputPath(String[] args, boolean verify) {
         if (verify) {
-            return args.length > 1 ? Path.of(args[1]) : Path.of("build/reports/comparison/results.md");
+            return args.length > 1 ? Path.of(args[1]) : DEFAULT_REPORT_PATH;
         }
-        return args.length == 0 ? Path.of("context/comparison/results.md") : Path.of(args[0]);
+        return args.length == 0 ? DEFAULT_REPORT_PATH : Path.of(args[0]);
     }
 
     private static void verifyRegressionGate(List<ScenarioResult> results) {

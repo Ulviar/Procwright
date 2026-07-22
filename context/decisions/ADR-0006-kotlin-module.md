@@ -6,52 +6,27 @@
 
 ## Контекст
 
-Kotlin users должны получать idiomatic API: receiver-style builders, Kotlin duration overloads, suspending wrappers,
-Flow adapters и небольшие scenario-scoped DSL scopes. При этом core artifact должен оставаться Java library без Kotlin
-runtime, coroutines и Kotlin compiler dependency.
+Kotlin API должен использовать `kotlin.time.Duration`, coroutines и Flow, не добавляя Kotlin runtime в Java core и не
+создавая второй mutable DSL поверх Java API.
 
 ## Решение
 
-Добавить отдельный Gradle subproject `:procwright-kotlin`.
+`:procwright-kotlin` расширяет те же Java scenario Draft и session handles:
 
-Состав module:
+- duration overloads возвращают новый persistent Draft;
+- `RunScenario.Draft.executeAwait()` выполняет one-shot call вне caller coroutine;
+- `requestAwait(...)` поддерживает direct и pooled line/protocol sessions;
+- `Session.awaitExit()` и `StreamSession.awaitExit()` отменяют только waiter, не общий exit future;
+- `StreamScenario.Draft.openFlow()` возвращает cold Flow: каждая collection открывает и закрывает собственную session;
+- `protocolAdapterFactory { ... }` создает новый adapter wrapper на каждый `Supplier.get()`.
 
-- `runCommand { ... }` как receiver-style extension над `CommandService.run(...)`;
-- `runCommandAwait { ... }` как coroutine-friendly wrapper;
-- `openSession { ... }` и `Session.awaitExit()`;
-- `LineSession.requestAwait(...)`;
-- `StreamSession.awaitExit()`;
-- Kotlin `Duration` overloads для Kotlin-facing helpers и DSL scopes;
-- `listenFlow { ... }` как `Flow<StreamChunk>` adapter с отдельным `ListenFlowInvocation`, который не дает caller
-  заменить internal listener;
-- `pooledLineSession { worker { ... } ... }` как scenario-scoped DSL поверх существующего pooled line-session runtime;
-- `protocolAdapter { writeRequest { ... } readResponse { ... } }` как Kotlin builder для core `ProtocolAdapter`.
+Отмена direct request закрывает session с недостоверным framing state. Отмена active pooled request retire-ит worker;
+отмена acquire wait не затрагивает worker. Flow использует rendezvous delivery и сохраняет backpressure.
 
-Java core остается root project и не зависит от Kotlin. Kotlin module зависит от core и `kotlinx-coroutines-core`.
-Kotlin-friendly nullability задается сигнатурами extension API. Аннотации nullability в Java core не
-добавляются, чтобы не вносить новую dependency в core artifact до отдельного решения.
-
-`Session.awaitExit()` и `StreamSession.awaitExit()` не отменяют общий `onExit()` future при cancellation ожидающей
-coroutine. Отмена Kotlin awaiter — это detach ожидающего caller, а не lifecycle event процесса.
-
-`listenFlow` не является best-effort drop adapter: output callback блокируется на отправке в rendezvous Flow channel.
-Это сохраняет bounded backpressure model `listen` для активного collector. Если collector отменяет Flow, adapter
-закрывает underlying `StreamSession`.
-
-Kotlin DSL scopes не должны становиться вторым dialect поверх Java core: они начинаются с явного сценария, не запускают
-процессы напрямую, не раскрывают worker leases и используют существующие core adapters/session runtimes.
+Публичный `openAwait()` не добавляется без доказанной передачи ownership при гонке startup/cancellation. Mutable
+scenario scopes, terminal configuration lambdas и отдельный pool DSL отсутствуют.
 
 ## Последствия
 
-Плюсы:
-
-- Kotlin API можно развивать без утяжеления Java core;
-- Flow/coroutine ergonomics живут там, где естественно иметь Kotlin dependency;
-- Kotlin DSL снижает boilerplate для вложенных worker/pool и protocol-adapter сценариев без нового runtime;
-- Kotlin examples становятся compile-tested tests.
-
-Минусы:
-
-- Сборка требует Kotlin Gradle plugin и coroutines dependency;
-- Kotlin module имеет собственную compatibility matrix;
-- Flow cancellation intentionally closes underlying process session.
+Java core не зависит от Kotlin. Kotlin module имеет собственные KDoc, ABI, cancellation и external consumer gates.
+Удобство Kotlin растет через extensions над одним Java dialect, а не через параллельную модель конфигурации.

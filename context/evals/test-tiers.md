@@ -12,7 +12,12 @@ Test/eval tiers фиксируют, какие инварианты защища
 - Stress остается bounded: он ловит регрессии, но не превращается в нестабильный benchmark suite.
 - Comparison/JMH живут как research/manual tasks и не входят в release pass/fail gate.
 - Release gate собирает уже определенные уровни, документацию и чистоту worktree; он не скрывает отдельные команды.
-- Machine-specific capabilities, включая PTY, проверяются через assumptions/skip, а не через flaky failures.
+- Machine-specific capabilities проверяются через assumptions/skip там, где среда их не гарантирует. Контролируемый
+  Linux/JDK 17 job, напротив, требует system PTY и падает, если capability недоступна: так допустимый skip не может
+  скрыть полное отсутствие реального PTY coverage.
+- Каждый JUnit test имеет default deadline 60 секунд в отдельном timeout thread; более строгий локальный `@Timeout`
+  сохраняет приоритет. Блокирующие future waits внутри тестов дополнительно используют явные deadlines там, где
+  проверяется lifecycle.
 
 ## Уровни
 
@@ -21,15 +26,17 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew quickCheck
+./gradlew quickCheck --project-prop=procwright.javaRelease=17
 ```
 
 Назначение:
 
-- value objects, options и builders fail fast;
+- value objects и scenario Draft fail fast;
 - public API surface не получает случайные entry points;
 - `apiCompatibilityCheck` сравнивает public JVM signatures с baseline `0.1.0`;
-- production-owned schemas совпадают с context mirror;
+- `:procwright-kotlin:checkKotlinAbi` сравнивает Kotlin JVM ABI и metadata-visible declarations с tracked baseline;
+- unit tests проверяют production-owned `DiagnosticAttributeSchema` через построение diagnostics events и schema-safe
+  failure attributes;
 - helper ownership и boundary tests проверяют изоляцию инвариантов без долгих процессов.
 
 Этот уровень должен оставаться самым дешевым default для TDD.
@@ -39,7 +46,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew scenarioCheck
+./gradlew scenarioCheck --project-prop=procwright.javaRelease=17
 ```
 
 Назначение:
@@ -48,6 +55,8 @@ Test/eval tiers фиксируют, какие инварианты защища
 - `run`, `interactive`, `lineSession`, `expect`, `listen` и module adapters проверяются как workflows;
 - `:procwright-consumer-examples:test` выполняет внешние consumer workflows для `run`, `lineSession`, `protocolSession` и
   pools;
+- отдельные integrations и Kotlin consumer fixtures компилируются с единственной зависимостью на соответствующий
+  optional artifact и проверяют его transitive metadata;
 - Kotlin и integrations modules подтверждают, что optional ergonomics не ломают core философию.
 
 Этот уровень отвечает за вопрос: "пользовательский сценарий действительно работает?"
@@ -57,7 +66,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew regressionCheck
+./gradlew regressionCheck --project-prop=procwright.javaRelease=17
 ```
 
 Назначение:
@@ -73,16 +82,19 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команды:
 
 ```bash
-./gradlew publicJavaJavadocCheck
-./gradlew :procwright-kotlin:kotlinApiDocsCheck
-./gradlew publicDocsCheck
+./gradlew publicJavaJavadocCheck --project-prop=procwright.javaRelease=17
+./gradlew :procwright-kotlin:kotlinApiDocsCheck --project-prop=procwright.javaRelease=17
+./gradlew :procwright-kotlin:checkKotlinAbi --project-prop=procwright.javaRelease=17
+./gradlew publicDocsCheck --project-prop=procwright.javaRelease=17
 ```
 
 Назначение:
 
 - Java public modules собирают Javadoc;
 - `publicJavaJavadocCheck` запускает Javadoc с `-Werror`, поэтому warning является failure, а не ручной заметкой;
-- Kotlin public API имеет KDoc;
+- `kotlinApiDocsCheck` запускает Dokka parser-backed проверку KDoc с `reportUndocumented=true` и
+  `failOnWarning=true`;
+- Kotlin public binary API совпадает с tracked ABI baseline;
 - public MkDocs site собирается в strict mode;
 - documentation maturity проверяется отдельно от runtime behavior.
 
@@ -91,7 +103,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew releaseCandidateCheck
+./gradlew releaseCandidateCheck --project-prop=procwright.javaRelease=17
 ```
 
 Назначение:

@@ -1,37 +1,59 @@
-# Terminal Capability
+# Terminal capability
 
-Terminal support is a capability inside session-family scenarios. It is not a separate core scenario.
+Session-family Drafts accept `TerminalPolicy` when a child needs terminal behavior instead of ordinary pipes.
 
-Use terminal capability when a CLI changes behavior based on whether it is attached to a terminal, or when the command
-requires terminal control sequences to function.
-
-## Policies
-
-- `TerminalPolicy.DISABLED` runs with ordinary pipes and never requests a terminal.
-- `TerminalPolicy.AUTO` lets the scenario use a terminal when a terminal-capable transport exists.
-- `TerminalPolicy.REQUIRED` fails instead of silently falling back to pipes.
-
-## Example
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/TerminalExample.java -->
 ```java
-CommandService shell = Procwright.command("sh");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (Session session = shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
-    session.sendLine("exit");
-    SessionExit exit = session.onExit().join();
-    if (exit.timedOut()) {
-        session.sendSignal(TerminalSignal.INTERRUPT);
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.Expect;
+import io.github.ulviar.procwright.session.Session;
+import io.github.ulviar.procwright.session.SessionExit;
+import io.github.ulviar.procwright.terminal.TerminalPolicy;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+
+public final class TerminalExample {
+
+    private TerminalExample() {}
+
+    public static void main(String[] args) {
+        try (Session session = Procwright.command(ExampleSupport.javaExecutable())
+                        .interactive()
+                        .withArgs("--version")
+                        .withTerminal(TerminalPolicy.REQUIRED)
+                        .withIdleTimeout(Duration.ofSeconds(10))
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(5)).open()) {
+            expect.expectRegex(Pattern.compile("(?i)(java|openjdk)"));
+            SessionExit exit = session.onExit().orTimeout(5, TimeUnit.SECONDS).join();
+            if (exit.exitCode().orElse(-1) != 0) {
+                throw new IllegalStateException("Terminal command did not exit cleanly");
+            }
+        }
     }
 }
 ```
 
-## Boundary
+[Open `TerminalExample.java`](../examples/java/io/github/ulviar/procwright/examples/TerminalExample.java) and the
+[shared example sources](../examples.md#core).
 
-The current core API exposes terminal policy, terminal size, and terminal control signals. Application code does not
-need backend-specific PTY library classes.
+- `DISABLED` uses ordinary process pipes.
+- `AUTO` requests a terminal but permits pipe fallback.
+- `REQUIRED` fails if the configured `PtyProvider` cannot create one.
 
-The initial system provider is platform-dependent. Unix-like environments depend on an available system terminal helper
-such as `script(1)`. Windows ConPTY is not shipped as a provider in `0.1.0`.
+The built-in Unix provider requires trusted `script`, `stty`, `env`, and `dd` executables in `/usr/bin` or `/bin` and
+executable `/bin/sh`; it does not use `PATH` to find transport helpers. It enables only an exact BSD or util-linux
+invocation that passes a bounded terminal, direct-`env`, and exit-code probe. Child argv and environment remain isolated
+from that wrapper and travel in a bounded post-`READY` terminal-input frame, not a temporary file. See
+[Platforms and terminal support](../reference/platforms-and-pty.md) for platform requirements and the fail-closed
+restriction on executable tokens containing `=`. Windows ConPTY is not shipped in planned `0.1.0`; a required terminal
+must fail explicitly rather than silently changing transport.
 
-Code that requires a terminal should use `REQUIRED` so unavailable terminal support is visible as a failure instead of
-an accidental pipe fallback. See [Platforms and PTY](../reference/platforms-and-pty.md) for the platform boundary.
+The default session policy is `DISABLED`; selecting `AUTO` or `REQUIRED` activates the built-in provider. See
+[scenario defaults](../reference/defaults.md#interactive-sessions) for the initial policy, provider, and terminal size.

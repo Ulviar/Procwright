@@ -13,9 +13,10 @@ import java.util.Optional;
  * Fully resolved request passed to a PTY provider.
  *
  * @param command direct argv command to run inside the terminal
- * @param workingDirectory optional working directory for the provider process
+ * @param workingDirectory optional working directory for the terminal child
  * @param environmentPolicy child environment assembly policy
- * @param environment environment overrides for the provider process
+ * @param environment environment overrides for the terminal child; providers must not place these values in a
+ *     transport wrapper environment or diagnostic output before the final child launch
  * @param terminalSize requested terminal dimensions
  */
 public record PtyRequest(
@@ -29,9 +30,9 @@ public record PtyRequest(
      * Validates and snapshots the request.
      *
      * @param command direct argv command to run inside the terminal
-     * @param workingDirectory optional working directory for the provider process
+     * @param workingDirectory optional working directory for the terminal child
      * @param environmentPolicy child environment assembly policy
-     * @param environment environment overrides for the provider process
+     * @param environment environment overrides for the terminal child
      * @param terminalSize requested terminal dimensions
      */
     public PtyRequest {

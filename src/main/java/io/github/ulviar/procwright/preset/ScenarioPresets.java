@@ -2,156 +2,133 @@
 
 package io.github.ulviar.procwright.preset;
 
+import io.github.ulviar.procwright.InteractiveScenario;
+import io.github.ulviar.procwright.LineSessionScenario;
+import io.github.ulviar.procwright.RunScenario;
+import io.github.ulviar.procwright.StreamScenario;
 import io.github.ulviar.procwright.command.CapturePolicy;
-import io.github.ulviar.procwright.command.CommandInvocation;
+import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.OutputMode;
-import io.github.ulviar.procwright.session.Expect;
-import io.github.ulviar.procwright.session.LineSessionInvocation;
-import io.github.ulviar.procwright.session.PooledLineSessionInvocation;
-import io.github.ulviar.procwright.session.SessionInvocation;
-import io.github.ulviar.procwright.session.StreamInvocation;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.function.Consumer;
 
-/**
- * Reusable scenario presets for common command workflows.
- *
- * <p>Presets are typed builder customizers. They do not launch processes, allocate runtime resources, or create
- * scenario-specific runners.
- */
+/** Reusable transformations over immutable scenario drafts. */
 public final class ScenarioPresets {
 
     private ScenarioPresets() {}
 
     /**
-     * Returns a one-shot command automation preset with bounded capture and separate stdout/stderr.
+     * Applies bounded separate-stream capture and a finite timeout for command automation.
      *
-     * @param timeout command timeout
-     * @param captureBytes bounded capture size
-     * @return run invocation preset
+     * <p>This preset preserves the draft's existing text decoding policy.
+     *
+     * @param draft run draft to transform
+     * @param timeout positive execution timeout
+     * @param captureBytes positive per-stream capture limit
+     * @return transformed draft
      */
-    public static Consumer<CommandInvocation.Builder> commandAutomation(Duration timeout, int captureBytes) {
-        Duration requiredTimeout = requirePositive(timeout, "timeout");
-        int requiredCaptureBytes = requirePositive(captureBytes, "captureBytes");
-        return invocation -> invocation
-                .timeout(requiredTimeout)
-                .capture(CapturePolicy.bounded(requiredCaptureBytes))
-                .output(OutputMode.SEPARATE);
+    public static RunScenario.Draft commandAutomation(RunScenario.Draft draft, Duration timeout, int captureBytes) {
+        return Objects.requireNonNull(draft, "draft")
+                .withTimeout(requirePositive(timeout, "timeout"))
+                .withCapture(CapturePolicy.bounded(requirePositive(captureBytes, "captureBytes")))
+                .withOutput(OutputMode.SEPARATE);
     }
 
     /**
-     * Returns a one-shot environment diagnostics preset with merged UTF-8 output.
+     * Applies bounded merged UTF-8 capture for environment diagnostics.
      *
-     * @param timeout command timeout
-     * @param captureBytes bounded capture size
-     * @return run invocation preset
+     * @param draft run draft to transform
+     * @param timeout positive execution timeout
+     * @param captureBytes positive merged capture limit
+     * @return transformed draft
      */
-    public static Consumer<CommandInvocation.Builder> environmentDiagnostics(Duration timeout, int captureBytes) {
-        Duration requiredTimeout = requirePositive(timeout, "timeout");
-        int requiredCaptureBytes = requirePositive(captureBytes, "captureBytes");
-        return invocation -> invocation
-                .timeout(requiredTimeout)
-                .capture(CapturePolicy.bounded(requiredCaptureBytes))
-                .charset(StandardCharsets.UTF_8)
-                .output(OutputMode.MERGED);
+    public static RunScenario.Draft environmentDiagnostics(
+            RunScenario.Draft draft, Duration timeout, int captureBytes) {
+        return Objects.requireNonNull(draft, "draft")
+                .withTimeout(requirePositive(timeout, "timeout"))
+                .withCapture(CapturePolicy.bounded(requirePositive(captureBytes, "captureBytes")))
+                .withCharset(StandardCharsets.UTF_8)
+                .withOutput(OutputMode.MERGED);
     }
 
     /**
-     * Returns a one-shot binary output capture preset.
+     * Applies bounded separate-stream binary capture with a forgiving UTF-8 text view.
      *
-     * <p>The preset intentionally does not set a text charset. Captured bytes are available from
-     * {@link CommandResult#stdoutBytes()} and {@link CommandResult#stderrBytes()}.
+     * <p>This preset intentionally replaces the draft's existing decoding policy with {@link
+     * CharsetPolicy#replace(java.nio.charset.Charset) replacing UTF-8}. Malformed bytes therefore do not turn a
+     * completed capture into a decode failure. Exact captured bytes remain available through {@link
+     * CommandResult#stdoutBytes()} and {@link CommandResult#stderrBytes()}.
      *
-     * @param timeout command timeout
-     * @param captureBytes bounded capture size
-     * @return run invocation preset
+     * @param draft run draft to transform
+     * @param timeout positive execution timeout
+     * @param captureBytes positive per-stream capture limit
+     * @return transformed draft
      */
-    public static Consumer<CommandInvocation.Builder> binaryOutputCapture(Duration timeout, int captureBytes) {
-        Duration requiredTimeout = requirePositive(timeout, "timeout");
-        int requiredCaptureBytes = requirePositive(captureBytes, "captureBytes");
-        return invocation -> invocation
-                .timeout(requiredTimeout)
-                .capture(CapturePolicy.bounded(requiredCaptureBytes))
-                .output(OutputMode.SEPARATE);
+    public static RunScenario.Draft binaryOutputCapture(RunScenario.Draft draft, Duration timeout, int captureBytes) {
+        return Objects.requireNonNull(draft, "draft")
+                .withTimeout(requirePositive(timeout, "timeout"))
+                .withCapture(CapturePolicy.bounded(requirePositive(captureBytes, "captureBytes")))
+                .withOutput(OutputMode.SEPARATE)
+                .withCharsetPolicy(CharsetPolicy.replace(StandardCharsets.UTF_8));
     }
 
     /**
-     * Returns a line-oriented REPL preset.
+     * Applies line-oriented REPL lifecycle and terminal settings.
      *
-     * @param idleTimeout session idle timeout
-     * @param terminalPolicy terminal policy
-     * @return line-session invocation preset
+     * @param draft line-session draft to transform
+     * @param idleTimeout non-negative caller-visible idle timeout
+     * @param terminalPolicy terminal requirement
+     * @return transformed draft
      */
-    public static Consumer<LineSessionInvocation.Builder> replLineMode(
-            Duration idleTimeout, TerminalPolicy terminalPolicy) {
-        Duration requiredIdleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
-        TerminalPolicy requiredTerminalPolicy = Objects.requireNonNull(terminalPolicy, "terminalPolicy");
-        return invocation -> invocation.idleTimeout(requiredIdleTimeout).terminal(requiredTerminalPolicy);
+    public static LineSessionScenario.Draft replLineMode(
+            LineSessionScenario.Draft draft, Duration idleTimeout, TerminalPolicy terminalPolicy) {
+        return Objects.requireNonNull(draft, "draft")
+                .withIdleTimeout(requireNonNegative(idleTimeout, "idleTimeout"))
+                .withTerminal(Objects.requireNonNull(terminalPolicy, "terminalPolicy"));
     }
 
     /**
-     * Returns an interactive prompt-automation preset for sessions that will be wrapped by {@link Expect}.
+     * Applies UTF-8 prompt-automation lifecycle and terminal settings.
      *
-     * @param idleTimeout session idle timeout
-     * @param terminalPolicy terminal policy
-     * @return interactive-session invocation preset
+     * @param draft interactive-session draft to transform
+     * @param idleTimeout non-negative caller-visible idle timeout
+     * @param terminalPolicy terminal requirement
+     * @return transformed draft
      */
-    public static Consumer<SessionInvocation.Builder> promptAutomationSession(
-            Duration idleTimeout, TerminalPolicy terminalPolicy) {
-        Duration requiredIdleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
-        TerminalPolicy requiredTerminalPolicy = Objects.requireNonNull(terminalPolicy, "terminalPolicy");
-        return invocation -> invocation
-                .idleTimeout(requiredIdleTimeout)
-                .terminal(requiredTerminalPolicy)
-                .charset(StandardCharsets.UTF_8);
+    public static InteractiveScenario.Draft promptAutomationSession(
+            InteractiveScenario.Draft draft, Duration idleTimeout, TerminalPolicy terminalPolicy) {
+        return Objects.requireNonNull(draft, "draft")
+                .withIdleTimeout(requireNonNegative(idleTimeout, "idleTimeout"))
+                .withTerminal(Objects.requireNonNull(terminalPolicy, "terminalPolicy"))
+                .withCharset(StandardCharsets.UTF_8);
     }
 
     /**
-     * Returns a listen-only log-following preset.
+     * Configures a listen-only process for log following. The listen scenario closes stdin when it starts.
      *
-     * @param timeout absolute stream timeout, or {@link Duration#ZERO} to disable it
-     * @return streaming invocation preset
+     * @param draft stream draft to transform
+     * @param timeout non-negative absolute timeout; zero disables it
+     * @return transformed draft
      */
-    public static Consumer<StreamInvocation.Builder> logFollowing(Duration timeout) {
-        Duration requiredTimeout = requireNonNegative(timeout, "timeout");
-        return invocation -> invocation.timeout(requiredTimeout).closeStdinOnStart();
+    public static StreamScenario.Draft logFollowing(StreamScenario.Draft draft, Duration timeout) {
+        return Objects.requireNonNull(draft, "draft").withTimeout(requireNonNegative(timeout, "timeout"));
     }
 
     /**
-     * Returns a terminal-required interactive session preset.
+     * Requires a real terminal for an interactive process.
      *
-     * @param idleTimeout session idle timeout
-     * @return interactive-session invocation preset
+     * @param draft interactive-session draft to transform
+     * @param idleTimeout non-negative caller-visible idle timeout
+     * @return transformed draft
      */
-    public static Consumer<SessionInvocation.Builder> terminalRequiredSession(Duration idleTimeout) {
-        Duration requiredIdleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
-        return invocation -> invocation.idleTimeout(requiredIdleTimeout).terminal(TerminalPolicy.REQUIRED);
-    }
-
-    /**
-     * Returns a warm worker pool preset.
-     *
-     * @param maxSize maximum live workers
-     * @param warmupSize workers opened when the pool is created
-     * @param acquireTimeout maximum time to wait for an available worker
-     * @return pooled line-session invocation preset
-     */
-    public static Consumer<PooledLineSessionInvocation.Builder> warmWorkerPool(
-            int maxSize, int warmupSize, Duration acquireTimeout) {
-        int requiredMaxSize = requirePositive(maxSize, "maxSize");
-        if (warmupSize < 0) {
-            throw new IllegalArgumentException("warmupSize must not be negative");
-        }
-        if (warmupSize > requiredMaxSize) {
-            throw new IllegalArgumentException("warmupSize must not exceed maxSize");
-        }
-        Duration requiredAcquireTimeout = requirePositive(acquireTimeout, "acquireTimeout");
-        return invocation ->
-                invocation.maxSize(requiredMaxSize).warmupSize(warmupSize).acquireTimeout(requiredAcquireTimeout);
+    public static InteractiveScenario.Draft terminalRequiredSession(
+            InteractiveScenario.Draft draft, Duration idleTimeout) {
+        return Objects.requireNonNull(draft, "draft")
+                .withIdleTimeout(requireNonNegative(idleTimeout, "idleTimeout"))
+                .withTerminal(TerminalPolicy.REQUIRED);
     }
 
     private static int requirePositive(int value, String name) {

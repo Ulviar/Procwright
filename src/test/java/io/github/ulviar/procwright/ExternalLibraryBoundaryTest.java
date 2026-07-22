@@ -152,7 +152,7 @@ final class ExternalLibraryBoundaryTest {
                 "Boundary test must scan core sources");
         assertTrue(
                 relativeSources.contains(
-                        "procwright-kotlin/src/main/kotlin/io/github/ulviar/procwright/kotlin/ProcwrightKotlin.kt"),
+                        "procwright-kotlin/src/main/kotlin/io/github/ulviar/procwright/kotlin/DurationExtensions.kt"),
                 "Boundary test must scan Kotlin module sources");
         assertTrue(
                 relativeSources.contains(

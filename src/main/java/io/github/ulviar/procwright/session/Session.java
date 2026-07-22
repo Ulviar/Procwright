@@ -25,9 +25,10 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
     /**
      * Returns raw process stdout.
      *
-     * <p>Calling this method claims stdout ownership for raw caller code. Higher-level helpers such as {@link Expect}
-     * also need exclusive output ownership; mixing raw stream reads with those helpers can make later operations fail
-     * with {@link IllegalStateException} or lose protocol state.
+     * <p>Obtaining the stream wrapper does not claim output ownership. The first effective stream operation, including a
+     * read, inspection, mark, reset, or close, atomically selects raw caller ownership for both process output streams.
+     * If a higher-level helper already owns output, that operation throws {@link IllegalStateException}; after raw
+     * ownership is selected, opening such a helper throws the same exception.
      *
      * @return stdout stream
      */
@@ -36,8 +37,8 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
     /**
      * Returns raw process stderr.
      *
-     * <p>Calling this method claims stderr ownership for raw caller code. Do not read this stream concurrently with an
-     * Procwright scenario/helper that drains stderr for diagnostics.
+     * <p>Obtaining the stream wrapper does not claim output ownership. The first effective operation follows the same
+     * ownership rules as {@link #stdout()}; do not combine raw operations with a Procwright helper that drains output.
      *
      * @return stderr stream
      */
@@ -80,38 +81,52 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
 
     /**
      * Closes process stdin. The session may keep running until the process exits or is closed.
+     *
+     * <p>The close has bounded execution admission before the session is returned, but its physical stream operation
+     * is asynchronous because a concurrent write may hold the stream monitor indefinitely.
      */
     void closeStdin();
 
     /**
-     * Returns a process exit future view.
+     * Returns an isolated view of the session's terminal future.
+     *
+     * <p>Completion follows process-tree cleanup, both physical stdout and stderr close attempts, and, when a Procwright
+     * output helper owns those streams, both helper pump tasks and final close-failure aggregation. The internal process
+     * outcome does not wait on helper cleanup, so helper observation cannot form a lifecycle dependency cycle; only this
+     * public view applies the full cleanup barrier. A helper failure does not replace the raw process outcome.
+     *
+     * <p>A failure from a caller's inline raw-output close becomes the terminal session failure, by identity, if no other
+     * terminal failure already owns the session. An inline close already in flight remains part of the public barrier and
+     * can therefore replace a selected natural-success outcome until that physical close settles. Existing primary
+     * failures remain primary and retain later cleanup failures through suppression; other late asynchronous failures do
+     * not rewrite a published outcome.
+     *
+     * <p>The barrier does not wait for a physical stdin close blocked by a concurrent write. Caller-side completion or
+     * cancellation of the returned view cannot affect the lifecycle owner. Synchronous continuations run on bounded
+     * lifecycle-publication capacity only after cleanup has crossed the barrier, so hostile continuation code cannot pin
+     * a process watcher, output pump, or physical-close owner.
      *
      * @return process exit future
      */
     CompletableFuture<SessionExit> onExit();
 
     /**
-     * Creates an expect automation helper using default options.
+     * Returns an immutable expect configuration draft using default options.
      *
-     * @return expect helper
-     */
-    default Expect expect() {
-        return expect(ExpectOptions.defaults());
-    }
-
-    /**
-     * Creates an expect automation helper using explicit options.
+     * <p>Creating or configuring the draft does not claim output ownership. {@link Expect.Draft#open()} claims both output
+     * streams and may fail with {@link IllegalStateException} if raw code, another helper, or session cleanup selected the
+     * ownership mode first.
      *
-     * @param options expect options
-     * @return expect helper
-     * @throws IllegalArgumentException when this session was not created by Procwright
+     * @return immutable expect draft
      */
-    default Expect expect(ExpectOptions options) {
-        return Expect.on(this, options);
+    default Expect.Draft expect() {
+        return new ImmutableExpectDraft(this, io.github.ulviar.procwright.internal.ExpectSettings.defaults());
     }
 
     /**
      * Stops the process through the configured shutdown policy. Calling this method more than once has no effect.
+     * Potentially blocking physical stream closes run asynchronously under the contract documented by
+     * {@link #onExit()}.
      */
     @Override
     void close();

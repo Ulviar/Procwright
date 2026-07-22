@@ -1,4 +1,4 @@
-# ADR-0008: Сценарные presets как типизированные настройки builder
+# ADR-0008: Presets как преобразования scenario Draft
 
 ## Статус
 
@@ -6,48 +6,34 @@
 
 ## Контекст
 
-Presets должны закрывать распространенные задачи, но не должны создавать новые подсистемы или отдельные runners.
-Пользователь сначала выбирает сценарий (`run`, `listen`, `lineSession`, `interactive`, `pooled`), затем при
-необходимости применяет preset как пакет осмысленных переопределений policy.
+Повторяющиеся сочетания policy должны сокращаться без новых runners, lifecycle и callback-based configuration dialect.
 
 ## Решение
 
-Добавить `ScenarioPresets` — stateless public utility с typed `Consumer<...>` customizers для существующих invocation
-builders.
+`ScenarioPresets` — stateless utility с typed функциями вида `SpecificDraft -> SpecificDraft`. Preset принимает уже
+выбранный Draft, применяет доступные ему `with*` и возвращает новый immutable Draft.
 
-Текущий набор:
+Поддерживаемые transformations:
 
-- `commandAutomation(...)` для bounded one-shot automation;
-- `environmentDiagnostics(...)` для merged UTF-8 diagnostics output;
-- `binaryOutputCapture(...)` для bounded binary-oriented capture с доступом к byte snapshots в `CommandResult`;
-- `replLineMode(...)` для line-oriented REPL lifecycle defaults;
-- `promptAutomationSession(...)` для raw session, которую caller оборачивает в `Expect`;
-- `logFollowing(...)` для listen-only log following;
-- `terminalRequiredSession(...)` для terminal-required interactive session;
-- `warmWorkerPool(...)` для pooled line workers.
+- `commandAutomation`;
+- `environmentDiagnostics`;
+- `binaryOutputCapture`;
+- `replLineMode`;
+- `promptAutomationSession`;
+- `logFollowing`;
+- `terminalRequiredSession`.
 
-Presets не запускают процессы, не хранят state, не создают execution plans и не обходят resolver. Они только применяют
-typed overrides к уже выбранному scenario builder.
+Preset не выбирает сценарий, не хранит callbacks/state, не запускает процесс и не создает internal plan. Его параметры
+валидируются до возврата нового Draft.
 
 ## Инварианты
 
-- preset не является runner;
-- preset не выбирает сценарий вместо пользователя;
-- preset не должен добавлять options, которых нет в соответствующем scenario builder;
-- preset validation происходит при создании preset, а domain validation остается в builder/options objects;
-- пользователь может комбинировать preset с явными overrides в обычной builder lambda.
+- исходный Draft не меняется;
+- порядок композиции виден в обычном Java-коде;
+- preset не получает настройку, которой нет в конкретном Draft;
+- новый preset требует реального повторяющегося workflow и compile-tested example.
 
 ## Последствия
 
-Плюсы:
-
-- API получает более широкий язык намерений без расширения runtime;
-- common workflows становятся короче и compile-tested;
-- presets остаются composable Java-first API и легко вызываются из Kotlin.
-
-Минусы:
-
-- порядок применения preset и явных overrides остается обычным порядком fluent builder calls;
-- `binaryOutputCapture(...)` остается bounded capture preset; streaming bytes-first workflow остается отдельной будущей
-  задачей;
-- слишком много presets может превратиться в каталог use cases, поэтому новые presets должны проходить eval/ADR.
+Presets расширяют язык намерений без нового runtime. Их число ограничивается полезными комбинациями, а не попыткой
+назвать каждый набор параметров.

@@ -1,8 +1,5 @@
-# Deploys the MkDocs documentation site to GitHub Pages.
-#
-# The site deploys on GitHub release (plus manual dispatch) rather than on
-# every push because the library is not yet published; the public site should
-# track released versions only.
+# Deploys released documentation to GitHub Pages. Manual dispatch recovers the
+# same immutable release using persistent Maven Central evidence.
 
 name: Docs Deploy
 
@@ -11,48 +8,227 @@ on:
     types:
       - published
   workflow_dispatch:
+    inputs:
+      release-version:
+        description: Released SemVer version, without a leading v
+        required: true
+        type: string
+      release-commit:
+        description: Lowercase full commit SHA referenced by the release tag
+        required: true
+        type: string
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
 
 jobs:
-  deploy:
-    name: Deploy Docs Site
-    runs-on: ubuntu-latest
+  recovery:
+    name: Verify Release Recovery Evidence
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == github.workflow_sha
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    environment: release-recovery
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - name: Checkout
+      - name: Validate release commit before checkout
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+        run: '[[ "$PROCWRIGHT_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+
+      - name: Checkout trusted release control
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-trusted
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Verify release identity from trusted control
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_EVENT_NAME: ${{ github.event_name }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_RELEASE_REF: ${{ inputs.release-version }}
+          PROCWRIGHT_TRUSTED_ROOT: .procwright-trusted
+          PROCWRIGHT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 .procwright-trusted/scripts/verify_docs_release_identity.py
+
+      - name: Validate protected recovery trust roots
+        env:
+          PROCWRIGHT_SIGNING_FINGERPRINT: ${{ vars.MAVEN_CENTRAL_RECOVERY_SIGNING_FINGERPRINT }}
+          PROCWRIGHT_SIGNING_PUBLIC_KEY: ${{ vars.MAVEN_CENTRAL_RECOVERY_SIGNING_PUBLIC_KEY }}
+        run: |
+          [[ "$PROCWRIGHT_SIGNING_FINGERPRINT" =~ ^[0-9A-F]{40}$ ]]
+          [[ "${#PROCWRIGHT_SIGNING_PUBLIC_KEY}" -ge 100 && "${#PROCWRIGHT_SIGNING_PUBLIC_KEY}" -le 49152 ]]
+          [[ "$PROCWRIGHT_SIGNING_PUBLIC_KEY" == "-----BEGIN PGP PUBLIC KEY BLOCK-----"$'\n'* ]]
+          [[ "$PROCWRIGHT_SIGNING_PUBLIC_KEY" == *$'\n'"-----END PGP PUBLIC KEY BLOCK-----" ]]
+          [[ "$PROCWRIGHT_SIGNING_PUBLIC_KEY" != *"PRIVATE KEY BLOCK"* ]]
+
+      - name: Verify persistent Maven Central recovery evidence
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ steps.identity.outputs.release_commit }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ steps.identity.outputs.release_version }}
+          PROCWRIGHT_SIGNING_FINGERPRINT: ${{ vars.MAVEN_CENTRAL_RECOVERY_SIGNING_FINGERPRINT }}
+          PROCWRIGHT_SIGNING_PUBLIC_KEY: ${{ vars.MAVEN_CENTRAL_RECOVERY_SIGNING_PUBLIC_KEY }}
+        run: python3 .procwright-trusted/scripts/verify_maven_central_release.py "$PROCWRIGHT_RELEASE_VERSION"
+
+  build:
+    name: Build Docs Site
+    needs: recovery
+    if: "!cancelled() && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == github.workflow_sha && needs.recovery.result == 'success'))"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      pages-artifact-id: ${{ steps.pages-upload.outputs.artifact_id }}
+      pages-content-sha256: ${{ steps.pages-content.outputs.pages_content_sha256 }}
+
+    steps:
+      - name: Validate release commit before checkout
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+        run: '[[ "$PROCWRIGHT_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+
+      - name: Checkout trusted release control
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-trusted
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Verify release identity from trusted control
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_EVENT_NAME: ${{ github.event_name }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.release-commit || '' }}
+          PROCWRIGHT_RELEASE_REF: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release-version }}
+          PROCWRIGHT_TRUSTED_ROOT: .procwright-trusted
+          PROCWRIGHT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 .procwright-trusted/scripts/verify_docs_release_identity.py
+
+      - name: Checkout verified release target
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ steps.identity.outputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-target
+
+      - name: Verify target checkout from trusted control
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ steps.identity.outputs.release_commit }}
+          PROCWRIGHT_TARGET_ROOT: .procwright-target
+        run: bash .procwright-trusted/scripts/release/verify_target_checkout.sh
 
       - name: Set up JDK 17
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
-          java-version: 17
+          java-version: "17.0.19+10"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.10.12"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
       - name: Build docs site in strict mode
-        run: ./gradlew publicDocsCheck --project-prop=procwright.javaRelease=17 --no-daemon
+        env:
+          PROCWRIGHT_PAGES_OUTPUT: build/public-docs
+          PROCWRIGHT_RELEASE_VERSION: ${{ steps.identity.outputs.release_version }}
+          PROCWRIGHT_TARGET_ROOT: .procwright-target
+        run: bash .procwright-trusted/scripts/release/build_release_docs.sh
+
+      - name: Seal exact Pages content
+        id: pages-content
+        run: python3 .procwright-trusted/scripts/verify_pages_artifact.py seal --directory build/public-docs
+
+      - name: Upload Pages artifact
+        id: pages-upload
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          name: github-pages
+          path: build/public-docs
+
+  deploy:
+    name: Deploy Docs Site
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      pages: write
+    defaults:
+      run:
+        shell: bash
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout trusted Pages verifier
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-trusted
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Verify exact current-run Pages artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_PAGES_ARTIFACT_ID: ${{ needs.build.outputs.pages-artifact-id }}
+          PROCWRIGHT_PAGES_CONTENT_SHA256: ${{ needs.build.outputs.pages-content-sha256 }}
+          PROCWRIGHT_PAGES_RUN_COMMIT: ${{ github.sha }}
+          PROCWRIGHT_PAGES_RUN_ID: ${{ github.run_id }}
+          PROCWRIGHT_TRUSTED_ROOT: .procwright-trusted
+          PROCWRIGHT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 .procwright-trusted/scripts/verify_pages_artifact.py verify
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: build/public-docs
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        with:
+          artifact_name: github-pages

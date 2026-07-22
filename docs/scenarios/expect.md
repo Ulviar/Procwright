@@ -1,46 +1,87 @@
-# Expect Automation
+# Expect automation
 
-Use `Expect` when an already opened interactive session should be automated by waiting for prompt text or regular
-expression matches.
+`session.expect()` returns an immutable `Expect.Draft` without claiming process output. Each `with*` call returns a new
+draft. Call `open()` to claim both output streams for prompt matching.
 
-The scenario covers:
-
-- literal and regex matching against stdout;
-- match results (`expectTextMatch`, `expectRegexMatch`) with matched text, capture groups, and preceding output;
-- stderr draining into the bounded transcript;
-- bounded transcript and match buffer limits;
-- send and send-line helpers;
-- timeout, EOF, closed, and read/write failure distinction;
-- optional output filtering before matching and transcript retention;
-- redacted action values by default.
-
-## Example
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ExpectExample.java -->
 ```java
-CommandService repl = Procwright.command("tool");
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (Session session = repl.interactive().withArgs("repl").open();
-        Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
-    expect.expectText("ready> ");
-    expect.sendLine("status");
-    expect.expectRegex(java.util.regex.Pattern.compile("ok|ready"));
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.Expect;
+import io.github.ulviar.procwright.session.Session;
+import java.time.Duration;
+
+public final class ExpectExample {
+
+    private ExpectExample() {}
+
+    public static void main(String[] args) {
+        try (Session session = Procwright.command(ExampleSupport.workerCommand("expect"))
+                        .interactive()
+                        .withIdleTimeout(Duration.ofSeconds(10))
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(5)).open()) {
+            expect.expectText("ready> ");
+            expect.sendLine("café");
+            expect.expectText("ok:café");
+        }
+    }
 }
 ```
 
-## Transcript values
+[Open `ExpectExample.java`](../examples/java/io/github/ulviar/procwright/examples/ExpectExample.java) and the
+[shared example sources](../examples.md#core).
 
-`Expect` records action entries such as send and expect operations, but caller-provided values are redacted by default in
-transcripts and failure messages. Use verbatim transcript values only for non-secret automation where diagnostics require
-exact prompt or input text.
+Getting raw stdout or stderr wrappers does not claim them, but the first effective operation on either wrapper selects raw
+mode. If raw mode or another helper wins first, `Expect.Draft.open()` throws `IllegalStateException`. Do not perform raw
+output operations while `Expect` is open. Closing `Expect` closes its underlying session; it does not return the streams to
+raw code. Match and transcript buffers are bounded independently; configure both when prompts or retained diagnostics can
+be large.
 
-Match results returned by `expectTextMatch` and `expectRegexMatch` are not redacted: they carry live process output
-that the caller explicitly asked for. See [Read the matched output](../how-to/automate-prompts.md#read-the-matched-output).
+A match timeout, EOF, close, or output failure throws `ExpectException` with its stable reason and bounded transcript
+snapshot. A timeout leaves `Expect` and its process open, so you can retry or wait for a different prompt. Close, output
+failure, and EOF keep the first selected reason when operations race.
 
-## User responsibilities
+For programs that decorate prompts with ANSI CSI sequences, enable the built-in incremental CSI stripper on the draft:
 
-The caller owns the prompt ordering and pattern semantics. A fragile regex can still match too early or too late.
-Choose transcript and match buffer limits large enough for the prompt protocol, but keep them bounded.
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/AnsiExpectExample.java -->
+```java
+/* SPDX-License-Identifier: Apache-2.0 */
 
-## Scenario boundary
+package io.github.ulviar.procwright.examples;
 
-`Expect` does not launch processes. It wraps a `Session` and claims output ownership for prompt automation.
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.Expect;
+import io.github.ulviar.procwright.session.Session;
+import java.time.Duration;
+
+public final class AnsiExpectExample {
+
+    private AnsiExpectExample() {}
+
+    public static void main(String[] args) {
+        try (Session session = Procwright.command(ExampleSupport.workerCommand("ansi-expect"))
+                        .interactive()
+                        .open();
+                Expect expect = session.expect()
+                        .withAnsiControlSequenceStripping()
+                        .withTimeout(Duration.ofSeconds(5))
+                        .open()) {
+            expect.expectText("ready> ");
+        }
+    }
+}
+```
+
+[Open `AnsiExpectExample.java`](../examples/java/io/github/ulviar/procwright/examples/AnsiExpectExample.java).
+
+The option removes complete 7-bit ECMA-48 CSI sequences beginning with `ESC [`; it does not remove other control-sequence
+families. Its state is independent for stdout and stderr. Incomplete, malformed, or overlong candidates are retained as
+ordinary text, so output is not silently lost and partial state remains bounded.
+
+See [scenario defaults](../reference/defaults.md#expect) for match timeout, transcript, match buffer, charset, ANSI, and
+redaction values.

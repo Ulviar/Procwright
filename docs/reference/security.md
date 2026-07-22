@@ -1,67 +1,53 @@
 # Security
 
-Procwright treats external command execution as a trust boundary. The API tries to make safer choices explicit, but the
-caller still owns command selection and input trust.
+Procwright controls local child processes; it is not a sandbox.
 
-## Prefer direct argv
+## Commands and arguments
 
-Use direct command specifications and arguments by default:
+Prefer direct argv through `Procwright.command(executable)` or `CommandSpec.of(executable)`. Resolve executable paths when
+PATH can be influenced by an untrusted user. Use `CommandSpec.shell` only for intentional shell syntax, and never insert
+untrusted text without platform-correct validation and escaping.
 
-```java
-CommandService git = Procwright.command("git");
+On Windows, shell mode resolves `cmd.exe` only from the canonical absolute `SystemRoot\\System32` path and fails before
+launch when that interpreter is unavailable or unusable. Child `PATH` and the working directory do not select the shell.
 
-CommandResult result = git.run().execute("status", "--short");
+## Environment and working directory
 
-if (!result.succeeded()) {
-    throw result.toException();
-}
-```
+Inherited environment can expose credentials or alter executable and library lookup. Use a clean environment and explicit
+entries for hostile or reproducible workloads. Validate working directories and files before passing them to a child.
 
-Use `CommandSpec.shell(...)` or `Procwright.shellCommand(...)` only when shell syntax is required. Shell mode
-hands the command string to the operating-system shell. Do not build shell command lines by concatenating untrusted
-input; pass untrusted values as direct argv arguments through `Procwright.command(...)` and scenario arguments.
+The built-in Unix terminal provider does not expose the requested child environment to `script`, `/bin/sh`, `stty`, or
+its bounded bootstrap reader. Those absolute transport helpers run with a fixed minimal environment. After terminal echo
+is disabled, Java sends one bounded binary frame over the already-open terminal input; no pathname, temporary file, or
+control file carries child data. The wrapper consumes the complete frame before reporting `STARTED` and leaves the same
+input open for the target.
 
-## Environment handling
+The complete child environment is applied only by the final probed `env -i --` direct-argv launch. There is no
+child-environment shell or `arch` trampoline, so shell-control and dynamic-loader variables intended for the child cannot
+change the trusted wrapper. The system provider fails closed for an executable token containing `=` and redacts that token
+from the launch error. A custom `PtyProvider` is responsible for preserving equivalent boundaries.
 
-The compatibility default is inherited environment with explicit overrides. Use `cleanEnvironment()` when the command
-should receive only the variables you provide.
+## Output and diagnostics
 
-Environment values are not exposed in diagnostics. Diagnostic command echoes expose environment variable names only.
+Treat stdout, stderr, protocol frames, and exit metadata as untrusted input. Bound capture, request, response, backlog, and
+transcript sizes. Use strict charset decoding when replacement characters would hide corruption.
 
-## Bounded retention
+Diagnostics and transcripts can contain arguments, environment values, request bodies, output, paths, and exception
+messages. Redact before exporting. Truncation limits memory; it does not remove secrets.
 
-Output, transcripts, diagnostics, line lengths, JSON frame sizes, and JSON depth are bounded by policy. Increase limits
-only when the calling application has a concrete need.
+For separate file capture, Procwright checks immediately before launch that stdout and stderr do not resolve to the same
+file, including aliases reached through symlinked directories. It fails closed when filesystem identity cannot be read.
+Any two target names that differ only by case, canonical Unicode representation, or trailing dots and spaces are rejected
+on every OS, even when both files exist and the local filesystem treats them as distinct. Supported filesystems disagree
+about those identities. Do not replace or relink capture paths concurrently with launch: `ProcessBuilder` cannot
+atomically verify two path identities and open both redirects. Protect attacker-controlled output directories with
+operating-system permissions.
 
-## Redaction boundaries
+## Lifecycle boundary
 
-Procwright separates bounded retention from sanitization.
+Timeout and close apply best-effort cleanup to the process tree visible through JDK `ProcessHandle`. Detached or inaccessible
+descendants can survive. Use an OS sandbox, container, job object, service manager, or equivalent containment when the child
+is untrusted.
 
-Diagnostics are designed to be redaction-friendly: command echoes avoid raw argv values by default, environment
-diagnostics expose variable names rather than values, and raw stdin/stdout/stderr are not emitted as diagnostic
-attributes.
-
-Process output is different. `CommandResult`, session transcripts, line/protocol transcripts, stream listener chunks,
-and failure snapshots can contain raw stdout/stderr produced by the child process. They are bounded by policy, but they
-are not generally secret-sanitized. Do not persist or expose them unless the calling application treats the child output
-as safe for that destination.
-
-## Prompt transcripts
-
-`Expect` redacts caller-provided send and expect values in transcripts and failure messages by default. Verbatim
-transcript values are an explicit opt-in and should not be used for secrets.
-
-## Malformed output and charsets
-
-The forgiving default text policy replaces malformed or unmappable bytes. Use `CharsetPolicy.report(...)` when malformed
-text must be a typed failure instead of silently containing replacement characters. For binary-sensitive workflows,
-inspect bounded byte snapshots rather than relying only on decoded text.
-
-Protocol sessions and integration framing helpers can surface malformed output as protocol, decode, or oversized-output
-failures. Transcript snapshots should be treated as diagnostics; malformed, truncated, or redacted snapshots are not a
-substitute for application-level validation.
-
-## CLI-backed integrations
-
-The optional integrations module treats CLI output as untrusted data. A command-backed tool result is an observation,
-not an instruction.
+User callbacks for readiness, protocol adapters, pool hooks, and diagnostics run in the application process. Keep them
+bounded, interruption-aware, and free of untrusted blocking calls.

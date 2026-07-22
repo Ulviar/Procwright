@@ -1,74 +1,49 @@
 # Карта качества
 
-## Статус
+## Текущий срез
 
-Текущий срез содержит Java 17/21/25 release variants,
-scenario-first public API, общий execution/session kernel, PTY capability boundary, diagnostics, optional Kotlin ergonomics,
-pooled line-session scenario, protocol-session scenario, typed protocol pool, scenario presets, optional CLI-backed
-integrations, bounded stress suite, comparison research module, public MkDocs site и generated Java API docs для
-core/integrations.
+Procwright имеет единый scenario-first Draft API, Java core, optional Kotlin и integrations modules, line/protocol
+pools, PTY capability boundary, diagnostics, test CLI, bounded stress suite, external consumer fixtures и release
+toolchain. Публичный artifact и documentation site не считаются доступными до первого выпуска.
 
-Дальнейшая работа перед публикацией должна быть stabilization/release-focused: не расширять сценарии без ADR/eval, не
-добавлять shortcuts, которые создают второй API dialect, и не переносить optional/platform/runtime зависимости в core.
+Scorecard фиксирует текущее состояние source и наличие proof-механизма. Синхронизация source, baselines, examples и
+документации не означает, что итоговые gates уже прошли вместе на одном commit.
 
-## Release baseline
-
-| Область | Статус | Что верно сейчас |
+| Область | Состояние | Текущий контракт |
 | --- | --- | --- |
-| Engineering charter | Активно | Качество, инварианты, TDD/evals и документация остаются обязательным стандартом проекта. |
-| Scenario API | Baseline | Пользователь выбирает `run`, `interactive`, `lineSession`, `protocolSession`, `expect`, `listen`, `lineSession().pooled()` или `protocolSession(factory).pooled()`, а не собирает runtime flags. |
-| Invariant model | Baseline | `ScenarioProfile + CommandSpec + scenario invocation` разворачиваются в валидированные execution/session plans. |
-| One-shot execution | Baseline | Direct argv, explicit shell, stdin (bytes/`fromPath`), cwd/env, charset, timeout (`ZERO` = отключен), drain, bounded/file/discard capture и typed result покрыты tests. |
-| Capture policy | Baseline | Bounded capture с truncation flags, redirect-to-file (`CapturePolicy.toPath`) и `discard` реализованы и покрыты tests; in-memory streaming listener для `run` не входит в baseline `0.1.0`. |
-| Timeout/shutdown | Baseline | Timeout supervision и process-tree cleanup покрыты integration/stress tests; platform timing остается bounded regression, а не performance guarantee. |
-| Command model | Baseline | Immutable `CommandSpec`, per-call builders, explicit environment policy и result/error model покрыты unit/integration tests. |
-| Interactive session | Baseline | Raw `Session` имеет guarded stdin, raw stdout/stderr, `onExit`, idempotent close и caller-visible idle timeout. |
-| Line session | Baseline | `LineSession` сериализует request/response, поддерживает custom decoder, bounded transcript, bounded line length, EOF/timeout distinction и stderr drain. |
-| Protocol session | Baseline | `ProtocolSession` сериализует framed/typed request/response через adapter, поддерживает readiness, strict charset, request/response limits, bounded transcript и typed failure taxonomy. |
-| Expect helper | Baseline | Literal/regex matching, match extraction (`ExpectMatch` с capture groups), send/sendLine, bounded transcript, redacted action values и failure messages, ANSI filter и EOF/timeout distinction покрыты tests. |
-| PTY | Baseline | `TerminalPolicy`, `PtyProvider`, system provider, explicit unsupported behavior, terminal size и terminal signal model покрыты; Windows ConPTY отложен. |
-| Streaming/listen | Baseline | `listen` закрывает stdin по умолчанию, дренирует stdout/stderr, dispatches chunks, хранит bounded diagnostics, покрывает timeout/listener failure. |
-| Diagnostics | Baseline | Structured lifecycle/timeout/truncation events, lifecycle `runId`, redaction-friendly command echo, async best-effort delivery с per-run порядком для каждого получателя и transcript sink покрыты tests/docs. |
-| Kotlin ergonomics | Baseline | Optional `:procwright-kotlin` содержит extensions, Kotlin duration overloads, suspend wrappers, Flow adapter и scenario-scoped DSL helpers; Java core не зависит от Kotlin; KDoc coverage check включен. |
-| Pooling | Baseline | `PooledLineSession` и `PooledProtocolSession` используют existing session workers, поддерживают max/warmup/minIdle, acquire timeout, bounded reset/health hooks, per-worker protocol adapters, retirement reasons, drain и metrics. |
-| Scenario presets | Baseline | Текущий набор presets заморожен для baseline `0.1.0` и остается typed builder customizer layer без нового runtime. |
-| CLI integrations | Baseline | Optional `:procwright-integrations` содержит JSON/JSONL, Content-Length framing, protocol adapters, cancellation/error mapping и command-backed tool wrappers без MCP dependency. |
-| Performance/stress | Baseline | `stressTest` входит в `check`; JMH/comparison остаются research/manual data, не performance guarantee. |
-| Release hardening | Baseline | License, CI matrix, dependency verification, versioning/compatibility/dependency policies, release checklist, JPMS, Javadocs и public package boundary tests добавлены. |
-| Java release variants | Baseline | Один source tree собирается с `procwright.javaRelease=17/21/25`; threading model скрыта за internal boundary, Java 17 использует fallback без изменения public API. |
-| Fixture/evals | Baseline | `:procwright-test-cli` моделирует success, stderr, large output, timeout, sessions, streaming и нестабильные real-world process behaviors. |
-| Documentation | Baseline | Public MkDocs site описывает shipped behavior, содержит scenario/how-to/reference/release pages и включает generated Java API docs. |
+| Scenario API | Готово | `Procwright.command(...)` -> scenario -> persistent `Draft.with*` -> `execute/open`. |
+| Draft semantics | Готово | Branching, defensive copying, no-launch-before-terminal, repeated/concurrent terminals, pool snapshots, factory behavior и `Expect.Draft` ownership покрыты. |
+| Command model | Готово | Immutable `CommandSpec`, direct argv default, explicit shell/environment policy. |
+| One-shot | Готово | Input, bounded/file/discard capture, strict decoding, timeout, tree shutdown и typed result/failure. |
+| Interactive | Готово | Guarded stdin, raw output ownership, readiness, idle timeout, PTY и idempotent lifecycle. |
+| Expect | Готово | Explicit Draft/open, bounded matching/transcript, redaction и typed outcomes. |
+| Line session | Готово | Serialized requests, end-to-end deadline, independent limits/backlog и hostile-decoder protection. |
+| Protocol session | Готово | Factory per session/worker, adapter-owned framing, strict decoding, global response budget и typed failures. |
+| Streaming | Готово | Backpressure, bounded diagnostics, fixed closed-stdin invariant и stable listener/read/process reasons. |
+| Pooling | Готово | Nested `PoolDraft`, no public lease, bounded startup/hooks/retirement, replenishment и metrics. |
+| Diagnostics | Готово | Scenario-level hooks, bounded async best-effort delivery, schema и `runId`. |
+| PTY | Ограничено платформой | System provider на поддерживаемых POSIX-системах; `REQUIRED` не fallback-ится; ConPTY отсутствует. |
+| Kotlin | Синхронизировано | Реализация, ABI baseline и внешний Kotlin consumer используют Java Draft, durations, coroutine ownership, cold `openFlow()` и factory DSL. |
+| Integrations | Готово | JSON/JSONL, Content-Length и command-backed helpers поверх core runtime; Jackson только в optional module. |
+| Memory/concurrency | Готово на уровне contracts | Bounded capture/transcripts/queues/executors и stress proofs; абсолютные heap/throughput guarantees не даются. |
+| Public consumers | Синхронизировано | Java, Kotlin и integrations consumers используют текущий API; итоговый compilation proof требует запуска gate на release commit. |
+| API compatibility | Синхронизировано | Exact JVM signatures и Kotlin ABI baseline соответствуют принятому Draft API; совместимость доказывает только успешный gate на том же commit. |
+| Documentation | Синхронизировано | Context, public docs, snippets и canonical examples описывают текущий API; итоговый strict docs proof еще должен пройти на release commit. |
+| Java/platform matrix | Проверяется CI | Java 17 target на JDK 17/21/25 и Linux/macOS/Windows; source targets 21/25 отдельно. |
+| Publication | Настроено, не выпущено | Signed Central bundle, isolated consumers и exact staging provenance входят в release gate. |
 
-## Принятые стабилизационные решения
+## Блокеры первого выпуска
 
-- `CommandService` остается главным entry point baseline `0.1.0`.
-- Convenience one-line shortcuts не входят в baseline `0.1.0`.
-- `SessionOptions.idleTimeout` сохраняет имя и caller-visible activity semantics.
-- Текущий набор `ScenarioPresets` заморожен; новые presets требуют ADR/eval.
-- Session-family handles остаются sealed public non-SPI contracts.
-- Diagnostics delivery остается async best-effort; события одного run приходят каждому получателю по порядку, ordering
-  между получателями не гарантируется.
-- Expect-level action diagnostics и подробные pool worker lifecycle events отложены.
-- Windows ConPTY provider отложен в optional/runtime-specific future artifact.
-- Kotlin generated docs через Dokka отложены; KDoc coverage check остается release gate.
-- Maven Central publishing/signing setup добавлен; первая публикация ожидает verified namespace и Central Portal
-  credentials.
+- Прогнать `releaseCandidateCheck` и isolated local publication/consumer smoke на одном clean release commit.
+- Получить зеленую Linux/macOS/Windows × JDK 17/21/25 CI-матрицу для exact release commit.
 
-## Отложено за пределы baseline 0.1.0
+## Устойчивые границы
 
-- Raw session pooling.
-- Generic/core async request API.
-- Stateful affinity pools.
-- Real MCP SDK adapter поверх `:procwright-integrations`.
-- Windows ConPTY provider.
-- Dokka publication для Kotlin API docs.
-- Automatic Maven Central publish без ручной проверки первого Central Portal deployment.
-- Machine-dependent performance promises.
-- In-memory streaming capture listener для one-shot `run` (redirect-to-file и discard уже в baseline).
+- Generic Java async API, raw session pooling, public leases и stateful affinity не входят в core.
+- External process libraries остаются только в comparison module.
+- Kotlin и integrations не создают второй process runtime.
+- Новая настройка добавляется только scenario Draft, где имеет однозначную семантику.
+- Новая возможность без владельца инварианта и executable proof не считается прогрессом.
 
-## Что считается прогрессом
-
-- Public API freeze audit остается без P0/P1 findings.
-- Каждый новый behavior добавляет owner в `quality/invariant-proof-map.md`.
-- Public docs описывают только behavior, доказанный tests/examples/release context.
-- Release-relevant changes обновляют `context/release/`, public docs и release gate.
+Фактический release gate описан в [release-checklist.md](../release/release-checklist.md), а связи инвариантов с
+проверками — в [invariant-proof-map.md](invariant-proof-map.md).

@@ -1,102 +1,44 @@
-# ADR-0013: Публичная документация и documentation toolchain
+# ADR-0013: Публичная документация и toolchain
 
 ## Статус
 
-Accepted, updated 2026-06-12 after the hash-pinned docs lock workflow landed.
+Принято.
 
 ## Контекст
 
-Независимое scenario testing показало, что Procwright выигрывает за счет scenario-first API, но documentation discoverability
-остается главным риском. Ветка уже содержит русскоязычный `context/` как внутреннюю память проекта, Javadoc artifacts
-для Java modules, KDoc coverage check для Kotlin API и compile-tested examples. Этого недостаточно для пользователя,
-который впервые открывает библиотеку и должен быстро выбрать правильный сценарий.
-
-Нужно добавить публичный слой документации, не смешивая его с внутренним context:
-
-- `context/` остается русскоязычной проектной памятью, ADR и audit trail;
-- публичные docs должны быть ориентированы на пользователя и написаны на английском вместе с API;
-- документация не должна обещать поведение раньше tests/examples;
-- framework должен усиливать навигацию и проверяемость, а не становиться отдельным product site.
+Новый пользователь должен выбрать сценарий, установить библиотеку и собрать корректный пример без знания внутренней
+архитектуры. Javadocs недостаточно для навигации по задачам, а `context/` предназначен только для актуальных решений
+LLM-агентов.
 
 ## Решение
 
-Использовать:
-
-- Diátaxis как информационную архитектуру: tutorials, how-to guides, reference, explanation;
-- MkDocs как Markdown-based static documentation builder;
-- Material for MkDocs как публичную тему с поиском и навигацией;
-- Javadoc как generated Java API reference;
-- Dokka как будущий generated Kotlin API reference, когда Kotlin public API стабилизируется для публикации.
-
-Публичный docs source живет в `docs/`, конфигурация — в `mkdocs.yml`, Python docs dependencies — в
-`docs/requirements.txt` (top-level versions) и `docs/requirements.lock` (hash-pinned transitive lock).
-
-Gradle получает отдельный gate `publicDocsCheck`, который запускает MkDocs в strict mode и устанавливает docs
-toolchain только из hash-pinned `docs/requirements.lock`. Release candidate gate включает этот шаг, но обычный `check`
-остается runtime-oriented и не превращается в Python/docs pipeline.
+- Публичные англоязычные материалы живут в `docs/`; русский `context/` не публикуется.
+- Diataxis используется как способ разделить tutorial/how-to/reference/explanation, но не как причина создавать
+  страницы без пользовательской задачи.
+- MkDocs Material собирает статический сайт; `publicDocsCheck` запускает strict build из hash-pinned
+  `docs/requirements.lock`.
+- Docs/release jobs явно выбирают Python 3.13.14 и uv 0.10.12; используемые GitHub Actions зафиксированы exact commit
+  SHA.
+- Java reference генерируется Javadoc для core и integrations.
+- Kotlin имеет task-oriented reference; `kotlinApiDocsCheck` использует официальный Dokka 2.2.0 как parser-backed
+  KDoc gate с `reportUndocumented=true` и `failOnWarning=true`. Отдельный Dokka site не публикуется без доказанной
+  пользовательской пользы.
+- Публичные Java snippets должны быть скопированы из compile-tested example sources; ссылки проверяются strict docs
+  build и repository tests.
+- `preparePublicDocs` включает generated Javadocs во вход MkDocs, поэтому относительные API links проверяются strict
+  build; после сборки оригинальные Javadoc assets копируются без преобразования.
+- При non-SNAPSHOT version `releaseDocsContentCheck` отклоняет pre-release status, moving `main` source links и
+  dependency coordinates, не совпадающие с release version.
 
 ## Инварианты
 
-- `docs/` описывает только реализованное и проверенное поведение.
-- Public docs не являются источником истины для runtime guarantees; они ссылаются на tested behavior, examples и API
-  docs.
-- Public scenario docs должны оставаться синхронизированы с compile-tested examples.
-- `context/` не публикуется как пользовательская документация без редакторской переработки.
-- Javadoc/KDoc остаются частью public API discipline, а не заменой scenario docs.
-- Документационный framework не должен требовать React/MDX или frontend runtime, пока нет доказанной потребности.
-- Обновление 2026-06-12: transitive Python docs dependencies зафиксированы hash-pinned lockfile
-  `docs/requirements.lock`, который генерируется через
-  `uv pip compile docs/requirements.txt --generate-hashes`; `publicDocsCheck` устанавливает docs toolchain только из
-  этого lock. Остаточный supply-chain риск закрывается осознанным обновлением lock при изменении
-  `docs/requirements.txt`.
-
-## Отклоненные варианты
-
-### Только README и Javadocs
-
-Отклонено, потому что Procwright продает не набор классов, а сценарную модель. README слишком мал для scenario cookbook, а
-Javadocs плохо объясняют выбор workflow.
-
-### Docusaurus
-
-Отклонено для текущего этапа как лишний frontend/MDX слой. Он уместен, если позже понадобятся интерактивные React
-components, полноценная multi-version/i18n product site модель или docs portal вокруг нескольких продуктов.
-
-### VitePress
-
-Отклонено как хороший, но не более подходящий вариант для текущей JVM library docs. Vue/Vite stack не дает Procwright
-очевидного выигрыша над MkDocs Material.
-
-### Antora + AsciiDoc
-
-Отклонено до появления настоящей multi-repo или large-scale multi-version документации. Сейчас это добавило бы больше
-процесса, чем пользы.
-
-### Sphinx
-
-Отклонено как менее естественный выбор для JVM-библиотеки. Он силен для Python/docstring-oriented проектов, но Procwright
-уже имеет Java/Kotlin-native API docs path.
+- Документация описывает только доказанное кодом и тестами поведение.
+- У каждой страницы есть пользовательская задача; бесполезная полнота удаляется.
+- Release gate включает `publicDocsCheck` и строгий Javadoc.
+- Изменение dependency coordinates, public API или observable contract обновляет соответствующие public pages и
+  compile-tested examples в том же шаге.
 
 ## Последствия
 
-Плюсы:
-
-- появляется публичная входная точка для пользователя;
-- scenario-first философия отражается в структуре docs;
-- docs build можно проверять отдельно и в release gate;
-- внутренний русский context не смешивается с пользовательской документацией;
-- Javadoc/Dokka остаются специализированными API reference слоями.
-
-Минусы:
-
-- появляется Python docs toolchain;
-- release gate требует доступного `uv` и возможности установить docs dependencies из hash-pinned lock;
-- docs toolchain lock нужно обновлять осознанно при изменении top-level requirements;
-- нужно поддерживать синхронизацию публичных scenario pages и compile-tested examples.
-
-## Проверка
-
-- `./gradlew publicDocsCheck` собирает публичный MkDocs site в strict mode.
-- `./gradlew releaseCandidateCheck` включает `publicDocsCheck`.
-- Public scenario docs coverage test проверяет, что страница сценариев упоминает все core compile-tested examples.
-- Javadocs для Java modules и KDoc checks для Kotlin module остаются отдельными gates.
+Docs toolchain остается вне runtime artifacts, но требует Python dependencies для release gate. Lock обновляется только
+при осмысленном изменении top-level docs requirements.

@@ -4,11 +4,16 @@ package io.github.ulviar.procwright.diagnostics;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.CommandService;
+import io.github.ulviar.procwright.InteractiveScenario;
+import io.github.ulviar.procwright.LineSessionScenario;
 import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.RunScenario;
+import io.github.ulviar.procwright.StreamScenario;
 import io.github.ulviar.procwright.TestCliSupport;
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandExecutionException;
@@ -17,6 +22,7 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.DiagnosticAttributeSchema;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
+import io.github.ulviar.procwright.session.PooledLineSessionException;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -25,7 +31,6 @@ import io.github.ulviar.procwright.session.ProtocolWriter;
 import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.StreamExit;
 import io.github.ulviar.procwright.session.StreamListener;
-import io.github.ulviar.procwright.session.StreamOptions;
 import io.github.ulviar.procwright.session.StreamSession;
 import java.time.Duration;
 import java.util.List;
@@ -36,16 +41,91 @@ import org.junit.jupiter.api.Test;
 final class DiagnosticsIntegrationTest {
 
     @Test
+    void interactiveFatalReadinessFailureEmitsOneOrderedProcessFailure() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        AssertionError readinessFailure = new AssertionError("fatal readiness failure");
+
+        AssertionError thrown = assertThrows(AssertionError.class, () -> fixtureService()
+                .interactive()
+                .withDiagnosticListener(recorder)
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withReadiness(ignored -> {
+                    throw readinessFailure;
+                })
+                .open());
+
+        assertSame(readinessFailure, thrown);
+        assertOpenFailureLifecycle(recorder, "interactive", AssertionError.class);
+    }
+
+    @Test
+    void lineReadinessFailureEmitsOneOrderedProcessFailure() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        IllegalStateException readinessFailure = new IllegalStateException("line not ready");
+
+        CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .lineSession()
+                .withDiagnosticListener(recorder)
+                .withArg("controlled-line-repl")
+                .withReadiness(ignored -> {
+                    throw readinessFailure;
+                })
+                .open());
+
+        assertSame(readinessFailure, thrown.getCause());
+        assertEquals(CommandExecutionException.Reason.READINESS_FAILED, thrown.reason());
+        assertOpenFailureLifecycle(recorder, "lineSession", CommandExecutionException.class);
+    }
+
+    @Test
+    void protocolReadinessFailureEmitsOneOrderedProcessFailure() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        IllegalStateException readinessFailure = new IllegalStateException("protocol not ready");
+
+        CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .protocolSession(TextLineAdapter::new)
+                .withDiagnosticListener(recorder)
+                .withArg("controlled-line-repl")
+                .withReadiness(ignored -> {
+                    throw readinessFailure;
+                })
+                .open());
+
+        assertSame(readinessFailure, thrown.getCause());
+        assertEquals(CommandExecutionException.Reason.READINESS_FAILED, thrown.reason());
+        assertOpenFailureLifecycle(recorder, "protocolSession", CommandExecutionException.class);
+    }
+
+    @Test
+    void pooledWarmupReadinessFailureEmitsOneOrderedWorkerProcessFailure() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        IllegalStateException readinessFailure = new IllegalStateException("worker not ready");
+
+        PooledLineSessionException thrown = assertThrows(PooledLineSessionException.class, () -> fixtureService()
+                .lineSession()
+                .withDiagnosticListener(recorder)
+                .withArg("controlled-line-repl")
+                .withReadiness(ignored -> {
+                    throw readinessFailure;
+                })
+                .pooled()
+                .withMaxSize(1)
+                .withWarmupSize(1)
+                .open());
+
+        assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, thrown.reason());
+        assertOpenFailureLifecycle(recorder, "pooled", CommandExecutionException.class);
+    }
+
+    @Test
     void runEmitsLifecycleAndExitEventsWithRedactionFriendlyCommandEcho() {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service = fixtureService()
-                .withDiagnostics(
-                        DiagnosticsOptions.defaults().withListener(recorder).withTranscriptSink(recorder));
+        RunScenario.Draft scenario =
+                fixtureService().run().withDiagnosticListener(recorder).withDiagnosticTranscriptSink(recorder);
 
-        CommandResult result = service.run()
-                .configuredBy(
-                        call -> call.args("argv-env-cwd", "--env=SECRET_VALUE", "--", "--token", "secret-argument")
-                                .putEnvironment("SECRET_VALUE", "hidden-value"))
+        CommandResult result = scenario.withArgs(
+                        "argv-env-cwd", "--env=SECRET_VALUE", "--", "--token", "secret-argument")
+                .withEnvironment("SECRET_VALUE", "hidden-value")
                 .execute();
 
         assertTrue(result.succeeded());
@@ -64,13 +144,11 @@ final class DiagnosticsIntegrationTest {
     @Test
     void runDiagnosticEventsUseSchemaAndDoNotExposeRawValues() {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+        RunScenario.Draft scenario = fixtureService().run().withDiagnosticListener(recorder);
 
-        CommandResult result = service.run()
-                .configuredBy(call -> call.args("exit", "--stdout=" + "secret-output".repeat(4))
-                        .putEnvironment("SECRET_VALUE", "secret-env-value")
-                        .capture(CapturePolicy.bounded(8)))
+        CommandResult result = scenario.withArgs("exit", "--stdout=" + "secret-output".repeat(4))
+                .withEnvironment("SECRET_VALUE", "secret-env-value")
+                .withCapture(CapturePolicy.bounded(8))
                 .execute();
 
         assertTrue(result.stdoutTruncated());
@@ -88,14 +166,11 @@ final class DiagnosticsIntegrationTest {
     @Test
     void timeoutAndLaunchFailureDiagnosticEventsUseSchemaAndDoNotExposeRawValues() {
         DiagnosticRecorder timeoutRecorder = new DiagnosticRecorder();
-        CommandService timeoutService =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(timeoutRecorder));
+        RunScenario.Draft timeoutScenario = fixtureService().run().withDiagnosticListener(timeoutRecorder);
 
-        CommandResult timeout = timeoutService
-                .run()
-                .configuredBy(
-                        call -> call.args("sleep", "--millis=5000", "--finished=false", "--", "secret-timeout-arg")
-                                .timeout(Duration.ofMillis(100)))
+        CommandResult timeout = timeoutScenario
+                .withArgs("sleep", "--millis=5000", "--finished=false", "--", "secret-timeout-arg")
+                .withTimeout(Duration.ofMillis(100))
                 .execute();
 
         assertTrue(timeout.timedOut());
@@ -110,12 +185,13 @@ final class DiagnosticsIntegrationTest {
                 "secret-timeout-arg");
 
         DiagnosticRecorder failureRecorder = new DiagnosticRecorder();
-        CommandService missingCommand = CommandService.forCommand("__procwright_missing_command_for_diagnostics__")
-                .withDiagnostics(DiagnosticsOptions.defaults().withListener(failureRecorder));
+        RunScenario.Draft missingCommand = Procwright.command("__procwright_missing_command_for_diagnostics__")
+                .run()
+                .withDiagnosticListener(failureRecorder);
 
         assertThrows(
                 CommandExecutionException.class,
-                () -> missingCommand.run().withArg("secret-launch-arg").execute());
+                () -> missingCommand.withArg("secret-launch-arg").execute());
         assertEventsSafe(
                 failureRecorder,
                 Set.of(DiagnosticEventType.COMMAND_PREPARED, DiagnosticEventType.PROCESS_FAILED),
@@ -125,14 +201,12 @@ final class DiagnosticsIntegrationTest {
     @Test
     void streamFailureDiagnosticEventsUseSchemaAndDoNotExposeRawOutput() throws Exception {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+        StreamScenario.Draft scenario = fixtureService().listen().withDiagnosticListener(recorder);
 
-        try (StreamSession session = service.listen()
-                .configuredBy(call -> call.args("exit", "--stdout=secret-stream-output")
-                        .onOutput(chunk -> {
-                            throw new IllegalStateException("listener failed");
-                        }))
+        try (StreamSession session = scenario.withArgs("exit", "--stdout=secret-stream-output")
+                .onOutput(chunk -> {
+                    throw new IllegalStateException("listener failed");
+                })
                 .open()) {
             assertThrows(java.util.concurrent.ExecutionException.class, () -> session.onExit()
                     .get(2, TimeUnit.SECONDS));
@@ -154,11 +228,11 @@ final class DiagnosticsIntegrationTest {
         for (int attempt = 0; attempt < 5; attempt++) {
             int run = attempt;
             DiagnosticRecorder recorder = new DiagnosticRecorder();
-            CommandService service = fixtureService()
-                    .withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
-
-            CommandResult result =
-                    service.run().withArgs("exit", "--stdout=ok\n").execute();
+            CommandResult result = fixtureService()
+                    .run()
+                    .withDiagnosticListener(recorder)
+                    .withArgs("exit", "--stdout=ok\n")
+                    .execute();
 
             assertTrue(result.succeeded());
             assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
@@ -183,11 +257,9 @@ final class DiagnosticsIntegrationTest {
     @Test
     void runEmitsOutputTruncationMetadata() {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+        RunScenario.Draft scenario = fixtureService().run().withDiagnosticListener(recorder);
 
-        CommandResult result = service.run()
-                .withArgs("burst", "--stdout-bytes=64", "--stdout-byte=x")
+        CommandResult result = scenario.withArgs("burst", "--stdout-bytes=64", "--stdout-byte=x")
                 .withCapture(CapturePolicy.bounded(16))
                 .execute();
 
@@ -200,11 +272,9 @@ final class DiagnosticsIntegrationTest {
     @Test
     void runEmitsTimeoutAndShutdownEvents() {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+        RunScenario.Draft scenario = fixtureService().run().withDiagnosticListener(recorder);
 
-        CommandResult result = service.run()
-                .withArgs("sleep", "--millis=5000", "--finished=false")
+        CommandResult result = scenario.withArgs("sleep", "--millis=5000", "--finished=false")
                 .withTimeout(Duration.ofMillis(100))
                 .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(5)))
                 .execute();
@@ -219,12 +289,11 @@ final class DiagnosticsIntegrationTest {
 
     @Test
     void diagnosticListenerFailureDoesNotChangeRunResult() {
-        CommandService service = fixtureService()
-                .withDiagnostics(DiagnosticsOptions.defaults().withListener(event -> {
-                    throw new AssertionError("diagnostics failed");
-                }));
+        RunScenario.Draft scenario = fixtureService().run().withDiagnosticListener(event -> {
+            throw new AssertionError("diagnostics failed");
+        });
 
-        CommandResult result = service.run().withArgs("exit", "--stdout=ok\n").execute();
+        CommandResult result = scenario.withArgs("exit", "--stdout=ok\n").execute();
 
         assertTrue(result.succeeded());
         assertEquals("ok\n", result.stdout());
@@ -233,11 +302,10 @@ final class DiagnosticsIntegrationTest {
     @Test
     void listenEmitsDiagnosticTruncationAndExplicitCloseShutdownEvents() throws Exception {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service = fixtureService(StreamOptions.defaults().withDiagnosticLimit(64))
-                .withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+        StreamScenario.Draft scenario =
+                fixtureService().listen().withDiagnosticLimit(64).withDiagnosticListener(recorder);
 
-        try (StreamSession session = service.listen()
-                .withArgs("burst", "--stdout-bytes=128", "--stdout-byte=x")
+        try (StreamSession session = scenario.withArgs("burst", "--stdout-bytes=128", "--stdout-byte=x")
                 .onOutput(StreamListener.noop())
                 .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
@@ -249,14 +317,16 @@ final class DiagnosticsIntegrationTest {
         }
 
         DiagnosticRecorder closeRecorder = new DiagnosticRecorder();
-        CommandService closeService =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(closeRecorder));
-        try (StreamSession session = closeService
+        StreamSession session = fixtureService()
                 .listen()
+                .withDiagnosticListener(closeRecorder)
                 .withArgs("sleep", "--millis=5000", "--finished=false")
-                .open()) {
+                .open();
+        try {
             session.close();
             session.onExit().get(2, TimeUnit.SECONDS);
+        } finally {
+            session.close();
         }
 
         assertTrue(closeRecorder.awaitContains(DiagnosticEventType.SHUTDOWN_REQUESTED));
@@ -271,11 +341,9 @@ final class DiagnosticsIntegrationTest {
     @Test
     void listenEmitsLifecycleTimeoutAndListenerFailureEvents() throws Exception {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
+        StreamScenario.Draft scenario = fixtureService().listen().withDiagnosticListener(recorder);
 
-        try (StreamSession session = service.listen()
-                .withArgs("sleep", "--millis=5000", "--finished=false")
+        try (StreamSession session = scenario.withArgs("sleep", "--millis=5000", "--finished=false")
                 .withTimeout(Duration.ofMillis(100))
                 .open()) {
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
@@ -289,13 +357,13 @@ final class DiagnosticsIntegrationTest {
         }
 
         DiagnosticRecorder listenerFailureRecorder = new DiagnosticRecorder();
-        CommandService listenerFailureService =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(listenerFailureRecorder));
-        try (StreamSession session = listenerFailureService
+        try (StreamSession session = fixtureService()
                 .listen()
-                .configuredBy(call -> call.args("exit", "--stdout=boom").onOutput(chunk -> {
+                .withDiagnosticListener(listenerFailureRecorder)
+                .withArgs("exit", "--stdout=boom")
+                .onOutput(chunk -> {
                     throw new IllegalStateException("listener failed");
-                }))
+                })
                 .open()) {
             try {
                 session.onExit().get(2, TimeUnit.SECONDS);
@@ -310,10 +378,10 @@ final class DiagnosticsIntegrationTest {
     @Test
     void interactiveAndLineSessionEmitLifecycleEvents() throws Exception {
         DiagnosticRecorder interactiveRecorder = new DiagnosticRecorder();
-        CommandService interactiveService =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(interactiveRecorder));
+        InteractiveScenario.Draft interactiveScenario =
+                fixtureService().interactive().withDiagnosticListener(interactiveRecorder);
 
-        try (Session session = interactiveService.interactive().withArg("exit").open()) {
+        try (Session session = interactiveScenario.withArg("exit").open()) {
             session.onExit().get(2, TimeUnit.SECONDS);
         }
 
@@ -330,11 +398,9 @@ final class DiagnosticsIntegrationTest {
                         DiagnosticEventType.PROCESS_EXITED));
 
         DiagnosticRecorder lineRecorder = new DiagnosticRecorder();
-        CommandService lineService =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(lineRecorder));
+        LineSessionScenario.Draft lineScenario = fixtureService().lineSession().withDiagnosticListener(lineRecorder);
 
-        try (LineSession session =
-                lineService.lineSession().withArg("controlled-line-repl").open()) {
+        try (LineSession session = lineScenario.withArg("controlled-line-repl").open()) {
             assertEquals("response:hello", session.request("hello").text());
         }
 
@@ -356,10 +422,10 @@ final class DiagnosticsIntegrationTest {
     @Test
     void pooledWorkersEmitLifecycleEvents() throws Exception {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (PooledLineSession pool = service.lineSession()
+        try (PooledLineSession pool = fixtureService()
+                .lineSession()
+                .withDiagnosticListener(recorder)
                 .withArgs("controlled-line-repl")
                 .pooled()
                 .withMaxSize(1)
@@ -385,10 +451,10 @@ final class DiagnosticsIntegrationTest {
     @Test
     void protocolSessionEmitsLifecycleEventsWithSharedRunId() {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (ProtocolSession<String, String> session = service.protocolSession(new TextLineAdapter())
+        try (ProtocolSession<String, String> session = fixtureService()
+                .protocolSession(TextLineAdapter::new)
+                .withDiagnosticListener(recorder)
                 .withArgs("controlled-line-repl", "--response-prefix=secret-protocol:")
                 .open()) {
             assertEquals("secret-protocol:hello", session.request("hello", Duration.ofSeconds(2)));
@@ -411,10 +477,10 @@ final class DiagnosticsIntegrationTest {
     @Test
     void pooledProtocolWorkersEmitLifecycleEventsWithSharedRunId() {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
-        CommandService service =
-                fixtureService().withDiagnostics(DiagnosticsOptions.defaults().withListener(recorder));
 
-        try (PooledProtocolSession<String, String> pool = service.protocolSession(TextLineAdapter::new)
+        try (PooledProtocolSession<String, String> pool = fixtureService()
+                .protocolSession(TextLineAdapter::new)
+                .withDiagnosticListener(recorder)
                 .withArgs("controlled-line-repl", "--response-prefix=secret-protocol:")
                 .pooled()
                 .withMaxSize(1)
@@ -443,6 +509,29 @@ final class DiagnosticsIntegrationTest {
         Set<String> runIds =
                 events.stream().map(DiagnosticEvent::runId).collect(java.util.stream.Collectors.toUnmodifiableSet());
         assertEquals(1, runIds.size(), () -> "events of one process lifecycle must share one runId: " + runIds);
+    }
+
+    private static void assertOpenFailureLifecycle(
+            DiagnosticRecorder recorder, String scenario, Class<? extends Throwable> failureType) {
+        assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_FAILED));
+        List<DiagnosticEvent> events = recorder.events();
+        List<DiagnosticEventType> types =
+                events.stream().map(DiagnosticEvent::type).toList();
+        int prepared = types.indexOf(DiagnosticEventType.COMMAND_PREPARED);
+        int started = types.indexOf(DiagnosticEventType.PROCESS_STARTED);
+        int failed = types.indexOf(DiagnosticEventType.PROCESS_FAILED);
+
+        assertTrue(prepared >= 0 && prepared < started && started < failed, () -> "invalid open lifecycle: " + types);
+        assertEquals(
+                1,
+                types.stream()
+                        .filter(type -> type == DiagnosticEventType.PROCESS_FAILED)
+                        .count());
+        DiagnosticEvent failure = recorder.first(DiagnosticEventType.PROCESS_FAILED);
+        assertEquals(scenario, failure.scenario());
+        assertEquals(failureType.getName(), failure.attributes().get("error"));
+        assertTrue(failure.attributes().get("error").length() <= 256);
+        DiagnosticAttributeSchema.validate(failure.type(), failure.attributes());
     }
 
     private static final class TextLineAdapter implements ProtocolAdapter<String, String> {
@@ -480,10 +569,6 @@ final class DiagnosticsIntegrationTest {
     }
 
     private static CommandService fixtureService() {
-        return fixtureService(StreamOptions.defaults());
-    }
-
-    private static CommandService fixtureService(StreamOptions streamOptions) {
-        return Procwright.command(TestCliSupport.command()).withStreamOptions(streamOptions);
+        return Procwright.command(TestCliSupport.command());
     }
 }

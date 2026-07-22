@@ -20,10 +20,15 @@ public sealed interface LineSession extends AutoCloseable permits DefaultLineSes
     /**
      * Sends one line and decodes one response with the default request timeout.
      *
-     * <p>Only one request can be active at a time. On timeout, EOF, broken pipe, decode error, response-size overflow,
-     * stdout backlog overflow, decoder failure, or another request/response failure, the line session is closed because
-     * the protocol state is no longer trustworthy. The thrown {@link LineSessionException} contains a stable reason and
-     * bounded transcript snapshot.
+     * <p>Only one request can be active at a time. A local request-preparation or wait failure that completes before the
+     * request is handed off for stdin writing, when no later write can occur, leaves the session open so the caller may
+     * retry. This includes line validation, request-size checks, encoding, and deadlines while waiting for an earlier
+     * request or for stdin writing to become available.
+     * Once the request is handed off for writing, a timeout, interruption, or write failure is terminal even when the
+     * caller cannot confirm that the process received a byte. EOF, decode error, response-size overflow, stdout backlog
+     * overflow, decoder failure, and other response/protocol failures are also terminal. A terminal failure closes the
+     * process and completes {@link #onExit()}; a pre-write failure leaves it incomplete unless the process exits
+     * independently. The thrown {@link LineSessionException} contains a stable reason and bounded transcript snapshot.
      *
      * @param line request line without the terminating line feed
      * @return decoded response

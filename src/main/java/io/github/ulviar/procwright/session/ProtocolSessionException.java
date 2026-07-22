@@ -5,10 +5,12 @@ package io.github.ulviar.procwright.session;
 import io.github.ulviar.procwright.ProcwrightException;
 import java.util.Objects;
 import java.util.OptionalInt;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Signals a protocol request/response failure.
  */
+@SuppressWarnings("serial")
 public final class ProtocolSessionException extends ProcwrightException {
 
     /** Failure reason. */
@@ -35,9 +37,10 @@ public final class ProtocolSessionException extends ProcwrightException {
      * @param reason failure reason
      * @param transcript bounded transcript snapshot
      * @param message failure message
-     * @param cause failure cause
+     * @param cause failure cause, or {@code null} when unavailable
      */
-    public ProtocolSessionException(Reason reason, ProtocolTranscript transcript, String message, Throwable cause) {
+    public ProtocolSessionException(
+            Reason reason, ProtocolTranscript transcript, String message, @Nullable Throwable cause) {
         this(reason, transcript, OptionalInt.empty(), message, cause);
     }
 
@@ -48,10 +51,14 @@ public final class ProtocolSessionException extends ProcwrightException {
      * @param transcript bounded transcript snapshot
      * @param exitCode process exit code when known
      * @param message failure message
-     * @param cause failure cause
+     * @param cause failure cause, or {@code null} when unavailable
      */
     public ProtocolSessionException(
-            Reason reason, ProtocolTranscript transcript, OptionalInt exitCode, String message, Throwable cause) {
+            Reason reason,
+            ProtocolTranscript transcript,
+            OptionalInt exitCode,
+            String message,
+            @Nullable Throwable cause) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
         this.transcript = Objects.requireNonNull(transcript, "transcript");

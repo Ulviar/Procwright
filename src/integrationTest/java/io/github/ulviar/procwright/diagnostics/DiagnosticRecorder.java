@@ -2,22 +2,26 @@
 
 package io.github.ulviar.procwright.diagnostics;
 
-import java.time.Duration;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 final class DiagnosticRecorder implements DiagnosticListener, DiagnosticTranscriptSink {
 
     private final CopyOnWriteArrayList<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
+    private final Map<DiagnosticEventType, CountDownLatch> observed = observedLatches();
 
     @Override
     public void onEvent(DiagnosticEvent event) {
-        events.add(event);
+        add(event);
     }
 
     @Override
     public void record(DiagnosticEvent event) {
-        events.add(event);
+        add(event);
     }
 
     List<DiagnosticEvent> events() {
@@ -25,14 +29,12 @@ final class DiagnosticRecorder implements DiagnosticListener, DiagnosticTranscri
     }
 
     boolean awaitContains(DiagnosticEventType type) {
-        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
-        while (System.nanoTime() < deadline) {
-            if (contains(type)) {
-                return true;
-            }
-            sleep();
+        try {
+            return observed.get(type).await(2, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while awaiting diagnostic event " + type, exception);
         }
-        return contains(type);
     }
 
     DiagnosticEvent first(DiagnosticEventType type) {
@@ -43,16 +45,16 @@ final class DiagnosticRecorder implements DiagnosticListener, DiagnosticTranscri
                 .orElseThrow(() -> new AssertionError("missing diagnostic event: " + type));
     }
 
-    private boolean contains(DiagnosticEventType type) {
-        return events.stream().anyMatch(event -> event.type() == type);
+    private void add(DiagnosticEvent event) {
+        events.add(event);
+        observed.get(event.type()).countDown();
     }
 
-    private static void sleep() {
-        try {
-            Thread.sleep(10);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError("interrupted", exception);
+    private static Map<DiagnosticEventType, CountDownLatch> observedLatches() {
+        EnumMap<DiagnosticEventType, CountDownLatch> latches = new EnumMap<>(DiagnosticEventType.class);
+        for (DiagnosticEventType type : DiagnosticEventType.values()) {
+            latches.put(type, new CountDownLatch(1));
         }
+        return latches;
     }
 }

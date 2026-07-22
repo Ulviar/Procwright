@@ -1,55 +1,70 @@
-# Interactive Sessions
+# Interactive sessions
 
-Use `interactive` when the caller needs direct control over a live process through stdin/stdout/stderr.
+`interactive()` opens a process whose stdin, stdout, stderr, exit future, and terminal controls are exposed through
+`Session`.
 
-The scenario covers:
-
-- owned process lifecycle through `Session`;
-- guarded stdin writes;
-- explicit output ownership handoff to higher-level helpers;
-- caller-visible idle timeout;
-- idempotent close;
-- optional terminal capability for session-family workflows.
-
-## Example
-
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/InteractiveExample.java -->
 ```java
-CommandService python =
-        Procwright.command(CommandSpec.of("python")).withSessionOptions(SessionOptions.defaults()
-                .withIdleTimeout(Duration.ofMinutes(5)));
+/* SPDX-License-Identifier: Apache-2.0 */
 
-try (Session session = python.interactive().withArgs("-i").open()) {
-    session.sendLine("print(6 * 7)");
-    session.closeStdin();
-    SessionExit exit = session.onExit().join();
-    if (exit.timedOut()) {
-        throw new IllegalStateException("session timed out");
+package io.github.ulviar.procwright.examples;
+
+import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.session.Session;
+import io.github.ulviar.procwright.session.SessionExit;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+public final class InteractiveExample {
+
+    private InteractiveExample() {}
+
+    public static void main(String[] args) throws Exception {
+        ExecutorService drains = Executors.newFixedThreadPool(2);
+        try (Session session = Procwright.command(ExampleSupport.workerCommand("interactive"))
+                .interactive()
+                .withIdleTimeout(Duration.ofSeconds(10))
+                .open()) {
+            Future<String> stdout =
+                    drains.submit(() -> new String(session.stdout().readAllBytes(), StandardCharsets.UTF_8));
+            Future<String> stderr =
+                    drains.submit(() -> new String(session.stderr().readAllBytes(), StandardCharsets.UTF_8));
+
+            session.sendLine("Привет, 世界");
+            session.closeStdin();
+            SessionExit exit = session.onExit().orTimeout(5, TimeUnit.SECONDS).join();
+
+            if (exit.exitCode().orElse(-1) != 0
+                    || !stdout.get(5, TimeUnit.SECONDS).contains("answer:Привет, 世界")
+                    || !stderr.get(5, TimeUnit.SECONDS).contains("processed")) {
+                throw new IllegalStateException("Unexpected interactive response");
+            }
+        } finally {
+            drains.shutdownNow();
+        }
     }
 }
 ```
 
-`closeStdin()` signals end-of-input immediately and closes the raw stream in the background, so it never blocks — even
-while a concurrent write is stuck on a full stdin pipe; writes after `closeStdin()` fail with `IllegalStateException`.
+[Open `InteractiveExample.java`](../examples/java/io/github/ulviar/procwright/examples/InteractiveExample.java) and the
+[shared example sources](../examples.md#core).
 
-## Output ownership
+The caller owns both output streams and must drain them concurrently when the child can write to both. Waiting for exit
+before draining can deadlock a child on a full pipe.
 
-Interactive sessions expose raw stdout and stderr, but Procwright still protects output ownership. The first public raw stream
-operation chooses raw stream mode. A higher-level helper such as `Expect`, `LineSession`, or `StreamSession` must claim
-output before raw stream access starts.
+`open()` starts the process. Close the returned session to stop it and release streams. `withIdleTimeout` measures
+inactivity according to the session contract; it is not an absolute runtime limit.
 
-This rule prevents two readers from competing for bytes from the same process.
+The Draft retains its readiness probe, diagnostics recipients, and optional PTY provider. Each open waits for its own
+readiness call, but concurrent opens can invoke the same retained instances concurrently. Make shared instances
+thread-safe or branch the Draft with separate instances.
 
-## Expect automation
+Opening `Expect` transfers output ownership to that helper. Do not mix raw reads with `Expect`, line-session, or protocol
+decoding.
 
-`Expect` builds prompt automation on top of an already opened `Session`. It claims output ownership, waits for literal
-or regex output, sends input, and reports timeout or EOF with a bounded transcript.
-
-See [Expect Automation](expect.md) for the prompt-specific contract.
-
-## Failure model
-
-`Session.onExit()` exposes a `SessionExit` with an optional exit code and a timeout flag. Lifecycle shutdown from
-`close()`, idle timeout, or failure uses the configured `ShutdownPolicy`.
-
-Raw sessions do not serialize request/response operations. If a protocol has a line request/response shape, prefer
-`lineSession`.
+See [scenario defaults](../reference/defaults.md#interactive-sessions) for idle timeout, shutdown, charset, terminal,
+readiness, and diagnostics values.

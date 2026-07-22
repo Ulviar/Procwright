@@ -5,27 +5,21 @@ package io.github.ulviar.procwright.examples;
 import io.github.ulviar.procwright.CommandService;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CapturePolicy;
+import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.diagnostics.DiagnosticsOptions;
 import io.github.ulviar.procwright.preset.ScenarioPresets;
 import io.github.ulviar.procwright.session.Expect;
-import io.github.ulviar.procwright.session.ExpectOptions;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
 import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
-import io.github.ulviar.procwright.session.ProtocolAdapter;
-import io.github.ulviar.procwright.session.ProtocolReader;
-import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolSession;
-import io.github.ulviar.procwright.session.ProtocolWriter;
 import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.SessionExit;
-import io.github.ulviar.procwright.session.SessionOptions;
 import io.github.ulviar.procwright.session.StreamSession;
 import io.github.ulviar.procwright.session.StreamSource;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
@@ -33,6 +27,7 @@ import io.github.ulviar.procwright.terminal.TerminalSignal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class CommandServiceApiExamples {
@@ -40,7 +35,7 @@ final class CommandServiceApiExamples {
     void oneShotScenario() {
         CommandService git = Procwright.command("git");
 
-        CommandResult result = git.run().execute("status", "--short");
+        CommandResult result = git.run().withArgs("status", "--short").execute();
 
         if (!result.succeeded()) {
             throw result.toException();
@@ -50,14 +45,12 @@ final class CommandServiceApiExamples {
     void explicitCommandConfiguration() {
         Path projectDir = Path.of(".");
 
-        CommandSpec command = CommandSpec.builder("python")
-                .workingDirectory(projectDir)
-                .putEnvironment("PYTHONUTF8", "1")
-                .build();
+        CommandSpec command =
+                CommandSpec.of("python").withWorkingDirectory(projectDir).withEnvironment("PYTHONUTF8", "1");
 
         CommandService python = Procwright.command(command);
 
-        python.run().execute("--version");
+        python.run().withArg("--version").execute();
     }
 
     void policyComposition() {
@@ -75,10 +68,12 @@ final class CommandServiceApiExamples {
     }
 
     void interactiveScenario() {
-        CommandService python = Procwright.command(CommandSpec.of("python"))
-                .withSessionOptions(SessionOptions.defaults().withIdleTimeout(Duration.ofMinutes(5)));
+        CommandService python = Procwright.command(CommandSpec.of("python"));
 
-        try (Session session = python.interactive().withArgs("-i").open()) {
+        try (Session session = python.interactive()
+                .withArgs("-i")
+                .withIdleTimeout(Duration.ofMinutes(5))
+                .open()) {
             session.sendLine("print(6 * 7)");
             session.closeStdin();
             SessionExit exit = session.onExit().join();
@@ -102,11 +97,30 @@ final class CommandServiceApiExamples {
         }
     }
 
+    void strictBoundedLineSessionScenario() {
+        CommandService worker = Procwright.command(CommandSpec.of("tool"));
+
+        try (LineSession session = worker.lineSession()
+                .withArgs("repl")
+                .withMaxRequestBytes(64 * 1024)
+                .withMaxResponseChars(64 * 1024)
+                .withStdoutBacklogLines(128)
+                .withTranscriptLimit(16 * 1024)
+                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
+                .open()) {
+            LineResponse response = session.request("status");
+            if (response.text().isBlank()) {
+                throw new IllegalStateException("empty response");
+            }
+        }
+    }
+
     void expectScenario() {
         CommandService repl = Procwright.command("tool");
 
         try (Session session = repl.interactive().withArgs("repl").open();
-                Expect expect = session.expect(ExpectOptions.defaults().withTimeout(Duration.ofSeconds(2)))) {
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(2)).open()) {
             expect.expectText("ready> ");
             expect.sendLine("status");
             expect.expectRegex(java.util.regex.Pattern.compile("ok|ready"));
@@ -116,12 +130,23 @@ final class CommandServiceApiExamples {
     void terminalRequiredSessionScenario() {
         CommandService shell = Procwright.command("sh");
 
-        try (Session session =
-                shell.interactive().withTerminal(TerminalPolicy.REQUIRED).open()) {
-            session.sendLine("exit");
-            SessionExit exit = session.onExit().join();
-            if (exit.timedOut()) {
-                session.sendSignal(TerminalSignal.INTERRUPT);
+        try (Session session = shell.interactive()
+                        .withArgs(
+                                "-c",
+                                "trap 'echo procwright-interrupted; exit 0' INT; "
+                                        + "echo procwright-ready; while :; do sleep 1; done")
+                        .withTerminal(TerminalPolicy.REQUIRED)
+                        .withIdleTimeout(Duration.ofSeconds(10))
+                        .open();
+                Expect expect =
+                        session.expect().withTimeout(Duration.ofSeconds(2)).open()) {
+            expect.expectText("procwright-ready");
+            session.sendSignal(TerminalSignal.INTERRUPT);
+            expect.expectText("procwright-interrupted");
+
+            SessionExit exit = session.onExit().orTimeout(2, TimeUnit.SECONDS).join();
+            if (exit.exitCode().orElse(-1) != 0) {
+                throw new IllegalStateException("terminal command did not exit cleanly");
             }
         }
     }
@@ -157,7 +182,7 @@ final class CommandServiceApiExamples {
                 })
                 .open()) {
             long deadlineNanos = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-            while (!ready.get() && System.nanoTime() < deadlineNanos) {
+            while (!ready.get() && !stream.onExit().isDone() && System.nanoTime() < deadlineNanos) {
                 Thread.sleep(25);
             }
             if (!ready.get()) {
@@ -167,15 +192,17 @@ final class CommandServiceApiExamples {
     }
 
     void diagnosticsScenario() {
-        CommandService tool = Procwright.command("tool")
-                .withDiagnostics(DiagnosticsOptions.defaults().withListener(event -> {
+        CommandService tool = Procwright.command("tool");
+
+        tool.run()
+                .withDiagnosticListener(event -> {
                     if (event.attributes().containsKey("exitCode")) {
                         System.out.println(
                                 event.type() + ":" + event.attributes().get("exitCode"));
                     }
-                }));
-
-        tool.run().execute("--version");
+                })
+                .withArg("--version")
+                .execute();
     }
 
     void pooledLineSessionScenario() {
@@ -187,7 +214,12 @@ final class CommandServiceApiExamples {
                 .withMaxSize(4)
                 .withWarmupSize(1)
                 .withMaxRequestsPerWorker(100)
-                .withReset(worker -> worker.request("reset"))
+                .withReset(worker -> {
+                    LineResponse reset = worker.request("reset");
+                    if (!reset.text().equals("reset:ok")) {
+                        throw new IllegalStateException("worker reset was not acknowledged");
+                    }
+                })
                 .open()) {
             LineResponse response = pool.request("status", Duration.ofSeconds(2));
             PooledLineSessionMetrics metrics = pool.metrics();
@@ -197,11 +229,18 @@ final class CommandServiceApiExamples {
         }
     }
 
+    void drainedPooledLineSessionScenario() {
+        CommandService tool = Procwright.command("tool");
+        try (PooledLineSession pool =
+                tool.lineSession().withArgs("repl").pooled().withMaxSize(4).open()) {
+            pool.request("status");
+        }
+    }
+
     void protocolSessionScenario() {
         CommandService worker = Procwright.command("tool");
-        ProtocolAdapter<String, String> adapter = new LengthPrefixedTextAdapter();
 
-        try (ProtocolSession<String, String> session = worker.protocolSession(adapter)
+        try (ProtocolSession<String, String> session = worker.protocolSession(LengthPrefixedTextAdapter::new)
                 .withArgs("worker")
                 .withRequestTimeout(Duration.ofSeconds(2))
                 .withOutputBacklogLimit(128 * 1024)
@@ -236,36 +275,14 @@ final class CommandServiceApiExamples {
     void scenarioPresetComposition() {
         CommandService tool = Procwright.command("tool");
 
-        tool.run()
-                .withArgs("env")
-                .configuredBy(ScenarioPresets.environmentDiagnostics(Duration.ofSeconds(2), 16 * 1024))
+        ScenarioPresets.environmentDiagnostics(tool.run().withArgs("env"), Duration.ofSeconds(2), 16 * 1024)
                 .execute();
 
-        try (StreamSession stream = tool.listen()
-                .withArgs("logs", "--follow")
-                .onOutput(chunk -> System.out.print(chunk.text()))
-                .configuredBy(ScenarioPresets.logFollowing(Duration.ZERO))
+        try (StreamSession stream = ScenarioPresets.logFollowing(
+                        tool.listen().withArgs("logs", "--follow").onOutput(chunk -> System.out.print(chunk.text())),
+                        Duration.ZERO)
                 .open()) {
-            stream.close();
-        }
-    }
-
-    private static final class LengthPrefixedTextAdapter implements ProtocolAdapter<String, String> {
-
-        @Override
-        public void writeRequest(String request, ProtocolWriter writer) {
-            byte[] body = request.getBytes(StandardCharsets.UTF_8);
-            writer.writeLine(Integer.toString(body.length));
-            writer.write(body);
-            writer.flush();
-        }
-
-        @Override
-        public String readResponse(ProtocolReaders readers) {
-            ProtocolReader stdout = readers.stdout();
-            int length = Integer.parseInt(stdout.readLine(32));
-            byte[] body = stdout.readExactly(length);
-            return new String(body, StandardCharsets.UTF_8);
+            stream.onExit().join();
         }
     }
 }

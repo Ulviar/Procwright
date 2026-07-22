@@ -4,6 +4,8 @@
  * Scenario-first command execution and interactive process workflows for JVM applications.
  */
 module io.github.ulviar.procwright {
+    requires static transitive org.jspecify;
+
     exports io.github.ulviar.procwright;
     exports io.github.ulviar.procwright.command;
     exports io.github.ulviar.procwright.diagnostics;

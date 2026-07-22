@@ -1,9 +1,5 @@
 # Explanations
 
-These pages explain why Procwright draws its public API boundaries the way it does. Use them when a reference page tells you
-what the API guarantees, but you want the reasoning behind that guarantee.
-
-- [Scenario-first design](scenario-first.md)
-- [Output ownership rationale](output-ownership.md)
-- [Process cleanup limits](process-cleanup-limits.md)
-- [Non-goals](non-goals.md)
+- [Scenario-first design](scenario-first.md) explains how process behavior selects an API.
+- [Output ownership rationale](output-ownership.md) explains why raw readers cannot be mixed with helpers.
+- [Process cleanup limits](process-cleanup-limits.md) explains when descendants can survive timeout or close.

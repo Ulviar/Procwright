@@ -30,4 +30,19 @@ final class DurationSupportTest {
     void saturatedMillisCapsHugeDuration() {
         assertEquals(Long.MAX_VALUE, DurationSupport.saturatedMillis(Duration.ofSeconds(Long.MAX_VALUE)));
     }
+
+    @Test
+    void elapsedClampsBackwardReadingsToZero() {
+        assertEquals(Duration.ZERO, DurationSupport.elapsed(100, 50));
+    }
+
+    @Test
+    void elapsedHandlesSignedNanoTimeWraparound() {
+        assertEquals(Duration.ofNanos(20), DurationSupport.elapsed(Long.MAX_VALUE - 10, Long.MIN_VALUE + 9));
+    }
+
+    @Test
+    void elapsedSaturatesAnUnrepresentablePositiveDelta() {
+        assertEquals(Duration.ofNanos(Long.MAX_VALUE), DurationSupport.elapsed(Long.MIN_VALUE, Long.MAX_VALUE));
+    }
 }

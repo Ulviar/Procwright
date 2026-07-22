@@ -15,8 +15,10 @@ public sealed interface ProcessTransport permits PipeTransport, PtyTransport {
             case AUTO -> plan.ptyProvider().available() ? new PtyTransport(plan.ptyProvider()) : PipeTransport.INSTANCE;
             case REQUIRED -> {
                 if (!plan.ptyProvider().available()) {
-                    throw new CommandExecutionException("Terminal is required but PTY provider is unavailable: "
-                            + plan.ptyProvider().description());
+                    throw new CommandExecutionException(
+                            CommandExecutionException.Reason.LAUNCH_FAILED,
+                            "Terminal is required but PTY provider is unavailable: "
+                                    + plan.ptyProvider().description());
                 }
                 yield new PtyTransport(plan.ptyProvider());
             }
@@ -49,11 +51,12 @@ final class PtyTransport implements ProcessTransport {
     @Override
     public Process start(SessionExecutionPlan plan) {
         LaunchPlan launchPlan = plan.launchPlan();
-        return provider.start(new PtyRequest(
+        Process process = provider.start(new PtyRequest(
                 launchPlan.command(),
                 launchPlan.workingDirectory(),
                 launchPlan.environmentPolicy(),
                 launchPlan.environment(),
                 plan.terminalSize()));
+        return ProcessTreeScanner.shared().guard(process);
     }
 }

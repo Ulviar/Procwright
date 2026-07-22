@@ -54,7 +54,7 @@ Severity:
 
 - У каждого нового или измененного инварианта есть единственный владелец: value object, policy, state machine,
   validator или runtime component. Тест доказывает инвариант, но не является его владельцем.
-- Runtime не принимает невозможные комбинации options.
+- Runtime не принимает невозможные комбинации settings.
 - Долгоживущие процессы имеют bounded lifecycle: запуск, interaction, timeout, cancellation, draining, cleanup.
 - Исключения и structured results сохраняют важный контекст.
 - Нет дублирования orchestration logic между сценариями.
@@ -78,7 +78,7 @@ Severity:
 ## Минимальный prompt для повторного аудита шага
 
 ```text
-Рабочая директория: /Users/evgeny/CodexCodeProjects/Procwright.
+Рабочая директория: корень текущего checkout Procwright.
 Используй context/audits/standing-auditor-instructions.md.
 Роль: <Integrity and Philosophy Auditor | Architecture and Code Quality Auditor | Documentation and Release Maturity Auditor>.
 Шаг: <название шага>.

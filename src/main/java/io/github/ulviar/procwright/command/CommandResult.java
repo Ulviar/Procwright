@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.OptionalInt;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Completed one-shot command result.
@@ -147,7 +148,7 @@ public record CommandResult(
     }
 
     @Override
-    public boolean equals(Object other) {
+    public boolean equals(@Nullable Object other) {
         if (this == other) {
             return true;
         }

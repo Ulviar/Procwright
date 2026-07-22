@@ -22,23 +22,45 @@ final class ProtocolResponseBudget {
         this.failures = Objects.requireNonNull(failures, "failures");
     }
 
-    void addBytes(int count) {
+    synchronized void addBytes(int count) {
+        ensureBytesAvailable(count);
         bytes += count;
-        if (bytes > maxBytes) {
-            throw failures.failure(
-                    ProtocolSessionException.Reason.RESPONSE_TOO_LARGE,
-                    "Protocol response exceeds maxResponseBytes",
-                    null);
+    }
+
+    synchronized void addChars(int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException("count must not be negative");
+        }
+        chars = count > Long.MAX_VALUE - chars ? Long.MAX_VALUE : chars + count;
+        if (chars > maxChars) {
+            throw tooLarge("Protocol response exceeds maxResponseChars");
         }
     }
 
-    void addChars(int count) {
-        chars += count;
-        if (chars > maxChars) {
-            throw failures.failure(
-                    ProtocolSessionException.Reason.RESPONSE_TOO_LARGE,
-                    "Protocol response exceeds maxResponseChars",
-                    null);
+    synchronized void ensureBytesAvailable(int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException("count must not be negative");
         }
+        if (count > maxBytes - bytes) {
+            throw tooLarge("Protocol response exceeds maxResponseBytes");
+        }
+    }
+
+    synchronized int remainingChars() {
+        return chars >= maxChars ? 0 : (int) (maxChars - chars);
+    }
+
+    synchronized int remainingBytes() {
+        return bytes >= maxBytes ? 0 : (int) (maxBytes - bytes);
+    }
+
+    synchronized void ensureCharacterBudgetOpen() {
+        if (chars > maxChars) {
+            throw tooLarge("Protocol response exceeds maxResponseChars");
+        }
+    }
+
+    private ProtocolSessionException tooLarge(String message) {
+        return failures.failure(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, message, null);
     }
 }

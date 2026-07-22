@@ -22,9 +22,9 @@ process lifecycle.
 ## Запрещено
 
 - Добавлять эти зависимости в root module, `:procwright-kotlin` или `:procwright-integrations`.
-- Раскрывать типы этих библиотек в public API, exceptions, options, listeners или builders.
-- Использовать внешний process runtime как обход `ScenarioProfile -> ExecutionPlanResolver -> runtime`.
-- Переносить provider-specific flags в сценарные builders.
+- Раскрывать типы этих библиотек в public API, exceptions, listeners или scenario Draft.
+- Использовать внешний process runtime как обход `scenario Draft -> internal settings/plan -> runtime`.
+- Переносить provider-specific flags в scenario Draft.
 - Делать optional backend без отдельного ADR, dependency review и тестов границы.
 
 ## Что можно переносить

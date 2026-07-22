@@ -9,14 +9,16 @@ import java.util.Objects;
  *
  * @param text retained transcript text
  * @param truncated whether older transcript content was discarded
+ * @param malformed whether output contained malformed or unmappable bytes
  */
-public record LineTranscript(String text, boolean truncated) {
+public record LineTranscript(String text, boolean truncated, boolean malformed) {
 
     /**
      * Creates a line transcript snapshot.
      *
      * @param text retained transcript text
      * @param truncated whether older transcript content was discarded
+     * @param malformed whether output contained malformed or unmappable bytes
      */
     public LineTranscript {
         Objects.requireNonNull(text, "text");

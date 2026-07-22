@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Command stdin contents: either in-memory bytes written before stdin is closed, or a file the operating system
@@ -20,8 +21,8 @@ import java.util.Optional;
  */
 public final class CommandInput {
 
-    private final byte[] bytes;
-    private final Path path;
+    private final byte @Nullable [] bytes;
+    private final @Nullable Path path;
 
     private CommandInput(byte[] bytes) {
         this.bytes = Arrays.copyOf(Objects.requireNonNull(bytes, "bytes"), bytes.length);
@@ -103,7 +104,7 @@ public final class CommandInput {
     }
 
     @Override
-    public boolean equals(Object other) {
+    public boolean equals(@Nullable Object other) {
         if (this == other) {
             return true;
         }

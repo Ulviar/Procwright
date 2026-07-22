@@ -4,19 +4,19 @@ on:
   push:
     branches:
       - main
-  pull_request:
-  release:
-    types:
-      - published
+  pull_request: {}
   workflow_dispatch:
     inputs:
       consumer-version:
         description: Maven Central version to smoke-test as an external consumer
         required: true
         type: string
+      release-commit:
+        description: Lowercase full release commit SHA used to build the staged bundle
+        required: true
+        type: string
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -24,14 +24,16 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify Java ${{ matrix.java-release }} on ${{ matrix.os }}
+    name: Verify Java 17 artifact on Java ${{ matrix.java-runtime }} / ${{ matrix.os }}
     if: github.event_name != 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        java-release:
+        java-runtime:
           - 17
           - 21
           - 25
@@ -44,37 +46,138 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - name: Set up JDK ${{ matrix.java-runtime }}
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java-runtime }}
+
+      # Provides build caching and validates Gradle wrapper jars automatically.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+
+      - name: Verify system PTY prerequisites
+        if: runner.os != 'Windows' && matrix.java-runtime == 17
+        run: command -v script && command -v stty && command -v env && command -v dd
+
+      - name: Verify Unix
+        if: runner.os != 'Windows'
+        run: ./gradlew check publicJavaJavadocCheck --project-prop=procwright.javaRelease=17 --no-daemon
+        env:
+          ORG_GRADLE_PROJECT_procwright.requireSystemPty: ${{ runner.os != 'Windows' && matrix.java-runtime == 17 }}
+
+      - name: Verify Windows
+        if: runner.os == 'Windows'
+        run: .\gradlew.bat check publicJavaJavadocCheck --project-prop=procwright.javaRelease=17 --no-daemon
+
+      - name: Publication smoke Unix
+        if: runner.os != 'Windows' && matrix.java-runtime == 17
+        run: |
+          set -euo pipefail
+          repository="${RUNNER_TEMP}/procwright-m2"
+          ./gradlew publishToMavenLocal \
+            -Dmaven.repo.local="${repository}" \
+            --project-prop=procwright.javaRelease=17 \
+            --project-prop=procwright.version=0.1.0 \
+            --no-daemon
+          ./gradlew \
+            :procwright-consumer-examples:test \
+            :procwright-integrations-consumer-example:check \
+            :procwright-kotlin-consumer-example:check \
+            --project-prop=procwright.javaRelease=17 \
+            --project-prop=procwright.consumerVersion=0.1.0 \
+            --project-prop=procwright.consumerRepository="${repository}" \
+            --dependency-verification=off \
+            --refresh-dependencies \
+            --rerun-tasks \
+            --no-daemon
+          ./gradlew \
+            :procwright-consumer-examples:test \
+            :procwright-integrations-consumer-example:check \
+            :procwright-kotlin-consumer-example:check \
+            --project-prop=procwright.javaRelease=17 \
+            --project-prop=procwright.consumerVersion=0.1.0 \
+            --project-prop=procwright.consumerRepository="${repository}" \
+            --project-prop=procwright.consumerPomOnly=true \
+            --dependency-verification=off \
+            --refresh-dependencies \
+            --rerun-tasks \
+            --no-daemon
+
+      - name: Publication smoke Windows
+        if: runner.os == 'Windows' && matrix.java-runtime == 17
+        shell: pwsh
+        run: |
+          $repository = Join-Path $env:RUNNER_TEMP "procwright-m2"
+          .\gradlew.bat publishToMavenLocal `
+            "-Dmaven.repo.local=$repository" `
+            --project-prop=procwright.javaRelease=17 `
+            --project-prop=procwright.version=0.1.0 `
+            --no-daemon
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\gradlew.bat `
+            :procwright-consumer-examples:test `
+            :procwright-integrations-consumer-example:check `
+            :procwright-kotlin-consumer-example:check `
+            --project-prop=procwright.javaRelease=17 `
+            --project-prop=procwright.consumerVersion=0.1.0 `
+            "--project-prop=procwright.consumerRepository=$repository" `
+            --dependency-verification=off `
+            --refresh-dependencies `
+            --rerun-tasks `
+            --no-daemon
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\gradlew.bat `
+            :procwright-consumer-examples:test `
+            :procwright-integrations-consumer-example:check `
+            :procwright-kotlin-consumer-example:check `
+            --project-prop=procwright.javaRelease=17 `
+            --project-prop=procwright.consumerVersion=0.1.0 `
+            "--project-prop=procwright.consumerRepository=$repository" `
+            --project-prop=procwright.consumerPomOnly=true `
+            --dependency-verification=off `
+            --refresh-dependencies `
+            --rerun-tasks `
+            --no-daemon
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  source-variants:
+    name: Verify source target Java ${{ matrix.java-release }}
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        java-release:
+          - 21
+          - 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
       - name: Set up JDK ${{ matrix.java-release }}
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: ${{ matrix.java-release }}
 
-      # Provides build caching and validates Gradle wrapper jars automatically.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
-      - name: Verify Unix
-        if: runner.os != 'Windows'
+      - name: Verify source variant
         run: ./gradlew check publicJavaJavadocCheck --project-prop=procwright.javaRelease=${{ matrix.java-release }} --no-daemon
-
-      - name: Verify Windows
-        if: runner.os == 'Windows'
-        run: .\gradlew.bat check publicJavaJavadocCheck --project-prop=procwright.javaRelease=${{ matrix.java-release }} --no-daemon
-
-      - name: Publication smoke Unix
-        if: runner.os != 'Windows' && matrix.java-release == 17
-        run: ./gradlew publishToMavenLocal --project-prop=procwright.javaRelease=17 --no-daemon
-
-      - name: Publication smoke Windows
-        if: runner.os == 'Windows' && matrix.java-release == 17
-        run: .\gradlew.bat publishToMavenLocal --project-prop=procwright.javaRelease=17 --no-daemon
 
   docs:
     name: Docs
     if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -84,10 +187,17 @@ jobs:
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
-          java-version: 17
+          java-version: "17.0.19+10"
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.10.12"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
@@ -96,14 +206,12 @@ jobs:
         run: ./gradlew publicDocsCheck --project-prop=procwright.javaRelease=17 --no-daemon
 
   comparison-compile:
-    name: Comparison Compile
+    name: Comparison Check
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Non-blocking: procwright-comparison is a research module; compile rot is
-    # reported without gating the build.
-    continue-on-error: true
-
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -117,153 +225,217 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
-      - name: Compile comparison module including JMH sources
-        run: ./gradlew :procwright-comparison:compileJava :procwright-comparison:compileTestJava :procwright-comparison:jmhCompileCheck --project-prop=procwright.javaRelease=25 --no-daemon
+      - name: Check comparison module and JMH sources
+        run: ./gradlew :procwright-comparison:compileJava :procwright-comparison:compileTestJava :procwright-comparison:jmhCompileCheck :procwright-comparison:comparisonReportDefaultsCheck --project-prop=procwright.javaRelease=25 --no-daemon
 
-  publish-maven-central:
-    name: Publish Maven Central
-    if: github.event_name == 'release' && github.event.action == 'published'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: verify
+  central-publication-ready:
+    name: Verify Maven Central publication
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == github.workflow_sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     environment: maven-central
     permissions:
       contents: read
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      deployment-id: ${{ steps.staging.outputs.deployment_id }}
+      stage-run-id: ${{ steps.staging.outputs.stage_run_id }}
+      central-bytes-artifact-id: ${{ steps.central-bytes-upload.outputs.artifact-id }}
+      central-bytes-artifact-name: ${{ steps.central-bytes.outputs.artifact_name }}
+      central-bytes-artifact-digest: ${{ steps.central-bytes-upload.outputs.artifact-digest }}
 
     steps:
-      - name: Checkout
+      - name: Validate release commit before checkout
+        run: '[[ "$PROCWRIGHT_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+
+      - name: Checkout trusted release control
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
-          distribution: temurin
-          java-version: 17
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-trusted
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
 
-      - name: Build Maven Central bundle
-        run: |
-          set -euo pipefail
-          release_version="${PROCWRIGHT_RELEASE_TAG#v}"
-          ./gradlew mavenCentralBundle --project-prop=procwright.javaRelease=17 --project-prop=procwright.version="$release_version" --no-daemon
+      - name: Validate canonical consumer version from trusted control
+        run: python3 .procwright-trusted/scripts/release_contract.py version "$PROCWRIGHT_CONSUMER_VERSION"
         env:
-          PROCWRIGHT_RELEASE_TAG: ${{ github.event.release.tag_name }}
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
 
-      - name: Upload Maven Central deployment
-        run: |
-          set -euo pipefail
-          release_version="${PROCWRIGHT_RELEASE_TAG#v}"
-          bundle="build/maven-central/procwright-${release_version}-maven-central-bundle.zip"
-          central_token="$(printf "%s:%s" "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 | tr -d '\n')"
-          curl --fail-with-body \
-            --request POST \
-            --header "Authorization: Bearer ${central_token}" \
-            --form "bundle=@${bundle}" \
-            "https://central.sonatype.com/api/v1/publisher/upload?name=io.github.ulviar:procwright:${release_version}&publishingType=USER_MANAGED"
+      - name: Verify target provenance from trusted control
+        run: bash .procwright-trusted/scripts/release/verify_release_commit_provenance.sh
         env:
-          PROCWRIGHT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_TRUSTED_ROOT: .procwright-trusted
+
+      - name: Download validated staging evidence from trusted control
+        id: staging
+        run: bash .procwright-trusted/scripts/release/download_staging_evidence.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+
+      - name: Wait for publication and verify every staged payload byte
+        run: bash .procwright-trusted/scripts/release/wait_for_central_publication.sh
+        env:
+          CENTRAL_DEPLOYMENT_ID: ${{ steps.staging.outputs.deployment_id }}
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.consumer-version }}
+
+      - name: Seal exact verified Central bytes for job transfer
+        id: central-bytes
+        run: bash .procwright-trusted/scripts/release/seal_verified_central_bytes.sh
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.consumer-version }}
+
+      - name: Upload exact verified Central bytes for consumer job
+        id: central-bytes-upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.central-bytes.outputs.artifact_name }}
+          path: ${{ runner.temp }}/procwright-central-downloads
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
 
   consumer-smoke-maven-central:
     name: Consumer Smoke Maven Central
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    needs: central-publication-ready
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == github.workflow_sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - name: Checkout
+      - name: Validate release commit before checkout
+        run: '[[ "$PROCWRIGHT_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+
+      - name: Checkout trusted release control
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-trusted
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Validate canonical consumer version from trusted control
+        run: python3 .procwright-trusted/scripts/release_contract.py version "$PROCWRIGHT_CONSUMER_VERSION"
+        env:
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+
+      - name: Verify target provenance from trusted control
+        run: bash .procwright-trusted/scripts/release/verify_release_commit_provenance.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_TRUSTED_ROOT: .procwright-trusted
+
+      - name: Checkout verified release target
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.release-commit }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: .procwright-target
+
+      - name: Verify target checkout from trusted control
+        run: bash .procwright-trusted/scripts/release/verify_target_checkout.sh
+        env:
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_TARGET_ROOT: .procwright-target
+
+      - name: Download validated staging evidence from trusted control
+        id: staging
+        working-directory: .procwright-target
+        run: bash ../.procwright-trusted/scripts/release/download_staging_evidence.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+
+      - name: Download exact verified Central bytes from producer job
+        working-directory: .procwright-target
+        run: bash ../.procwright-trusted/scripts/release/download_verified_central_bytes.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROCWRIGHT_CENTRAL_BYTES_ARTIFACT_ID: ${{ needs.central-publication-ready.outputs.central-bytes-artifact-id }}
+          PROCWRIGHT_CENTRAL_BYTES_ARTIFACT_NAME: ${{ needs.central-publication-ready.outputs.central-bytes-artifact-name }}
+          PROCWRIGHT_CENTRAL_BYTES_ARTIFACT_DIGEST: ${{ needs.central-publication-ready.outputs.central-bytes-artifact-digest }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          PROCWRIGHT_RELEASE_VERSION: ${{ inputs.consumer-version }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
-          java-version: 17
+          java-version: "17.0.19+10"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
-      - name: Compile and run external consumer
-        run: |
-          set -euo pipefail
-          release_version="${PROCWRIGHT_CONSUMER_VERSION}"
-          consumer_dir="${RUNNER_TEMP}/procwright-consumer-smoke"
-          mkdir -p "${consumer_dir}/src/main/java/consumer"
-
-          cat > "${consumer_dir}/settings.gradle.kts" <<'EOF'
-          pluginManagement {
-              repositories {
-                  gradlePluginPortal()
-                  mavenCentral()
-              }
-          }
-
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  mavenCentral()
-              }
-          }
-
-          rootProject.name = "procwright-consumer-smoke"
-          EOF
-
-          cat > "${consumer_dir}/build.gradle.kts" <<'EOF'
-          plugins {
-              application
-          }
-
-          java {
-              toolchain {
-                  languageVersion.set(JavaLanguageVersion.of(17))
-              }
-          }
-
-          val procwrightVersion = providers.environmentVariable("PROCWRIGHT_CONSUMER_VERSION").get()
-
-          dependencies {
-              implementation("io.github.ulviar:procwright:$procwrightVersion")
-              implementation("io.github.ulviar:procwright-integrations:$procwrightVersion")
-              implementation("io.github.ulviar:procwright-kotlin:$procwrightVersion")
-          }
-
-          application {
-              mainClass.set("consumer.ConsumerSmoke")
-          }
-          EOF
-
-          cat > "${consumer_dir}/src/main/java/consumer/ConsumerSmoke.java" <<'EOF'
-          package consumer;
-
-          import io.github.ulviar.procwright.Procwright;
-          import io.github.ulviar.procwright.command.CapturePolicy;
-          import io.github.ulviar.procwright.command.CommandSpec;
-          import io.github.ulviar.procwright.integration.JsonValue;
-          import io.github.ulviar.procwright.kotlin.ProcwrightKotlinKt;
-          import java.util.Map;
-
-          public final class ConsumerSmoke {
-              private ConsumerSmoke() {}
-
-              public static void main(String[] args) {
-                  Object service = Procwright.command(CommandSpec.of("java"));
-                  Object capturePolicy = CapturePolicy.bounded(1024);
-                  Object json = JsonValue.object(Map.of("ok", JsonValue.bool(true)));
-                  System.out.println(service.getClass().getName());
-                  System.out.println(capturePolicy.getClass().getName());
-                  System.out.println(json.getClass().getName());
-                  System.out.println(ProcwrightKotlinKt.class.getName());
-              }
-          }
-          EOF
-
-          PROCWRIGHT_CONSUMER_VERSION="${release_version}" ./gradlew --project-dir "${consumer_dir}" --refresh-dependencies run --no-daemon
+      - name: Bootstrap isolated normal and POM-only verification candidates
+        working-directory: .procwright-target
+        run: bash ../.procwright-trusted/scripts/release/bootstrap_consumer_verification.sh
         env:
           PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+
+      - name: Fail-closed merge byte-verified release checksums
+        working-directory: .procwright-target
+        run: bash ../.procwright-trusted/scripts/release/merge_consumer_verification.sh
+        env:
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+
+      - name: Compile and run strict external consumers
+        working-directory: .procwright-target
+        run: bash ../.procwright-trusted/scripts/release/run_strict_consumers.sh
+        env:
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+
+      - name: Record successful Central consumer proof
+        working-directory: .procwright-target
+        run: bash ../.procwright-trusted/scripts/release/record_consumer_proof.sh
+        env:
+          PROCWRIGHT_CONSUMER_VERSION: ${{ inputs.consumer-version }}
+          PROCWRIGHT_RELEASE_COMMIT: ${{ inputs.release-commit }}
+          CENTRAL_DEPLOYMENT_ID: ${{ needs.central-publication-ready.outputs.deployment-id }}
+          STAGE_RUN_ID: ${{ needs.central-publication-ready.outputs.stage-run-id }}
+
+      - name: Preserve successful Central consumer proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: procwright-${{ inputs.consumer-version }}-${{ inputs.release-commit }}-central-consumer-smoke
+          path: .procwright-target/build/central-consumer-smoke/provenance.txt
+          if-no-files-found: error
+          retention-days: 90

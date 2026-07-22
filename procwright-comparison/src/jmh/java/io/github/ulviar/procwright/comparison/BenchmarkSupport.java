@@ -60,11 +60,15 @@ final class BenchmarkSupport {
     }
 
     static List<String> fixtureCommand(String... args) {
+        return javaCommand(ComparisonFixtureProgram.class, args);
+    }
+
+    static List<String> javaCommand(Class<?> mainClass, String... args) {
         ArrayList<String> command = new ArrayList<>();
         command.add(ProcessSupport.javaExecutable().toString());
         command.add("-cp");
         command.add(System.getProperty("java.class.path"));
-        command.add(ComparisonFixtureProgram.class.getName());
+        command.add(mainClass.getName());
         command.addAll(List.of(args));
         return command;
     }

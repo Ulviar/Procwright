@@ -8,7 +8,13 @@ import java.util.Objects;
 /**
  * Snapshot of pooled protocol-session runtime counters.
  *
- * @param size current live worker count
+ * <p>This snapshot describes one pool. Its {@code size} is bounded by that pool's configured maximum from 1 through 256,
+ * which neither reserves nor reports process-wide capacity. Across all line and protocol pools, a separate limit admits
+ * at most 256 aggregate workers from before factory invocation through completed physical retirement, and another limit
+ * retains at most 256 pool-completion owners and their pools concurrently. This snapshot exposes neither remaining
+ * aggregate capacity nor any inter-pool acquisition order.
+ *
+ * @param size current occupied pool slots, including workers that are starting or retiring
  * @param idle current idle worker count
  * @param leased current leased worker count
  * @param starting current workers being started
@@ -17,7 +23,8 @@ import java.util.Objects;
  * @param retired total workers retired
  * @param completedRequests total public requests completed successfully
  * @param failedRequests total public requests completed with failure
- * @param failedStartups total failed worker startups
+ * @param failedStartups total worker factory invocations that failed or whose result could not be accepted
+ * @param failedWorkerCloses total completed worker retirements whose close reported a failure
  * @param totalAcquireWaitNanos accumulated worker acquire wait time
  * @param totalRequestDurationNanos accumulated request duration
  * @param totalWorkerStartupNanos accumulated successful worker startup duration
@@ -34,6 +41,7 @@ public record PooledProtocolSessionMetrics(
         long completedRequests,
         long failedRequests,
         long failedStartups,
+        long failedWorkerCloses,
         long totalAcquireWaitNanos,
         long totalRequestDurationNanos,
         long totalWorkerStartupNanos,
@@ -42,7 +50,7 @@ public record PooledProtocolSessionMetrics(
     /**
      * Creates a metrics snapshot.
      *
-     * @param size current live worker count
+     * @param size current occupied pool slots, including workers that are starting or retiring
      * @param idle current idle worker count
      * @param leased current leased worker count
      * @param starting current workers being started
@@ -51,7 +59,8 @@ public record PooledProtocolSessionMetrics(
      * @param retired total workers retired
      * @param completedRequests total public requests completed successfully
      * @param failedRequests total public requests completed with failure
-     * @param failedStartups total failed worker startups
+     * @param failedStartups total worker factory invocations that failed or whose result could not be accepted
+     * @param failedWorkerCloses total completed worker retirements whose close reported a failure
      * @param totalAcquireWaitNanos accumulated worker acquire wait time
      * @param totalRequestDurationNanos accumulated request duration
      * @param totalWorkerStartupNanos accumulated successful worker startup duration
@@ -68,23 +77,36 @@ public record PooledProtocolSessionMetrics(
         requireNonNegative(completedRequests, "completedRequests");
         requireNonNegative(failedRequests, "failedRequests");
         requireNonNegative(failedStartups, "failedStartups");
+        requireNonNegative(failedWorkerCloses, "failedWorkerCloses");
         requireNonNegative(totalAcquireWaitNanos, "totalAcquireWaitNanos");
         requireNonNegative(totalRequestDurationNanos, "totalRequestDurationNanos");
         requireNonNegative(totalWorkerStartupNanos, "totalWorkerStartupNanos");
         retireReasons = Map.copyOf(Objects.requireNonNull(retireReasons, "retireReasons"));
         retireReasons.forEach((reason, count) -> requireNonNegative(count, "retireReasonCount"));
-        if (idle > size) {
-            throw new IllegalArgumentException("idle must not exceed size");
+        if ((long) idle + leased + starting + retiring != size) {
+            throw new IllegalArgumentException("size must equal idle plus leased plus starting plus retiring");
         }
-        if (leased > size) {
-            throw new IllegalArgumentException("leased must not exceed size");
+        if ((long) idle + leased + retiring + retired != created) {
+            throw new IllegalArgumentException("created must equal retired plus idle plus leased plus retiring");
         }
-        if ((long) idle + leased > size) {
-            throw new IllegalArgumentException("idle plus leased must not exceed size");
+        if (failedWorkerCloses > retired) {
+            throw new IllegalArgumentException("failedWorkerCloses must not exceed retired");
         }
-        if (retired > created) {
-            throw new IllegalArgumentException("retired must not exceed created");
+        if (retirementCount(retireReasons) != retired) {
+            throw new IllegalArgumentException("retireReasons must account for every retired worker");
         }
+    }
+
+    private static long retirementCount(Map<PooledWorkerRetireReason, Long> retireReasons) {
+        long total = 0;
+        try {
+            for (long count : retireReasons.values()) {
+                total = Math.addExact(total, count);
+            }
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("retireReasons total is too large", overflow);
+        }
+        return total;
     }
 
     private static void requireNonNegative(long value, String name) {
