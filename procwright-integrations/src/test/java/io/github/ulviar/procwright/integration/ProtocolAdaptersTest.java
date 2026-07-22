@@ -128,9 +128,8 @@ final class ProtocolAdaptersTest {
     void delimiterAdapterPreflightsCapacityBeforeCopyingOrWriting() {
         BoundedRecordingWriter writer = new BoundedRecordingWriter(1);
 
-        ProtocolSessionException failure = assertThrows(
-                ProtocolSessionException.class,
-                () -> ProtocolAdapters.delimiterSession((byte) 0, 1024)
+        ProtocolSessionException failure =
+                assertThrows(ProtocolSessionException.class, () -> ProtocolAdapters.delimiterSession((byte) 0, 1024)
                         .get()
                         .writeRequest(new byte[1024 * 1024], writer));
 
@@ -173,9 +172,8 @@ final class ProtocolAdaptersTest {
     void contentLengthAdapterPreflightsActualHeaderAndBodyBeforeWriting() {
         BoundedRecordingWriter writer = new BoundedRecordingWriter(31);
 
-        ProtocolSessionException failure = assertThrows(
-                ProtocolSessionException.class,
-                () -> ProtocolAdapters.contentLengthJsonSession(1024)
+        ProtocolSessionException failure =
+                assertThrows(ProtocolSessionException.class, () -> ProtocolAdapters.contentLengthJsonSession(1024)
                         .get()
                         .writeRequest(TextNode.valueOf("12345678"), writer));
 
