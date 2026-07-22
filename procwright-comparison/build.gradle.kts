@@ -64,7 +64,7 @@ dependencies {
     implementation(project(":procwright-test-cli"))
     implementation("org.apache.commons:commons-exec:1.6.0")
     implementation("org.zeroturnaround:zt-exec:1.12")
-    implementation("com.zaxxer:nuprocess:3.0.0")
+    implementation("com.zaxxer:nuprocess:4.0.0")
     implementation("org.jetbrains.pty4j:pty4j:0.13.12")
     implementation("net.sf.expectit:expectit-core:0.9.0")
     implementation("org.slf4j:slf4j-api:2.0.18")
