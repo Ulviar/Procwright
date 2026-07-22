@@ -220,7 +220,7 @@ MODULE_SEMANTIC_CONTRACTS = {
     "procwright-kotlin": ModuleSemanticContract(
         jpms_name="io.github.ulviar.procwright.kotlin",
         package_root="io/github/ulviar/procwright/kotlin/",
-        primary_anchor="io/github/ulviar/procwright/kotlin/ProcwrightDsl.class",
+        primary_anchor="io/github/ulviar/procwright/kotlin/ProtocolAdapterFactoryDsl.class",
         source_anchor=(
             "io/github/ulviar/procwright/kotlin/CoroutineExtensions.kt"
         ),

@@ -187,7 +187,7 @@ class ReleaseContractTest(unittest.TestCase):
             "procwright-kotlin": {
                 "jpms_name": "io.github.ulviar.procwright.kotlin",
                 "package_root": "io/github/ulviar/procwright/kotlin/",
-                "primary_anchor": "io/github/ulviar/procwright/kotlin/ProcwrightDsl.class",
+                "primary_anchor": "io/github/ulviar/procwright/kotlin/ProtocolAdapterFactoryDsl.class",
                 "source_anchor": "io/github/ulviar/procwright/kotlin/CoroutineExtensions.kt",
                 "documentation_anchor": "procwright-kotlin/io.github.ulviar.procwright.kotlin/index.html",
                 "pom_name": "Procwright Kotlin",

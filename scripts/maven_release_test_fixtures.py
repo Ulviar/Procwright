@@ -347,7 +347,7 @@ def jar_payload(module: str, suffix: str) -> bytes:
                 ),
                 ("META-INF/procwright-kotlin.kotlin_module", b"kotlin fixture", stat.S_IFREG | 0o644),
                 (
-                    "io/github/ulviar/procwright/kotlin/ProcwrightDsl.class",
+                    "io/github/ulviar/procwright/kotlin/ProtocolAdapterFactoryDsl.class",
                     b"\xca\xfe\xba\xbe kotlin",
                     stat.S_IFREG | 0o644,
                 ),

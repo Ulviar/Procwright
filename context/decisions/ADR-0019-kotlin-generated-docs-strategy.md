@@ -13,8 +13,8 @@ generated API site имеет собственную стоимость подд
 
 ## Решение
 
-- Dokka 2.2.0 входит в Gradle build как parser-backed KDoc gate.
-- `:procwright-kotlin:kotlinApiDocsCheck` запускает `dokkaGeneratePublicationHtml` с `reportUndocumented=true` и
+- Dokka 2.2.0 входит в Gradle build как KDoc gate.
+- `:procwright-kotlin:javadocJar` запускает `dokkaGeneratePublicationHtml` с `reportUndocumented=true` и
   `failOnWarning=true`.
 - Output этой проверки в `procwright-kotlin/build/kdoc-validation` упаковывается в стандартный
   `procwright-kotlin-<version>-javadoc.jar`; пустой Java Javadoc classifier для Kotlin-only module не публикуется.
@@ -24,7 +24,7 @@ generated API site имеет собственную стоимость подд
 
 ## Последствия
 
-- Build использует официальный Kotlin parser и документирует отсутствие KDoc как ошибку, а не как text-heuristic.
+- Build использует официальный Kotlin documentation tool и считает отсутствие KDoc ошибкой.
 - Dokka остается build-time dependency, закрепленной dependency verification metadata, и не меняет runtime dependency
   surface.
 - Стандартный Javadoc classifier содержит реальную generated Kotlin API reference. Отдельный Dokka site не дублирует

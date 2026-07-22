@@ -52,7 +52,6 @@ MODULE_REQUIRE transitive kotlin.stdlib
 MODULE_REQUIRE transitive kotlinx.coroutines.core
 NULLNESS MODULE io.github.ulviar.procwright.kotlin UNSPECIFIED
 NULLNESS PACKAGE io.github.ulviar.procwright.kotlin UNSPECIFIED
-TYPE public abstract @interface io.github.ulviar.procwright.kotlin.ProcwrightDsl extends java.lang.annotation.Annotation
 TYPE public abstract interface io.github.ulviar.procwright.kotlin.ProtocolAdapterFactoryDsl<I, O>
 TYPE public final class io.github.ulviar.procwright.kotlin.CoroutineExtensionsKt
 TYPE public final class io.github.ulviar.procwright.kotlin.DurationExtensionsKt

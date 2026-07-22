@@ -247,7 +247,7 @@
 - `quickCheck`, `scenarioCheck`, `regressionCheck` и `releaseCandidateCheck` соответствуют
   [test-tiers.md](test-tiers.md);
 - `javadoc` проходит для Java modules;
-- `:procwright-kotlin:kotlinApiDocsCheck` запускает Dokka parser-backed проверку с
+- `:procwright-kotlin:javadocJar` запускает Dokka-проверку с
   `reportUndocumented=true` и `failOnWarning=true`;
 - Kotlin binary API проходит встроенную Kotlin Gradle Plugin ABI validation относительно tracked baseline;
 - public package boundaries покрыты tests;

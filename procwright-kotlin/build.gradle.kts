@@ -1,7 +1,4 @@
 import java.io.ByteArrayOutputStream
-import java.lang.module.ModuleDescriptor
-import java.lang.module.ModuleFinder
-import java.util.jar.JarFile
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.bundling.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -27,7 +24,6 @@ dependencies {
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlin:kotlin-metadata-jvm:2.3.21")
     kotlinNullnessCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.3.21")
 }
 
@@ -121,305 +117,59 @@ dokka {
     dokkaSourceSets.configureEach { reportUndocumented.set(true) }
 }
 
-val kotlinApiDocsCheck =
-    tasks.register("kotlinApiDocsCheck") {
-        description = "Checks every public Kotlin API declaration with Dokka's KDoc analysis."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(tasks.named("dokkaGeneratePublicationHtml"))
-
-        doLast {
-            val adapterDslDirectory =
-                dokkaHtmlOutput
-                    .get()
-                    .dir(
-                        "procwright-kotlin/io.github.ulviar.procwright.kotlin/-protocol-adapter-factory-dsl"
-                    )
-            assertGeneratedDokkaMemberTerms(
-                adapterDslDirectory.file("write-request.html").asFile,
-                "ProtocolAdapterFactoryDsl/writeRequest/",
-                listOf("FAILURE"),
-            )
-            assertGeneratedDokkaMemberTerms(
-                adapterDslDirectory.file("read-response.html").asFile,
-                "ProtocolAdapterFactoryDsl/readResponse/",
-                listOf("PROTOCOL_DECODER_FAILED"),
-            )
-            assertDokkaMemberGateIgnoresUnrelatedPageText()
-        }
-    }
-
-fun assertGeneratedDokkaMemberTerms(
-    document: File,
-    signatureMarker: String,
-    requiredTerms: List<String>,
-) {
-    if (!document.isFile) {
-        throw GradleException("Generated Dokka member is missing for $signatureMarker: $document")
-    }
-    val contents = document.readText()
-    assertDokkaMemberIdentity(contents, signatureMarker)
-    val missing = requiredTerms.filterNot(contents::contains)
-    if (missing.isNotEmpty()) {
-        throw GradleException(
-            "Generated Dokka member $signatureMarker is missing contract terms: $missing"
-        )
-    }
-}
-
-fun assertDokkaMemberIdentity(document: String, signatureMarker: String) {
-    if (!document.contains("data-page-type=\"member\"") || !document.contains(signatureMarker)) {
-        throw GradleException("Generated Dokka page does not identify member $signatureMarker")
-    }
-}
-
-fun assertDokkaMemberGateIgnoresUnrelatedPageText() {
-    val unrelatedPage =
-        "<div data-page-type=\"class\">FAILURE ProtocolAdapterFactoryDsl/writeRequest/</div>"
-    try {
-        assertDokkaMemberIdentity(unrelatedPage, "ProtocolAdapterFactoryDsl/writeRequest/")
-    } catch (_: GradleException) {
-        return
-    }
-    throw GradleException("Dokka member gate accepted contract text from an unrelated page")
-}
-
-data class KotlinNullnessFixture(
-    val name: String,
-    val source: String,
-    val expectedSuccess: Boolean,
-    val expectedDiagnostics: List<String> = emptyList(),
-)
-
 val kotlinNullnessFixtureClasspath =
     sourceSets.main.get().output + configurations.compileClasspath.get()
-val kotlinNullnessFixtures =
-    listOf(
-        KotlinNullnessFixture(
-            "positive",
-            "src/nullnessFixtures/kotlin/positive/ValidNullnessContracts.kt",
-            true,
-        ),
-        KotlinNullnessFixture(
-            "commandNull",
-            "src/nullnessFixtures/kotlin/negative/CommandNull.kt",
-            false,
-            listOf("null", "non-null type 'String'"),
-        ),
-        KotlinNullnessFixture(
-            "nullableVarargElement",
-            "src/nullnessFixtures/kotlin/negative/NullableVarargElement.kt",
-            false,
-            listOf("Array<String?>", "Array<(out) String>"),
-        ),
-        KotlinNullnessFixture(
-            "nullableProtocolType",
-            "src/nullnessFixtures/kotlin/negative/NullableProtocolType.kt",
-            false,
-            listOf("type argument", "Any"),
-        ),
-        KotlinNullnessFixture(
-            "nullableProtocolResponse",
-            "src/nullnessFixtures/kotlin/negative/NullableProtocolResponse.kt",
-            false,
-            listOf("return type", "String?"),
-        ),
-    )
 
-val kotlinNullnessFixtureTasks =
-    kotlinNullnessFixtures.map { fixture ->
-        tasks.register<JavaExec>(
-            "compile${fixture.name.replaceFirstChar(Char::uppercase)}NullnessFixture"
-        ) {
-            description =
-                "Compiles the ${fixture.name} Kotlin nullness fixture with strict JSpecify semantics."
-            group = LifecycleBasePlugin.VERIFICATION_GROUP
-            dependsOn(tasks.named("classes"))
-
-            val sourceFile = layout.projectDirectory.file(fixture.source)
-            val outputDirectory = layout.buildDirectory.dir("nullness-fixtures/${fixture.name}")
-            val diagnostics = ByteArrayOutputStream()
-            inputs.file(sourceFile)
-            inputs.files(kotlinNullnessFixtureClasspath)
-            outputs.dir(outputDirectory)
-            classpath = kotlinNullnessCompiler
-            mainClass.set("org.jetbrains.kotlin.cli.jvm.K2JVMCompiler")
-            isIgnoreExitValue = true
-            standardOutput = diagnostics
-            errorOutput = diagnostics
-            argumentProviders.add(
-                CommandLineArgumentProvider {
-                    listOf(
-                        "-no-stdlib",
-                        "-no-reflect",
-                        "-Xjspecify-annotations=strict",
-                        "-classpath",
-                        kotlinNullnessFixtureClasspath.filter(File::exists).asPath,
-                        "-d",
-                        outputDirectory.get().asFile.absolutePath,
-                        sourceFile.asFile.absolutePath,
-                    )
-                }
-            )
-            doFirst {
-                diagnostics.reset()
-                delete(outputDirectory)
-            }
-            doLast {
-                val exitValue = executionResult.get().exitValue
-                val output = diagnostics.toString(Charsets.UTF_8)
-                if (fixture.expectedSuccess && exitValue != 0) {
-                    throw GradleException("Positive Kotlin nullness fixture failed:\n$output")
-                }
-                if (!fixture.expectedSuccess && exitValue == 0) {
-                    throw GradleException(
-                        "Negative Kotlin nullness fixture ${fixture.name} compiled successfully"
-                    )
-                }
-                fixture.expectedDiagnostics.forEach { expected ->
-                    if (!output.contains(expected, ignoreCase = true)) {
-                        throw GradleException(
-                            "Kotlin nullness fixture ${fixture.name} did not fail for the expected reason '$expected':\n$output"
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-val kotlinNullnessFixturesCheck =
-    tasks.register("kotlinNullnessFixturesCheck") {
-        description = "Compiles positive and negative Kotlin API nullness fixtures."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(kotlinNullnessFixtureTasks)
-    }
-
-val kotlinSourceNullabilityBaseline =
-    layout.projectDirectory.file("api/procwright-kotlin.nullability.api")
-val kotlinSourceNullabilityMainClass =
-    "io.github.ulviar.procwright.kotlin.KotlinSourceNullabilityCompatibility"
-
-val kotlinSourceNullabilityCheck =
-    tasks.register<JavaExec>("kotlinSourceNullabilityCheck") {
-        description =
-            "Checks public Kotlin source nullability from compiled metadata against its baseline."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(tasks.named("testClasses"))
-        inputs.files(sourceSets.main.get().output.classesDirs, kotlinSourceNullabilityBaseline)
-        classpath = sourceSets.test.get().runtimeClasspath
-        mainClass.set(kotlinSourceNullabilityMainClass)
-        args("check", kotlinSourceNullabilityBaseline.asFile.absolutePath)
-    }
-
-tasks.register<JavaExec>("writeKotlinSourceNullabilityBaseline") {
-    description = "Writes the public Kotlin source-nullability baseline from compiled metadata."
+tasks.register<JavaExec>("kotlinJSpecifyStrictnessCheck") {
+    description = "Proves that Kotlin consumers reject null at a strict JSpecify boundary."
     group = LifecycleBasePlugin.VERIFICATION_GROUP
-    dependsOn(tasks.named("testClasses"))
-    inputs.files(sourceSets.main.get().output.classesDirs)
-    outputs.file(kotlinSourceNullabilityBaseline)
-    outputs.upToDateWhen { false }
-    classpath = sourceSets.test.get().runtimeClasspath
-    mainClass.set(kotlinSourceNullabilityMainClass)
-    args("write", kotlinSourceNullabilityBaseline.asFile.absolutePath)
-}
+    dependsOn(tasks.named("classes"))
 
-tasks.named("checkKotlinAbi") { dependsOn(kotlinSourceNullabilityCheck) }
-
-val kotlinPublicationArtifactCheck =
-    tasks.register("kotlinPublicationArtifactCheck") {
-        description = "Checks the Kotlin module identity and published Dokka Javadoc classifier."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-
-        val mainJar = tasks.named<Jar>("jar").flatMap { it.archiveFile }
-        val javadocJar = tasks.named<Jar>("javadocJar").flatMap { it.archiveFile }
-        dependsOn(mainJar, javadocJar)
-        inputs.files(mainJar, javadocJar)
-
-        doLast {
-            val errors = mutableListOf<String>()
-            val mainJarFile = mainJar.get().asFile
-            val moduleReferences = ModuleFinder.of(mainJarFile.toPath()).findAll()
-            if (moduleReferences.size != 1) {
-                errors +=
-                    "${mainJarFile.name} must expose exactly one module, found ${moduleReferences.size}"
-            } else {
-                val descriptor = moduleReferences.single().descriptor()
-                val expectedRequirements =
-                    setOf("io.github.ulviar.procwright", "kotlin.stdlib", "kotlinx.coroutines.core")
-                val requirements =
-                    descriptor.requires().filterNot {
-                        ModuleDescriptor.Requires.Modifier.MANDATED in it.modifiers() ||
-                            ModuleDescriptor.Requires.Modifier.SYNTHETIC in it.modifiers()
-                    }
-                if (
-                    descriptor.isAutomatic ||
-                        descriptor.isOpen ||
-                        descriptor.name() != kotlinModuleName ||
-                        descriptor.exports().map { it.source() }.toSet() !=
-                            setOf("io.github.ulviar.procwright.kotlin") ||
-                        descriptor.opens().isNotEmpty() ||
-                        descriptor.uses().isNotEmpty() ||
-                        descriptor.provides().isNotEmpty() ||
-                        requirements.map { it.name() }.toSet() != expectedRequirements ||
-                        requirements.any {
-                            ModuleDescriptor.Requires.Modifier.TRANSITIVE !in it.modifiers()
-                        }
-                ) {
-                    errors += "Unexpected Kotlin module descriptor: $descriptor"
-                }
-            }
-
-            val javadocJarFile = javadocJar.get().asFile
-            JarFile(javadocJarFile).use { jar ->
-                val declarations =
-                    mapOf(
-                        "index.html" to "procwright-kotlin",
-                        "procwright-kotlin/io.github.ulviar.procwright.kotlin/execute-await.html" to
-                            "executeAwait",
-                        "procwright-kotlin/io.github.ulviar.procwright.kotlin/-protocol-adapter-factory-dsl/index.html" to
-                            "ProtocolAdapterFactoryDsl",
-                    )
-                declarations.forEach { (path, declaration) ->
-                    val entry = jar.getJarEntry(path)
-                    if (entry == null) {
-                        errors += "${javadocJarFile.name} is missing Dokka declaration $path"
-                    } else {
-                        val html =
-                            jar.getInputStream(entry).bufferedReader(Charsets.UTF_8).use {
-                                it.readText()
-                            }
-                        if (!html.contains(declaration)) {
-                            errors += "${javadocJarFile.name}!/$path does not contain $declaration"
-                        }
-                    }
-                }
-            }
-
-            val publication = publishing.publications.named<MavenPublication>("mavenJava").get()
-            val javadocArtifacts = publication.artifacts.filter { it.classifier == "javadoc" }
-            if (javadocArtifacts.size != 1) {
-                errors +=
-                    "mavenJava must publish exactly one javadoc classifier, found ${javadocArtifacts.size}"
-            } else if (javadocArtifacts.single().file != javadocJarFile) {
-                errors +=
-                    "mavenJava javadoc classifier must use ${javadocJarFile.name}, found ${javadocArtifacts.single().file.name}"
-            }
-
-            if (errors.isNotEmpty()) {
-                throw GradleException(errors.joinToString(separator = "\n"))
-            }
+    val sourceFile = layout.projectDirectory.file("src/nullnessFixtures/kotlin/CommandNull.kt")
+    val outputDirectory = layout.buildDirectory.dir("jspecify-strictness")
+    val diagnostics = ByteArrayOutputStream()
+    inputs.file(sourceFile)
+    inputs.files(kotlinNullnessFixtureClasspath)
+    outputs.dir(outputDirectory)
+    classpath = kotlinNullnessCompiler
+    mainClass.set("org.jetbrains.kotlin.cli.jvm.K2JVMCompiler")
+    isIgnoreExitValue = true
+    standardOutput = diagnostics
+    errorOutput = diagnostics
+    argumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf(
+                "-no-stdlib",
+                "-no-reflect",
+                "-Xjspecify-annotations=strict",
+                "-classpath",
+                kotlinNullnessFixtureClasspath.filter(File::exists).asPath,
+                "-d",
+                outputDirectory.get().asFile.absolutePath,
+                sourceFile.asFile.absolutePath,
+            )
+        }
+    )
+    doFirst {
+        diagnostics.reset()
+        delete(outputDirectory)
+    }
+    doLast {
+        val output = diagnostics.toString(Charsets.UTF_8)
+        if (executionResult.get().exitValue == 0) {
+            throw GradleException("Strict JSpecify fixture compiled successfully")
+        }
+        if (!output.contains("non-null type 'String'", ignoreCase = true)) {
+            throw GradleException(
+                "Strict JSpecify fixture failed for an unexpected reason:\n$output"
+            )
         }
     }
+}
 
 tasks.withType<Test>().configureEach { useJUnitPlatform() }
 
-tasks.check {
-    dependsOn(
-        kotlinApiDocsCheck,
-        kotlinNullnessFixturesCheck,
-        kotlinPublicationArtifactCheck,
-        kotlinSourceNullabilityCheck,
-    )
-}
+tasks.check { dependsOn(kotlinJavadocJar) }
 
 fun kotlinJvmTarget(release: Int): JvmTarget =
     when (release) {

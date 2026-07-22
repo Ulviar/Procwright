@@ -20,8 +20,8 @@ LLM-агентов.
 - Docs/release jobs явно выбирают Python 3.13.14 и uv 0.10.12; используемые GitHub Actions зафиксированы exact commit
   SHA.
 - Java reference генерируется Javadoc для core и integrations.
-- Kotlin имеет task-oriented reference; `kotlinApiDocsCheck` использует официальный Dokka 2.2.0 как parser-backed
-  KDoc gate с `reportUndocumented=true` и `failOnWarning=true`. Отдельный Dokka site не публикуется без доказанной
+- Kotlin имеет task-oriented reference; `javadocJar` использует официальный Dokka 2.2.0 как KDoc gate с
+  `reportUndocumented=true` и `failOnWarning=true`. Отдельный Dokka site не публикуется без доказанной
   пользовательской пользы.
 - Публичные Java snippets должны быть скопированы из compile-tested example sources; ссылки проверяются strict docs
   build и repository tests.

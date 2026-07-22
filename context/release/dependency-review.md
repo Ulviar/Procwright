@@ -42,14 +42,13 @@ tooling. `docsRequirementsLockCheck` проверяет совпадение top
 Workflow устанавливает exact `uv 0.10.12`; обновление lock выполняется намеренно командой из его заголовка той же
 версией `uv`.
 
-Public Kotlin KDoc проверяется task `kotlinApiDocsCheck` через Dokka 2.2.0 с `reportUndocumented=true` и
+Public Kotlin KDoc проверяется task `javadocJar` через Dokka 2.2.0 с `reportUndocumented=true` и
 `failOnWarning=true`. Dokka является только Gradle
 build-time dependency, закреплена dependency-verification SHA-256 metadata, не публикует отдельный сайт и не попадает в
 runtime artifacts.
 
-Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2.3.21 механизмом ABI validation. Committed baseline включает
-metadata-visible Kotlin declarations, поэтому этот gate дополняет, а не дублирует Java reflection-based surface test и
-не добавляет отдельную dependency.
+Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2.3.21 механизмом ABI validation. Этот gate владеет точным
+списком опубликованных Kotlin JVM declarations и не добавляет отдельную dependency.
 
 ## Kotlin module
 

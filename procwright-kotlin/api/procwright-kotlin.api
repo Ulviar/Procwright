@@ -44,9 +44,6 @@ public final class io/github/ulviar/procwright/kotlin/DurationExtensionsKt {
 	public static final fun withTimeout-HG0u8IE (Lio/github/ulviar/procwright/session/Expect$Draft;J)Lio/github/ulviar/procwright/session/Expect$Draft;
 }
 
-public abstract interface annotation class io/github/ulviar/procwright/kotlin/ProcwrightDsl : java/lang/annotation/Annotation {
-}
-
 public abstract interface class io/github/ulviar/procwright/kotlin/ProtocolAdapterFactoryDsl {
 	public abstract fun readResponse (Lkotlin/jvm/functions/Function1;)V
 	public abstract fun writeRequest (Lkotlin/jvm/functions/Function2;)V

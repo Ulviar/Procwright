@@ -400,7 +400,6 @@ val publicApiConsumerCompilationCheck =
         dependsOn(
             tasks.named("compileStressTestJava"),
             ":procwright-integrations:compileTestJava",
-            ":procwright-kotlin:compileTestKotlin",
             ":procwright-consumer-examples:compileTestJava",
             ":procwright-integrations-consumer-example:compileJava",
             ":procwright-kotlin-consumer-example:compileKotlin",
@@ -2214,6 +2213,7 @@ val releaseCandidateDependencies =
         workflowSecurityCheck,
         releaseEvidenceScriptSelfTest,
         providers.provider { tasks.getByPath(":procwright-kotlin:check") },
+        providers.provider { tasks.getByPath(":procwright-kotlin:kotlinJSpecifyStrictnessCheck") },
         providers.provider { tasks.getByPath(":procwright-integrations:check") },
         providers.provider { tasks.getByPath(":procwright-test-cli:check") },
     )

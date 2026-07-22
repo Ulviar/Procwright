@@ -23,7 +23,6 @@ import io.github.ulviar.procwright.session.ProtocolWriter
  * that earlier object wins and the handler failure is attached as a suppressed exception. Fatal
  * errors preserve object identity.
  */
-@ProcwrightDsl
 interface ProtocolAdapterFactoryDsl<I : Any, O : Any> {
 
     /**

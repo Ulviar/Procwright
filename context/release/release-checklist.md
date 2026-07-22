@@ -108,7 +108,7 @@ external actions должны быть pinned to commit SHA.
   опубликованных API, если такие появятся.
 - Source и Javadoc artifacts собираются для Java modules.
 - Public MkDocs site собирается в strict mode и включает generated Java API docs.
-- Kotlin public API задокументирован через KDoc в sources artifact; `:procwright-kotlin:kotlinApiDocsCheck` запускает
+- Kotlin public API задокументирован через KDoc в sources artifact; `:procwright-kotlin:javadocJar` запускает
   Dokka parser-backed проверку с `reportUndocumented=true` и `failOnWarning=true`.
 - Kotlin binary API проверяется `:procwright-kotlin:checkKotlinAbi` относительно committed baseline.
 - Отдельный generated Kotlin API site не публикуется.

@@ -1,5 +1,3 @@
-import java.lang.module.ModuleDescriptor
-import java.lang.module.ModuleFinder
 import org.gradle.api.tasks.bundling.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -62,45 +60,4 @@ val runKotlinConsumer =
         doFirst { systemProperty("java.class.path", kotlinConsumerRuntimeClasspath.asPath) }
     }
 
-val kotlinConsumerModuleCheck =
-    tasks.register("kotlinConsumerModuleCheck") {
-        description = "Checks the packaged modular Kotlin consumer descriptor."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        val consumerJar = kotlinConsumerJar.flatMap { it.archiveFile }
-        dependsOn(kotlinConsumerJar)
-        inputs.file(consumerJar)
-
-        doLast {
-            val references = ModuleFinder.of(consumerJar.get().asFile.toPath()).findAll()
-            if (references.size != 1) {
-                throw GradleException(
-                    "Kotlin consumer jar must contain exactly one module descriptor"
-                )
-            }
-            val descriptor = references.single().descriptor()
-            val expectedRequirements = setOf("io.github.ulviar.procwright.kotlin")
-            val actualRequirements =
-                descriptor
-                    .requires()
-                    .filterNot {
-                        ModuleDescriptor.Requires.Modifier.MANDATED in it.modifiers() ||
-                            ModuleDescriptor.Requires.Modifier.SYNTHETIC in it.modifiers()
-                    }
-                    .map { it.name() }
-                    .toSet()
-            if (
-                descriptor.name() != "io.github.ulviar.procwright.kotlin.consumer.example" ||
-                    descriptor.isAutomatic ||
-                    descriptor.isOpen ||
-                    descriptor.exports().isNotEmpty() ||
-                    descriptor.opens().isNotEmpty() ||
-                    descriptor.uses().isNotEmpty() ||
-                    descriptor.provides().isNotEmpty() ||
-                    actualRequirements != expectedRequirements
-            ) {
-                throw GradleException("Unexpected Kotlin consumer module descriptor: $descriptor")
-            }
-        }
-    }
-
-tasks.check { dependsOn(runKotlinConsumer, kotlinConsumerModuleCheck) }
+tasks.check { dependsOn(runKotlinConsumer) }

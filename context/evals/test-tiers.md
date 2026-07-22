@@ -33,7 +33,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 - value objects и scenario Draft fail fast;
 - public API surface не получает случайные entry points;
 - `apiCompatibilityCheck` сравнивает public JVM signatures с baseline `0.1.0`;
-- `:procwright-kotlin:checkKotlinAbi` сравнивает Kotlin JVM ABI и metadata-visible declarations с tracked baseline;
+- `:procwright-kotlin:checkKotlinAbi` сравнивает Kotlin JVM ABI с tracked baseline;
 - unit tests проверяют production-owned `DiagnosticAttributeSchema` через построение diagnostics events и schema-safe
   failure attributes;
 - helper ownership и boundary tests проверяют изоляцию инвариантов без долгих процессов.
@@ -82,7 +82,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 ```bash
 ./gradlew publicJavaJavadocCheck --project-prop=procwright.javaRelease=17
-./gradlew :procwright-kotlin:kotlinApiDocsCheck --project-prop=procwright.javaRelease=17
+./gradlew :procwright-kotlin:javadocJar --project-prop=procwright.javaRelease=17
 ./gradlew :procwright-kotlin:checkKotlinAbi --project-prop=procwright.javaRelease=17
 ./gradlew publicDocsCheck --project-prop=procwright.javaRelease=17
 ```
@@ -91,7 +91,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 - Java public modules собирают Javadoc;
 - `publicJavaJavadocCheck` запускает Javadoc с `-Werror`, поэтому warning является failure, а не ручной заметкой;
-- `kotlinApiDocsCheck` запускает Dokka parser-backed проверку KDoc с `reportUndocumented=true` и
+- `javadocJar` запускает Dokka-проверку KDoc с `reportUndocumented=true` и
   `failOnWarning=true`;
 - Kotlin public binary API совпадает с tracked ABI baseline;
 - public MkDocs site собирается в strict mode;

@@ -69,7 +69,7 @@ Behavioral contract важнее случайной реализации. Для
 - integrations module tests;
 - bounded `stressTest`;
 - Javadocs;
-- `:procwright-kotlin:kotlinApiDocsCheck`, запускающий Dokka parser-backed проверку с
+- `:procwright-kotlin:javadocJar`, запускающий Dokka-проверку с
   `reportUndocumented=true` и `failOnWarning=true`;
 - Kotlin Gradle Plugin ABI validation относительно tracked baseline.
 
