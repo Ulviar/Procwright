@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.build.release;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -26,6 +27,29 @@ final class ReleaseWorkflowValidatorTest {
     @Test
     void acceptsCurrentReleaseWorkflows() throws IOException {
         assertDoesNotThrow(fixture()::validate);
+    }
+
+    @Test
+    void fixtureMutationsTreatCrLfAsLogicalLineBreaks() throws IOException {
+        Path replace = temporaryDirectory.resolve("replace-crlf.yml");
+        Path swap = temporaryDirectory.resolve("swap-crlf.yml");
+        Path append = temporaryDirectory.resolve("append-crlf.yml");
+        Path loneCarriageReturn = temporaryDirectory.resolve("replace-cr.yml");
+        Files.writeString(replace, "first:\r\n  value: old\r\n");
+        Files.writeString(swap, "first:\r\nsecond:\r\n");
+        Files.writeString(append, "first:\r\n");
+        Files.writeString(loneCarriageReturn, "first:\r  value: old\r");
+        WorkflowFixture fixture = new WorkflowFixture(replace, swap, append);
+
+        fixture.replaceRequired(replace, "first:\n  value: old\n", "first:\n  value: new\n");
+        fixture.swapRequired(swap, "first:\n", "second:\n");
+        fixture.append(append, "second:\n");
+        fixture.replaceRequired(loneCarriageReturn, "first:\n  value: old\n", "first:\n  value: new\n");
+
+        assertEquals("first:\n  value: new\n", Files.readString(replace));
+        assertEquals("second:\nfirst:\n", Files.readString(swap));
+        assertEquals("first:\nsecond:\n", Files.readString(append));
+        assertEquals("first:\n  value: new\n", Files.readString(loneCarriageReturn));
     }
 
     @Test
@@ -994,29 +1018,39 @@ final class ReleaseWorkflowValidatorTest {
         }
 
         void replaceRequired(Path file, String expected, String replacement) throws IOException {
-            String source = Files.readString(file);
-            if (!source.contains(expected)) {
+            String source = canonicalText(Files.readString(file));
+            String canonicalExpected = canonicalText(expected);
+            if (!source.contains(canonicalExpected)) {
                 throw new AssertionError("Fixture text is missing: " + expected);
             }
             Files.writeString(
                     file,
                     source.replaceFirst(
-                            java.util.regex.Pattern.quote(expected),
-                            java.util.regex.Matcher.quoteReplacement(replacement)));
+                            java.util.regex.Pattern.quote(canonicalExpected),
+                            java.util.regex.Matcher.quoteReplacement(canonicalText(replacement))));
         }
 
         void append(Path file, String text) throws IOException {
-            Files.writeString(file, Files.readString(file) + text);
+            Files.writeString(file, canonicalText(Files.readString(file)) + canonicalText(text));
         }
 
         void swapRequired(Path file, String left, String right) throws IOException {
-            String source = Files.readString(file);
-            if (!source.contains(left) || !source.contains(right)) {
+            String source = canonicalText(Files.readString(file));
+            String canonicalLeft = canonicalText(left);
+            String canonicalRight = canonicalText(right);
+            if (!source.contains(canonicalLeft) || !source.contains(canonicalRight)) {
                 throw new AssertionError("Fixture text is missing a swap operand");
             }
             String marker = "__PROCWRIGHT_WORKFLOW_SWAP__";
             Files.writeString(
-                    file, source.replace(left, marker).replace(right, left).replace(marker, right));
+                    file,
+                    source.replace(canonicalLeft, marker)
+                            .replace(canonicalRight, canonicalLeft)
+                            .replace(marker, canonicalRight));
+        }
+
+        private static String canonicalText(String text) {
+            return text.replace("\r\n", "\n").replace('\r', '\n');
         }
     }
 }

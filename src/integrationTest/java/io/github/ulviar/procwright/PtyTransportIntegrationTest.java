@@ -89,11 +89,14 @@ final class PtyTransportIntegrationTest {
                 Procwright.command(CommandSpec.of("sh")).interactive().withPtyProvider(PtyProvider.unavailable());
 
         try (Session session = scenario.withTerminal(TerminalPolicy.AUTO)
-                        .withArgs("-c", "if [ -t 0 ]; then echo mode:tty; else echo mode:pipe; fi")
+                        .withArgs(
+                                "-c",
+                                "if [ -t 0 ]; then echo mode:tty; else echo mode:pipe; fi; read release; [ \"$release\" = release ]")
                         .open();
                 BufferedReader stdout =
                         new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
-            assertEquals("mode:pipe", stdout.readLine());
+            assertEquals("mode:pipe", readUntil(session, stdout, "mode:"));
+            session.sendLine("release");
             assertEquals(0, session.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
         }
     }
@@ -121,11 +124,15 @@ final class PtyTransportIntegrationTest {
         InteractiveScenario.Draft scenario =
                 Procwright.command(CommandSpec.of("sh")).interactive().withPtyProvider(forbiddenProvider);
 
-        try (Session session = scenario.withArgs("-c", "if [ -t 0 ]; then echo mode:tty; else echo mode:pipe; fi")
+        try (Session session = scenario.withTerminal(TerminalPolicy.DISABLED)
+                        .withArgs(
+                                "-c",
+                                "if [ -t 0 ]; then echo mode:tty; else echo mode:pipe; fi; read release; [ \"$release\" = release ]")
                         .open();
                 BufferedReader stdout =
                         new BufferedReader(new InputStreamReader(session.stdout(), StandardCharsets.UTF_8))) {
-            assertEquals("mode:pipe", stdout.readLine());
+            assertEquals("mode:pipe", readUntil(session, stdout, "mode:"));
+            session.sendLine("release");
             assertEquals(0, session.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
         }
     }

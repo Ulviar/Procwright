@@ -425,9 +425,12 @@ final class PooledLineSessionIntegrationTest {
         int permitsBefore = PoolTestAccess.availableWorkerHookPermits();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+            try (PooledLineSession pool = pool(
+                            fixtureScenario().withRequestTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1)),
+                            "controlled-line-repl")
                     .withMaxSize(1)
                     .withWarmupSize(1)
+                    .withAcquireTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1))
                     .withHookTimeout(Duration.ofMillis(50))
                     .withHealthCheck(worker -> {
                         health.run();
@@ -446,12 +449,23 @@ final class PooledLineSessionIntegrationTest {
 
                 assertTrue(health.awaitEntered());
                 assertEquals(PooledLineSessionException.Reason.HOOK_TIMEOUT, exception.reason());
-                assertTrue(awaitRetired(pool, 1));
-                assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
+                assertTrue(PoolTestAccess.awaitLineMetrics(
+                        pool,
+                        metrics -> metrics.retired() == 1
+                                && metrics.retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED) == 1,
+                        Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS)));
                 health.releaseAndJoin();
                 assertEquals(permitsBefore, PoolTestAccess.availableWorkerHookPermits());
-                assertEquals("response:second", pool.request("second").text());
-                assertEquals(2, pool.metrics().created());
+                Future<LineResponse> replacement = executor.submit(() -> pool.request("second"));
+                assertEquals(
+                        "response:second",
+                        replacement
+                                .get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS)
+                                .text());
+                PooledLineSessionMetrics metrics = pool.metrics();
+                assertEquals(1, metrics.retired());
+                assertEquals(1, metrics.retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
+                assertEquals(2, metrics.created());
             }
         } finally {
             health.release();

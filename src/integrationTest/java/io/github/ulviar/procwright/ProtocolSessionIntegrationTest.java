@@ -50,6 +50,9 @@ import org.junit.jupiter.api.Test;
 
 final class ProtocolSessionIntegrationTest {
 
+    // This only bounds the test harness; scenario timeouts remain longer than this watchdog.
+    private static final long EXTERNAL_WATCHDOG_SECONDS = 10;
+
     @Test
     void protocolSessionSupportsMultilineStringRequests() {
         try (ProtocolSession<String, String> session = openProtocolSession(
@@ -1327,6 +1330,7 @@ final class ProtocolSessionIntegrationTest {
     void retiredProtocolWorkerCleansObservedDescendantBeforeMetricsPublication() throws Exception {
         AtomicLong observedChildPid = new AtomicLong();
         long childPid = -1;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         Supplier<ProtocolAdapter<String, String>> adapterFactory = () -> new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {}
@@ -1341,11 +1345,15 @@ final class ProtocolSessionIntegrationTest {
         try (PooledProtocolSession<String, String> pool = fixtureService()
                 .protocolSession(adapterFactory)
                 .withArgs("spawn-child", "--child-scenario=never-exit", "--linger-millis=500")
+                .withRequestTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1))
                 .pooled()
                 .withMaxSize(1)
+                .withAcquireTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1))
+                .withHookTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1))
                 .open()) {
-            ProtocolSessionException failure =
-                    assertThrows(ProtocolSessionException.class, () -> pool.request("request", Duration.ofSeconds(2)));
+            Future<Throwable> request = executor.submit(() -> captureFailure(() -> pool.request("request")));
+            ProtocolSessionException failure = assertInstanceOf(
+                    ProtocolSessionException.class, request.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS));
             childPid = observedChildPid.get();
 
             assertTrue(
@@ -1354,13 +1362,22 @@ final class ProtocolSessionIntegrationTest {
                     "unexpected protocol termination reason: " + failure.reason());
             assertTrue(childPid > 0, "worker output did not publish the child process id");
             assertTrue(PoolTestAccess.awaitProtocolMetrics(
-                    pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(2)));
+                    pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS)));
             assertFalse(
                     ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false),
                     "retired protocol worker left an observed descendant alive");
         } finally {
-            if (childPid >= 0) {
-                ProcessHandle.of(childPid).ifPresent(ProcessHandle::destroyForcibly);
+            try {
+                long cleanupPid = observedChildPid.get();
+                ProcessHandle child =
+                        cleanupPid > 0 ? ProcessHandle.of(cleanupPid).orElse(null) : null;
+                if (child != null && child.isAlive()) {
+                    child.destroyForcibly();
+                    child.onExit().get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS);
+                }
+            } finally {
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS));
             }
         }
     }
