@@ -3,7 +3,6 @@ import org.gradle.api.publish.maven.MavenPublication
 plugins {
     `java-library`
     `maven-publish`
-    signing
 }
 
 val procwrightJavaRelease = rootProject.extra["procwrightJavaRelease"] as Int
@@ -57,15 +56,6 @@ publishing {
                 }
             }
         }
-    }
-}
-
-signing {
-    val signingKey = providers.environmentVariable("SIGNING_KEY").orNull
-    val signingPassword = providers.environmentVariable("SIGNING_PASSWORD").orNull
-    if (!signingKey.isNullOrBlank() && signingPassword != null) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
-        sign(publishing.publications["mavenJava"])
     }
 }
 

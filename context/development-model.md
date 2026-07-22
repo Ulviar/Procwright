@@ -68,7 +68,7 @@
 
 ### Release-релевантное изменение
 
-Примеры: изменить dependency policy, release checklist, compatibility/versioning policy, public API surface или набор
+Примеры: изменить dependency policy, publication readiness, compatibility/versioning policy, public API surface или набор
 публикуемых модулей.
 
 Требования:

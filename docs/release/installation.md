@@ -2,9 +2,10 @@
 
 No public release exists yet. Use Java 17 or newer; release artifacts target Java 17.
 
-!!! note "Not yet on Maven Central"
-    Install the planned `0.1.0` artifacts from the Procwright checkout with the exact command below. After the release
-    reaches Maven Central, applications can remove `mavenLocal()` and keep the same coordinates.
+!!! note "No public repository yet"
+    Install the planned `0.1.0` artifacts from the Procwright checkout with the exact command below. After the artifacts
+    are published to a public Maven repository, replace `mavenLocal()` with the repository configuration required by
+    that registry; the coordinates remain the same.
 
 ```shell
 ./gradlew publishToMavenLocal \

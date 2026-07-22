@@ -16,7 +16,6 @@
 - [ADR-0014: package architecture](ADR-0014-package-architecture.md)
 - [ADR-0015: JPMS encapsulation](ADR-0015-jpms-encapsulation.md)
 - [ADR-0016: first release-candidate API stabilization](ADR-0016-first-rc-api-stabilization.md)
-- [ADR-0017: release publishing strategy](ADR-0017-release-publishing-strategy.md)
 - [ADR-0018: platform PTY strategy](ADR-0018-platform-pty-strategy.md)
 - [ADR-0019: Kotlin generated documentation](ADR-0019-kotlin-generated-docs-strategy.md)
 - [ADR-0020: Java release variants](ADR-0020-java-release-variants.md)

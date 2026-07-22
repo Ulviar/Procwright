@@ -8,7 +8,6 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 plugins {
     `java-library`
     `maven-publish`
-    signing
     id("org.jetbrains.kotlin.jvm")
     id("org.jetbrains.dokka")
 }
@@ -87,15 +86,6 @@ publishing {
                 }
             }
         }
-    }
-}
-
-signing {
-    val signingKey = providers.environmentVariable("SIGNING_KEY").orNull
-    val signingPassword = providers.environmentVariable("SIGNING_PASSWORD").orNull
-    if (!signingKey.isNullOrBlank() && signingPassword != null) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
-        sign(publishing.publications["mavenJava"])
     }
 }
 

@@ -236,7 +236,7 @@
 - Windows ConPTY пока explicit unsupported behavior, а не fallback для `REQUIRED`;
 - one-shot `run` пока не получает PTY transport.
 
-## Release gate
+## Publication readiness
 
 Первый публичный релиз не готов, пока выполнены не все условия:
 
@@ -244,7 +244,7 @@
 - scenario cookbook сверяется с compile-tested examples;
 - Kotlin и integrations modules проходят свои tests;
 - bounded `stressTest` входит в `check` и проходит локально;
-- `quickCheck`, `scenarioCheck`, `regressionCheck` и `releaseCandidateCheck` соответствуют
+- `quickCheck`, `scenarioCheck`, `regressionCheck` и `publicationReadinessCheck` соответствуют
   [test-tiers.md](test-tiers.md);
 - `javadoc` проходит для Java modules;
 - `:procwright-kotlin:javadocJar` запускает Dokka-проверку с
@@ -252,9 +252,9 @@
 - Kotlin binary API проходит встроенную Kotlin Gradle Plugin ABI validation относительно tracked baseline;
 - public package boundaries покрыты tests;
 - LICENSE присутствует в корне репозитория;
-- versioning policy, compatibility policy, dependency review и release checklist актуальны;
+- versioning policy, compatibility policy, dependency review и publication readiness актуальны;
 - session shutdown escalation hardening закрыт тестом
   `OneShotExecutionIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
   shutdown helper `ProcessLifecycle.stop`;
-- Каждая ячейка Linux/macOS/Windows × JDK 17/21/25 независимо компилирует и проверяет Java 17-targeted build; source
-  targets 21/25 отдельно проходят `check` и Javadoc на соответствующих Linux/JDK.
+- Java 17-targeted build проходит scenario checks на Linux, macOS и Windows с JDK 17, а также на Linux с JDK 21/25;
+  source targets 21/25 отдельно проходят scenario checks на соответствующих Linux/JDK.

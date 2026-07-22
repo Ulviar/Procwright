@@ -10,7 +10,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 - Быстрый feedback проверяет контракты и public API без запуска тяжелых сценариев.
 - Сценарные проверки используют реальные процессы и подтверждают пользовательские workflows.
 - Stress остается bounded: он ловит регрессии, но не превращается в нестабильный benchmark suite.
-- Release gate собирает уже определенные уровни, документацию и чистоту worktree; он не скрывает отдельные команды.
+- Publication-readiness gate собирает уже определенные уровни и документацию; remote release mechanics в него не входят.
 - Machine-specific capabilities проверяются через assumptions/skip там, где среда их не гарантирует. Контролируемый
   Linux/JDK 17 job, напротив, требует system PTY и падает, если capability недоступна: так допустимый skip не может
   скрыть полное отсутствие реального PTY coverage.
@@ -97,27 +97,23 @@ Test/eval tiers фиксируют, какие инварианты защища
 - public MkDocs site собирается в strict mode;
 - documentation maturity проверяется отдельно от runtime behavior.
 
-### Tier 4: проверка release gate
+### Tier 4: готовность к публикации
 
 Команда:
 
 ```bash
-./gradlew releaseCandidateCheck --project-prop=procwright.javaRelease=17
-./gradlew releaseCandidateCheck --project-prop=procwright.javaRelease=17 \
-  --project-prop=procwright.version=0.1.0
+./gradlew publicationReadinessCheck --project-prop=procwright.javaRelease=17
 ```
 
 Назначение:
 
-- в default SNAPSHOT режиме запускает readiness, documentation и release script/contract self-tests без finalized-doc
-  check и реальной публикации artifacts;
-- в explicit non-SNAPSHOT режиме дополнительно запускает `releaseDocsContentCheck` и
-  `realReleaseArtifactSemanticTest` без обхода publication/signing guards;
-- требует clean Git worktree, включая untracked files;
-- выполняет clean-tree check после всех проверок, выбранных текущим режимом.
+- запускает regression, API/ABI, strict Java/Kotlin documentation и public site checks;
+- проверяет все три optional/public modules и внешние consumer examples через предыдущие tiers;
+- не выбирает remote registry, signing или credentials и не выдает local readiness за доказательство публикации;
+- CI отдельно публикует те же modules в изолированный Maven Local repository и запускает normal/POM-only consumers.
 
 ## Правило развития
 
 Новая возможность должна попасть минимум в один быстрый contract test и один scenario или integration test. Если
 изменение касается shutdown, streaming, PTY, pooling, diagnostics или external-library boundary, оно дополнительно
-требует regression/stress или explicit release checklist entry.
+требует regression/stress proof.

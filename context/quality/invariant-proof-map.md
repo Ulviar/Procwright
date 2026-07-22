@@ -16,7 +16,7 @@
 | Runtime получает валидированный immutable plan. | Internal settings, `ExecutionPlan`, `SessionExecutionPlan`, `StreamExecutionPlan`, `ScenarioRuntime`. | settings/policy tests и integration tests всех сценариев. |
 | Direct argv — default, shell mode явный, environment inheritance выбирается policy. | `CommandSpec`, `LaunchSettings`, `EnvironmentPolicy`, `SystemShell`. | `CommandSpecTest`, scenario Draft tests, `OneShotExecutionIntegrationTest`. |
 | Public API не раскрывает internal/external types и не растет без решения. | JPMS descriptors, exact signature baseline, package boundary checks и проверка direct/resolved runtime dependencies публичных модулей. | `PublicApiSurfaceTest`, `PackageBoundaryTest`, `externalLibraryBoundaryCheck`, `apiCompatibilityCheck`. |
-| Экспортируемые Java packages core/integrations имеют `@NullMarked`; допустимые `@Nullable`/`UNION_NULL` positions и `requires static transitive org.jspecify` входят в compatibility surface. | Public `package-info.java`, explicit type-use annotations, JPMS descriptors и `compileOnlyApi` publication configuration. | [`PublicNullnessContractTest`](../../src/test/java/io/github/ulviar/procwright/PublicNullnessContractTest.java), [`IntegrationNullnessMetadataTest`](../../procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/IntegrationNullnessMetadataTest.java), release-only `kotlinJSpecifyStrictnessCheck` и `apiCompatibilityCheck`. |
+| Экспортируемые Java packages core/integrations имеют `@NullMarked`; допустимые `@Nullable`/`UNION_NULL` positions и `requires static transitive org.jspecify` входят в compatibility surface. | Public `package-info.java`, explicit type-use annotations, JPMS descriptors и `compileOnlyApi` publication configuration. | [`PublicNullnessContractTest`](../../src/test/java/io/github/ulviar/procwright/PublicNullnessContractTest.java), [`IntegrationNullnessMetadataTest`](../../procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/IntegrationNullnessMetadataTest.java), `kotlinJSpecifyStrictnessCheck` и `apiCompatibilityCheck`. |
 
 ## Process, I/O и lifecycle
 
@@ -78,12 +78,13 @@
 
 ## Release proofs
 
-- `quickCheck` — unit, API/package/dependency boundaries и compilation всех public consumers.
+- `quickCheck` — unit, API/package boundaries и compilation всех public consumers.
 - `scenarioCheck` — integration behavior канонических сценариев.
 - `regressionCheck` — bounded stress и регрессии lifecycle/concurrency.
 - `publicDocsCheck` и strict Java/Kotlin API docs gates.
-- `releaseCandidateCheck` на Java 17 target.
-- CI matrix Linux/macOS/Windows на JDK 17/21/25 и отдельные source targets 21/25.
+- `publicationStructureCheck` проверяет classifiers и обязательные POM metadata всех трех modules.
+- `publicationReadinessCheck` агрегирует product/API/docs readiness на Java 17 target.
+- CI проверяет Java 17 artifact на Linux/macOS/Windows и JDK 17/21/25; source targets 21/25 — на Linux.
 - Isolated publication consumers в Gradle metadata и Maven POM-only режимах.
 
 Новый behavior должен расширить существующую строку или добавить новую. Если невозможно назвать единственного

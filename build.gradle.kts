@@ -1,35 +1,16 @@
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-import java.nio.file.Files
-import java.nio.file.LinkOption
-import java.nio.file.OpenOption
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
 import java.util.ArrayDeque
-import java.util.Locale
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
-import javax.xml.transform.OutputKeys
-import javax.xml.transform.TransformerFactory
-import javax.xml.transform.dom.DOMSource
-import javax.xml.transform.stream.StreamResult
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
-import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
-import org.gradle.api.publish.plugins.PublishingPlugin
-import org.gradle.api.tasks.Delete
-import org.gradle.api.tasks.bundling.Zip
 import org.gradle.external.javadoc.StandardJavadocDocletOptions
-import org.w3c.dom.Document
 import org.w3c.dom.Element
 
 plugins {
     `java-library`
     `maven-publish`
-    signing
     id("com.diffplug.spotless") version "8.6.0"
     id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
     id("org.jetbrains.dokka") version "2.2.0" apply false
@@ -68,10 +49,6 @@ if (
 
 val procwrightVersion = procwrightVersionProperty ?: conventionalVersionProperty ?: "0.0.0-SNAPSHOT"
 
-fun releaseCandidateUsesFinalReleaseChecks(version: String): Boolean =
-    !version.endsWith("-SNAPSHOT")
-
-val releaseCandidateFinalMode = releaseCandidateUsesFinalReleaseChecks(procwrightVersion)
 val requireSystemPty =
     providers
         .gradleProperty("procwright.requireSystemPty")
@@ -88,11 +65,6 @@ val requireSystemPty =
         .orElse(false)
         .get()
 val publicMavenGroup = "io.github.ulviar"
-val mavenCentralBundleRepository = layout.buildDirectory.dir("maven-central/repository")
-val releaseVersionPattern =
-    Regex(
-        """(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"""
-    )
 
 extra["procwrightJavaRelease"] = procwrightJavaRelease
 
@@ -117,48 +89,12 @@ allprojects {
         options.compilerArgs.addAll(listOf("-Xlint:all", "-Werror"))
     }
 
-    plugins.withId("maven-publish") {
-        extensions.configure<PublishingExtension>("publishing") {
-            repositories {
-                maven {
-                    name = "MavenCentralBundle"
-                    url =
-                        rootProject.layout.buildDirectory
-                            .dir("maven-central/repository")
-                            .get()
-                            .asFile
-                            .toURI()
-                }
-            }
-        }
-    }
-
     tasks.withType<Javadoc>().configureEach {
         (options as StandardJavadocDocletOptions).apply {
             encoding = "UTF-8"
             charSet = "UTF-8"
             docEncoding = "UTF-8"
             addBooleanOption("Werror", true)
-        }
-    }
-
-    tasks.withType<PublishToMavenRepository>().configureEach {
-        doFirst {
-            if (procwrightJavaRelease != 17) {
-                throw GradleException(
-                    "Public Procwright artifacts must be published with --project-prop=procwright.javaRelease=17"
-                )
-            }
-            if (procwrightVersion.endsWith("-SNAPSHOT")) {
-                throw GradleException(
-                    "Public Procwright artifacts must not be published with a SNAPSHOT version; set --project-prop=procwright.version=<release-version>"
-                )
-            }
-            if (!releaseVersionPattern.matches(procwrightVersion)) {
-                throw GradleException(
-                    "Public Procwright artifacts must use a SemVer release version such as 0.1.0 or 0.1.0-rc.1"
-                )
-            }
         }
     }
 
@@ -210,15 +146,6 @@ publishing {
                 }
             }
         }
-    }
-}
-
-signing {
-    val signingKey = providers.environmentVariable("SIGNING_KEY").orNull
-    val signingPassword = providers.environmentVariable("SIGNING_PASSWORD").orNull
-    if (!signingKey.isNullOrBlank() && signingPassword != null) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
-        sign(publishing.publications["mavenJava"])
     }
 }
 
@@ -382,13 +309,6 @@ val externalLibraryBoundaryCheck =
 tasks.check { dependsOn(externalLibraryBoundaryCheck) }
 
 tasks.check { dependsOn(":procwright-test-cli:check") }
-
-val consumerExampleCheckPaths =
-    listOf(
-        ":procwright-consumer-examples:check",
-        ":procwright-integrations-consumer-example:check",
-        ":procwright-kotlin-consumer-example:check",
-    )
 
 val publicApiConsumerCompilationCheck =
     tasks.register("publicApiConsumerCompilationCheck") {
@@ -800,119 +720,6 @@ tasks.check { dependsOn(contextLinksCheck) }
 
 quickCheck.configure { dependsOn(contextLinksCheck) }
 
-fun releaseDocsContentFailures(
-    releaseVersion: String,
-    sources: List<Pair<String, String>>,
-): List<String> {
-    val preReleaseStatement =
-        Regex(
-            "no (?:supported )?public release|no release is available|not yet on maven central|before the first public release|planned first release|first release will",
-            RegexOption.IGNORE_CASE,
-        )
-    val movingSourceLink = Regex("https://github\\.com/Ulviar/Procwright/(?:blob|tree)/main/")
-    val gradleCoordinate =
-        Regex("io\\.github\\.ulviar:procwright(?:-[a-z]+)?:([0-9][0-9A-Za-z.+-]*)")
-    val mavenCoordinate =
-        Regex(
-            "<artifactId>procwright(?:-[a-z]+)?</artifactId>\\s*<version>([^<]+)</version>",
-            setOf(RegexOption.DOT_MATCHES_ALL),
-        )
-    val failures = mutableListOf<String>()
-
-    sources.forEach { (source, text) ->
-        preReleaseStatement.findAll(text).forEach { match ->
-            failures += "$source still contains pre-release text: ${match.value}"
-        }
-        movingSourceLink.findAll(text).forEach { match ->
-            failures += "$source uses a moving release source link: ${match.value}"
-        }
-        gradleCoordinate.findAll(text).forEach { match ->
-            if (match.groupValues[1] != releaseVersion) {
-                failures += "$source uses ${match.value}, expected version $releaseVersion"
-            }
-        }
-        mavenCoordinate.findAll(text).forEach { match ->
-            if (match.groupValues[1].trim() != releaseVersion) {
-                failures +=
-                    "$source uses Maven version ${match.groupValues[1].trim()}, expected $releaseVersion"
-            }
-        }
-    }
-    return failures
-}
-
-val releaseDocsContentCheck =
-    tasks.register("releaseDocsContentCheck") {
-        description =
-            "Rejects unreleased status, moving source links, and wrong coordinates in release docs."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-
-        val releaseMarkdown =
-            files(
-                layout.projectDirectory.file("README.md"),
-                fileTree(layout.projectDirectory.dir("docs")) { include("**/*.md") },
-            )
-        inputs.files(releaseMarkdown)
-        inputs.property("releaseVersion", procwrightVersion)
-        onlyIf { releaseCandidateFinalMode }
-
-        doLast {
-            val failures =
-                releaseDocsContentFailures(
-                    procwrightVersion,
-                    releaseMarkdown.files.filter(File::isFile).sorted().map { source ->
-                        source.relativeTo(rootDir).invariantSeparatorsPath to source.readText()
-                    },
-                )
-            if (failures.isNotEmpty()) {
-                throw GradleException(
-                    "Release documentation is not ready:\n${failures.joinToString("\n")}"
-                )
-            }
-        }
-    }
-
-val releaseDocsContentSelfTest =
-    tasks.register("releaseDocsContentSelfTest") {
-        description =
-            "Proves that release docs reject pre-release status, moving links, and wrong coordinates."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-
-        doLast {
-            val selectedVersion = "1.2.3"
-            val finalized =
-                """
-                # Procwright
-                implementation("io.github.ulviar:procwright:$selectedVersion")
-                https://github.com/Ulviar/Procwright/blob/v$selectedVersion/README.md
-                """
-                    .trimIndent()
-            if (
-                releaseDocsContentFailures(selectedVersion, listOf("README.md" to finalized))
-                    .isNotEmpty()
-            ) {
-                throw GradleException("Finalized release documentation fixture must pass")
-            }
-
-            val rejected =
-                listOf(
-                    "No public release exists yet.",
-                    "implementation(\"io.github.ulviar:procwright:9.9.9\")",
-                    "https://github.com/Ulviar/Procwright/blob/main/README.md",
-                )
-            rejected.forEach { text ->
-                if (
-                    releaseDocsContentFailures(selectedVersion, listOf("README.md" to text))
-                        .isEmpty()
-                ) {
-                    throw GradleException(
-                        "Release documentation check accepted invalid fixture: $text"
-                    )
-                }
-            }
-        }
-    }
-
 val canonicalPublicDocsUrlCheck =
     tasks.register("canonicalPublicDocsUrlCheck") {
         description = "Checks that the public documentation site is canonical and discoverable."
@@ -968,9 +775,6 @@ val publicDocsCheck =
             "Builds the public MkDocs documentation site in strict mode and attaches generated API docs."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(preparePublicDocs, docsRequirementsLockCheck, canonicalPublicDocsUrlCheck)
-        if (releaseCandidateFinalMode) {
-            dependsOn(releaseDocsContentCheck)
-        }
 
         val requirements = layout.projectDirectory.file("docs/requirements.lock")
         val requirementsSource = layout.projectDirectory.file("docs/requirements.txt")
@@ -1001,1108 +805,125 @@ val publicDocsCheck =
         )
     }
 
-data class VerificationComponentId(val group: String, val name: String, val version: String) :
-    Comparable<VerificationComponentId> {
-    override fun compareTo(other: VerificationComponentId): Int =
-        compareValuesBy(this, other, { it.group }, { it.name }, { it.version })
-
-    override fun toString(): String = "$group:$name:$version"
-}
-
-data class VerificationHash(val algorithm: String, val value: String) :
-    Comparable<VerificationHash> {
-    override fun compareTo(other: VerificationHash): Int =
-        compareValuesBy(this, other, { it.algorithm }, { it.value })
-}
-
-data class VerificationComponent(val artifacts: Map<String, Set<VerificationHash>>)
-
-data class VerificationMetadataSnapshot(
-    val document: Document,
-    val envelope: String,
-    val componentsElement: Element,
-    val components: Map<VerificationComponentId, VerificationComponent>,
-    val componentElements: Map<VerificationComponentId, Element>,
-)
-
-fun Element.localElementName(): String = localName ?: tagName.substringAfter(':')
-
-fun Element.directChildElements(): List<Element> {
-    val result = mutableListOf<Element>()
-    val children = childNodes
-    for (index in 0 until children.length) {
-        val child = children.item(index)
-        if (child is Element) {
-            result += child
-        }
-    }
-    return result
-}
-
-fun canonicalVerificationElement(element: Element, omitDirectChild: String? = null): String =
-    buildString {
-        append('<').append(element.localElementName())
-        val attributes = element.attributes
-        (0 until attributes.length)
-            .map { index -> attributes.item(index) }
-            .sortedBy { attribute -> "${attribute.namespaceURI}:${attribute.nodeName}" }
-            .forEach { attribute ->
-                append(' ').append(attribute.nodeName).append('=').append(attribute.nodeValue)
-            }
-        append('>')
-        element.directChildElements().forEach { child ->
-            if (child.localElementName() != omitDirectChild) {
-                append(canonicalVerificationElement(child))
-            }
-        }
-        val text =
-            (0 until element.childNodes.length)
-                .map { index -> element.childNodes.item(index) }
-                .filter { child -> child.nodeType == org.w3c.dom.Node.TEXT_NODE }
-                .joinToString(separator = "") { child -> child.nodeValue }
-                .trim()
-        if (text.isNotEmpty()) {
-            append(text)
-        }
-        append("</").append(element.localElementName()).append('>')
+private fun Element.directChild(name: String): Element? =
+    (0 until childNodes.length).map(childNodes::item).filterIsInstance<Element>().firstOrNull {
+        child ->
+        child.tagName == name
     }
 
-fun parseVerificationMetadata(file: File): VerificationMetadataSnapshot {
-    if (!file.isFile) {
-        throw GradleException("Dependency verification metadata is missing: $file")
-    }
-    val factory =
-        DocumentBuilderFactory.newInstance().apply {
-            isNamespaceAware = true
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
-        }
-    val document = factory.newDocumentBuilder().parse(file)
-    val root = document.documentElement
-    if (root.localElementName() != "verification-metadata") {
-        throw GradleException("Unexpected dependency verification root in $file")
-    }
-    val componentsElements =
-        root.directChildElements().filter { child -> child.localElementName() == "components" }
-    if (componentsElements.size != 1) {
-        throw GradleException("$file must contain exactly one components element")
-    }
-    val componentElements = linkedMapOf<VerificationComponentId, Element>()
-    val components = linkedMapOf<VerificationComponentId, VerificationComponent>()
-    componentsElements.single().directChildElements().forEach { component ->
-        if (component.localElementName() != "component") {
-            throw GradleException(
-                "Unexpected ${component.localElementName()} element under components in $file"
+private fun Element.requiredText(name: String, source: File): String =
+    directChild(name)?.textContent?.trim()?.takeIf(String::isNotEmpty)
+        ?: throw GradleException("Generated POM is missing $name: $source")
+
+val publicationStructureCheck =
+    tasks.register("publicationStructureCheck") {
+        description =
+            "Checks registry-independent artifact and POM structure for every public module."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+
+        val publications =
+            mapOf(
+                ":" to "procwright",
+                ":procwright-integrations" to "procwright-integrations",
+                ":procwright-kotlin" to "procwright-kotlin",
             )
-        }
-        val id =
-            VerificationComponentId(
-                component.getAttribute("group"),
-                component.getAttribute("name"),
-                component.getAttribute("version"),
-            )
-        if (id.group.isBlank() || id.name.isBlank() || id.version.isBlank()) {
-            throw GradleException("Incomplete component coordinate in $file")
-        }
-        val artifacts = linkedMapOf<String, Set<VerificationHash>>()
-        component.directChildElements().forEach { artifact ->
-            if (artifact.localElementName() != "artifact") {
-                throw GradleException(
-                    "Unexpected ${artifact.localElementName()} element under $id in $file"
-                )
-            }
-            val artifactName = artifact.getAttribute("name")
-            if (artifactName.isBlank()) {
-                throw GradleException("Unnamed artifact under $id in $file")
-            }
-            val hashes =
-                artifact
-                    .directChildElements()
-                    .map { checksum ->
-                        val value = checksum.getAttribute("value")
-                        if (value.isBlank()) {
-                            throw GradleException(
-                                "Checksum without a value for $id/$artifactName in $file"
-                            )
-                        }
-                        VerificationHash(checksum.localElementName(), value)
-                    }
-                    .toSet()
-            if (hashes.isEmpty()) {
-                throw GradleException("Artifact $id/$artifactName has no checksums in $file")
-            }
-            if (artifacts.put(artifactName, hashes) != null) {
-                throw GradleException("Duplicate artifact $id/$artifactName in $file")
-            }
-        }
-        if (artifacts.isEmpty()) {
-            throw GradleException("Component $id has no artifacts in $file")
-        }
-        if (components.put(id, VerificationComponent(artifacts)) != null) {
-            throw GradleException("Duplicate component $id in $file")
-        }
-        componentElements[id] = component
-    }
-    return VerificationMetadataSnapshot(
-        document,
-        canonicalVerificationElement(root, "components"),
-        componentsElements.single(),
-        components,
-        componentElements,
-    )
-}
-
-fun sha256Hex(file: File): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().use { input ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) {
-                break
-            }
-            digest.update(buffer, 0, read)
-        }
-    }
-    return digest.digest().toHexString()
-}
-
-fun requireDirectRegularFileNoFollow(rootDirectory: File, fileName: String): Path {
-    val absoluteRoot = rootDirectory.toPath().toAbsolutePath()
-    val root = absoluteRoot.normalize()
-    if (absoluteRoot != root) {
-        throw GradleException("Verification evidence root must be normalized: $absoluteRoot")
-    }
-    if (Files.isSymbolicLink(root) || !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
-        throw GradleException("Verification evidence root must be a non-symlink directory: $root")
-    }
-    val file = root.resolve(fileName).normalize()
-    if (file.parent != root || file.fileName?.toString() != fileName) {
-        throw GradleException(
-            "Verification evidence must be a normalized direct child of $root: $fileName"
-        )
-    }
-    if (Files.isSymbolicLink(file) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-        throw GradleException("Verification evidence must be a non-symlink regular file: $file")
-    }
-    return file
-}
-
-fun sha256HexNoFollow(file: Path): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val options = setOf<OpenOption>(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
-    Files.newByteChannel(file, options).use { channel ->
-        val buffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE)
-        while (channel.read(buffer) >= 0) {
-            buffer.flip()
-            digest.update(buffer)
-            buffer.clear()
-        }
-    }
-    return digest.digest().toHexString()
-}
-
-fun mergeCentralConsumerVerificationMetadata(
-    baselineFile: File,
-    normalCandidateFile: File,
-    pomCandidateFile: File,
-    verifiedArtifactsDirectory: File,
-    releaseVersion: String,
-    outputFile: File,
-) {
-    if (!releaseVersionPattern.matches(releaseVersion)) {
-        throw GradleException("Invalid Central consumer version: $releaseVersion")
-    }
-    val allowedModules = setOf("procwright", "procwright-integrations", "procwright-kotlin")
-    val allowedIds =
-        allowedModules
-            .map { module -> VerificationComponentId(publicMavenGroup, module, releaseVersion) }
-            .toSet()
-    val allowedSuffixes = setOf(".jar", ".pom", ".module", "-sources.jar", "-javadoc.jar")
-    val baseline = parseVerificationMetadata(baselineFile)
-    val candidates =
-        listOf(
-            "normal" to parseVerificationMetadata(normalCandidateFile),
-            "mavenPom" to parseVerificationMetadata(pomCandidateFile),
-        )
-    val mergedReleaseComponents = linkedMapOf<VerificationComponentId, VerificationComponent>()
-
-    candidates.forEach { (mode, candidate) ->
-        if (candidate.envelope != baseline.envelope) {
-            throw GradleException(
-                "$mode verification candidate changed verification configuration or root metadata"
-            )
-        }
-        baseline.components.forEach { (id, baselineComponent) ->
-            val candidateComponent =
-                candidate.components[id]
-                    ?: throw GradleException("$mode verification candidate removed $id")
-            val baselineArtifacts = baselineComponent.artifacts
-            val candidateArtifacts = candidateComponent.artifacts
-            baselineArtifacts.forEach { (artifact, hashes) ->
-                if (candidateArtifacts[artifact] != hashes) {
-                    throw GradleException("$mode verification candidate changed $id/$artifact")
-                }
-            }
-            if (id !in allowedIds && candidateArtifacts != baselineArtifacts) {
-                throw GradleException(
-                    "$mode verification candidate added metadata to unrelated component $id"
-                )
-            }
-        }
-        val addedIds = candidate.components.keys - baseline.components.keys
-        val unrelatedIds = addedIds - allowedIds
-        if (unrelatedIds.isNotEmpty()) {
-            throw GradleException(
-                "$mode verification candidate added unrelated components: ${
-                    unrelatedIds.sorted().joinToString()
-                }"
-            )
-        }
-        val missingReleaseIds = allowedIds - candidate.components.keys
-        if (missingReleaseIds.isNotEmpty()) {
-            throw GradleException(
-                "$mode verification candidate did not resolve: ${
-                    missingReleaseIds.sorted().joinToString()
-                }"
+        publications.keys.forEach { projectPath ->
+            val prefix = if (projectPath == ":") ":" else "$projectPath:"
+            dependsOn(
+                "${prefix}jar",
+                "${prefix}sourcesJar",
+                "${prefix}javadocJar",
+                "${prefix}generatePomFileForMavenJavaPublication",
             )
         }
 
-        allowedIds.sorted().forEach { id ->
-            val component = candidate.components.getValue(id)
-            val requiredSuffixes =
-                when (mode) {
-                    "normal" -> setOf(".jar", ".module")
-                    "mavenPom" -> setOf(".jar", ".pom")
-                    else -> throw GradleException("Unsupported verification candidate mode: $mode")
-                }
-            val requiredArtifacts =
-                requiredSuffixes.map { suffix -> "${id.name}-$releaseVersion$suffix" }.toSet()
-            val missingArtifacts = requiredArtifacts - component.artifacts.keys
-            if (missingArtifacts.isNotEmpty()) {
-                throw GradleException(
-                    "$mode verification candidate is missing byte-verified artifacts for $id: ${
-                        missingArtifacts.sorted().joinToString()
-                    }"
-                )
-            }
-
-            component.artifacts.forEach { (artifactName, hashes) ->
-                val expectedNames =
-                    allowedSuffixes.map { suffix -> "${id.name}-$releaseVersion$suffix" }.toSet()
-                if (artifactName !in expectedNames) {
-                    throw GradleException(
-                        "$mode verification candidate added unexpected release artifact $id/$artifactName"
-                    )
-                }
+        doLast {
+            publications.forEach { (projectPath, artifactId) ->
+                val checkedProject = project(projectPath)
+                val publication =
+                    checkedProject.extensions
+                        .getByType(PublishingExtension::class.java)
+                        .publications
+                        .getByName("mavenJava") as MavenPublication
+                val classifiers =
+                    publication.artifacts.map { artifact -> artifact.classifier }.toSet()
                 if (
-                    hashes.size != 1 ||
-                        hashes.single().algorithm != "sha256" ||
-                        !Regex("[0-9a-f]{64}").matches(hashes.single().value)
+                    publication.artifacts.size != 3 ||
+                        classifiers != setOf(null, "sources", "javadoc")
                 ) {
                     throw GradleException(
-                        "$mode verification candidate must provide one lowercase SHA-256 for $id/$artifactName"
+                        "$projectPath publication must contain main, sources, and javadoc artifacts: $classifiers"
                     )
                 }
-                val verifiedArtifact =
-                    requireDirectRegularFileNoFollow(verifiedArtifactsDirectory, artifactName)
-                val actualHash = sha256HexNoFollow(verifiedArtifact)
-                if (hashes.single().value != actualHash) {
-                    throw GradleException(
-                        "$mode verification candidate checksum does not match byte-verified Central artifact $id/$artifactName"
-                    )
-                }
-            }
-
-            val previous = mergedReleaseComponents[id]
-            val mergedArtifacts = previous?.artifacts?.toMutableMap() ?: linkedMapOf()
-            component.artifacts.forEach { (artifactName, hashes) ->
-                val previousHashes = mergedArtifacts.putIfAbsent(artifactName, hashes)
-                if (previousHashes != null && previousHashes != hashes) {
-                    throw GradleException(
-                        "Verification candidates disagree about $id/$artifactName"
-                    )
-                }
-            }
-            mergedReleaseComponents[id] = VerificationComponent(mergedArtifacts)
-        }
-    }
-
-    val document = baseline.document
-    val namespace = document.documentElement.namespaceURI
-    val mergedElements = baseline.componentElements.toMutableMap()
-    mergedReleaseComponents.forEach { (id, component) ->
-        val componentElement = document.createElementNS(namespace, "component")
-        componentElement.setAttribute("group", id.group)
-        componentElement.setAttribute("name", id.name)
-        componentElement.setAttribute("version", id.version)
-        component.artifacts.toSortedMap().forEach { (artifactName, hashes) ->
-            val artifactElement = document.createElementNS(namespace, "artifact")
-            artifactElement.setAttribute("name", artifactName)
-            hashes.sorted().forEach { hash ->
-                val checksumElement = document.createElementNS(namespace, hash.algorithm)
-                checksumElement.setAttribute("value", hash.value)
-                checksumElement.setAttribute("origin", "Verified against staged and Central bytes")
-                artifactElement.appendChild(checksumElement)
-            }
-            componentElement.appendChild(artifactElement)
-        }
-        mergedElements[id] = componentElement
-    }
-    while (baseline.componentsElement.hasChildNodes()) {
-        baseline.componentsElement.removeChild(baseline.componentsElement.firstChild)
-    }
-    mergedElements.toSortedMap().values.forEach { component ->
-        baseline.componentsElement.appendChild(component)
-    }
-
-    outputFile.parentFile.mkdirs()
-    val temporary = Files.createTempFile(outputFile.parentFile.toPath(), ".verification-", ".xml")
-    try {
-        Files.newOutputStream(temporary).use { output ->
-            val transformer =
-                TransformerFactory.newInstance().newTransformer().apply {
-                    setOutputProperty(OutputKeys.ENCODING, "UTF-8")
-                    setOutputProperty(OutputKeys.INDENT, "yes")
-                    setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "3")
-                }
-            transformer.transform(DOMSource(document), StreamResult(output))
-        }
-        Files.move(
-            temporary,
-            outputFile.toPath(),
-            StandardCopyOption.ATOMIC_MOVE,
-            StandardCopyOption.REPLACE_EXISTING,
-        )
-    } finally {
-        Files.deleteIfExists(temporary)
-    }
-}
-
-val mergeCentralConsumerVerificationMetadata =
-    tasks.register("mergeCentralConsumerVerificationMetadata") {
-        description =
-            "Fail-closed merges byte-verified Procwright release checksums from normal and POM-only candidates."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn("centralConsumerVerificationMetadataSelfTest")
-
-        doLast {
-            fun requiredProperty(name: String): String =
-                providers.gradleProperty(name).orNull?.takeIf(String::isNotBlank)
-                    ?: throw GradleException("Missing required Gradle property: $name")
-
-            val baseline =
-                providers
-                    .gradleProperty("procwright.verificationBaseline")
-                    .orElse("gradle/verification-metadata.xml")
-                    .get()
-            mergeCentralConsumerVerificationMetadata(
-                file(baseline),
-                file(requiredProperty("procwright.verificationCandidateNormal")),
-                file(requiredProperty("procwright.verificationCandidatePom")),
-                file(requiredProperty("procwright.verificationArtifacts")),
-                requiredProperty("procwright.consumerVersion"),
-                file(baseline),
-            )
-        }
-    }
-
-val centralConsumerVerificationMetadataSelfTest =
-    tasks.register("centralConsumerVerificationMetadataSelfTest") {
-        description =
-            "Proves the Central verification merge accepts only byte-matched release artifacts."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-
-        doLast {
-            val fixtureDirectory =
-                Files.createTempDirectory(temporaryDir.toPath(), "fixture-").toFile()
-            val verifiedDirectory = File(fixtureDirectory, "verified").apply { mkdirs() }
-            val version = "1.2.3"
-            val modules = listOf("procwright", "procwright-integrations", "procwright-kotlin")
-            val evidenceHashes = linkedMapOf<String, String>()
-            modules.forEach { module ->
-                listOf(".jar", ".module", ".pom").forEach { suffix ->
-                    val artifact = File(verifiedDirectory, "$module-$version$suffix")
-                    artifact.writeText("$module$suffix verified bytes\n")
-                    evidenceHashes[artifact.name] = sha256Hex(artifact)
-                }
-            }
-            val staticHash = "1".repeat(64)
-            val staticComponent =
-                """
-                <component group="org.example" name="reviewed-parent" version="1">
-                   <artifact name="reviewed-parent-1.pom">
-                      <sha256 value="$staticHash" origin="Reviewed static checksum"/>
-                   </artifact>
-                </component>
-                """
-                    .trimIndent()
-
-            fun releaseComponents(suffixes: List<String>): String =
-                modules.joinToString("\n") { module ->
-                    val artifacts =
-                        suffixes.joinToString("\n") { suffix ->
-                            val artifactName = "$module-$version$suffix"
-                            """
-                            <artifact name="$artifactName">
-                               <sha256 value="${evidenceHashes.getValue(artifactName)}" origin="Generated by Gradle"/>
-                            </artifact>
-                            """
-                                .trimIndent()
-                                .prependIndent("   ")
-                        }
-                    """
-                    <component group="$publicMavenGroup" name="$module" version="$version">
-                    $artifacts
-                    </component>
-                    """
-                        .trimIndent()
-                }
-
-            fun metadata(components: String): String =
-                """
-                <verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
-                   <configuration>
-                      <verify-metadata>true</verify-metadata>
-                      <verify-signatures>false</verify-signatures>
-                   </configuration>
-                   <components>
-                ${components.prependIndent("      ")}
-                   </components>
-                </verification-metadata>
-                """
-                    .trimIndent()
-                    .plus("\n")
-
-            val baseline = File(fixtureDirectory, "baseline.xml")
-            val normal = File(fixtureDirectory, "normal.xml")
-            val pom = File(fixtureDirectory, "pom.xml")
-            baseline.writeText(metadata(staticComponent))
-            normal.writeText(
-                metadata("$staticComponent\n${releaseComponents(listOf(".jar", ".module"))}")
-            )
-            pom.writeText(
-                metadata("$staticComponent\n${releaseComponents(listOf(".jar", ".pom"))}")
-            )
-            val baselineSnapshot = parseVerificationMetadata(baseline)
-            val expectedReleaseIds =
-                modules
-                    .map { module -> VerificationComponentId(publicMavenGroup, module, version) }
-                    .toSet()
-            listOf("normal" to normal, "mavenPom" to pom).forEach { (mode, candidateFile) ->
-                val candidate = parseVerificationMetadata(candidateFile)
-                val candidateDelta = candidate.components.keys - baselineSnapshot.components.keys
-                if (candidateDelta != expectedReleaseIds) {
-                    throw GradleException(
-                        "$mode fixture delta must contain exactly the three release coordinates: $candidateDelta"
-                    )
-                }
-            }
-
-            val merged = File(fixtureDirectory, "merged.xml")
-            val mergedAgain = File(fixtureDirectory, "merged-again.xml")
-            mergeCentralConsumerVerificationMetadata(
-                baseline,
-                normal,
-                pom,
-                verifiedDirectory,
-                version,
-                merged,
-            )
-            mergeCentralConsumerVerificationMetadata(
-                baseline,
-                normal,
-                pom,
-                verifiedDirectory,
-                version,
-                mergedAgain,
-            )
-            if (merged.readBytes().contentEquals(mergedAgain.readBytes()).not()) {
-                throw GradleException("Central verification merge output is not deterministic")
-            }
-            val mergedSnapshot = parseVerificationMetadata(merged)
-            val mergedDelta = mergedSnapshot.components.keys - baselineSnapshot.components.keys
-            if (mergedDelta != expectedReleaseIds) {
-                throw GradleException(
-                    "Central verification merge delta must contain exactly the three release coordinates: $mergedDelta"
-                )
-            }
-
-            fun expectRejected(
-                label: String,
-                normalCandidate: File,
-                pomCandidate: File = pom,
-                evidenceDirectory: File = verifiedDirectory,
-            ) {
-                val protectedBaseline = File(fixtureDirectory, "$label-baseline.xml")
-                baseline.copyTo(protectedBaseline, overwrite = true)
-                val before = protectedBaseline.readBytes()
-                val rejected =
-                    runCatching {
-                            mergeCentralConsumerVerificationMetadata(
-                                protectedBaseline,
-                                normalCandidate,
-                                pomCandidate,
-                                evidenceDirectory,
-                                version,
-                                protectedBaseline,
-                            )
-                        }
-                        .isFailure
-                if (!rejected) {
-                    throw GradleException("Central verification self-test accepted $label")
-                }
-                if (!before.contentEquals(protectedBaseline.readBytes())) {
-                    throw GradleException(
-                        "Rejected $label changed the protected verification baseline"
-                    )
-                }
-            }
-
-            val unrelated = File(fixtureDirectory, "unrelated.xml")
-            unrelated.writeText(
-                normal
-                    .readText()
-                    .replace(
-                        "</components>",
-                        """
-                        <component group="org.unreviewed" name="surprise" version="1">
-                           <artifact name="surprise-1.pom">
-                              <sha256 value="${"2".repeat(64)}" origin="Generated by Gradle"/>
-                           </artifact>
-                        </component>
-                        </components>
-                        """
-                            .trimIndent(),
-                    )
-            )
-            expectRejected("unrelated addition", unrelated)
-
-            val removedBaseline = File(fixtureDirectory, "removed-baseline.xml")
-            removedBaseline.writeText(normal.readText().replace(staticComponent, ""))
-            expectRejected("baseline removal", removedBaseline)
-
-            val changedBaseline = File(fixtureDirectory, "changed-baseline.xml")
-            changedBaseline.writeText(normal.readText().replace(staticHash, "3".repeat(64)))
-            expectRejected("baseline change", changedBaseline)
-
-            val expandedStaticComponent =
-                staticComponent.replace(
-                    "</component>",
-                    """
-                       <artifact name="unreviewed-extra-1.pom">
-                          <sha256 value="${"5".repeat(64)}" origin="Generated by Gradle"/>
-                       </artifact>
-                    </component>
-                    """
-                        .trimIndent(),
-                )
-            val expandedBaseline = File(fixtureDirectory, "expanded-baseline.xml")
-            expandedBaseline.writeText(
-                normal.readText().replace(staticComponent, expandedStaticComponent)
-            )
-            expectRejected("baseline artifact addition", expandedBaseline)
-
-            val mismatchedBytes = File(fixtureDirectory, "mismatched-bytes.xml")
-            val firstEvidenceHash = evidenceHashes.values.first()
-            mismatchedBytes.writeText(normal.readText().replace(firstEvidenceHash, "4".repeat(64)))
-            expectRejected("byte mismatch", mismatchedBytes)
-            expectRejected(
-                "non-normalized evidence root",
-                normal,
-                evidenceDirectory = File(verifiedDirectory, "../verified"),
-            )
-
-            val rootLink = File(fixtureDirectory, "verified-root-link").toPath()
-            val symlinkCreationFailure =
-                runCatching { Files.createSymbolicLink(rootLink, verifiedDirectory.toPath()) }
-                    .exceptionOrNull()
-            if (symlinkCreationFailure != null) {
-                val failure = symlinkCreationFailure
-                val operatingSystem = System.getProperty("os.name").lowercase(Locale.ROOT)
-                val isWindows = operatingSystem.contains("windows")
-                val skippable =
-                    failure is UnsupportedOperationException ||
-                        (isWindows &&
-                            (failure is java.nio.file.FileSystemException ||
-                                failure is SecurityException))
-                if (!skippable || operatingSystem.contains("linux")) {
-                    throw GradleException(
-                        "Central verification symlink negative self-test could not run",
-                        failure,
-                    )
-                }
-                logger.lifecycle(
-                    "Central verification symlink negative self-test skipped: " +
-                        "${failure.javaClass.simpleName}: ${failure.message}"
-                )
-            } else {
-                expectRejected(
-                    "symlink evidence root",
-                    normal,
-                    evidenceDirectory = rootLink.toFile(),
-                )
-
-                val fileLinkDirectory =
-                    File(fixtureDirectory, "verified-file-link").apply { mkdirs() }
-                val evidenceFiles =
-                    verifiedDirectory.listFiles()
-                        ?: throw GradleException(
-                            "Cannot enumerate Central verification evidence fixture"
+                publication.artifacts.forEach { artifact ->
+                    if (artifact.extension != "jar") {
+                        throw GradleException(
+                            "Publication artifact must be a JAR: ${artifact.file}"
                         )
-                evidenceFiles.forEach { source ->
-                    Files.copy(source.toPath(), fileLinkDirectory.toPath().resolve(source.name))
+                    }
+                    if (!artifact.file.isFile || artifact.file.length() == 0L) {
+                        throw GradleException(
+                            "Publication artifact is missing or empty: ${artifact.file}"
+                        )
+                    }
                 }
-                val linkedArtifact = fileLinkDirectory.toPath().resolve(evidenceHashes.keys.first())
-                Files.delete(linkedArtifact)
-                Files.createSymbolicLink(
-                    linkedArtifact,
-                    verifiedDirectory.toPath().resolve(linkedArtifact.fileName),
-                )
-                expectRejected(
-                    "symlink evidence file",
-                    normal,
-                    evidenceDirectory = fileLinkDirectory,
-                )
-            }
-        }
-    }
 
-val releaseShellScriptNames =
-    listOf(
-        "bootstrap_consumer_verification.sh",
-        "build_release_docs.sh",
-        "download_staging_evidence.sh",
-        "download_verified_central_bytes.sh",
-        "merge_consumer_verification.sh",
-        "record_build_provenance.sh",
-        "record_consumer_proof.sh",
-        "run_strict_consumers.sh",
-        "seal_verified_central_bytes.sh",
-        "sign_release_handoff.sh",
-        "stage_central_bundle.sh",
-        "trusted_context.sh",
-        "verify_release_commit_provenance.sh",
-        "verify_target_checkout.sh",
-        "wait_for_central_publication.sh",
-    )
-val releaseShellScripts =
-    files(
-        releaseShellScriptNames.map { name ->
-            layout.projectDirectory.file("scripts/release/$name")
-        }
-    )
-
-fun supportsReleaseShellSyntaxCheck(osName: String): Boolean =
-    !osName.lowercase(Locale.ROOT).contains("windows")
-
-val releaseShellScriptInventoryCheck =
-    tasks.register("releaseShellScriptInventoryCheck") {
-        description = "Checks that the fixed release shell-script inventory is present."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        inputs.files(releaseShellScripts)
-        doLast {
-            val missing = releaseShellScripts.files.filterNot(File::isFile)
-            if (missing.isNotEmpty()) {
-                throw GradleException(
-                    "Required release scripts are missing: ${missing.joinToString { it.name }}"
-                )
-            }
-        }
-    }
-
-val releaseShellScriptSyntaxCheck =
-    tasks.register<Exec>("releaseShellScriptSyntaxCheck") {
-        description = "Checks release shell-script syntax on hosts with a native Unix toolchain."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(releaseShellScriptInventoryCheck)
-        workingDir(rootDir)
-        inputs.files(releaseShellScripts)
-        onlyIf(
-            "Bash syntax checking applies to Unix release hosts, not the Windows artifact matrix."
-        ) {
-            supportsReleaseShellSyntaxCheck(System.getProperty("os.name"))
-        }
-        doFirst {
-            commandLine(
-                listOf("bash", "-n") +
-                    releaseShellScripts.files.sortedBy { it.name }.map { it.absolutePath }
-            )
-        }
-        outputs.upToDateWhen { false }
-    }
-
-tasks.named<Test>("test") { useJUnitPlatform { excludeTags("workflow-security") } }
-
-val workflowSecurityCheck =
-    tasks.register<Test>("workflowSecurityCheck") {
-        description = "Checks trust boundaries and immutable artifact handoffs in GitHub workflows."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        testClassesDirs = sourceSets.test.get().output.classesDirs
-        classpath = sourceSets.test.get().runtimeClasspath
-        workingDir(rootDir)
-        useJUnitPlatform { includeTags("workflow-security") }
-        inputs.files(fileTree(".github/workflows") { include("*.yml", "*.yaml") })
-        shouldRunAfter(tasks.test)
-    }
-
-val publicPublicationProjectPaths = listOf(":", ":procwright-integrations", ":procwright-kotlin")
-
-val cleanMavenCentralBundleRepository =
-    tasks.register<Delete>("cleanMavenCentralBundleRepository") {
-        description = "Removes the generated Maven Central bundle repository."
-        group = LifecycleBasePlugin.BUILD_GROUP
-        delete(mavenCentralBundleRepository)
-    }
-
-val mavenCentralSigningCheck =
-    tasks.register("mavenCentralSigningCheck") {
-        description = "Verifies that Maven Central signing material is available."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-
-        doLast {
-            val missing =
-                listOf("SIGNING_KEY", "SIGNING_PASSWORD").filter { name ->
-                    providers.environmentVariable(name).orNull.isNullOrBlank()
+                val pomTask =
+                    checkedProject.tasks
+                        .named(
+                            "generatePomFileForMavenJavaPublication",
+                            GenerateMavenPom::class.java,
+                        )
+                        .get()
+                val pomFile = pomTask.destination
+                val documentBuilder =
+                    DocumentBuilderFactory.newInstance().apply {
+                        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                        setFeature("http://xml.org/sax/features/external-general-entities", false)
+                        setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                    }
+                val root = documentBuilder.newDocumentBuilder().parse(pomFile).documentElement
+                if (root.requiredText("groupId", pomFile) != publicMavenGroup) {
+                    throw GradleException("Generated POM has the wrong groupId: $pomFile")
                 }
-            if (missing.isNotEmpty()) {
-                throw GradleException(
-                    "Maven Central publication requires signing material in environment variables: ${
-                        missing.joinToString()
-                    }"
-                )
-            }
-        }
-    }
-
-val publishMavenCentralBundleRepository =
-    tasks.register("publishMavenCentralBundleRepository") {
-        description = "Publishes all public artifacts into a local Maven Central bundle repository."
-        group = PublishingPlugin.PUBLISH_TASK_GROUP
-        dependsOn(cleanMavenCentralBundleRepository, mavenCentralSigningCheck)
-        publicPublicationProjectPaths.forEach { projectPath ->
-            val publishTask =
-                if (projectPath == ":") {
-                    "publishMavenJavaPublicationToMavenCentralBundleRepository"
-                } else {
-                    "$projectPath:publishMavenJavaPublicationToMavenCentralBundleRepository"
+                if (root.requiredText("artifactId", pomFile) != artifactId) {
+                    throw GradleException("Generated POM has the wrong artifactId: $pomFile")
                 }
-            dependsOn(publishTask)
-        }
-    }
-
-gradle.projectsEvaluated {
-    publicPublicationProjectPaths.forEach { projectPath ->
-        val checkedProject = project(projectPath)
-        checkedProject.tasks
-            .matching { task ->
-                task.name == "publishMavenJavaPublicationToMavenCentralBundleRepository"
-            }
-            .configureEach { mustRunAfter(cleanMavenCentralBundleRepository) }
-    }
-}
-
-val writeMavenCentralBundleChecksums =
-    tasks.register("writeMavenCentralBundleChecksums") {
-        description = "Writes Maven Central checksums and checks detached-signature coverage."
-        group = LifecycleBasePlugin.BUILD_GROUP
-        dependsOn(publishMavenCentralBundleRepository)
-
-        val repository = mavenCentralBundleRepository
-        inputs.dir(repository)
-        outputs.dir(repository)
-
-        doLast {
-            val repositoryDir = repository.get().asFile
-            val deployedFiles =
-                repositoryDir
-                    .walkTopDown()
-                    .filter { file -> file.isFile }
-                    .filterNot { file -> isMavenCentralChecksum(file) }
-                    .filterNot { file -> file.name.endsWith(".asc") }
-                    .filterNot { file -> file.name.startsWith("maven-metadata.xml") }
-                    .toList()
-
-            if (deployedFiles.isEmpty()) {
-                throw GradleException("Maven Central bundle repository is empty: $repositoryDir")
-            }
-
-            deployedFiles.forEach { file ->
-                val signature = File(file.parentFile, "${file.name}.asc")
-                if (!signature.isFile) {
-                    throw GradleException(
-                        "Maven Central bundle file is missing detached signature: ${
-                            file.relativeTo(repositoryDir)
-                        }"
-                    )
-                }
-                writeChecksum(file, "MD5", "md5")
-                writeChecksum(file, "SHA-1", "sha1")
-                writeChecksum(file, "SHA-256", "sha256")
-                writeChecksum(file, "SHA-512", "sha512")
+                root.requiredText("version", pomFile)
+                root.requiredText("name", pomFile)
+                root.requiredText("description", pomFile)
+                root.requiredText("url", pomFile)
+                val license =
+                    root.directChild("licenses")?.directChild("license")
+                        ?: throw GradleException("Generated POM has no license: $pomFile")
+                license.requiredText("name", pomFile)
+                license.requiredText("url", pomFile)
+                val scm =
+                    root.directChild("scm")
+                        ?: throw GradleException("Generated POM has no SCM: $pomFile")
+                scm.requiredText("connection", pomFile)
+                scm.requiredText("developerConnection", pomFile)
+                scm.requiredText("url", pomFile)
+                val developer =
+                    root.directChild("developers")?.directChild("developer")
+                        ?: throw GradleException("Generated POM has no developer: $pomFile")
+                developer.requiredText("id", pomFile)
+                developer.requiredText("name", pomFile)
             }
         }
     }
 
-val mavenCentralBundle =
-    tasks.register<Zip>("mavenCentralBundle") {
-        description = "Builds the signed Maven Central upload bundle."
-        group = PublishingPlugin.PUBLISH_TASK_GROUP
-        dependsOn(writeMavenCentralBundleChecksums)
-        archiveFileName.set("procwright-$procwrightVersion-maven-central-bundle.zip")
-        destinationDirectory.set(layout.buildDirectory.dir("maven-central"))
-        from(mavenCentralBundleRepository) { exclude("**/maven-metadata.xml*") }
-        inputs.files(
-            layout.projectDirectory.file("scripts/release_contract.py"),
-            layout.projectDirectory.file("scripts/maven_release_evidence.py"),
-            layout.projectDirectory.file("scripts/verify_local_maven_central_bundle.py"),
-        )
-        doLast {
-            val output = ByteArrayOutputStream()
-            val processBuilder =
-                ProcessBuilder(
-                        "python3",
-                        rootDir
-                            .resolve("scripts/verify_local_maven_central_bundle.py")
-                            .absolutePath,
-                        "--repository",
-                        mavenCentralBundleRepository.get().asFile.absolutePath,
-                        "--bundle",
-                        archiveFile.get().asFile.absolutePath,
-                        "--version",
-                        procwrightVersion,
-                    )
-                    .directory(rootDir)
-                    .redirectErrorStream(true)
-            processBuilder.environment()["PYTHONDONTWRITEBYTECODE"] = "1"
-            val process = processBuilder.start()
-            process.inputStream.use { input -> input.copyTo(output) }
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
-                throw GradleException(
-                    "Maven Central bundle postcondition failed:\n${output.toString(Charsets.UTF_8)}"
-                )
-            }
-        }
-    }
-
-fun isMavenCentralChecksum(file: File): Boolean =
-    listOf(".md5", ".sha1", ".sha256", ".sha512").any { suffix -> file.name.endsWith(suffix) }
-
-fun writeChecksum(file: File, algorithm: String, extension: String) {
-    val digest = MessageDigest.getInstance(algorithm)
-    file.inputStream().use { input ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) {
-                break
-            }
-            digest.update(buffer, 0, read)
-        }
-    }
-    File(file.parentFile, "${file.name}.$extension").writeText(digest.digest().toHexString())
-}
-
-fun ByteArray.toHexString(): String = joinToString(separator = "") { byte -> "%02x".format(byte) }
-
-val releaseEvidenceScriptSelfTest =
-    tasks.register<Exec>("releaseEvidenceScriptSelfTest") {
-        description =
-            "Runs bounded unit tests for staged-bundle and persistent Central release evidence."
+val publicationReadinessCheck =
+    tasks.register("publicationReadinessCheck") {
+        description = "Runs product, documentation, and API checks required before publication."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        workingDir(rootDir)
-        environment("PYTHONDONTWRITEBYTECODE", "1")
-        commandLine(
-            "python3",
-            "-m",
-            "unittest",
-            "scripts/test_release_contract.py",
-            "scripts/test_release_bootstrap_scripts.py",
-            "scripts/test_release_handoff.py",
-            "scripts/test_sign_release_handoff.py",
-            "scripts/test_staging_release_artifact.py",
-            "scripts/test_central_release_artifact.py",
-            "scripts/test_verify_release_ci_run.py",
-            "scripts/test_verify_release_handoff_artifact.py",
-            "scripts/test_verify_docs_release_identity.py",
-            "scripts/test_verify_pages_artifact.py",
-            "scripts/test_maven_central_portal.py",
-            "scripts/test_verify_maven_central_staged_bundle.py",
-            "scripts/test_verify_maven_central_release.py",
-            "scripts/test_verify_staging_evidence.py",
+        dependsOn(
+            tasks.named("spotlessCheck"),
+            regressionCheck,
+            publicDocsCheck,
+            publicationStructureCheck,
+            ":procwright-kotlin:kotlinJSpecifyStrictnessCheck",
         )
-        inputs.files(
-            layout.projectDirectory.file("scripts/release_contract.py"),
-            layout.projectDirectory.file("scripts/test_release_contract.py"),
-            layout.projectDirectory.file("scripts/test_release_bootstrap_scripts.py"),
-            layout.projectDirectory.file("scripts/release_handoff.py"),
-            layout.projectDirectory.file("scripts/test_release_handoff.py"),
-            layout.projectDirectory.file("scripts/test_sign_release_handoff.py"),
-            layout.projectDirectory.file("scripts/staging_release_artifact.py"),
-            layout.projectDirectory.file("scripts/test_staging_release_artifact.py"),
-            layout.projectDirectory.file("scripts/central_release_artifact.py"),
-            layout.projectDirectory.file("scripts/test_central_release_artifact.py"),
-            layout.projectDirectory.file("scripts/verify_release_ci_run.py"),
-            layout.projectDirectory.file("scripts/test_verify_release_ci_run.py"),
-            layout.projectDirectory.file("scripts/verify_release_handoff_artifact.py"),
-            layout.projectDirectory.file("scripts/test_verify_release_handoff_artifact.py"),
-            layout.projectDirectory.file("scripts/verify_docs_release_identity.py"),
-            layout.projectDirectory.file("scripts/test_verify_docs_release_identity.py"),
-            layout.projectDirectory.file("scripts/verify_pages_artifact.py"),
-            layout.projectDirectory.file("scripts/test_verify_pages_artifact.py"),
-            layout.projectDirectory.file("scripts/maven_central_portal.py"),
-            layout.projectDirectory.file("scripts/maven_central_repository.py"),
-            layout.projectDirectory.file("scripts/maven_release_evidence.py"),
-            layout.projectDirectory.file("scripts/maven_release_test_fixtures.py"),
-            layout.projectDirectory.file("scripts/openpgp_verification.py"),
-            layout.projectDirectory.file("scripts/test_maven_central_portal.py"),
-            layout.projectDirectory.file("scripts/verify_maven_central_staged_bundle.py"),
-            layout.projectDirectory.file("scripts/test_verify_maven_central_staged_bundle.py"),
-            layout.projectDirectory.file("scripts/verify_maven_central_release.py"),
-            layout.projectDirectory.file("scripts/test_verify_maven_central_release.py"),
-            layout.projectDirectory.file("scripts/verify_staging_evidence.py"),
-            layout.projectDirectory.file("scripts/test_verify_staging_evidence.py"),
-            releaseShellScripts,
-        )
-        outputs.upToDateWhen { false }
-    }
-
-val mavenCentralBundlePostconditionSelfTest =
-    tasks.register<Exec>("mavenCentralBundlePostconditionSelfTest") {
-        description =
-            "Proves that the production local-bundle verifier rejects extra classifiers and byte drift."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        workingDir(rootDir)
-        environment("PYTHONDONTWRITEBYTECODE", "1")
-        commandLine(
-            "python3",
-            "-m",
-            "unittest",
-            "scripts/test_verify_local_maven_central_bundle.py",
-        )
-        inputs.files(
-            layout.projectDirectory.file("scripts/release_contract.py"),
-            layout.projectDirectory.file("scripts/maven_release_evidence.py"),
-            layout.projectDirectory.file("scripts/maven_release_test_fixtures.py"),
-            layout.projectDirectory.file("scripts/verify_local_maven_central_bundle.py"),
-            layout.projectDirectory.file("scripts/test_verify_local_maven_central_bundle.py"),
-        )
-        outputs.upToDateWhen { false }
-    }
-
-releaseEvidenceScriptSelfTest.configure { dependsOn(mavenCentralBundlePostconditionSelfTest) }
-
-val realReleaseArtifactSemanticTest =
-    tasks.register<Exec>("realReleaseArtifactSemanticTest") {
-        description =
-            "Publishes all real modules and proves the complete unsigned-handoff/GPG/staged-bundle roundtrip."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(cleanMavenCentralBundleRepository)
-        publicPublicationProjectPaths.forEach { projectPath ->
-            dependsOn(
-                if (projectPath == ":") {
-                    "publishMavenJavaPublicationToMavenCentralBundleRepository"
-                } else {
-                    "$projectPath:publishMavenJavaPublicationToMavenCentralBundleRepository"
-                }
-            )
-        }
-        workingDir(rootDir)
-        environment("PYTHONDONTWRITEBYTECODE", "1")
-        commandLine(
-            "python3",
-            "scripts/test_real_local_release.py",
-            "--repository",
-            mavenCentralBundleRepository.get().asFile.absolutePath,
-            "--version",
-            procwrightVersion,
-        )
-        inputs.files(
-            layout.projectDirectory.file("scripts/release_contract.py"),
-            layout.projectDirectory.file("scripts/maven_release_evidence.py"),
-            layout.projectDirectory.file("scripts/maven_release_test_fixtures.py"),
-            layout.projectDirectory.file("scripts/release_handoff.py"),
-            layout.projectDirectory.file("scripts/verify_local_maven_central_bundle.py"),
-            layout.projectDirectory.file("scripts/verify_maven_central_staged_bundle.py"),
-            layout.projectDirectory.file("scripts/test_real_local_release.py"),
-            releaseShellScripts,
-        )
-        outputs.upToDateWhen { false }
-    }
-
-tasks.check {
-    dependsOn(
-        releaseDocsContentSelfTest,
-        centralConsumerVerificationMetadataSelfTest,
-        workflowSecurityCheck,
-    )
-}
-
-quickCheck.configure {
-    dependsOn(
-        releaseDocsContentSelfTest,
-        centralConsumerVerificationMetadataSelfTest,
-        workflowSecurityCheck,
-    )
-}
-
-val releaseCandidateDependencies =
-    mutableListOf<Provider<out Task>>(
-        tasks.named("spotlessCheck"),
-        regressionCheck,
-        publicJavaJavadocCheck,
-        publicDocsCheck,
-        releaseShellScriptSyntaxCheck,
-        workflowSecurityCheck,
-        releaseEvidenceScriptSelfTest,
-        providers.provider { tasks.getByPath(":procwright-kotlin:check") },
-        providers.provider { tasks.getByPath(":procwright-kotlin:kotlinJSpecifyStrictnessCheck") },
-        providers.provider { tasks.getByPath(":procwright-integrations:check") },
-        providers.provider { tasks.getByPath(":procwright-test-cli:check") },
-    )
-
-releaseCandidateDependencies +=
-    consumerExampleCheckPaths.map { path -> providers.provider { tasks.getByPath(path) } }
-
-if (releaseCandidateFinalMode) {
-    releaseCandidateDependencies += releaseDocsContentCheck
-    releaseCandidateDependencies += realReleaseArtifactSemanticTest
-}
-
-val cleanWorkingTreeCheck =
-    tasks.register("cleanWorkingTreeCheck") {
-        description = "Verifies the Git worktree is clean, including untracked files."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        mustRunAfter(releaseCandidateDependencies)
-
-        doLast {
-            val process =
-                ProcessBuilder("git", "status", "--porcelain=v1", "--untracked-files=all")
-                    .directory(rootDir)
-                    .redirectErrorStream(true)
-                    .start()
-            val status = process.inputStream.bufferedReader(Charsets.UTF_8).readText().trim()
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
-                throw GradleException("Could not inspect Git working tree:\n$status")
-            }
-            if (status.isNotEmpty()) {
-                throw GradleException(
-                    "Working tree must be clean for releaseCandidateCheck:\n$status"
-                )
-            }
-        }
-    }
-
-val releaseCandidateCheck =
-    tasks.register("releaseCandidateCheck") {
-        description = "Runs the complete local release verification gate."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(releaseCandidateDependencies, cleanWorkingTreeCheck)
     }
 
 spotless {

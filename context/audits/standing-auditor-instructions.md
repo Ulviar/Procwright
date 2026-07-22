@@ -70,7 +70,7 @@ Severity:
 - Документ имеет понятную аудиторию и release value; если нет, рекомендовать удалить/сжать вместо расширения.
 - Контекстные документы на русском, код/Javadoc/tests/API на английском.
 - ADR есть для архитектурных решений, а не только для уже написанного кода.
-- README, context index, release checklist и compatibility/dependency docs обновлены, если изменение влияет на них.
+- README, context index, publication readiness и compatibility/dependency docs обновлены, если изменение влияет на них.
 - Документация описывает реализованное и проверенное поведение.
 - Пользовательские примеры остаются scenario-oriented и не учат низкоуровневому orchestration.
 - Release gates не являются декларацией без проверки.

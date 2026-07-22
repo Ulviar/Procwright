@@ -35,7 +35,7 @@
 - [release/compatibility-policy.md](release/compatibility-policy.md) — совместимость и platform support.
 - [release/public-api-baseline.md](release/public-api-baseline.md) — intended public surface и API guard.
 - [release/dependency-review.md](release/dependency-review.md) — runtime/build dependency boundary.
-- [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release.
+- [release/publication-readiness.md](release/publication-readiness.md) — доказанная готовность артефактов и отложенные release-решения.
 
 ## Решения
 
@@ -48,7 +48,7 @@
   transcripts и одноразовые инструкции удаляются после того, как полезные выводы перенесены в текущий источник истины.
 - Не создавать `archive/` внутри `context/`. Архивом является Git history.
 - Если отчет породил решение, решение оформляется в ADR. Если отчет породил правило, правило переносится в тест,
-  validator, release checklist или engineering charter.
+  validator, release policy или engineering charter.
 - Активный план допускается только на время длинной работы. После завершения он удаляется или сжимается в ADR/scorecard.
 - `context/README.md` перечисляет только активные источники истины, а не все файлы дерева.
 

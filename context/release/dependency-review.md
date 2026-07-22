@@ -19,7 +19,7 @@ Build/test dependencies:
 - dependency resolution централизован в `settings.gradle.kts`: `FAIL_ON_PROJECT_REPOS`, Maven Central по умолчанию и
   только явно переданный consumer repository с exclusive filter для `io.github.ulviar`;
 - JUnit 6 для тестов;
-- SnakeYAML Engine только для structured проверки security-инвариантов GitHub workflow;
+- SnakeYAML Engine только для короткой structured проверки общих GitHub Actions permissions и pinned action refs;
 - Spotless + palantir-java-format для форматирования.
 
 ## Documentation toolchain
@@ -66,8 +66,7 @@ Runtime dependencies модуля:
 создают второй process engine.
 
 Jackson находится только в optional integrations artifact. `externalLibraryBoundaryCheck` отклоняет Jackson artifacts в
-runtime classpath core и Kotlin module; exact release POM/module contract отдельно проверяет его публикацию из
-integrations.
+runtime classpath core и Kotlin module; local POM-only consumer проверяет его публикацию из integrations.
 
 Реальный MCP SDK adapter намеренно не входит в текущий module, чтобы не переносить MCP dependency в core или базовый
 integration layer.
@@ -86,57 +85,17 @@ JSpecify отсутствует в Gradle `runtimeClasspath` всех трех p
 [public API baseline](public-api-baseline.md#public-nullness-contract) и
 [карте доказательств](../quality/invariant-proof-map.md#api-и-normalization).
 
-## Publishing dependencies
+## Publication metadata
 
-Publishing/signing setup добавлен для public artifacts:
+Три public modules применяют `maven-publish` и содержат sources, Javadoc/KDoc и обязательные POM metadata.
+`publishToMavenLocal` разрешен только для Java 17 target. CI проверяет локальные publications внешними consumers как
+через Gradle module metadata, так и в принудительном Maven POM-only режиме с `ignoreGradleMetadataRedirection()`.
 
-- root, `:procwright-integrations` и `:procwright-kotlin` применяют `maven-publish`;
-- root, `:procwright-integrations` и `:procwright-kotlin` применяют Gradle `signing`;
-- POM metadata содержит name, description, project URL, Apache-2.0 license, SCM и developer metadata;
-- Maven Central credentials поступают в fixed privileged shell wrapper через `CENTRAL_USERNAME` и
-  `CENTRAL_PASSWORD`; wrapper немедленно записывает их в новый owner-only temporary file, удаляет variables из
-  environment перед Python/HTTP execution и гарантированно удаляет file при выходе. Credentials не передаются через
-  process argv и не выводятся в logs;
-- signing material читается только из environment-level secrets `SIGNING_KEY` и `SIGNING_PASSWORD`; импортированный
-  primary-key fingerprint должен совпасть с environment-level variable
-  `MAVEN_CENTRAL_STAGING_SIGNING_FINGERPRINT`, иначе signing wrapper завершается до
-  подписания и не передает полученную из secret key identity как собственный trust root;
-- publish tasks fail fast, если `procwright.javaRelease != 17`;
-- remote publish tasks fail fast для `*-SNAPSHOT` или non-canonical SemVer version; release workflows и scripts
-  используют один strict parser, а manual staging workflow передает выбранную `procwright.version` до создания tag;
-- CI smoke проверяет `publishToMavenLocal` на Java 17 и запускает внешние consumer fixtures как через Gradle module
-  metadata, так и в принудительном Maven POM-only режиме; POM-only repositories вызывают
-  `ignoreGradleMetadataRedirection()`, поэтому marker в опубликованном POM не может незаметно вернуть resolution к
-  Gradle module metadata;
-- manual `Stage Maven Central` workflow допускает только текущий trusted `main` commit с успешным CI `push` run.
-  Непривилегированный job выполняет target build и передает exact immutable handoff; отдельный свежий privileged runner
-  проверяет handoff trusted code, подписывает artifacts и атомарно загружает проверенный bundle в Central Portal как
-  `USER_MANAGED` deployment. После `VALIDATED` сохраняются bundle, SHA-256, deterministic manifest, provenance и
-  нормализованное deployment evidence; target code не выполняется в job с Central/signing secrets;
-- Central consumer workflow дожидается `PUBLISHED`, сравнивает со staged bundle все 90 опубликованных base artifacts,
-  signatures и checksum sidecars и выполняет
-  consumers в обычном и POM-only режимах с dependency verification; два bootstrap candidates создаются в изолированных
-  копиях release commit, а deterministic Gradle merge принимает только byte-verified
-  `io.github.ulviar:{procwright,procwright-integrations,procwright-kotlin}:<version>` artifacts. External POM checksums
-  и любые внешние artifacts из полного consumer graph должны уже находиться в reviewed committed metadata: workflow не
-  добавляет их динамически. Финальные normal и POM-only проверки используют отдельные пустые Gradle user homes и явный
-  strict dependency verification без metadata write;
-- release-triggered docs build требует exact non-draft GitHub Release с API field `immutable == true`, проверяет tag/SHA
-  и требует по одному exact producer run/artifact для той же version и commit, связывая trusted workflow ID/revision,
-  immutable artifact ID, service digest, raw bytes и canonical staging/consumer content. Manual recovery после
-  истечения 90-дневных artifacts требует ту же immutable release identity и заново проверяет на canonical Maven Central
-  полный закрытый набор из 90 base/signature/checksum файлов, включая cryptographic verification всех signatures против
-  явно approved repository fingerprint/public key, JAR/POM/module semantics и bounded ZIP parsing.
-  Co-located Central evidence не является независимой attestation и после expiry не восстанавливает identity исходного
-  staged bundle, исторический Portal request/deployment или consumer behavior. После build отдельный deploy job делает
-  sparse checkout только trusted verifier scripts и до `deploy-pages` проверяет current-run Pages artifact по upload
-  output ID, API digest, raw ZIP/tar и sealed content; target project code в deploy job не выполняется;
-- release workflow inputs принимают только lowercase полный 40-символьный commit SHA;
-- staging/docs jobs используют Temurin 17.0.19+10, Python 3.13.14, uv 0.10.12 и `ubuntu-24.04`; GitHub Actions
-  зафиксированы exact commit SHA, а staging artifact содержит effective build provenance рядом с bundle checksum.
+Конкретный remote registry, signing и credentials до первого release не выбраны и не являются build dependencies.
+Они добавляются только вместе с реальным publication path; текущее состояние описано в
+[publication-readiness.md](publication-readiness.md).
 
-Эти плагины являются build-time tooling и не добавляют runtime dependencies в public artifacts. Gradle dependency
-verification metadata должна обновляться при изменении plugin versions или новых build dependencies.
+Gradle dependency verification metadata обновляется при изменении plugin versions или новых build dependencies.
 
 ## Process runtime boundary
 
@@ -145,30 +104,21 @@ classpath и прямые dependency declarations core, Kotlin и integrations m
 
 ## Зависимости CI
 
-GitHub Actions workflow использует:
-
-- `actions/checkout`, pinned to commit SHA;
-- `actions/setup-java` с Temurin JDK 17/21/25 matrix, pinned to commit SHA;
-- `astral-sh/setup-uv`, pinned to action commit SHA и `uv 0.10.12`;
-- `actions/upload-artifact`, pinned to commit SHA для сохранения exact Central bundle и publication proof;
-- root workflow permissions пусты; каждый job получает явный минимальный permission map, а `workflowSecurityCheck`
-  отклоняет inheritance, omission и escalation;
-- docs build job использует только `contents: read`/`actions: read`; deploy job имеет `actions: read`, `contents: read`,
-  `pages: write` и `id-token: write`, делает sparse checkout только trusted verifier scripts и не исполняет target code;
-- Central Portal credentials и signing material передаются только через environment-level secrets `maven-central`;
-  staging и recovery trust roots имеют разные environment-only variable names в `maven-central` и
-  `release-recovery`. Оба environments требуют independent reviewer, запрещают self-review и разрешают deployments
-  только из `main`; repository-level copies запрещены.
+GitHub Actions закреплены по commit SHA. CI использует минимальные permissions, проверяет Java 17 artifact на
+Linux, macOS и Windows, запускает его на JDK 17/21/25 и отдельно собирает source targets 21/25 на Linux.
+Documentation workflow получает `pages: write` и `id-token: write` только в deploy job; build job имеет только
+`contents: read`. `WorkflowPolicyTest` запрещает unpinned external actions, `pull_request_target`,
+`continue-on-error` и неожиданные write permissions без собственного YAML framework.
 
 ## Правило добавления dependency
 
-Новая dependency требует короткого обоснования в ADR, dependency review или release checklist, если она:
+Новая dependency требует короткого обоснования в ADR или dependency review, если она:
 
 - попадает в runtime classpath публичного артефакта;
 - расширяет public API surface;
 - приносит platform-specific behavior;
 - нужна только для отдельного optional module, но может быть ошибочно воспринята как core dependency.
 
-Если dependency является process-runtime, PTY, expect/prompt automation или другим backend для внешних CLI, одного
-release checklist entry недостаточно. Нужны ADR, обновленный dependency review, отдельная module boundary и обновление
+Если dependency является process-runtime, PTY, expect/prompt automation или другим backend для внешних CLI, нужны ADR,
+обновленный dependency review, отдельная module boundary и обновление
 `externalLibraryBoundaryCheck` для direct declarations и resolved runtime classpaths публичных модулей.
