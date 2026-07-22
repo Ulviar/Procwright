@@ -21,7 +21,6 @@ final class PtyLaunchAdmission {
 
     static final int MAX_CONCURRENT_TASKS = 8;
     static final Duration MAXIMUM_TIMEOUT = Duration.ofSeconds(10);
-    private static final long DEADLINE_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(25);
     private static final ThreadPoolExecutor EXECUTOR = executor();
 
     private PtyLaunchAdmission() {}
@@ -52,19 +51,11 @@ final class PtyLaunchAdmission {
         }
 
         try {
-            while (true) {
-                long remaining = context.remainingNanos();
-                if (remaining <= 0) {
-                    throw new TimeoutException();
-                }
-                try {
-                    return future.get(Math.min(remaining, DEADLINE_POLL_NANOS), TimeUnit.NANOSECONDS);
-                } catch (TimeoutException exception) {
-                    if (context.remainingNanos() <= 0) {
-                        throw exception;
-                    }
-                }
+            long remaining = context.remainingNanos();
+            if (remaining <= 0) {
+                throw new TimeoutException();
             }
+            return future.get(remaining, TimeUnit.NANOSECONDS);
         } catch (TimeoutException exception) {
             task.abort();
             future.cancel(true);
@@ -101,26 +92,13 @@ final class PtyLaunchAdmission {
 
     static final class Context {
 
-        private final long startedAt = System.nanoTime();
+        private final long deadline;
         private final AtomicReference<Process> process = new AtomicReference<>();
         private final AtomicBoolean abandoned = new AtomicBoolean();
         private final AtomicBoolean cleanupStarted = new AtomicBoolean();
-        private volatile long deadline;
 
         private Context(Duration timeout) {
-            deadline = addSaturated(startedAt, timeout.toNanos());
-        }
-
-        void limitTo(Duration timeout) throws IOException, InterruptedException {
-            Objects.requireNonNull(timeout, "timeout");
-            if (timeout.isZero() || timeout.isNegative()) {
-                throw new IllegalArgumentException("PTY task timeout must be positive");
-            }
-            long candidate = addSaturated(startedAt, timeout.toNanos());
-            if (candidate < deadline) {
-                deadline = candidate;
-            }
-            checkpoint();
+            deadline = addSaturated(System.nanoTime(), timeout.toNanos());
         }
 
         void registerProcess(Process launched) throws IOException, InterruptedException {

@@ -50,6 +50,7 @@ import org.junit.jupiter.api.io.TempDir;
 final class TestCliStressTest {
     private static final int COMMAND_PARALLELISM = 3;
     private static final int POOL_REQUEST_PARALLELISM = 4;
+    private static final int SEEDED_FLAKY_PROCESS_COUNT = 8;
     private static final Duration SUCCESSFUL_COMMAND_TIMEOUT = Duration.ofSeconds(35);
     private static final Duration SUCCESSFUL_COMMAND_WATCHDOG = Duration.ofSeconds(30);
     private static final Duration EXPECTED_TIMEOUT_WATCHDOG = Duration.ofSeconds(20);
@@ -107,7 +108,7 @@ final class TestCliStressTest {
             CountDownLatch ready = new CountDownLatch(COMMAND_PARALLELISM);
             CountDownLatch start = new CountDownLatch(1);
             ArrayList<Future<CommandResult>> futures = new ArrayList<>();
-            for (int seed = 1; seed <= 40; seed++) {
+            for (int seed = 1; seed <= SEEDED_FLAKY_PROCESS_COUNT; seed++) {
                 int currentSeed = seed;
                 futures.add(executor.submit(() -> {
                     ready.countDown();

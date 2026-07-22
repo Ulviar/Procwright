@@ -28,11 +28,7 @@ final class SystemPtyProvider implements PtyProvider {
     private final Duration launchTimeout;
 
     SystemPtyProvider(SystemPtySupport support) {
-        this(support, PtyBootstrap::prepare, ProcessBuilder::start, PtyBootstrap.MAX_BOOTSTRAP_TIMEOUT);
-    }
-
-    SystemPtyProvider(SystemPtySupport support, BootstrapPreparer bootstrapPreparer) {
-        this(support, bootstrapPreparer, ProcessBuilder::start, PtyBootstrap.MAX_BOOTSTRAP_TIMEOUT);
+        this(support, PtyBootstrap::prepare, ProcessBuilder::start, PtyLaunchAdmission.MAXIMUM_TIMEOUT);
     }
 
     SystemPtyProvider(
@@ -78,7 +74,6 @@ final class SystemPtyProvider implements PtyProvider {
             return PtyLaunchAdmission.launch(launchTimeout, context -> {
                 PtyLaunchPlan plan = planFor(request);
                 PtyBootstrap.Prepared bootstrap = bootstrapPreparer.prepare(plan.payload());
-                context.limitTo(bootstrap.timeout());
                 ProcessBuilder builder = new ProcessBuilder(PtyBootstrap.commandFor(support, plan.terminalSize()));
                 request.workingDirectory().ifPresent(path -> builder.directory(path.toFile()));
                 builder.environment().clear();

@@ -13,6 +13,7 @@ import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
+import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.ExpectSettings;
@@ -568,7 +569,14 @@ final class TransactionalPumpStartupTest {
         ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
         ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        AtomicInteger failureReportCount = new AtomicInteger();
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4, (name, task) -> {
+            Thread thread = new Thread(task, name);
+            thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler((ignored, failure) -> failureReportCount.incrementAndGet());
+            thread.start();
+            return thread;
+        });
         DefaultSession rawSession = session(process, closeDispatcher);
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "deferred-report");
         CountDownLatch stdoutPumpEntered = new CountDownLatch(1);
@@ -576,7 +584,6 @@ final class TransactionalPumpStartupTest {
         CountDownLatch stdoutPumpDrained = new CountDownLatch(1);
         CountDownLatch latePrimarySelected = new CountDownLatch(1);
         CountDownLatch stderrPumpFinished = new CountDownLatch(1);
-        AtomicInteger failureReportCount = new AtomicInteger();
         List<Thread> pumpThreads = new ArrayList<>();
         PumpStarter reportingStarter = (name, task) -> {
             Thread thread = new Thread(task, name);
@@ -606,6 +613,10 @@ final class TransactionalPumpStartupTest {
             coordinator.closeSession();
             assertTrue(stdout.awaitCloseCompleted());
             assertTrue(stderr.awaitCloseCompleted());
+            awaitSettlement(rawSession.physicalOutputCleanup());
+            assertTrue(rawSession.physicalOutputCleanup().isDone());
+            assertFalse(coordinator.outputCleanupCompleted());
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
             assertEquals(0, failureReportCount.get(), "cleanup failures must wait for the remaining pump outcome");
 
             releaseStdoutPump.countDown();
@@ -616,9 +627,14 @@ final class TransactionalPumpStartupTest {
                 assertFalse(pumpThread.isAlive());
             }
 
+            assertTrue(awaitOutputCleanup(coordinator));
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
             assertEquals(0, failureReportCount.get());
             assertSuppressedOnce(workerFailure, stdoutCloseFailure);
             assertSuppressedOnce(workerFailure, stderrCloseFailure);
+            assertEquals(2, workerFailure.getSuppressed().length);
+            assertEquals(1, stdout.closeCalls());
+            assertEquals(1, stderr.closeCalls());
         } finally {
             releaseStdoutPump.countDown();
             coordinator.closeSessionPreserving(workerFailure);
