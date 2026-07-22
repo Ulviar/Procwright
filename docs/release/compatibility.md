@@ -17,7 +17,7 @@ integrations module exposes Jackson Databind 2.22.0 for its optional `JsonNode` 
 
 The supported entry point is `Procwright.command(...)`. Scenario methods return persistent Drafts; only `execute()` and
 `open()` are terminals. The documented scenario surface includes `run`, `interactive`, `Expect`, `lineSession`,
-factory-backed `protocolSession`, `listen`, line and protocol pools, presets, and the optional module APIs.
+factory-backed `protocolSession`, `listen`, line and protocol pools, and the optional module APIs.
 
 Session handles are sealed and are not extension points. Backend-specific process types and implementation classes
 remain inaccessible, but changes to the JVM permitted-subclass metadata of a public handle are treated as compatibility

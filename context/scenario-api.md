@@ -208,23 +208,6 @@ LineSessionScenario.Draft readyWorker = Procwright.command("worker")
 Probe выполняется после launch и до возврата handle. В pool worker не становится idle до успешного readiness. Failure
 закрывает worker; partial warmup failure закрывает уже созданные workers.
 
-## Presets
-
-Preset — явная typed transformation, а не callback dialect:
-
-```java
-RunScenario.Draft draft = Procwright.command("env").run();
-RunScenario.Draft configured = ScenarioPresets.environmentDiagnostics(
-        draft,
-        Duration.ofSeconds(2),
-        16 * 1024);
-
-CommandResult result = configured.execute();
-```
-
-Preset не выбирает сценарий, не открывает ресурс и не хранит mutable state. Новый preset оправдан только реальным
-повторяющимся сочетанием настроек существующего Draft.
-
 ## Kotlin
 
 Kotlin сохраняет ту же последовательность:

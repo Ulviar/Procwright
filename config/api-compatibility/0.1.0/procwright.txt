@@ -320,11 +320,8 @@ METHOD public abstract void io.github.ulviar.procwright.session.PooledLineSessio
 METHOD public abstract void io.github.ulviar.procwright.session.PooledProtocolSession#close()
 METHOD public abstract void io.github.ulviar.procwright.session.ProtocolAdapter#writeRequest(I, io.github.ulviar.procwright.session.ProtocolWriter)
 METHOD public abstract void io.github.ulviar.procwright.session.ProtocolSession#close()
-METHOD public void io.github.ulviar.procwright.session.ProtocolWriter#ensureByteCapacity(long)
 METHOD public abstract void io.github.ulviar.procwright.session.ProtocolWriter#flush()
-METHOD public long io.github.ulviar.procwright.session.ProtocolWriter#remainingByteCapacity()
 METHOD public abstract void io.github.ulviar.procwright.session.ProtocolWriter#write(byte[])
-METHOD public void io.github.ulviar.procwright.session.ProtocolWriter#write(byte[], int, int)
 METHOD public abstract void io.github.ulviar.procwright.session.ProtocolWriter#write(java.lang.String)
 METHOD public abstract void io.github.ulviar.procwright.session.ProtocolWriter#writeLine(java.lang.String)
 METHOD public abstract void io.github.ulviar.procwright.session.Session#close()
@@ -529,15 +526,9 @@ METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetr
 METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#totalAcquireWaitNanos()
 METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#totalRequestDurationNanos()
 METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#totalWorkerStartupNanos()
+METHOD public long io.github.ulviar.procwright.session.ProtocolWriter#remainingByteCapacity()
 METHOD public static io.github.ulviar.procwright.CommandService io.github.ulviar.procwright.Procwright#command(io.github.ulviar.procwright.command.CommandSpec)
 METHOD public static io.github.ulviar.procwright.CommandService io.github.ulviar.procwright.Procwright#command(java.lang.String)
-METHOD public static io.github.ulviar.procwright.InteractiveScenario$Draft io.github.ulviar.procwright.preset.ScenarioPresets#promptAutomationSession(io.github.ulviar.procwright.InteractiveScenario$Draft, java.time.Duration, io.github.ulviar.procwright.terminal.TerminalPolicy)
-METHOD public static io.github.ulviar.procwright.InteractiveScenario$Draft io.github.ulviar.procwright.preset.ScenarioPresets#terminalRequiredSession(io.github.ulviar.procwright.InteractiveScenario$Draft, java.time.Duration)
-METHOD public static io.github.ulviar.procwright.LineSessionScenario$Draft io.github.ulviar.procwright.preset.ScenarioPresets#replLineMode(io.github.ulviar.procwright.LineSessionScenario$Draft, java.time.Duration, io.github.ulviar.procwright.terminal.TerminalPolicy)
-METHOD public static io.github.ulviar.procwright.RunScenario$Draft io.github.ulviar.procwright.preset.ScenarioPresets#binaryOutputCapture(io.github.ulviar.procwright.RunScenario$Draft, java.time.Duration, int)
-METHOD public static io.github.ulviar.procwright.RunScenario$Draft io.github.ulviar.procwright.preset.ScenarioPresets#commandAutomation(io.github.ulviar.procwright.RunScenario$Draft, java.time.Duration, int)
-METHOD public static io.github.ulviar.procwright.RunScenario$Draft io.github.ulviar.procwright.preset.ScenarioPresets#environmentDiagnostics(io.github.ulviar.procwright.RunScenario$Draft, java.time.Duration, int)
-METHOD public static io.github.ulviar.procwright.StreamScenario$Draft io.github.ulviar.procwright.preset.ScenarioPresets#logFollowing(io.github.ulviar.procwright.StreamScenario$Draft, java.time.Duration)
 METHOD public static io.github.ulviar.procwright.command.CapturePolicy$Bounded io.github.ulviar.procwright.command.CapturePolicy#bounded(int)
 METHOD public static io.github.ulviar.procwright.command.CapturePolicy$Discard io.github.ulviar.procwright.command.CapturePolicy#discard()
 METHOD public static io.github.ulviar.procwright.command.CapturePolicy$ToPath io.github.ulviar.procwright.command.CapturePolicy#toPath(java.nio.file.Path)
@@ -590,11 +581,12 @@ METHOD public static io.github.ulviar.procwright.terminal.TerminalPolicy[] io.gi
 METHOD public static io.github.ulviar.procwright.terminal.TerminalSignal io.github.ulviar.procwright.terminal.TerminalSignal#valueOf(java.lang.String)
 METHOD public static io.github.ulviar.procwright.terminal.TerminalSignal[] io.github.ulviar.procwright.terminal.TerminalSignal#values()
 METHOD public static io.github.ulviar.procwright.terminal.TerminalSize io.github.ulviar.procwright.terminal.TerminalSize#defaults()
+METHOD public void io.github.ulviar.procwright.session.ProtocolWriter#ensureByteCapacity(long)
+METHOD public void io.github.ulviar.procwright.session.ProtocolWriter#write(byte[], int, int)
 MODULE explicit io.github.ulviar.procwright
 MODULE_EXPORT io.github.ulviar.procwright
 MODULE_EXPORT io.github.ulviar.procwright.command
 MODULE_EXPORT io.github.ulviar.procwright.diagnostics
-MODULE_EXPORT io.github.ulviar.procwright.preset
 MODULE_EXPORT io.github.ulviar.procwright.session
 MODULE_EXPORT io.github.ulviar.procwright.terminal
 MODULE_REQUIRE static transitive org.jspecify
@@ -616,7 +608,6 @@ NULLNESS MODULE io.github.ulviar.procwright UNSPECIFIED
 NULLNESS PACKAGE io.github.ulviar.procwright @org.jspecify.annotations.NullMarked
 NULLNESS PACKAGE io.github.ulviar.procwright.command @org.jspecify.annotations.NullMarked
 NULLNESS PACKAGE io.github.ulviar.procwright.diagnostics @org.jspecify.annotations.NullMarked
-NULLNESS PACKAGE io.github.ulviar.procwright.preset @org.jspecify.annotations.NullMarked
 NULLNESS PACKAGE io.github.ulviar.procwright.session @org.jspecify.annotations.NullMarked
 NULLNESS PACKAGE io.github.ulviar.procwright.terminal @org.jspecify.annotations.NullMarked
 NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.command.CapturePolicy$Bounded#equals(java.lang.Object) parameter[0] UNION_NULL
@@ -677,7 +668,6 @@ TYPE public final class io.github.ulviar.procwright.command.CommandException ext
 TYPE public final class io.github.ulviar.procwright.command.CommandExecutionException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final class io.github.ulviar.procwright.command.CommandInput
 TYPE public final class io.github.ulviar.procwright.command.CommandSpec
-TYPE public final class io.github.ulviar.procwright.preset.ScenarioPresets
 TYPE public final class io.github.ulviar.procwright.session.ExpectException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final class io.github.ulviar.procwright.session.LineSessionException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final class io.github.ulviar.procwright.session.PooledLineSessionException extends io.github.ulviar.procwright.ProcwrightException

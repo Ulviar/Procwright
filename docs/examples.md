@@ -23,7 +23,6 @@ Most examples share [ExampleSupport.java](examples/java/io/github/ulviar/procwri
 - [Protocol worker pool](examples/java/io/github/ulviar/procwright/examples/ProtocolPoolExample.java)
 - [Diagnostics](examples/java/io/github/ulviar/procwright/examples/DiagnosticsExample.java)
 - [Required terminal](examples/java/io/github/ulviar/procwright/examples/TerminalExample.java)
-- [Scenario preset](examples/java/io/github/ulviar/procwright/examples/PresetExample.java)
 
 ## Optional modules
 

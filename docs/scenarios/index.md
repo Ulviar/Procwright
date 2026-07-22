@@ -10,7 +10,6 @@
 | Continuous output | [Streaming](streaming.md) | [Follow logs](../how-to/follow-logs.md) |
 | Reusable workers | [Pooling](pooling.md) | [Reuse workers](../how-to/reuse-workers.md) |
 | Terminal-dependent process | [Terminal capability](terminal.md) | [Require a terminal](../how-to/require-terminal.md) |
-| Reusable Draft transforms | [Presets](presets.md) | [Runnable examples](../examples.md) |
 | Structured line, byte, or JSON wrapper | [Integrations](integrations.md) | [Wrap a CLI tool](../how-to/wrap-cli-tool.md) |
 
 Diagnostics are configured directly on each scenario Draft. See [diagnostics](../reference/diagnostics.md).

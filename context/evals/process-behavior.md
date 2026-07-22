@@ -113,19 +113,6 @@
 - `close()` запрещает новые requests, закрывает idle workers сразу и дает leased workers завершить текущий request.
 - `metrics()` возвращает snapshot counters для size, idle, leased, created, retired и request counts.
 
-## Сценарные presets
-
-- Presets компилируются как чистые typed transformations существующих scenario Draft.
-- `commandAutomation` задает bounded capture, timeout и separate output для `run`.
-- `environmentDiagnostics` задает bounded capture, timeout, UTF-8 и merged output для `run`.
-- `binaryOutputCapture` задает bounded separate capture и явно заменяет prior decoder policy на UTF-8 replacement, чтобы
-  `CommandResult` всегда сохранял доступные byte snapshots и forgiving text views captured stdout/stderr.
-- `replLineMode` задает idle timeout и terminal policy для `lineSession`.
-- `promptAutomationSession` задает idle timeout, terminal policy и UTF-8 text-send charset для raw `interactive`.
-- `logFollowing` задает absolute stream timeout для `listen`; закрытие stdin остается инвариантом самого сценария.
-- `terminalRequiredSession` задает terminal-required session preset без отдельного runner.
-- Невалидные preset policies падают до создания измененного Draft.
-
 ## CLI-backed integrations
 
 - Optional `:procwright-integrations` module компилируется отдельно от core и не добавляет новый process runtime.

@@ -18,7 +18,7 @@
   adapter и runtime owner.
 - **Вложенный reuse.** Pool является веткой конкретного reusable session scenario и не раскрывает lease или общий
   process-pool abstraction.
-- **Тонкие optional layers.** Kotlin, integrations и presets используют core runtime и не создают второй process
+- **Тонкие optional layers.** Kotlin и integrations используют core runtime и не создают второй process
   engine или несовместимую модель конфигурации.
 - **Доказуемая польза.** Новый public type/method имеет реальный consumer scenario, единственного владельца инварианта,
   compile-tested external example и behavior proof.

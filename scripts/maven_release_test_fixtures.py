@@ -273,7 +273,6 @@ def jar_payload(module: str, suffix: str) -> bytes:
                             "io.github.ulviar.procwright",
                             "io.github.ulviar.procwright.command",
                             "io.github.ulviar.procwright.diagnostics",
-                            "io.github.ulviar.procwright.preset",
                             "io.github.ulviar.procwright.session",
                             "io.github.ulviar.procwright.terminal",
                         ),
@@ -358,7 +357,7 @@ def jar_payload(module: str, suffix: str) -> bytes:
             entries = [
                 (
                     "module-info.java",
-                    b"module io.github.ulviar.procwright { requires static transitive org.jspecify; exports io.github.ulviar.procwright; exports io.github.ulviar.procwright.command; exports io.github.ulviar.procwright.diagnostics; exports io.github.ulviar.procwright.preset; exports io.github.ulviar.procwright.session; exports io.github.ulviar.procwright.terminal; }\n",
+                    b"module io.github.ulviar.procwright { requires static transitive org.jspecify; exports io.github.ulviar.procwright; exports io.github.ulviar.procwright.command; exports io.github.ulviar.procwright.diagnostics; exports io.github.ulviar.procwright.session; exports io.github.ulviar.procwright.terminal; }\n",
                     stat.S_IFREG | 0o644,
                 ),
                 (
@@ -400,7 +399,7 @@ def jar_payload(module: str, suffix: str) -> bytes:
                 [
                     (
                         "element-list",
-                        b"io.github.ulviar.procwright\nio.github.ulviar.procwright.command\nio.github.ulviar.procwright.diagnostics\nio.github.ulviar.procwright.preset\nio.github.ulviar.procwright.session\nio.github.ulviar.procwright.terminal\n",
+                        b"io.github.ulviar.procwright\nio.github.ulviar.procwright.command\nio.github.ulviar.procwright.diagnostics\nio.github.ulviar.procwright.session\nio.github.ulviar.procwright.terminal\n",
                         stat.S_IFREG | 0o644,
                     ),
                     ("io/github/ulviar/procwright/Procwright.html", b"<!doctype html><title>Procwright</title>\n", stat.S_IFREG | 0o644),

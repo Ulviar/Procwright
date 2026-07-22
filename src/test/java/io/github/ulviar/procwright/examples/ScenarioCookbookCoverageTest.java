@@ -60,7 +60,6 @@ final class ScenarioCookbookCoverageTest {
                 "## `listen`",
                 "## Nested pooled scenarios",
                 "## Диагностика",
-                "## Сценарные presets",
                 "## CLI-backed integrations",
                 "## Релизный gate")) {
             assertTrue(cookbook.contains(section), () -> "scenario cookbook must contain section " + section);

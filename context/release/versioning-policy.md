@@ -2,18 +2,20 @@
 
 ## Текущий статус
 
-Текущий release baseline проекта — `0.1.0`. До `1.0.0` breaking changes допустимы только при осмысленном обновлении
-public docs, compile-tested examples и релевантных behavior checks.
+Текущий release baseline проекта — `0.1.0`. До первой публичной версии API baseline остается проектным артефактом:
+его можно менять вместе с public docs, compile-tested examples и релевантными behavior checks. ADR нужен только для
+решения, которое должно ограничивать дальнейшее развитие архитектуры, а не для ведения истории pre-release правок.
 
 Root project и optional modules должны иметь одинаковые `group` и `version`. Версия относится ко всему набору
 артефактов текущего публичного release, а не только к core module.
 
 ## До `1.0.0`
 
-- Версии `0.x` допускают breaking changes в public API, если изменение оформлено ADR или release note.
+- После первой публикации версии `0.x` допускают breaking changes в public API только с явным описанием в release notes
+  и обновлением compatibility baseline.
 - Breaking change не должен попадать в код без обновления compile-tested examples и релевантных behavior checks.
-- Пользовательский API остается scenario-first: новые возможности добавляются через сценарии, typed policies или
-  presets, а не через разрастание набора низкоуровневых flags.
+- Пользовательский API остается scenario-first: новые возможности добавляются через сценарии или typed policies, а не
+  через разрастание набора низкоуровневых flags.
 - Внутренние классы и state machines могут меняться свободно, если public behavior сохраняется тестами.
 
 ## Начиная с `1.0.0`
@@ -32,7 +34,6 @@ Root project и optional modules должны иметь одинаковые `g
 - `io.github.ulviar.procwright.session`;
 - `io.github.ulviar.procwright.diagnostics`;
 - `io.github.ulviar.procwright.terminal`;
-- `io.github.ulviar.procwright.preset`;
 - `io.github.ulviar.procwright.kotlin`;
 - `io.github.ulviar.procwright.integration`.
 

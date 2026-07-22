@@ -26,7 +26,6 @@ workflow и не скатиться к ручной сборке process harness
 | Наблюдать lifecycle без раскрытия raw argv/env/output | scenario `withDiagnostic*` | `diagnosticsScenario` |
 | Переиспользовать line-oriented workers | `lineSession().pooled()` | `pooledLineSessionScenario` |
 | Переиспользовать typed protocol workers | `protocolSession(factory).pooled()` | `pooledProtocolSessionScenario` |
-| Взять готовый workflow preset без нового runner | `ScenarioPresets` | `scenarioPresetComposition` |
 | Обернуть CLI как tool adapter | `:procwright-integrations` | `oneShotCommandBackedTool` |
 | Общаться с JSON Lines worker | `JsonLineSession` | `jsonLineCommandBackedTool` |
 | Читать/писать Content-Length JSON frames | `ContentLengthJsonFrames` | `contentLengthFramedJson` |
@@ -173,21 +172,6 @@ Compile-tested example:
 - diagnostic failures не меняют command result;
 - `CommandEcho` redaction-friendly;
 - event attributes соответствуют [diagnostics.md](diagnostics.md).
-
-## Сценарные presets
-
-Используй `ScenarioPresets`, когда нужен готовый набор policy defaults для уже выбранного сценария. Preset не выбирает
-сценарий вместо пользователя и не добавляет отдельный runner.
-
-Compile-tested example:
-
-- `scenarioPresetComposition`
-
-Инварианты:
-
-- preset является typed функцией, принимающей и возвращающей конкретный Draft;
-- preset использует только `with*`, доступные выбранному сценарию;
-- invalid preset parameters fail fast до запуска процесса.
 
 ## CLI-backed integrations
 

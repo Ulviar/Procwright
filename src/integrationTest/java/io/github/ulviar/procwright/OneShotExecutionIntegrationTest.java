@@ -20,7 +20,6 @@ import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.ProcessKernel;
-import io.github.ulviar.procwright.preset.ScenarioPresets;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -162,8 +161,13 @@ final class OneShotExecutionIntegrationTest {
 
     @Test
     void capturedOutputBytesAreAvailableForBinaryWorkflows() {
-        CommandResult result = ScenarioPresets.binaryOutputCapture(
-                        fixtureService().run().withArgs("binary", "--pattern=nul-ff-ascii"), Duration.ofSeconds(1), 16)
+        CommandResult result = fixtureService()
+                .run()
+                .withArgs("binary", "--pattern=nul-ff-ascii")
+                .withTimeout(Duration.ofSeconds(1))
+                .withCapture(CapturePolicy.bounded(16))
+                .withOutput(OutputMode.SEPARATE)
+                .withCharsetPolicy(CharsetPolicy.replace(StandardCharsets.UTF_8))
                 .execute();
 
         assertTrue(result.succeeded());
@@ -375,14 +379,17 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
-    void binaryOutputCaptureOverridesStrictDecodingAndPreservesExactBytes() {
+    void replacementDecodingPreservesExactCapturedBytes() {
         byte[] expected = {0x00, (byte) 0xFF, 0x41};
         RunScenario.Draft strict = fixtureService()
                 .run()
                 .withArgs("binary", "--pattern=hex", "--hex=00ff41", "--stream=both")
                 .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
 
-        CommandResult result = ScenarioPresets.binaryOutputCapture(strict, Duration.ofSeconds(2), 1024)
+        CommandResult result = strict.withTimeout(Duration.ofSeconds(2))
+                .withCapture(CapturePolicy.bounded(1024))
+                .withOutput(OutputMode.SEPARATE)
+                .withCharsetPolicy(CharsetPolicy.replace(StandardCharsets.UTF_8))
                 .execute();
 
         assertTrue(result.succeeded());
@@ -393,15 +400,16 @@ final class OneShotExecutionIntegrationTest {
     }
 
     @Test
-    void commandAutomationPreservesStrictDecodingPolicy() {
+    void unrelatedRunPoliciesPreserveStrictDecodingPolicy() {
         RunScenario.Draft strict = fixtureService()
                 .run()
                 .withArgs("binary", "--pattern=hex", "--hex=ff")
                 .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
 
         CommandExecutionException failure =
-                assertThrows(CommandExecutionException.class, () -> ScenarioPresets.commandAutomation(
-                                strict, Duration.ofSeconds(2), 1024)
+                assertThrows(CommandExecutionException.class, () -> strict.withTimeout(Duration.ofSeconds(2))
+                        .withCapture(CapturePolicy.bounded(1024))
+                        .withOutput(OutputMode.SEPARATE)
                         .execute());
 
         assertEquals(CommandExecutionException.Reason.DECODE_ERROR, failure.reason());

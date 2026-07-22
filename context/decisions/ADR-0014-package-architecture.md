@@ -19,7 +19,6 @@ Stateful session contracts разделяют lifecycle и exclusive stream owne
 - `io.github.ulviar.procwright.session` — sealed raw/expect/line/protocol/stream/pooled handles, protocol contracts,
   transcripts, metrics и failures.
 - `io.github.ulviar.procwright.terminal` — terminal policy, request, provider, size и signal.
-- `io.github.ulviar.procwright.preset` — typed transformations scenario Draft.
 - `io.github.ulviar.procwright.internal` — settings, plans и process helpers.
 - `io.github.ulviar.procwright.internal.session` — stateful session implementations и runtime factories.
 

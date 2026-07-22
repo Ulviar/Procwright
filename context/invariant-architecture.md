@@ -99,7 +99,6 @@ scenario flags.
 - Пользователь всегда явно выбирает сценарий.
 - `execute()`/`open()` не скрыты в configuration callback.
 - Public scenario configuration carriers вне Draft отсутствуют.
-- Preset — pure typed transformation `Draft -> Draft`.
 - Public sealed session handles принадлежат Procwright и не являются SPI.
 
 ### Command и security

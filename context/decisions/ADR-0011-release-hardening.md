@@ -7,7 +7,7 @@
 ## Контекст
 
 Текущий baseline включает `run`, `interactive`, `lineSession`, `expect`, PTY, `listen`, diagnostics, Kotlin ergonomics,
-pooling, presets, CLI-backed integrations и bounded stress suite. Для публикации нужны релизные инварианты: ясная
+pooling, CLI-backed integrations и bounded stress suite. Для публикации нужны релизные инварианты: ясная
 лицензия, политика версий, compatibility границы, кроссплатформенная CI-матрица и release checklist.
 
 ## Решение

@@ -9,7 +9,6 @@ module io.github.ulviar.procwright {
     exports io.github.ulviar.procwright;
     exports io.github.ulviar.procwright.command;
     exports io.github.ulviar.procwright.diagnostics;
-    exports io.github.ulviar.procwright.preset;
     exports io.github.ulviar.procwright.session;
     exports io.github.ulviar.procwright.terminal;
 }

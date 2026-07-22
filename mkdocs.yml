@@ -69,7 +69,6 @@ nav:
           - Streaming: scenarios/streaming.md
           - Pooling: scenarios/pooling.md
           - Terminal Capability: scenarios/terminal.md
-          - Scenario Presets: scenarios/presets.md
           - Integrations: scenarios/integrations.md
       - Command Model: reference/command-model.md
       - Policies: reference/policies.md

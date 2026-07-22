@@ -34,8 +34,7 @@ unsupported behavior, если provider недоступен, и не долже
 ## Стабильность публичного API
 
 - Core public API живет в пакетах `io.github.ulviar.procwright`, `io.github.ulviar.procwright.command`,
-  `io.github.ulviar.procwright.session`, `io.github.ulviar.procwright.diagnostics`, `io.github.ulviar.procwright.terminal` и
-  `io.github.ulviar.procwright.preset`.
+  `io.github.ulviar.procwright.session`, `io.github.ulviar.procwright.diagnostics` и `io.github.ulviar.procwright.terminal`.
 - Kotlin ergonomics живет в `io.github.ulviar.procwright.kotlin`.
 - CLI-backed integration helpers живут в `io.github.ulviar.procwright.integration`; artifact `:procwright-integrations` является
   именованным Java module `io.github.ulviar.procwright.integrations`.
@@ -52,7 +51,6 @@ unsupported behavior, если provider недоступен, и не долже
   compatibility decision и обновления baseline.
 - Для baseline `0.1.0` `Procwright.command(...)` является единственной фабрикой `CommandService`. Scenario methods
   возвращают immutable persistent Draft; idle timeout означает caller-visible inactivity в session-family Draft.
-  Текущий набор `ScenarioPresets` входит в public pre-1.0 API как typed transformations `Draft -> Draft`.
 - Public API scope `0.1.0` включает сценарии `run`, `interactive`, `expect`, `lineSession`, `protocolSession`,
   `listen`, `lineSession().pooled()` и `protocolSession(factory).pooled()`, как зафиксировано в
   [public-api-baseline.md](public-api-baseline.md). Новые сценарии или изменение их caller-visible invariants требуют

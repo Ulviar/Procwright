@@ -161,7 +161,6 @@ MODULE_SEMANTIC_CONTRACTS = {
             "io.github.ulviar.procwright",
             "io.github.ulviar.procwright.command",
             "io.github.ulviar.procwright.diagnostics",
-            "io.github.ulviar.procwright.preset",
             "io.github.ulviar.procwright.session",
             "io.github.ulviar.procwright.terminal",
         ),

@@ -26,7 +26,7 @@ implementation helpers в пользовательский API.
   `SessionRuntime`, `StreamRuntime`, `SessionScenarioSupport`;
 - root facade `CommandService` продолжает возвращать scenario-first public interfaces;
 - `module-info.java` экспортирует только public API packages:
-  `io.github.ulviar.procwright`, `command`, `diagnostics`, `preset`, `session`, `terminal`;
+  `io.github.ulviar.procwright`, `command`, `diagnostics`, `session`, `terminal`;
 - `internal` и `internal.session` не экспортируются.
 
 Diagnostics dispatcher и diagnostic schema validator остаются в `io.github.ulviar.procwright.internal`; публичный

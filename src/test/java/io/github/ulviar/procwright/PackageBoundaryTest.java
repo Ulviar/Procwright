@@ -32,7 +32,6 @@ final class PackageBoundaryTest {
             ROOT + ".diagnostics",
             ROOT + ".internal",
             ROOT + ".internal.session",
-            ROOT + ".preset",
             ROOT + ".session",
             ROOT + ".terminal");
 
@@ -47,8 +46,6 @@ final class PackageBoundaryTest {
             packages("command", "diagnostics", "session", "terminal"),
             ROOT + ".internal.session",
             packages("command", "diagnostics", "internal", "session", "terminal"),
-            ROOT + ".preset",
-            packages("", "command", "session", "terminal"),
             ROOT + ".session",
             packages("", "command", "diagnostics", "internal", "internal.session", "terminal"),
             ROOT + ".terminal",

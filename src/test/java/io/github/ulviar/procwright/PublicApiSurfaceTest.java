@@ -41,7 +41,6 @@ final class PublicApiSurfaceTest {
             "io.github.ulviar.procwright",
             "io.github.ulviar.procwright.command",
             "io.github.ulviar.procwright.diagnostics",
-            "io.github.ulviar.procwright.preset",
             "io.github.ulviar.procwright.session",
             "io.github.ulviar.procwright.terminal");
 
@@ -80,7 +79,6 @@ final class PublicApiSurfaceTest {
             "io.github.ulviar.procwright.diagnostics.DiagnosticEventType",
             "io.github.ulviar.procwright.diagnostics.DiagnosticListener",
             "io.github.ulviar.procwright.diagnostics.DiagnosticTranscriptSink",
-            "io.github.ulviar.procwright.preset.ScenarioPresets",
             "io.github.ulviar.procwright.session.Expect",
             "io.github.ulviar.procwright.session.Expect$Draft",
             "io.github.ulviar.procwright.session.ExpectException",
@@ -217,8 +215,7 @@ final class PublicApiSurfaceTest {
                 InteractiveScenario.class,
                 LineSessionScenario.class,
                 StreamScenario.class,
-                ProtocolSessionScenario.class,
-                io.github.ulviar.procwright.preset.ScenarioPresets.class)) {
+                ProtocolSessionScenario.class)) {
             assertExactTypeShape(type, Modifier.PUBLIC | Modifier.FINAL, false, false);
             assertNoPublicConstructorsOrFields(type);
         }
@@ -273,20 +270,6 @@ final class PublicApiSurfaceTest {
                         "public abstract void close()",
                         "public abstract session.StreamTranscript diagnostics()",
                         "public abstract java.util.concurrent.CompletableFuture<session.StreamExit> onExit()"));
-    }
-
-    @Test
-    void scenarioPresetsExposeExactPublicSignatures() {
-        assertDeclaredPublicSignatures(
-                io.github.ulviar.procwright.preset.ScenarioPresets.class,
-                Set.of(
-                        "public static RunScenario.Draft binaryOutputCapture(RunScenario.Draft, java.time.Duration, int)",
-                        "public static RunScenario.Draft commandAutomation(RunScenario.Draft, java.time.Duration, int)",
-                        "public static RunScenario.Draft environmentDiagnostics(RunScenario.Draft, java.time.Duration, int)",
-                        "public static StreamScenario.Draft logFollowing(StreamScenario.Draft, java.time.Duration)",
-                        "public static InteractiveScenario.Draft promptAutomationSession(InteractiveScenario.Draft, java.time.Duration, terminal.TerminalPolicy)",
-                        "public static LineSessionScenario.Draft replLineMode(LineSessionScenario.Draft, java.time.Duration, terminal.TerminalPolicy)",
-                        "public static InteractiveScenario.Draft terminalRequiredSession(InteractiveScenario.Draft, java.time.Duration)"));
     }
 
     @Test

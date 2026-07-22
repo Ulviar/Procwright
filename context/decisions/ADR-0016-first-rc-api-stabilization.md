@@ -18,7 +18,6 @@
   только `execute()`/`open()`.
 - Idle timeout session-family Draft означает caller-visible inactivity.
 - `protocolSession` принимает adapter factory, создающую отдельный adapter для каждого session/worker.
-- `ScenarioPresets` остаются typed transformations `Draft -> Draft` и не запускают процессы самостоятельно.
 - `Session`, `Expect`, `LineSession`, `ProtocolSession`, `StreamSession`, `PooledLineSession` и
   `PooledProtocolSession` являются sealed Procwright-owned handles, а не SPI.
 - Diagnostics доставляются асинхронно и best-effort, последовательно для каждого получателя одного lifecycle.

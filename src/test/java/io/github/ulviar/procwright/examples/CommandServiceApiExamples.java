@@ -9,7 +9,6 @@ import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.preset.ScenarioPresets;
 import io.github.ulviar.procwright.session.Expect;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSession;
@@ -269,20 +268,6 @@ final class CommandServiceApiExamples {
             if (response.isBlank() || metrics.size() > 4) {
                 throw new IllegalStateException("unexpected pooled response");
             }
-        }
-    }
-
-    void scenarioPresetComposition() {
-        CommandService tool = Procwright.command("tool");
-
-        ScenarioPresets.environmentDiagnostics(tool.run().withArgs("env"), Duration.ofSeconds(2), 16 * 1024)
-                .execute();
-
-        try (StreamSession stream = ScenarioPresets.logFollowing(
-                        tool.listen().withArgs("logs", "--follow").onOutput(chunk -> System.out.print(chunk.text())),
-                        Duration.ZERO)
-                .open()) {
-            stream.onExit().join();
         }
     }
 }

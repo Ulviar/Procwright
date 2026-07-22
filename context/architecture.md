@@ -85,7 +85,6 @@ carriers вне scenario Draft.
 - `io.github.ulviar.procwright.session` — sealed session handles, protocol contracts, transcripts, metrics и failures.
 - `io.github.ulviar.procwright.diagnostics` — пользовательские events и hooks.
 - `io.github.ulviar.procwright.terminal` — terminal policy, request, size, signal и provider SPI.
-- `io.github.ulviar.procwright.preset` — чистые преобразования конкретных Draft.
 - `io.github.ulviar.procwright.internal` и `.internal.session` — settings, plans и stateful runtime; JPMS их не
   экспортирует.
 

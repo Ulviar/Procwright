@@ -16,7 +16,7 @@
 Все configuration objects в этих путях — immutable persistent Draft. Методы `with*` fail fast для локально
 невалидного скалярного значения и возвращают новый snapshot. Проверки, зависящие от сочетания settings или
 нормализованного plan, выполняются в `execute()`/`open()` до запуска процесса; поэтому Draft может временно хранить
-несогласованные поля. `execute()`/`open()` являются явными resource terminals. Presets, Kotlin extensions и integrations
+несогласованные поля. `execute()`/`open()` являются явными resource terminals. Kotlin extensions и integrations
 не создают параллельный API запуска.
 
 Общие гарантии runtime:
