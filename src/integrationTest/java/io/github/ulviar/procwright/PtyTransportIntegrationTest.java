@@ -33,6 +33,7 @@ import io.github.ulviar.procwright.terminal.TerminalSize;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -335,45 +336,19 @@ final class PtyTransportIntegrationTest {
     }
 
     @Test
-    void publicSystemProviderPreservesExactChildEnvironmentAndArgv() throws Exception {
+    void publicSystemProviderPreservesExactCleanChildEnvironmentAndAsciiArgv() throws Exception {
         assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
-        String exactValue = " spaces ' quotes\nline=two=Ж\n\n";
+        String exactValue = " spaces ' quotes\nline=two=ASCII\n\n";
         LinkedHashMap<String, String> environment = new LinkedHashMap<>();
         environment.put("EXACT", exactValue);
         environment.put("EMPTY", "");
         environment.put("WITH_EQUALS", "odd=value=again");
         environment.put("SHELLOPTS", "xtrace");
         environment.put("PS4", "$(must-not-run)");
-        List<String> hostileArguments = List.of("", "a=b", "line\nbreak\n", "'\"$()`;*", "юникод");
-        ArrayList<String> command = new ArrayList<>();
-        command.add(javaExecutable());
-        command.add("-cp");
-        command.add(System.getProperty("java.class.path"));
-        command.add(PtyEnvironmentProbe.class.getName());
-        command.addAll(environment.keySet());
-        command.add("--");
-        command.addAll(hostileArguments);
-        PtyRequest request = new PtyRequest(
-                command,
-                Optional.of(temporaryDirectory),
-                EnvironmentPolicy.CLEAN,
-                environment,
-                new TerminalSize(91, 37));
+        List<String> hostileArguments = List.of("", "a=b", "line\nbreak\n", "'\"$()`;*", "ascii-only");
 
-        Process process = PtyProvider.system().start(request);
-        String output;
-        try (java.io.InputStream stdout = process.getInputStream()) {
-            assertTrue(process.waitFor(5, TimeUnit.SECONDS), "PTY environment probe did not exit");
-            output = new String(stdout.readAllBytes(), StandardCharsets.UTF_8).replace("\r\n", "\n");
-            assertEquals(0, process.exitValue(), output);
-        } finally {
-            if (process.isAlive()) {
-                process.destroyForcibly();
-            }
-        }
+        PtyProbeOutput probe = runEnvironmentProbe(environment, hostileArguments, EnvironmentPolicy.CLEAN);
 
-        PtyProbeOutput probe = PtyProbeOutput.parse(output);
-        assertFalse(output.contains("PROCWRIGHT_PTY"), "wrapper handshake leaked into child output");
         for (Map.Entry<String, String> entry : environment.entrySet()) {
             assertEquals(entry.getValue(), probe.environment().get(entry.getKey()), entry.getKey());
         }
@@ -383,6 +358,25 @@ final class PtyTransportIntegrationTest {
         assertEquals("<missing>", probe.environment().get("PATH"));
         assertEquals("<missing>", probe.environment().get("SHELL"));
         assertEquals(hostileArguments, probe.arguments());
+        assertEquals(temporaryDirectory.toRealPath().toString(), probe.workingDirectory());
+    }
+
+    @Test
+    void publicSystemProviderPreservesUnicodeWithInheritedLocale() throws Exception {
+        assumeTrue(PtyProvider.system().available(), "system PTY provider is unavailable");
+        String exactValue = "Ж юникод";
+        List<String> arguments = List.of("Ж", "юникод");
+        Charset nativeCharset = Charset.forName(
+                System.getProperty("sun.jnu.encoding", Charset.defaultCharset().name()));
+        assumeTrue(
+                nativeCharset.newEncoder().canEncode(exactValue),
+                () -> "native charset cannot represent the Unicode fixture: " + nativeCharset);
+        Map<String, String> environment = Map.of("UNICODE", exactValue);
+
+        PtyProbeOutput probe = runEnvironmentProbe(environment, arguments, EnvironmentPolicy.INHERIT);
+
+        assertEquals(exactValue, probe.environment().get("UNICODE"));
+        assertEquals(arguments, probe.arguments());
         assertEquals(temporaryDirectory.toRealPath().toString(), probe.workingDirectory());
     }
 
@@ -603,6 +597,36 @@ final class PtyTransportIntegrationTest {
 
     private static String readUntilContaining(Session session, BufferedReader reader, String text) throws Exception {
         return readUntilMatch(session, reader, line -> line.contains(text), "line containing " + text);
+    }
+
+    private PtyProbeOutput runEnvironmentProbe(
+            Map<String, String> environment, List<String> arguments, EnvironmentPolicy environmentPolicy)
+            throws Exception {
+        ArrayList<String> command = new ArrayList<>();
+        command.add(javaExecutable());
+        command.add("-cp");
+        command.add(System.getProperty("java.class.path"));
+        command.add(PtyEnvironmentProbe.class.getName());
+        command.addAll(environment.keySet());
+        command.add("--");
+        command.addAll(arguments);
+        PtyRequest request = new PtyRequest(
+                command, Optional.of(temporaryDirectory), environmentPolicy, environment, new TerminalSize(91, 37));
+
+        Process process = PtyProvider.system().start(request);
+        String output;
+        try (java.io.InputStream stdout = process.getInputStream()) {
+            assertTrue(process.waitFor(5, TimeUnit.SECONDS), "PTY environment probe did not exit");
+            output = new String(stdout.readAllBytes(), StandardCharsets.UTF_8).replace("\r\n", "\n");
+            assertEquals(0, process.exitValue(), output);
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+
+        assertFalse(output.contains("PROCWRIGHT_PTY"), "wrapper handshake leaked into child output");
+        return PtyProbeOutput.parse(output);
     }
 
     private static String readUntilMatch(

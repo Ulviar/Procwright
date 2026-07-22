@@ -962,6 +962,10 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     }
 
     private OptionalInt exitCodeSnapshot() {
+        OptionalInt observed = cachedProcessExitCode.get();
+        if (observed.isPresent()) {
+            return observed;
+        }
         CompletableFuture<SessionExit> exit = session.onExit();
         if (!exit.isDone()) {
             return OptionalInt.empty();

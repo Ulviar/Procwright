@@ -18,6 +18,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -148,6 +149,10 @@ final class PtyBootstrapIntegrationTest {
     @Test
     @ResourceLock("java.io.tmpdir")
     void bootstrapCreatesNoControlFileInAHostileTemporaryDirectory() throws Exception {
+        SystemPtyProvider.SystemPtySupport support = detectedSupport();
+        assumeTrue(
+                Files.getFileAttributeView(temporaryDirectory, PosixFileAttributeView.class) != null,
+                "hostile temporary directory fixture requires POSIX file attributes");
         Path hostileTemporaryDirectory = temporaryDirectory.resolve("world-writable-non-sticky");
         Files.createDirectory(hostileTemporaryDirectory);
         Files.setPosixFilePermissions(
@@ -166,7 +171,7 @@ final class PtyBootstrapIntegrationTest {
         Process process = null;
         try {
             System.setProperty("java.io.tmpdir", hostileTemporaryDirectory.toString());
-            process = provider().start(request(List.of("/usr/bin/true")));
+            process = new SystemPtyProvider(support).start(request(List.of("/usr/bin/true")));
             assertSuccessful(process);
             process = null;
         } finally {

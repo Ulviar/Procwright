@@ -378,11 +378,15 @@ final class DefaultStreamSessionTest {
         TrackingPumpStarter pumpStarter = new TrackingPumpStarter();
         CopyOnWriteArrayList<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch controlSelected = new CountDownLatch(1);
+        CountDownLatch processExitedDelivered = new CountDownLatch(1);
         DiagnosticEmitter eventDiagnostics = DiagnosticEmitter.of(
                 DiagnosticsSettings.disabled().withListener(event -> {
                     events.add(event);
                     if (control.isSelectionEvent(event)) {
                         controlSelected.countDown();
+                    }
+                    if (event.type() == DiagnosticEventType.PROCESS_EXITED) {
+                        processExitedDelivered.countDown();
                     }
                 }),
                 "stream-late-session-failure-test",
@@ -391,7 +395,8 @@ final class DefaultStreamSessionTest {
                 session(process), plan(chunk -> {}), eventDiagnostics, ZeroReadBackoff.exponential(), pumpStarter);
         CompletableFuture<StreamExit> observedExit = stream.onExit();
         AtomicInteger exitCompletions = new AtomicInteger();
-        observedExit.whenComplete((ignored, failure) -> exitCompletions.incrementAndGet());
+        CompletableFuture<StreamExit> observedExitContinuation =
+                observedExit.whenComplete((ignored, failure) -> exitCompletions.incrementAndGet());
         Throwable expected = failureKind.newFailure();
         CopyOnWriteArrayList<Throwable> lateReports = new CopyOnWriteArrayList<>();
         CountDownLatch lateReportEntered = new CountDownLatch(1);
@@ -428,7 +433,7 @@ final class DefaultStreamSessionTest {
                 assertTrue(pumpStarter.awaitCompletion(), "output pumps did not finish after nested failure");
             }
 
-            StreamExit result = observedExit.get(1, TimeUnit.SECONDS);
+            StreamExit result = observedExitContinuation.get(1, TimeUnit.SECONDS);
             assertTrue(lateReportEntered.await(1, TimeUnit.SECONDS), "late nested failure was not reported");
             assertLateReport(failureKind, expected, lateReports.get(0));
             assertEquals(control == ControlAction.TIMEOUT, result.timedOut());
@@ -443,6 +448,8 @@ final class DefaultStreamSessionTest {
             stream.close();
             stream.expireTimeout();
             assertEquals(result, stream.onExit().get(1, TimeUnit.SECONDS));
+            assertTrue(
+                    processExitedDelivered.await(1, TimeUnit.SECONDS), "PROCESS_EXITED diagnostic was not delivered");
             assertEquals(1, exitCompletions.get());
             assertEquals(1, lateReports.size());
             List<DiagnosticEvent> processExitedEvents = events.stream()

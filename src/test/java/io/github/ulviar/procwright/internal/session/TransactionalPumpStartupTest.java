@@ -495,8 +495,9 @@ final class TransactionalPumpStartupTest {
         AtomicReference<OutputPumpCoordinator> coordinatorReference = new AtomicReference<>();
         List<Throwable> reportedFailures = new CopyOnWriteArrayList<>();
         AtomicInteger closeStarts = new AtomicInteger();
-        CountDownLatch handlerEntered = new CountDownLatch(1);
-        CountDownLatch handlerReturned = new CountDownLatch(1);
+        CountDownLatch handlersEntered = new CountDownLatch(2);
+        CountDownLatch handlersMayReenter = new CountDownLatch(1);
+        CountDownLatch handlersReturned = new CountDownLatch(2);
         CountDownLatch reportsCompleted = new CountDownLatch(2);
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4, (name, task) -> {
             int ordinal = closeStarts.getAndIncrement();
@@ -504,9 +505,10 @@ final class TransactionalPumpStartupTest {
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler((ignored, failure) -> {
                 reportedFailures.add(failure);
-                handlerEntered.countDown();
+                handlersEntered.countDown();
+                awaitUninterruptibly(handlersMayReenter);
                 coordinatorReference.get().closeSessionPreserving(workerFailure);
-                handlerReturned.countDown();
+                handlersReturned.countDown();
                 reportsCompleted.countDown();
             });
             thread.start();
@@ -528,8 +530,11 @@ final class TransactionalPumpStartupTest {
 
             coordinator.closeSession();
 
-            assertTrue(handlerEntered.await(1, TimeUnit.SECONDS));
-            assertTrue(handlerReturned.await(1, TimeUnit.SECONDS));
+            boolean bothHandlersEntered = handlersEntered.await(1, TimeUnit.SECONDS);
+            handlersMayReenter.countDown();
+            assertTrue(
+                    bothHandlersEntered, "both uncaught handlers must run without acquiring the coordinator monitor");
+            assertTrue(handlersReturned.await(1, TimeUnit.SECONDS));
             assertTrue(reportsCompleted.await(1, TimeUnit.SECONDS));
             assertTrue(stdout.awaitCloseCompleted());
             assertTrue(stderr.awaitCloseCompleted());
@@ -547,6 +552,7 @@ final class TransactionalPumpStartupTest {
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
         } finally {
+            handlersMayReenter.countDown();
             coordinator.closeSessionPreserving(workerFailure);
             rawSession.close();
         }

@@ -1719,6 +1719,55 @@ final class DefaultProtocolSessionTest {
     }
 
     @Test
+    void stderrOverflowUsesObservedExitCodeBeforePublicSessionExit() throws Exception {
+        GatedChunkInputStream stderr = new GatedChunkInputStream(new byte[] {1, 2});
+        ControllableProcess process =
+                new ControllableProcess(OutputStream.nullOutputStream(), InputStream.nullInputStream(), stderr);
+        DefaultSession rawSession = session(process);
+        CountDownLatch decoderEntered = new CountDownLatch(1);
+        CountDownLatch allowRead = new CountDownLatch(1);
+        ProtocolAdapter<String, Byte> adapter = new ProtocolAdapter<>() {
+            @Override
+            public void writeRequest(String request, ProtocolWriter writer) {
+                writer.flush();
+            }
+
+            @Override
+            public Byte readResponse(ProtocolReaders readers) {
+                decoderEntered.countDown();
+                awaitUninterruptibly(allowRead);
+                return readers.stderr().readByte();
+            }
+        };
+        DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
+                rawSession,
+                adapter,
+                ProtocolSessionSettings.defaults().withOutputBacklogLimit(1).withRequestTimeout(Duration.ofSeconds(5)));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
+            assertTrue(decoderEntered.await(1, TimeUnit.SECONDS));
+            stderr.release();
+            assertTrue(stderr.awaitEof(), "stderr pump did not retain the overflow marker");
+            rawSession.processExitObservation().publish(23);
+            assertFalse(rawSession.onExit().isDone());
+
+            allowRead.countDown();
+            ProtocolSessionException overflow =
+                    assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
+
+            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
+            assertEquals(23, overflow.exitCode().orElseThrow());
+        } finally {
+            allowRead.countDown();
+            stderr.release();
+            protocol.close();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void selectedOverflowPreventsWriteAdmissionAndSurvivesConcurrentClose() throws Exception {
         GatedChunkInputStream stdout = new GatedChunkInputStream(new byte[] {1, 2});
         LatchingTransitionProbe transitions = new LatchingTransitionProbe();
@@ -2746,8 +2795,8 @@ final class DefaultProtocolSessionTest {
                 assertTrue(transitions.awaitTerminalSelection(), "timeout did not select the terminal outcome");
                 assertNotSame(transitions.decoderThread(), transitions.terminalSelector());
                 transitions.releaseTerminalSelection();
-                assertTrue(
-                        transitions.awaitOutputTimeoutFailure(), "decoder did not reach its timeout publication path");
+                // The decoder can observe the selected timeout through either its interrupted wait or the
+                // terminal queue event. Only the former crosses the output-timeout probe.
                 transitions.releaseOutputTimeoutFailure();
             }
 
@@ -3525,6 +3574,7 @@ final class DefaultProtocolSessionTest {
 
         private final byte[] chunk;
         private final CountDownLatch release = new CountDownLatch(1);
+        private final CountDownLatch eof = new CountDownLatch(1);
         private final AtomicBoolean delivered = new AtomicBoolean();
 
         private GatedChunkInputStream(byte[] chunk) {
@@ -3546,6 +3596,7 @@ final class DefaultProtocolSessionTest {
             }
             awaitUninterruptibly(release);
             if (!delivered.compareAndSet(false, true)) {
+                eof.countDown();
                 return -1;
             }
             int count = Math.min(length, chunk.length);
@@ -3555,6 +3606,10 @@ final class DefaultProtocolSessionTest {
 
         private void release() {
             release.countDown();
+        }
+
+        private boolean awaitEof() throws InterruptedException {
+            return eof.await(1, TimeUnit.SECONDS);
         }
     }
 

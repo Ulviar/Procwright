@@ -360,7 +360,7 @@ final class ProcessIoResourcesTest {
             assertTrue(stdout.closeEntered.await(1, TimeUnit.SECONDS));
 
             resources.closeAllAsync(ignored -> {});
-            resources
+            CompletableFuture<Void> completeFailureGraphObservation = resources
                     .stdout()
                     .closeCompletion()
                     .thenRun(() ->
@@ -376,6 +376,7 @@ final class ProcessIoResourcesTest {
             assertSame(startFailure, awaitClose.get(1, TimeUnit.SECONDS));
             assertSame(startFailure, resources.stdout().closeResult());
             assertEquals(java.util.List.of(closeFailure), java.util.List.of(startFailure.getSuppressed()));
+            completeFailureGraphObservation.get(1, TimeUnit.SECONDS);
             assertTrue(completeFailureGraphObserved.get());
             assertEquals(1, stdout.closeCalls.get());
             assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
