@@ -59,3 +59,4 @@ public final class io/github/ulviar/procwright/kotlin/ProtocolAdapterFactoryKt {
 public final class io/github/ulviar/procwright/kotlin/StreamFlowKt {
 	public static final fun openFlow (Lio/github/ulviar/procwright/StreamScenario$Draft;)Lkotlinx/coroutines/flow/Flow;
 }
+
