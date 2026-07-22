@@ -104,13 +104,18 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 ```bash
 ./gradlew releaseCandidateCheck --project-prop=procwright.javaRelease=17
+./gradlew releaseCandidateCheck --project-prop=procwright.javaRelease=17 \
+  --project-prop=procwright.version=0.1.0
 ```
 
 Назначение:
 
-- запускает formatting, scenario, regression, module и documentation gates;
+- в default SNAPSHOT режиме запускает readiness, documentation и release script/contract self-tests без finalized-doc
+  check и реальной публикации artifacts;
+- в explicit non-SNAPSHOT режиме дополнительно запускает `releaseDocsContentCheck` и
+  `realReleaseArtifactSemanticTest` без обхода publication/signing guards;
 - требует clean Git worktree, включая untracked files;
-- предназначен для состояния после фиксации всех исходников и перед публикацией релиза.
+- выполняет clean-tree check после всех проверок, выбранных текущим режимом.
 
 ## Правило развития
 

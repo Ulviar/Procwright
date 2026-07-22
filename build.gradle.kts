@@ -68,6 +68,11 @@ if (
 }
 
 val procwrightVersion = procwrightVersionProperty ?: conventionalVersionProperty ?: "0.0.0-SNAPSHOT"
+
+fun releaseCandidateUsesFinalReleaseChecks(version: String): Boolean =
+    !version.endsWith("-SNAPSHOT")
+
+val releaseCandidateFinalMode = releaseCandidateUsesFinalReleaseChecks(procwrightVersion)
 val requireSystemPty =
     providers
         .gradleProperty("procwright.requireSystemPty")
@@ -985,13 +990,13 @@ val releaseDocsContentCheck =
                 fileTree(layout.projectDirectory.dir("docs")) { include("**/*.md") },
             )
         inputs.files(releaseMarkdown)
-        inputs.property("releaseVersion", project.version.toString())
-        onlyIf { !project.version.toString().endsWith("-SNAPSHOT") }
+        inputs.property("releaseVersion", procwrightVersion)
+        onlyIf { releaseCandidateFinalMode }
 
         doLast {
             val failures =
                 releaseDocsContentFailures(
-                    project.version.toString(),
+                    procwrightVersion,
                     releaseMarkdown.files.filter(File::isFile).sorted().map { source ->
                         source.relativeTo(rootDir).invariantSeparatorsPath to source.readText()
                     },
@@ -1099,12 +1104,10 @@ val publicDocsCheck =
         description =
             "Builds the public MkDocs documentation site in strict mode and attaches generated API docs."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(
-            preparePublicDocs,
-            docsRequirementsLockCheck,
-            releaseDocsContentCheck,
-            canonicalPublicDocsUrlCheck,
-        )
+        dependsOn(preparePublicDocs, docsRequirementsLockCheck, canonicalPublicDocsUrlCheck)
+        if (releaseCandidateFinalMode) {
+            dependsOn(releaseDocsContentCheck)
+        }
 
         val requirements = layout.projectDirectory.file("docs/requirements.lock")
         val requirementsSource = layout.projectDirectory.file("docs/requirements.txt")
@@ -2227,20 +2230,32 @@ quickCheck.configure {
     )
 }
 
+val releaseCandidateDependencies =
+    mutableListOf<Provider<out Task>>(
+        tasks.named("spotlessCheck"),
+        regressionCheck,
+        publicJavaJavadocCheck,
+        publicDocsCheck,
+        releaseWorkflowStaticCheck,
+        releaseEvidenceScriptSelfTest,
+        providers.provider { tasks.getByPath(":procwright-kotlin:check") },
+        providers.provider { tasks.getByPath(":procwright-integrations:check") },
+        providers.provider { tasks.getByPath(":procwright-test-cli:check") },
+    )
+
+releaseCandidateDependencies +=
+    consumerExampleCheckPaths.map { path -> providers.provider { tasks.getByPath(path) } }
+
+if (releaseCandidateFinalMode) {
+    releaseCandidateDependencies += releaseDocsContentCheck
+    releaseCandidateDependencies += realReleaseArtifactSemanticTest
+}
+
 val cleanWorkingTreeCheck =
     tasks.register("cleanWorkingTreeCheck") {
         description = "Verifies the Git worktree is clean, including untracked files."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        mustRunAfter(
-            tasks.named("spotlessCheck"),
-            regressionCheck,
-            publicJavaJavadocCheck,
-            publicDocsCheck,
-            ":procwright-kotlin:check",
-            ":procwright-integrations:check",
-            ":procwright-test-cli:check",
-            *consumerExampleCheckPaths.toTypedArray(),
-        )
+        mustRunAfter(releaseCandidateDependencies)
 
         doLast {
             val process =
@@ -2261,24 +2276,90 @@ val cleanWorkingTreeCheck =
         }
     }
 
-tasks.register("releaseCandidateCheck") {
-    description = "Runs the complete local release verification gate."
-    group = LifecycleBasePlugin.VERIFICATION_GROUP
-    dependsOn(
-        tasks.named("spotlessCheck"),
-        regressionCheck,
-        publicJavaJavadocCheck,
-        publicDocsCheck,
-        releaseWorkflowStaticCheck,
-        releaseEvidenceScriptSelfTest,
-        realReleaseArtifactSemanticTest,
-        ":procwright-kotlin:check",
-        ":procwright-integrations:check",
-        ":procwright-test-cli:check",
-        *consumerExampleCheckPaths.toTypedArray(),
-        cleanWorkingTreeCheck,
-    )
-}
+val releaseCandidateCheck =
+    tasks.register("releaseCandidateCheck") {
+        description = "Runs the complete local release verification gate."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        dependsOn(releaseCandidateDependencies, cleanWorkingTreeCheck)
+    }
+
+val releaseCandidateModeSelfTest =
+    tasks.register("releaseCandidateModeSelfTest") {
+        description = "Proves SNAPSHOT and final-release task selection."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+
+        doLast {
+            if (
+                releaseCandidateUsesFinalReleaseChecks("1.2.3-SNAPSHOT") ||
+                    !releaseCandidateUsesFinalReleaseChecks("1.2.3")
+            ) {
+                throw GradleException("Release-candidate mode classification is inconsistent")
+            }
+
+            val releaseOnlyPaths =
+                setOf(":releaseDocsContentCheck", ":realReleaseArtifactSemanticTest")
+            val expectedReleaseOnlyPaths =
+                if (releaseCandidateFinalMode) releaseOnlyPaths else emptySet()
+            val expectedCandidatePaths =
+                mutableSetOf(
+                    ":spotlessCheck",
+                    ":regressionCheck",
+                    ":publicJavaJavadocCheck",
+                    ":publicDocsCheck",
+                    ":releaseWorkflowStaticCheck",
+                    ":releaseEvidenceScriptSelfTest",
+                    ":procwright-kotlin:check",
+                    ":procwright-integrations:check",
+                    ":procwright-test-cli:check",
+                    *consumerExampleCheckPaths.toTypedArray(),
+                )
+            expectedCandidatePaths += expectedReleaseOnlyPaths
+
+            fun dependencyPaths(task: Task, dependency: TaskDependency): Set<String> =
+                dependency.getDependencies(task).map(Task::getPath).toSet()
+
+            fun assertPaths(owner: String, actual: Set<String>, expected: Set<String>) {
+                if (actual != expected) {
+                    throw GradleException(
+                        "$owner wiring differs for version $procwrightVersion; " +
+                            "missing=${(expected - actual).sorted()}, " +
+                            "unexpected=${(actual - expected).sorted()}"
+                    )
+                }
+            }
+
+            val candidate = releaseCandidateCheck.get()
+            assertPaths(
+                "releaseCandidateCheck",
+                dependencyPaths(candidate, candidate.taskDependencies),
+                expectedCandidatePaths + cleanWorkingTreeCheck.get().path,
+            )
+
+            val docs = publicDocsCheck.get()
+            val expectedDocsPaths =
+                setOf(
+                    ":preparePublicDocs",
+                    ":docsRequirementsLockCheck",
+                    ":canonicalPublicDocsUrlCheck",
+                ) + expectedReleaseOnlyPaths.intersect(setOf(":releaseDocsContentCheck"))
+            assertPaths(
+                "publicDocsCheck",
+                dependencyPaths(docs, docs.taskDependencies),
+                expectedDocsPaths,
+            )
+
+            val clean = cleanWorkingTreeCheck.get()
+            assertPaths(
+                "cleanWorkingTreeCheck.mustRunAfter",
+                dependencyPaths(clean, clean.mustRunAfter),
+                expectedCandidatePaths,
+            )
+        }
+    }
+
+tasks.check { dependsOn(releaseCandidateModeSelfTest) }
+
+quickCheck.configure { dependsOn(releaseCandidateModeSelfTest) }
 
 spotless {
     java {

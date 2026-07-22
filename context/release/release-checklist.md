@@ -23,10 +23,10 @@
 - `releaseWorkflowStaticCheck` parsing-ом YAML 1.2 проверяет exact triggers, inputs, action SHA, root/job permissions,
   critical `run` scalars и порядок release steps; тот же gate выполняет hostile fixtures и `bash -n` fixed release
   scripts. `releaseEvidenceScriptSelfTest` проверяет canonical version/commit contract, immutable release response и
-  bounded Central evidence verifiers. `realReleaseArtifactSemanticTest` публикует три фактических модуля в
-  изолированный repository и выполняет полный unsigned handoff -> real GPG signing -> 90-file staged verifier
-  roundtrip, затем проверяет тем же production verifier точное сочетание signed bundle и 15 сгенерированных Gradle
-  Maven metadata files.
+  bounded Central evidence verifiers. В non-SNAPSHOT режиме `realReleaseArtifactSemanticTest` публикует три
+  фактических модуля в изолированный repository и выполняет полный unsigned handoff -> real GPG signing -> 90-file
+  staged verifier roundtrip, затем проверяет тем же production verifier точное сочетание signed bundle и 15
+  сгенерированных Gradle Maven metadata files.
 
 ## Локальные проверки
 
@@ -47,12 +47,16 @@ git diff --exit-code
 ```
 
 `quickCheck`, `scenarioCheck` и `regressionCheck` образуют явную цепочку named tiers.
-`releaseCandidateCheck` агрегирует `regressionCheck`, public Javadocs/docs, optional module checks, consumer fixtures,
-formatting и clean-tree check. Обычный `./gradlew check` остается отдельной lifecycle-проверкой и не определяет состав
-named tiers. Comparison/JMH tasks не являются release pass/fail gate.
+`releaseCandidateCheck` имеет два режима под одним task name. С default SNAPSHOT version он агрегирует readiness checks,
+public Javadocs/docs, optional module checks, consumer fixtures, formatting и release script/contract self-tests, но не
+выбирает `releaseDocsContentCheck` и `realReleaseArtifactSemanticTest`. С explicit non-SNAPSHOT `procwright.version` он
+дополнительно выбирает обе release-only проверки; publication/signing guards остаются обязательными. Обычный
+`./gradlew check` остается отдельной lifecycle-проверкой и не определяет состав named tiers. Comparison/JMH tasks не
+являются release pass/fail gate.
 
 Назначение уровней описано в [../evals/test-tiers.md](../evals/test-tiers.md). `releaseCandidateCheck` является
-локальным составным gate и требует clean worktree, включая untracked files.
+локальным составным gate и требует clean worktree, включая untracked files. `cleanWorkingTreeCheck` выполняется после
+всех проверок, выбранных текущим режимом.
 
 Если `releaseCandidateCheck` недоступен в окружении, clean worktree проверяется эквивалентом
 `git status --porcelain=v1 --untracked-files=all`: вывод должен быть пустым.
@@ -198,9 +202,9 @@ validation deployment.
    на адреса, которые опубликует documentation workflow. При non-SNAPSHOT version задача
    `releaseDocsContentCheck` блокирует pre-release формулировки, moving source links и coordinates другой версии.
    Отдельные release notes для первого выпуска не требуются: пользовательские сведения находятся в README и public docs.
-3. На этом clean commit прогнать `releaseCandidateCheck --project-prop=procwright.javaRelease=17` и дождаться зеленого
-   push-run полного CI для Java 17/21/25 на Linux, macOS и Windows. Зафиксировать полный commit SHA; после staging его
-   содержимое больше не меняется.
+3. На этом clean commit прогнать `releaseCandidateCheck --project-prop=procwright.javaRelease=17 --project-prop=procwright.version=<version>`
+   и дождаться зеленого push-run полного CI для Java 17/21/25 на Linux, macOS и Windows. Зафиксировать полный commit
+   SHA; после staging его содержимое больше не меняется.
 4. В environment `maven-central` задать `MAVEN_CENTRAL_STAGING_SIGNING_FINGERPRINT`; в environment `release-recovery`
    задать `MAVEN_CENTRAL_RECOVERY_SIGNING_FINGERPRINT` и `MAVEN_CENTRAL_RECOVERY_SIGNING_PUBLIC_KEY`. Fingerprints
    содержат один и тот же 40-символьный uppercase primary-key fingerprint; public key является bounded ASCII-armored
