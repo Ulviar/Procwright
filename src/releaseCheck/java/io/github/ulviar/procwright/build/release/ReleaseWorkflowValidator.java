@@ -63,6 +63,10 @@ final class ReleaseWorkflowValidator {
             build/maven-central/procwright-${{ inputs.release-version }}-provenance.txt
             build/maven-central/procwright-${{ inputs.release-version }}-central-deployment.json
             """;
+    private static final String FAILED_TEST_REPORT_PATHS = """
+            **/build/test-results/**
+            **/build/reports/tests/**
+            """;
 
     void validate(Path ciPath, Path stagePath, Path docsPath) {
         WorkflowModel ci = new WorkflowModel(YamlWorkflow.load(ciPath));
@@ -513,7 +517,8 @@ final class ReleaseWorkflowValidator {
                         "Verify Unix",
                         "Verify Windows",
                         "Publication smoke Unix",
-                        "Publication smoke Windows"));
+                        "Publication smoke Windows",
+                        "Upload failed test reports"));
         requireActionStep(steps.get(0), CHECKOUT, null, null);
         requireActionStep(
                 steps.get(1),
@@ -611,6 +616,20 @@ final class ReleaseWorkflowValidator {
                   --no-daemon
                 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 """, null, "runner.os == 'Windows' && matrix.java-runtime == 17", null, null, "pwsh");
+        requireActionStep(
+                steps.get(8),
+                UPLOAD_ARTIFACT,
+                Map.of(
+                        "name",
+                        "failed-tests-${{ matrix.os }}-java-${{ matrix.java-runtime }}",
+                        "path",
+                        FAILED_TEST_REPORT_PATHS,
+                        "if-no-files-found",
+                        "ignore",
+                        "retention-days",
+                        7),
+                null,
+                "failure()");
         rejectSecretReferences(yaml, job.values(), job.path());
     }
 
@@ -635,7 +654,12 @@ final class ReleaseWorkflowValidator {
         requireExactStepNames(
                 job,
                 steps,
-                List.of("Checkout", "Set up JDK ${{ matrix.java-release }}", "Set up Gradle", "Verify source variant"));
+                List.of(
+                        "Checkout",
+                        "Set up JDK ${{ matrix.java-release }}",
+                        "Set up Gradle",
+                        "Verify source variant",
+                        "Upload failed test reports"));
         requireActionStep(steps.get(0), CHECKOUT, null, null);
         requireActionStep(
                 steps.get(1),
@@ -651,6 +675,20 @@ final class ReleaseWorkflowValidator {
                 null,
                 null,
                 null);
+        requireActionStep(
+                steps.get(4),
+                UPLOAD_ARTIFACT,
+                Map.of(
+                        "name",
+                        "failed-tests-source-java-${{ matrix.java-release }}",
+                        "path",
+                        FAILED_TEST_REPORT_PATHS,
+                        "if-no-files-found",
+                        "ignore",
+                        "retention-days",
+                        7),
+                null,
+                "failure()");
         rejectSecretReferences(yaml, job.values(), job.path());
     }
 
@@ -1349,12 +1387,20 @@ final class ReleaseWorkflowValidator {
     }
 
     private static void requireActionStep(WorkflowModel.Step step, String action, Map<String, Object> with, String id) {
+        requireActionStep(step, action, with, id, null);
+    }
+
+    private static void requireActionStep(
+            WorkflowModel.Step step, String action, Map<String, Object> with, String id, String condition) {
         Set<String> expectedKeys = new LinkedHashSet<>(List.of("name", "uses"));
         if (with != null) {
             expectedKeys.add("with");
         }
         if (id != null) {
             expectedKeys.add("id");
+        }
+        if (condition != null) {
+            expectedKeys.add("if");
         }
         requireExactKeys(step.yaml(), step.values(), expectedKeys, step.path());
         String actual = step.uses().orElseThrow(() -> step.yaml().failure(step.path() + " must define uses"));
@@ -1363,6 +1409,7 @@ final class ReleaseWorkflowValidator {
             throw step.yaml().failure(step.path() + " must use " + action + ", got " + actualAction);
         }
         requireOptionalString(step, "id", id);
+        requireOptionalString(step, "if", condition);
         if (with != null) {
             requireExactMap(step.yaml(), step.requiredMap("with"), with, step.path() + ".with");
         }

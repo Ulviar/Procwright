@@ -436,6 +436,52 @@ final class ReleaseWorkflowValidatorTest {
     }
 
     @Test
+    void rejectsFailedTestReportUploadMutations() throws IOException {
+        WorkflowFixture condition = fixture();
+        condition.replaceRequired(condition.ci(), "        if: failure()\n", "        if: always()\n");
+        assertRejected(condition, "if");
+
+        WorkflowFixture action = fixture();
+        action.replaceRequired(
+                action.ci(),
+                "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+                "uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10");
+        assertRejected(action, "use");
+
+        WorkflowFixture matrixIdentity = fixture();
+        matrixIdentity.replaceRequired(
+                matrixIdentity.ci(),
+                "name: failed-tests-${{ matrix.os }}-java-${{ matrix.java-runtime }}",
+                "name: failed-tests");
+        assertRejected(matrixIdentity, "with");
+
+        WorkflowFixture sourceIdentity = fixture();
+        sourceIdentity.replaceRequired(
+                sourceIdentity.ci(),
+                "name: failed-tests-source-java-${{ matrix.java-release }}",
+                "name: failed-tests-source");
+        assertRejected(sourceIdentity, "with");
+
+        WorkflowFixture paths = fixture();
+        paths.replaceRequired(paths.ci(), "            **/build/reports/tests/**\n", "");
+        assertRejected(paths, "with");
+
+        WorkflowFixture missingPolicy = fixture();
+        missingPolicy.replaceRequired(
+                missingPolicy.ci(), "          if-no-files-found: ignore\n", "          if-no-files-found: warn\n");
+        assertRejected(missingPolicy, "with");
+
+        WorkflowFixture retention = fixture();
+        retention.replaceRequired(retention.ci(), "          retention-days: 7\n", "          retention-days: 90\n");
+        assertRejected(retention, "with");
+
+        WorkflowFixture order = fixture();
+        order.swapRequired(
+                order.ci(), "      - name: Publication smoke Windows\n", "      - name: Upload failed test reports\n");
+        assertRejected(order, "steps");
+    }
+
+    @Test
     void rejectsConsumerSecretAndArtifactMutations() throws IOException {
         WorkflowFixture secret = fixture();
         secret.replaceRequired(
