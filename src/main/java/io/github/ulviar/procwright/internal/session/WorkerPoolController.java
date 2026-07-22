@@ -72,10 +72,6 @@ final class WorkerPoolController<S> {
     private boolean replenishmentOwnerActive;
     private boolean drainPublicationClaimed;
     private boolean retirementCompletionProcessorActive;
-    private int idleCount;
-    private int leasedCount;
-    private int startingCount;
-    private int retiringCount;
     private long created;
     private long retired;
     private long completedRequests;
@@ -1699,7 +1695,6 @@ final class WorkerPoolController<S> {
             if (worker.state() == SlotState.STARTING && worker.startupStage() == StartupStage.QUEUED) {
                 worker.startupStage(StartupStage.CANCELLED);
                 slotsIterator.remove();
-                decrementState(worker.state());
                 worker.releaseRetirementAdmission();
             }
         }
@@ -1711,9 +1706,7 @@ final class WorkerPoolController<S> {
         if (!slots.contains(worker)) {
             throw new IllegalStateException("worker does not belong to this pool");
         }
-        decrementState(worker.state());
         worker.state(target);
-        incrementState(target);
     }
 
     private void transitionToLeased(Worker<S> worker, LeaseHandoff handoff) {
@@ -1736,14 +1729,13 @@ final class WorkerPoolController<S> {
     }
 
     private StateCounts stateCounts() {
-        return new StateCounts(slots.size(), idleCount, leasedCount, startingCount, retiringCount);
+        return scannedStateCounts();
     }
 
     private void verifyPartition() {
         if (testHooks == TestHooks.NONE) {
             return;
         }
-        testHooks.faultInjector().check(FaultPoint.PARTITION_VERIFICATION);
         verifyPartitionLocked();
     }
 
@@ -1758,9 +1750,6 @@ final class WorkerPoolController<S> {
             throw new IllegalStateException("pool slot registry exceeds configured capacity");
         }
         StateCounts counts = scannedStateCounts();
-        if (!counts.equals(stateCounts())) {
-            throw new IllegalStateException("pool state counters do not match the slot registry");
-        }
         if ((long) counts.idle() + counts.leased() + counts.starting() + counts.retiring() != counts.size()) {
             throw new IllegalStateException("pool slot partition is inconsistent");
         }
@@ -1798,29 +1787,7 @@ final class WorkerPoolController<S> {
     }
 
     private boolean removeSlot(Worker<S> worker) {
-        if (!slots.remove(worker)) {
-            return false;
-        }
-        decrementState(worker.state());
-        return true;
-    }
-
-    private void incrementState(SlotState state) {
-        switch (state) {
-            case IDLE -> idleCount++;
-            case LEASED -> leasedCount++;
-            case STARTING -> startingCount++;
-            case RETIRING -> retiringCount++;
-        }
-    }
-
-    private void decrementState(SlotState state) {
-        switch (state) {
-            case IDLE -> idleCount--;
-            case LEASED -> leasedCount--;
-            case STARTING -> startingCount--;
-            case RETIRING -> retiringCount--;
-        }
+        return slots.remove(worker);
     }
 
     private static Duration nextBackoff(Duration current) {
@@ -2137,7 +2104,6 @@ final class WorkerPoolController<S> {
             worker = reservedWorker;
             owned = true;
             slots.add(reservedWorker);
-            incrementState(SlotState.STARTING);
             return reservedWorker;
         }
 
@@ -2658,7 +2624,6 @@ final class WorkerPoolController<S> {
     }
 
     enum FaultPoint {
-        PARTITION_VERIFICATION,
         AFTER_STARTUP_CLAIM
     }
 
