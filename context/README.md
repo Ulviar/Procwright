@@ -19,7 +19,6 @@
 - [development-model.md](development-model.md) — легкий процесс работы и контекстная гигиена.
 - [diagnostics.md](diagnostics.md) — diagnostics contract.
 - [pty-capability-boundary.md](pty-capability-boundary.md) — PTY как capability boundary.
-- [external-library-boundary.md](external-library-boundary.md) — граница внешних process-библиотек.
 
 ## Проверки и качество
 
@@ -38,11 +37,9 @@
 - [release/dependency-review.md](release/dependency-review.md) — runtime/build dependency boundary.
 - [release/release-checklist.md](release/release-checklist.md) — checklist первого OSS release.
 
-## Решения и research boundary
+## Решения
 
 - [decisions/README.md](decisions/README.md) — ADR для устойчивых архитектурных решений.
-- [comparison/README.md](comparison/README.md) — только воспроизводимая методика сравнения process-библиотек, без
-  исторических raw reports.
 - `audits/` — только постоянные инструкции и протокол аудита, без закрытых отчетов.
 
 ## Правила очистки

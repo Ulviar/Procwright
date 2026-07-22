@@ -13,7 +13,6 @@
 - [ADR-0009: CLI-backed integrations](ADR-0009-cli-backed-integrations.md)
 - [ADR-0010: stress suite](ADR-0010-stress-suite.md)
 - [ADR-0011: release hardening](ADR-0011-release-hardening.md)
-- [ADR-0012: scenario-first API after library comparison](ADR-0012-scenario-first-after-library-comparison.md)
 - [ADR-0013: documentation toolchain](ADR-0013-documentation-toolchain.md)
 - [ADR-0014: package architecture](ADR-0014-package-architecture.md)
 - [ADR-0015: JPMS encapsulation](ADR-0015-jpms-encapsulation.md)

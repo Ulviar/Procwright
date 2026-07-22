@@ -15,7 +15,6 @@ import javax.xml.transform.OutputKeys
 import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
-import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
@@ -228,6 +227,7 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("org.snakeyaml:snakeyaml-engine:3.0.1")
     testRuntimeOnly("org.jspecify:jspecify:1.0.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -249,15 +249,6 @@ sourceSets {
 
     val apiCompatibility by creating
 
-    val releaseCheck by creating
-
-    val releaseCheckTest by creating {
-        compileClasspath += releaseCheck.output
-        compileClasspath += configurations.getByName("releaseCheckRuntimeClasspath")
-        compileClasspath += configurations.testRuntimeClasspath.get()
-        runtimeClasspath += output
-        runtimeClasspath += compileClasspath
-    }
 }
 
 configurations.named("integrationTestImplementation") {
@@ -274,19 +265,10 @@ configurations.named("stressTestImplementation") {
 
 configurations.named("stressTestRuntimeOnly") { extendsFrom(configurations.testRuntimeOnly.get()) }
 
-configurations.named("releaseCheckTestImplementation") {
-    extendsFrom(configurations.testImplementation.get())
-}
-
-configurations.named("releaseCheckTestRuntimeOnly") {
-    extendsFrom(configurations.testRuntimeOnly.get())
-}
-
 dependencies {
     "integrationTestImplementation"(project(":procwright-test-cli"))
     "stressTestImplementation"(project(":procwright-test-cli"))
     "apiCompatibilityImplementation"("org.jspecify:jspecify:1.0.0")
-    "releaseCheckImplementation"("org.snakeyaml:snakeyaml-engine:3.0.1")
 }
 
 tasks.named<Javadoc>("javadoc") {
@@ -317,19 +299,10 @@ val stressTest =
         shouldRunAfter(integrationTest)
     }
 
-val releaseWorkflowStaticTest =
-    tasks.register<Test>("releaseWorkflowStaticTest") {
-        description = "Runs hostile-fixture tests for the structured release workflow validator."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        testClassesDirs = sourceSets["releaseCheckTest"].output.classesDirs
-        classpath = sourceSets["releaseCheckTest"].runtimeClasspath
-        systemProperty("procwright.repositoryRoot", rootDir.absolutePath)
-    }
-
 tasks.check { dependsOn(integrationTest, stressTest) }
 
 val publicRuntimeProjects = setOf(project.path, ":procwright-kotlin", ":procwright-integrations")
-val comparisonDependencyCoordinates =
+val forbiddenProcessLibraryCoordinates =
     setOf(
         "org.apache.commons:commons-exec",
         "org.zeroturnaround:zt-exec",
@@ -375,9 +348,9 @@ val externalLibraryBoundaryCheck =
                                         "Compile-only JSpecify metadata leaked into ${checkedProject.path}:runtimeClasspath"
                                     )
                                 }
-                                if (coordinate in comparisonDependencyCoordinates) {
+                                if (coordinate in forbiddenProcessLibraryCoordinates) {
                                     throw GradleException(
-                                        "Comparison dependency $coordinate leaked into ${checkedProject.path}:runtimeClasspath"
+                                        "External process runtime $coordinate leaked into ${checkedProject.path}:runtimeClasspath"
                                     )
                                 }
                             }
@@ -386,18 +359,10 @@ val externalLibraryBoundaryCheck =
 
                     checkedProject.configurations.forEach { configuration ->
                         configuration.dependencies.forEach { dependency ->
-                            if (
-                                dependency is ProjectDependency &&
-                                    dependency.path == ":procwright-comparison"
-                            ) {
-                                throw GradleException(
-                                    "Public project ${checkedProject.path} must not depend on :procwright-comparison"
-                                )
-                            }
                             val coordinate = "${dependency.group}:${dependency.name}"
-                            if (coordinate in comparisonDependencyCoordinates) {
+                            if (coordinate in forbiddenProcessLibraryCoordinates) {
                                 throw GradleException(
-                                    "Comparison dependency $coordinate leaked into ${checkedProject.path}:${configuration.name}"
+                                    "External process runtime $coordinate leaked into ${checkedProject.path}:${configuration.name}"
                                 )
                             }
                         }
@@ -422,11 +387,10 @@ tasks.check { dependsOn(consumerExampleCheckPaths) }
 val publicApiConsumerCompilationCheck =
     tasks.register("publicApiConsumerCompilationCheck") {
         description =
-            "Compiles every in-repository public API consumer: root stress sources, comparison and integrations tests, the Kotlin module tests, and the Java, integrations, and Kotlin canonical consumer examples."
+            "Compiles every in-repository public API consumer: root stress sources, integrations and Kotlin tests, and the canonical consumer examples."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(
             tasks.named("compileStressTestJava"),
-            ":procwright-comparison:compileTestJava",
             ":procwright-integrations:compileTestJava",
             ":procwright-kotlin:compileTestKotlin",
             ":procwright-consumer-examples:compileTestJava",
@@ -1918,58 +1882,18 @@ val releaseShellScriptSyntaxCheck =
         outputs.upToDateWhen { false }
     }
 
-val releaseShellScriptSyntaxApplicabilitySelfTest =
-    tasks.register("releaseShellScriptSyntaxApplicabilitySelfTest") {
-        description = "Proves which CI host families require the Unix release-script toolchain."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        doLast {
-            val cases =
-                mapOf(
-                    "Linux" to true,
-                    "Mac OS X" to true,
-                    "Windows 11" to false,
-                    "Windows Server 2025" to false,
-                )
-            val failures =
-                cases.filter { (osName, expected) ->
-                    supportsReleaseShellSyntaxCheck(osName) != expected
-                }
-            if (failures.isNotEmpty()) {
-                throw GradleException(
-                    "Unexpected release shell syntax applicability: ${failures.keys.joinToString()}"
-                )
-            }
-        }
-    }
+tasks.named<Test>("test") { useJUnitPlatform { excludeTags("workflow-security") } }
 
-val releaseWorkflowStaticCheck =
-    tasks.register<JavaExec>("releaseWorkflowStaticCheck") {
-        description =
-            "Validates parsed YAML structure and static release wiring for release workflows."
+val workflowSecurityCheck =
+    tasks.register<Test>("workflowSecurityCheck") {
+        description = "Checks trust boundaries and immutable artifact handoffs in GitHub workflows."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(
-            releaseShellScriptSyntaxCheck,
-            releaseShellScriptSyntaxApplicabilitySelfTest,
-            releaseWorkflowStaticTest,
-            tasks.named(sourceSets["releaseCheck"].classesTaskName),
-        )
-
-        val ciWorkflow = layout.projectDirectory.file(".github/workflows/ci.yml")
-        val stageWorkflow =
-            layout.projectDirectory.file(".github/workflows/publish-maven-central.yml")
-        val docsWorkflow = layout.projectDirectory.file(".github/workflows/docs-deploy.yml")
-        inputs.files(ciWorkflow, stageWorkflow, docsWorkflow)
-        classpath = sourceSets["releaseCheck"].runtimeClasspath
-        mainClass.set("io.github.ulviar.procwright.build.release.ReleaseWorkflowCheck")
-        doFirst {
-            setArgs(
-                listOf(
-                    ciWorkflow.asFile.absolutePath,
-                    stageWorkflow.asFile.absolutePath,
-                    docsWorkflow.asFile.absolutePath,
-                )
-            )
-        }
+        testClassesDirs = sourceSets.test.get().output.classesDirs
+        classpath = sourceSets.test.get().runtimeClasspath
+        workingDir(rootDir)
+        useJUnitPlatform { includeTags("workflow-security") }
+        inputs.files(fileTree(".github/workflows") { include("*.yml", "*.yaml") })
+        shouldRunAfter(tasks.test)
     }
 
 val publicPublicationProjectPaths = listOf(":", ":procwright-integrations", ":procwright-kotlin")
@@ -2261,7 +2185,7 @@ tasks.check {
     dependsOn(
         releaseDocsContentSelfTest,
         centralConsumerVerificationMetadataSelfTest,
-        releaseWorkflowStaticCheck,
+        workflowSecurityCheck,
     )
 }
 
@@ -2269,7 +2193,7 @@ quickCheck.configure {
     dependsOn(
         releaseDocsContentSelfTest,
         centralConsumerVerificationMetadataSelfTest,
-        releaseWorkflowStaticCheck,
+        workflowSecurityCheck,
     )
 }
 
@@ -2279,7 +2203,8 @@ val releaseCandidateDependencies =
         regressionCheck,
         publicJavaJavadocCheck,
         publicDocsCheck,
-        releaseWorkflowStaticCheck,
+        releaseShellScriptSyntaxCheck,
+        workflowSecurityCheck,
         releaseEvidenceScriptSelfTest,
         providers.provider { tasks.getByPath(":procwright-kotlin:check") },
         providers.provider { tasks.getByPath(":procwright-integrations:check") },
@@ -2325,84 +2250,6 @@ val releaseCandidateCheck =
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(releaseCandidateDependencies, cleanWorkingTreeCheck)
     }
-
-val releaseCandidateModeSelfTest =
-    tasks.register("releaseCandidateModeSelfTest") {
-        description = "Proves SNAPSHOT and final-release task selection."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-
-        doLast {
-            if (
-                releaseCandidateUsesFinalReleaseChecks("1.2.3-SNAPSHOT") ||
-                    !releaseCandidateUsesFinalReleaseChecks("1.2.3")
-            ) {
-                throw GradleException("Release-candidate mode classification is inconsistent")
-            }
-
-            val releaseOnlyPaths =
-                setOf(":releaseDocsContentCheck", ":realReleaseArtifactSemanticTest")
-            val expectedReleaseOnlyPaths =
-                if (releaseCandidateFinalMode) releaseOnlyPaths else emptySet()
-            val expectedCandidatePaths =
-                mutableSetOf(
-                    ":spotlessCheck",
-                    ":regressionCheck",
-                    ":publicJavaJavadocCheck",
-                    ":publicDocsCheck",
-                    ":releaseWorkflowStaticCheck",
-                    ":releaseEvidenceScriptSelfTest",
-                    ":procwright-kotlin:check",
-                    ":procwright-integrations:check",
-                    ":procwright-test-cli:check",
-                    *consumerExampleCheckPaths.toTypedArray(),
-                )
-            expectedCandidatePaths += expectedReleaseOnlyPaths
-
-            fun dependencyPaths(task: Task, dependency: TaskDependency): Set<String> =
-                dependency.getDependencies(task).map(Task::getPath).toSet()
-
-            fun assertPaths(owner: String, actual: Set<String>, expected: Set<String>) {
-                if (actual != expected) {
-                    throw GradleException(
-                        "$owner wiring differs for version $procwrightVersion; " +
-                            "missing=${(expected - actual).sorted()}, " +
-                            "unexpected=${(actual - expected).sorted()}"
-                    )
-                }
-            }
-
-            val candidate = releaseCandidateCheck.get()
-            assertPaths(
-                "releaseCandidateCheck",
-                dependencyPaths(candidate, candidate.taskDependencies),
-                expectedCandidatePaths + cleanWorkingTreeCheck.get().path,
-            )
-
-            val docs = publicDocsCheck.get()
-            val expectedDocsPaths =
-                setOf(
-                    ":preparePublicDocs",
-                    ":docsRequirementsLockCheck",
-                    ":canonicalPublicDocsUrlCheck",
-                ) + expectedReleaseOnlyPaths.intersect(setOf(":releaseDocsContentCheck"))
-            assertPaths(
-                "publicDocsCheck",
-                dependencyPaths(docs, docs.taskDependencies),
-                expectedDocsPaths,
-            )
-
-            val clean = cleanWorkingTreeCheck.get()
-            assertPaths(
-                "cleanWorkingTreeCheck.mustRunAfter",
-                dependencyPaths(clean, clean.mustRunAfter),
-                expectedCandidatePaths,
-            )
-        }
-    }
-
-tasks.check { dependsOn(releaseCandidateModeSelfTest) }
-
-quickCheck.configure { dependsOn(releaseCandidateModeSelfTest) }
 
 spotless {
     java {

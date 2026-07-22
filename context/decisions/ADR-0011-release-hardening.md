@@ -29,4 +29,4 @@ pooling, presets, CLI-backed integrations и bounded stress suite. Для пуб
 ## Последствия
 
 Релизные требования становятся проверяемой частью проекта. Документация описывает обязательства текущего baseline.
-Release publishing/signing закрыт отдельным ADR, а тяжелые benchmarks остаются отдельным research layer.
+Release publishing/signing закрыт отдельным ADR; performance experiments не входят в release gate.

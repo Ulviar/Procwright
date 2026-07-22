@@ -227,29 +227,6 @@ jobs:
       - name: Build docs site in strict mode
         run: ./gradlew publicDocsCheck --project-prop=procwright.javaRelease=17 --no-daemon
 
-  comparison-compile:
-    name: Comparison Check
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: 25
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
-
-      - name: Check comparison module and JMH sources
-        run: ./gradlew :procwright-comparison:compileJava :procwright-comparison:compileTestJava :procwright-comparison:jmhCompileCheck :procwright-comparison:comparisonReportDefaultsCheck --project-prop=procwright.javaRelease=25 --no-daemon
-
   central-publication-ready:
     name: Verify Maven Central publication
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == github.workflow_sha

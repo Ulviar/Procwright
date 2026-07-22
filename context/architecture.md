@@ -101,10 +101,9 @@ SPI для пользовательских реализаций.
 - `:procwright-integrations` — optional JSON/framing helpers, использующие core runtime.
 - `:procwright-test-cli` — управляемый fixture для integration/stress behavior.
 - consumer modules — компилируемые внешние примеры и проверка metadata.
-- `:procwright-comparison` — воспроизводимое сравнение и JMH; не входит в public artifacts и release pass/fail.
 
-Kotlin и integrations не создают второй process engine. External process libraries разрешены только в comparison
-module.
+Kotlin и integrations не создают второй process engine. Ядро и публичные optional modules не зависят от сторонней
+process-библиотеки.
 
 ## Границы продукта
 

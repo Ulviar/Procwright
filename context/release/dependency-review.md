@@ -19,9 +19,8 @@ Build/test dependencies:
 - dependency resolution централизован в `settings.gradle.kts`: `FAIL_ON_PROJECT_REPOS`, Maven Central по умолчанию и
   только явно переданный consumer repository с exclusive filter для `io.github.ulviar`;
 - JUnit 6 для тестов;
+- SnakeYAML Engine только для structured проверки security-инвариантов GitHub workflow;
 - Spotless + palantir-java-format для форматирования.
-- SnakeYAML Engine 3.0.1 только в isolated `releaseCheck` source set для YAML 1.2 parsing GitHub workflows; dependency не
-  попадает в runtime artifacts или обычный test/runtime classpath.
 
 ## Documentation toolchain
 
@@ -139,33 +138,10 @@ Publishing/signing setup добавлен для public artifacts:
 Эти плагины являются build-time tooling и не добавляют runtime dependencies в public artifacts. Gradle dependency
 verification metadata должна обновляться при изменении plugin versions или новых build dependencies.
 
-## Модуль сравнения
+## Process runtime boundary
 
-`:procwright-comparison` — исследовательский модуль, не runtime dependency core и не часть пользовательского API. Он
-подключает внешние библиотеки для сравнения сценариев:
-
-- Apache Commons Exec;
-- ZeroTurnaround zt-exec;
-- NuProcess;
-- Pty4J;
-- ExpectIt.
-
-JMH dependencies (`org.openjdk.jmh:jmh-core` и annotation processor) допустимы только внутри comparison module и только
-для benchmark source set.
-`org.slf4j:slf4j-api` также допустим только внутри comparison module: он нужен локальному no-op provider, который
-подавляет logging noise внешних comparison-библиотек без добавления полноценного logging backend.
-
-Comparison `JavaExec`/JMH tasks явно задают JVM flags для native/Unsafe access, чтобы предупреждения JNA/JMH не
-засоряли regression output. Эти flags не применяются к core runtime tasks.
-
-Эти зависимости допустимы только внутри comparison module. Они не должны протекать в `:`, `:procwright-kotlin` или
-`:procwright-integrations`.
-
-Регрессионный gate: `ExternalLibraryBoundaryTest` проверяет, что process-library и JMH dependencies объявлены только в
-`procwright-comparison/build.gradle.kts`, source files публичных артефактов не импортируют и не используют packages comparison
-libraries, а публичные build files не зависят от `:procwright-comparison` и не объявляют comparison/JMH dependencies.
-`externalLibraryBoundaryCheck` дополнительно проверяет resolved runtime classpath публичных модулей и прямые dependency
-declarations публичных modules.
+Public artifacts не зависят от сторонних process runtimes. `externalLibraryBoundaryCheck` проверяет resolved runtime
+classpath и прямые dependency declarations core, Kotlin и integrations modules.
 
 ## Зависимости CI
 
@@ -175,8 +151,8 @@ GitHub Actions workflow использует:
 - `actions/setup-java` с Temurin JDK 17/21/25 matrix, pinned to commit SHA;
 - `astral-sh/setup-uv`, pinned to action commit SHA и `uv 0.10.12`;
 - `actions/upload-artifact`, pinned to commit SHA для сохранения exact Central bundle и publication proof;
-- root workflow permissions пусты; каждый job получает exact минимальный permission map, а release validator отклоняет
-  inheritance, omission и escalation;
+- root workflow permissions пусты; каждый job получает явный минимальный permission map, а `workflowSecurityCheck`
+  отклоняет inheritance, omission и escalation;
 - docs build job использует только `contents: read`/`actions: read`; deploy job имеет `actions: read`, `contents: read`,
   `pages: write` и `id-token: write`, делает sparse checkout только trusted verifier scripts и не исполняет target code;
 - Central Portal credentials и signing material передаются только через environment-level secrets `maven-central`;
@@ -195,4 +171,4 @@ GitHub Actions workflow использует:
 
 Если dependency является process-runtime, PTY, expect/prompt automation или другим backend для внешних CLI, одного
 release checklist entry недостаточно. Нужны ADR, обновленный dependency review, отдельная module boundary и обновление
-`ExternalLibraryBoundaryTest`/`externalLibraryBoundaryCheck`.
+`externalLibraryBoundaryCheck` для direct declarations и resolved runtime classpaths публичных модулей.

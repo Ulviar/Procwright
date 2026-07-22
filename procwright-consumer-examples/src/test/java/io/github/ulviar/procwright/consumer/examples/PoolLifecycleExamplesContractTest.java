@@ -35,13 +35,6 @@ final class PoolLifecycleExamplesContractTest {
         String apiExamples = read("src/test/java/io/github/ulviar/procwright/examples/CommandServiceApiExamples.java");
         assertTrue(occurrences(apiExamples, "try (Pooled") == 3);
         assertFalse(apiExamples.contains("closePoolAndAwait"));
-
-        assertComparisonHarnessLifecycle(
-                read(
-                        "procwright-comparison/src/main/java/io/github/ulviar/procwright/comparison/ProcwrightCandidateAdapter.java"));
-        assertComparisonHarnessLifecycle(
-                read(
-                        "procwright-comparison/src/main/java/io/github/ulviar/procwright/comparison/StressComparisonRunner.java"));
     }
 
     @Test
@@ -76,11 +69,6 @@ final class PoolLifecycleExamplesContractTest {
         assertTrue(source.contains("try (Pooled"));
         assertFalse(source.contains("awaitDrained"));
         assertFalse(source.contains("PoolCleanup"));
-    }
-
-    private static void assertComparisonHarnessLifecycle(String source) {
-        assertTrue(source.contains("try (Pooled"));
-        assertFalse(source.contains("closePoolAndAwait"));
     }
 
     private static String read(String relativePath) throws Exception {

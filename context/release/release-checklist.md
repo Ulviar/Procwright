@@ -20,9 +20,9 @@
 - Publishing/signing setup реализован по ADR-0017; remote publish запрещает `*-SNAPSHOT` и non-SemVer version, а
   публичный artifact считается готовым к публикации только после Java 17-targeted local publication check и CI job с
   Central Portal/signing secrets.
-- `releaseWorkflowStaticCheck` parsing-ом YAML 1.2 проверяет exact triggers, inputs, action SHA, root/job permissions,
-  critical `run` scalars и порядок release steps; тот же gate выполняет hostile fixtures и `bash -n` fixed release
-  scripts. `releaseEvidenceScriptSelfTest` проверяет canonical version/commit contract, immutable release response и
+- GitHub выполняет фактические workflows, а `workflowSecurityCheck` статически проверяет pinned action SHA,
+  минимальные permissions, trust boundaries и immutable artifact handoffs; release gate отдельно проверяет синтаксис
+  shell scripts. `releaseEvidenceScriptSelfTest` проверяет canonical version/commit contract, immutable release response и
   bounded Central evidence verifiers. В non-SNAPSHOT режиме `realReleaseArtifactSemanticTest` публикует три
   фактических модуля в изолированный repository и выполняет полный unsigned handoff -> real GPG signing -> 90-file
   staged verifier roundtrip, затем проверяет тем же production verifier точное сочетание signed bundle и 15
@@ -51,8 +51,7 @@ git diff --exit-code
 public Javadocs/docs, optional module checks, consumer fixtures, formatting и release script/contract self-tests, но не
 выбирает `releaseDocsContentCheck` и `realReleaseArtifactSemanticTest`. С explicit non-SNAPSHOT `procwright.version` он
 дополнительно выбирает обе release-only проверки; publication/signing guards остаются обязательными. Обычный
-`./gradlew check` остается отдельной lifecycle-проверкой и не определяет состав named tiers. Comparison/JMH tasks не
-являются release pass/fail gate.
+`./gradlew check` остается отдельной lifecycle-проверкой и не определяет состав named tiers.
 
 Назначение уровней описано в [../evals/test-tiers.md](../evals/test-tiers.md). `releaseCandidateCheck` является
 локальным составным gate и требует clean worktree, включая untracked files. `cleanWorkingTreeCheck` выполняется после
@@ -75,7 +74,7 @@ public Javadocs/docs, optional module checks, consumer fixtures, formatting и r
   компилируются и выполняются внешними consumer fixtures;
 - публичные docs в `docs/` собираются через `publicDocsCheck` и не обещают behavior без tests/examples;
 - dependency-specific types не протекают в core public API;
-- external process-library dependencies из comparison не протекают в публичные artifacts;
+- сторонние process-runtime dependencies не протекают в публичные artifacts;
 - terminal/PTY возможности остаются capability/transport boundary;
 - terminal methods остаются только в session-family API, а `run`/`listen` не получают PTY knobs без нового ADR;
 - diagnostics event schema и redaction contract остаются согласованными с [../diagnostics.md](../diagnostics.md);

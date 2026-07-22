@@ -10,7 +10,6 @@ Test/eval tiers фиксируют, какие инварианты защища
 - Быстрый feedback проверяет контракты и public API без запуска тяжелых сценариев.
 - Сценарные проверки используют реальные процессы и подтверждают пользовательские workflows.
 - Stress остается bounded: он ловит регрессии, но не превращается в нестабильный benchmark suite.
-- Comparison/JMH живут как research/manual tasks и не входят в release pass/fail gate.
 - Release gate собирает уже определенные уровни, документацию и чистоту worktree; он не скрывает отдельные команды.
 - Machine-specific capabilities проверяются через assumptions/skip там, где среда их не гарантирует. Контролируемый
   Linux/JDK 17 job, напротив, требует system PTY и падает, если capability недоступна: так допустимый skip не может
@@ -72,7 +71,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Назначение:
 
 - bounded `stressTest` проверяет backpressure, timeout churn, large output и session lifecycle;
-- external-library boundary не допускает утечки comparison dependencies в public artifacts;
+- dependency boundary не допускает сторонние process runtimes в public artifacts;
 
 Этот уровень не является benchmark. Производительность оценивается через надежность поведения под нагрузкой и
 ограниченность ресурсов.

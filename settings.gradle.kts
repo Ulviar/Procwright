@@ -46,8 +46,6 @@ include("procwright-kotlin")
 
 include("procwright-integrations")
 
-include("procwright-comparison")
-
 include("procwright-test-cli")
 
 include("procwright-consumer-examples")
