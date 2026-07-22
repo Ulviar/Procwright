@@ -37,4 +37,17 @@ val runCanonicalIntegrationExample =
         doFirst { systemProperty("java.class.path", sourceSets.main.get().runtimeClasspath.asPath) }
     }
 
-tasks.check { dependsOn(runCanonicalIntegrationExample) }
+val runTypedContentLengthExample =
+    tasks.register<JavaExec>("runTypedContentLengthExample") {
+        description = "Runs the typed Content-Length integrations example."
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        classpath = sourceSets.main.get().runtimeClasspath
+        modularity.inferModulePath.set(true)
+        mainModule.set("io.github.ulviar.procwright.integrations.consumer.example")
+        mainClass.set(
+            "io.github.ulviar.procwright.examples.integration.TypedContentLengthJsonSessionExample"
+        )
+        doFirst { systemProperty("java.class.path", sourceSets.main.get().runtimeClasspath.asPath) }
+    }
+
+tasks.check { dependsOn(runCanonicalIntegrationExample, runTypedContentLengthExample) }

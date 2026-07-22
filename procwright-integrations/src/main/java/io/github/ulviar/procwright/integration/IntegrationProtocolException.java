@@ -62,9 +62,9 @@ public final class IntegrationProtocolException extends ProcwrightException {
         OVERSIZED_FRAME,
         /** Input ended before one complete frame was read. */
         EOF,
-        /** Stream I/O failed while reading or writing a frame. */
-        IO,
         /** Frame body is not valid UTF-8 JSON text. */
-        INVALID_ENCODING
+        INVALID_ENCODING,
+        /** Frame body is not exactly one valid JSON value. */
+        MALFORMED_JSON
     }
 }

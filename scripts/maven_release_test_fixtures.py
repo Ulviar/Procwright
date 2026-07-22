@@ -454,7 +454,7 @@ def pom_payload(module: str, version: str = VERSION) -> bytes:
         ),
         "procwright-integrations": (
             "Procwright Integrations",
-            "Optional protocol and tool-adapter helpers for Procwright.",
+            "Optional JSON and byte-framing adapters for Procwright protocol sessions.",
         ),
         "procwright-kotlin": (
             "Procwright Kotlin",

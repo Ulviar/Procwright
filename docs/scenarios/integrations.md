@@ -17,7 +17,7 @@ See [installation](../release/installation.md#optional-modules) for Maven and Gr
 
 | Worker protocol | Factory or wrapper | Complete example |
 | --- | --- | --- |
-| One JSON value per line | `jsonLinesSession(...)` or `JsonLineSession` | [JSON Lines](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
+| One JSON value per line | `jsonLinesSession(...)` | [JSON Lines](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
 | Delimiter-framed bytes | `delimiterSession(...)` | [JSON Lines and delimiter transports](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
 | Content-Length JSON with domain types | `typedJsonSession(..., contentLengthJsonSession(...))` | [Typed Content-Length session](../how-to/wrap-cli-tool.md) |
 
@@ -30,19 +30,18 @@ that can be passed directly to `protocolSession(...)` and then to `pooled()`. Ev
 so separate sessions and pool workers do not share framing state. `typedJsonSession(...)` preserves the same invariant by
 accepting a transport factory and creating a fresh typed wrapper for each call.
 
+`jsonLinesSession(maxLineBytes)` counts the complete response frame including LF and always reads and writes JSON as
+strict UTF-8 bytes, independently of the scenario's text charset policy.
+
 `typedJsonSession(...)` retains its encode, decode, and transport-factory callbacks. Separate sessions and pool workers
 can invoke the same callback objects concurrently, so applications must make them thread-safe and create mutable
 per-adapter state inside each transport-factory call. The helper does not synchronize callbacks across workers. A null
 transport, encoded JSON value, or decoded domain result fails closed; runtime callback failures retain core's distinct
 request-write and response-decoder reasons, while callback `Error` values are propagated.
 
-The application still chooses the executable and owns its domain mapping. Integration exceptions preserve process and
-protocol failures so callers do not need message matching. The module exposes Jackson Databind for its optional
-`JsonNode` bridge; check application dependency constraints before adding it.
-
-`JsonValue` accepts BMP characters and valid UTF-16 surrogate pairs. It rejects unpaired surrogates in string values and
-object member names with `JsonParseException` before JSON Lines or Content-Length framing starts, so every transport
-serializes the same Unicode scalar values without replacement characters.
+The application still chooses the executable and owns its domain mapping. JSON adapters use Jackson `JsonNode`
+directly, so the optional artifact exposes Jackson Databind transitively. `IntegrationProtocolException.reason()`
+distinguishes framing, UTF-8, JSON, and size failures without message matching.
 
 ## Content-Length JSON wire contract
 
@@ -80,8 +79,7 @@ JSON value with no trailing content.
 | `withCharsetPolicy(...)` | Text reads and transcripts only. The JSON body is always strict UTF-8, even if the scenario policy replaces malformed text. |
 
 Set both byte layers. For a body limit `B`, allow request wire bytes for the generated header plus `B`, and response wire
-bytes for up to 8192 header bytes plus `B`. The example computes the canonical ASCII request header at `B` and uses
-`Math.addExact` to include it in the request wire limit; a larger body therefore exceeds that limit.
+bytes for up to 8192 header bytes plus `B`. The example uses the conservative `8192 + B` bound for both directions.
 
 ## Failures
 
@@ -89,8 +87,8 @@ bytes for up to 8192 header bytes plus `B`. The example computes the canonical A
 
 | Failure | Outer reason | Cause | Direct session |
 | --- | --- | --- | --- |
-| Encoder creates a string or member name with an unpaired UTF-16 surrogate | `FAILURE` | `JsonParseException` | Terminal after admission |
-| Response body is malformed JSON | `PROTOCOL_DECODER_FAILED` | `JsonParseException` | Terminal |
+| Request encoder or Jackson serialization fails | `FAILURE` | Original callback failure or `IntegrationProtocolException` with `BAD_FRAME` | Terminal after admission |
+| Response body is malformed or contains trailing JSON | `PROTOCOL_DECODER_FAILED` | `IntegrationProtocolException` with `MALFORMED_JSON` | Terminal |
 | Header syntax, required length, decimal length, or declared response body limit is invalid | `PROTOCOL_DECODER_FAILED` | `IntegrationProtocolException` with `BAD_HEADER`, `MISSING_LENGTH`, `BAD_LENGTH`, or `OVERSIZED_FRAME` | Terminal |
 | Response body is not valid UTF-8 | `PROTOCOL_DECODER_FAILED` | `IntegrationProtocolException` with `INVALID_ENCODING` | Terminal |
 | Stdout closes before the response header or body is complete | `EOF` or `PROCESS_EXITED`, according to observation order | No stable adapter framing cause; branch on the outer reason | Terminal |

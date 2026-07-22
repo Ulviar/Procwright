@@ -48,7 +48,7 @@ final class IntegrationModuleDescriptorTest {
     }
 
     private static ModuleDescriptor moduleDescriptor() throws Exception {
-        Path classesRoot = Path.of(CommandBackedTool.class
+        Path classesRoot = Path.of(ProtocolAdapters.class
                 .getProtectionDomain()
                 .getCodeSource()
                 .getLocation()

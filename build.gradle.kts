@@ -316,7 +316,7 @@ val forbiddenProcessLibraryCoordinates =
 val externalLibraryBoundaryCheck =
     tasks.register("externalLibraryBoundaryCheck") {
         description =
-            "Verifies public-module dependency boundaries, including compile-only JSpecify metadata."
+            "Verifies public-module dependency boundaries, including compile-only JSpecify and optional Jackson."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
 
         doLast {
@@ -346,6 +346,14 @@ val externalLibraryBoundaryCheck =
                                 if (coordinate == "org.jspecify:jspecify") {
                                     throw GradleException(
                                         "Compile-only JSpecify metadata leaked into ${checkedProject.path}:runtimeClasspath"
+                                    )
+                                }
+                                if (
+                                    checkedProject.path != ":procwright-integrations" &&
+                                        id.group.startsWith("com.fasterxml.jackson")
+                                ) {
+                                    throw GradleException(
+                                        "Jackson dependency $coordinate leaked into ${checkedProject.path}:runtimeClasspath"
                                     )
                                 }
                                 if (coordinate in forbiddenProcessLibraryCoordinates) {

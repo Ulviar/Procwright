@@ -37,7 +37,7 @@ public docs и документы в `context/`.
   Test/eval доказывает инвариант, но не владеет им.
 - Базовые API-идеи проекта ценны: сервис вокруг команды, fluent builder, typed result, sessions.
 - Raw session pooling, stateful affinity, real MCP SDK adapter, samples и machine-dependent benchmarks не входят в
-  первый MVP. Optional Kotlin module, pooled line-session scenario, CLI-backed integrations и bounded stress suite
+  первый MVP. Optional Kotlin module, pooled line-session scenario, protocol integrations и bounded stress suite
   входят как тонкие layers без отдельного process runtime.
 - Документация описывает только то, что код доказывает тестами.
 - Бесполезную документацию нужно удалять или сжимать до полезного контекста, а не доводить до

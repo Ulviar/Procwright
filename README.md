@@ -121,7 +121,7 @@ blocking. Do not read a session's raw stdout after an `Expect`, line-session, or
 
 - `io.github.ulviar:procwright` provides the Java core and has no runtime dependency outside the JDK.
 - `io.github.ulviar:procwright-kotlin` adds Kotlin durations, coroutine terminals, Flow streaming, and an adapter factory DSL.
-- `io.github.ulviar:procwright-integrations` adds structured CLI-backed integration helpers.
+- `io.github.ulviar:procwright-integrations` adds JSON and byte-framing protocol adapters.
 
 Report vulnerabilities through [SECURITY.md](SECURITY.md). Procwright is licensed under
 [Apache License 2.0](LICENSE).

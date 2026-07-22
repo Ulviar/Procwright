@@ -11,6 +11,6 @@ final class IntegrationNullnessMetadataTest {
 
     @Test
     void exportedIntegrationPackageIsNullMarked() {
-        assertTrue(CommandBackedTool.class.getPackage().isAnnotationPresent(NullMarked.class));
+        assertTrue(ProtocolAdapters.class.getPackage().isAnnotationPresent(NullMarked.class));
     }
 }

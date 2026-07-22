@@ -9,7 +9,7 @@ Procwright is not a thin wrapper over `ProcessBuilder`. The public API starts wi
 - framed or typed protocols;
 - streaming output;
 - reusable workers;
-- structured CLI-backed integration boundaries.
+- optional JSON and byte-framing protocol adapters.
 
 Each workflow needs different behavior. A timeout in a one-shot command, a request timeout in a line worker, and an idle
 timeout in an interactive session are not the same concept. Procwright keeps those settings next to the workflow that uses

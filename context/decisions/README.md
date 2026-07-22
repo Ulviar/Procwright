@@ -9,7 +9,7 @@
 - [ADR-0005: PTY transport](ADR-0005-pty-transport.md)
 - [ADR-0006: Kotlin module](ADR-0006-kotlin-module.md)
 - [ADR-0007: pooled line session](ADR-0007-pooled-line-session.md)
-- [ADR-0009: CLI-backed integrations](ADR-0009-cli-backed-integrations.md)
+- [ADR-0009: optional protocol adapters](ADR-0009-protocol-adapters.md)
 - [ADR-0010: stress suite](ADR-0010-stress-suite.md)
 - [ADR-0011: release hardening](ADR-0011-release-hardening.md)
 - [ADR-0013: documentation toolchain](ADR-0013-documentation-toolchain.md)

@@ -58,7 +58,7 @@ dependency outside the JDK. On the module path, core declares `requires static t
 ## Optional modules
 
 Use `procwright-kotlin` for Kotlin duration, coroutine, Flow, and adapter-factory extensions. Use
-`procwright-integrations` for structured CLI-backed adapters.
+`procwright-integrations` for JSON and byte-framing protocol adapters.
 `procwright-integrations` exposes `jackson-databind:2.22.0` transitively because Jackson types are part of its public
 adapter API. Check your dependency constraints before adding it to an application that manages a different Jackson version.
 

@@ -11,7 +11,6 @@ final class IntegrationExceptionTest {
 
     @Test
     void integrationFailureTypesShareCommonBaseException() {
-        assertInstanceOf(ProcwrightException.class, new JsonParseException("bad json"));
         assertInstanceOf(
                 ProcwrightException.class,
                 new IntegrationProtocolException(IntegrationProtocolException.Reason.BAD_FRAME, "bad frame"));

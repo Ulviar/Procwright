@@ -26,9 +26,8 @@ workflow и не скатиться к ручной сборке process harness
 | Наблюдать lifecycle без раскрытия raw argv/env/output | scenario `withDiagnostic*` | `diagnosticsScenario` |
 | Переиспользовать line-oriented workers | `lineSession().pooled()` | `pooledLineSessionScenario` |
 | Переиспользовать typed protocol workers | `protocolSession(factory).pooled()` | `pooledProtocolSessionScenario` |
-| Обернуть CLI как tool adapter | `:procwright-integrations` | `oneShotCommandBackedTool` |
-| Общаться с JSON Lines worker | `JsonLineSession` | `jsonLineCommandBackedTool` |
-| Читать/писать Content-Length JSON frames | `ContentLengthJsonFrames` | `contentLengthFramedJson` |
+| Общаться с JSON Lines worker | `protocolSession(ProtocolAdapters.jsonLinesSession(...))` | [`JsonLineIntegrationExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
+| Общаться с Content-Length JSON worker | `protocolSession(ProtocolAdapters.contentLengthJsonSession(...))` | [`TypedContentLengthJsonSessionExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java) |
 
 ## `run`
 
@@ -173,25 +172,22 @@ Compile-tested example:
 - `CommandEcho` redaction-friendly;
 - event attributes соответствуют [diagnostics.md](diagnostics.md).
 
-## CLI-backed integrations
+## Protocol integrations
 
-Используй `:procwright-integrations`, когда внешний CLI нужно поднять на уровень command-backed tool, JSON Lines worker или
-framed/typed `protocolSession`. Этот модуль optional и не меняет core process runtime.
+Используй `:procwright-integrations`, когда внешний CLI говорит по JSON Lines, delimiter-framed или Content-Length JSON
+протоколу. Модуль поставляет только adapters для `protocolSession` и не меняет core process runtime.
 
-Compile-tested examples:
+Compile-tested programs:
 
-- `oneShotCommandBackedTool`
-- `jsonLineCommandBackedTool`
-- `contentLengthFramedJson`
-- [`TypedContentLengthJsonSessionExample.main`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java)
+- [`JsonLineIntegrationExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java)
+- [`TypedContentLengthJsonSessionExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java)
 
 Инварианты:
 
-- integration layer строится поверх существующих `run`, `lineSession` и `protocolSession`;
+- integration layer строится поверх `protocolSession`;
 - framing adapter владеет wire format, а `typedJsonSession` — domain mapping; lifecycle, deadlines и bounds остаются у
   `ProtocolSession`;
 - CLI output считается untrusted data;
-- adapter errors не включают raw stdout/stderr excerpts по умолчанию;
 
 ## Релизный gate
 
@@ -201,4 +197,4 @@ Compile-tested examples:
 - рецепт сверяется с [scenario-contracts.md](scenario-contracts.md);
 - если рецепт касается diagnostics, PTY, streaming, pooling или integrations, обновлены соответствующие eval/release
   gates;
-- cookbook coverage test подтверждает связь документа с example methods.
+- пример компилируется и выполняется как внешний consumer.

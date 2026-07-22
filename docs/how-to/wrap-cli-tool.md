@@ -1,7 +1,6 @@
 # Wrap a CLI tool
 
-Use the optional integrations module when a CLI speaks JSON Lines, delimiter-framed bytes, or Content-Length JSON and
-should expose domain request and response types.
+Use the optional integrations module when a CLI speaks JSON Lines, delimiter-framed bytes, or Content-Length JSON.
 
 Add the integrations artifact alongside core:
 

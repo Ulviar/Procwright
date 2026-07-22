@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-/** Optional protocol and tool-adapter helpers for Procwright. */
+/** Optional JSON and byte-framing adapters for Procwright protocol sessions. */
 @NullMarked
 package io.github.ulviar.procwright.integration;
 

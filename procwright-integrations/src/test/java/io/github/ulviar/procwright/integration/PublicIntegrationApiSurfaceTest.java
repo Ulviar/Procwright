@@ -11,8 +11,6 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.jar.JarEntry;
@@ -23,53 +21,23 @@ import org.junit.jupiter.api.Test;
 final class PublicIntegrationApiSurfaceTest {
 
     private static final Set<String> PUBLIC_API_TYPES = Set.of(
-            "io.github.ulviar.procwright.integration.CliAdapterError",
-            "io.github.ulviar.procwright.integration.CommandBackedTool",
-            "io.github.ulviar.procwright.integration.CommandBackedTool$Handler",
-            "io.github.ulviar.procwright.integration.ContentLengthJsonFrames",
             "io.github.ulviar.procwright.integration.IntegrationProtocolException",
             "io.github.ulviar.procwright.integration.IntegrationProtocolException$Reason",
-            "io.github.ulviar.procwright.integration.JsonCodec",
-            "io.github.ulviar.procwright.integration.JsonLineSession",
-            "io.github.ulviar.procwright.integration.JsonLines",
-            "io.github.ulviar.procwright.integration.JsonParseException",
-            "io.github.ulviar.procwright.integration.JsonValue",
-            "io.github.ulviar.procwright.integration.JsonValue$JsonArray",
-            "io.github.ulviar.procwright.integration.JsonValue$JsonBoolean",
-            "io.github.ulviar.procwright.integration.JsonValue$JsonNull",
-            "io.github.ulviar.procwright.integration.JsonValue$JsonNumber",
-            "io.github.ulviar.procwright.integration.JsonValue$JsonObject",
-            "io.github.ulviar.procwright.integration.JsonValue$JsonString",
-            "io.github.ulviar.procwright.integration.ProtocolAdapters",
-            "io.github.ulviar.procwright.integration.ToolCallResult",
-            "io.github.ulviar.procwright.integration.ToolCallResult$Failure",
-            "io.github.ulviar.procwright.integration.ToolCallResult$Success");
+            "io.github.ulviar.procwright.integration.ProtocolAdapters");
 
     @Test
     void integrationPublicTopLevelTypesStayInIntegrationPackage() throws Exception {
-        assertEquals(Set.of("io.github.ulviar.procwright.integration"), publicTopLevelPackages(JsonCodec.class));
+        assertEquals(Set.of("io.github.ulviar.procwright.integration"), publicTopLevelPackages(ProtocolAdapters.class));
     }
 
     @Test
     void integrationPublicApiTypesStayInApprovedBaseline() throws Exception {
-        assertEquals(PUBLIC_API_TYPES, publicApiTypeNames(JsonCodec.class));
-    }
-
-    @Test
-    void toolCallResultExposesOnlyStructuredFailureFactory() {
-        List<Class<?>> failureParameterTypes = Arrays.stream(ToolCallResult.class.getDeclaredMethods())
-                .filter(method -> Modifier.isPublic(method.getModifiers()))
-                .filter(method -> Modifier.isStatic(method.getModifiers()))
-                .filter(method -> method.getName().equals("failure"))
-                .map(method -> method.getParameterTypes()[0])
-                .toList();
-
-        assertEquals(List.of(CliAdapterError.class), failureParameterTypes);
+        assertEquals(PUBLIC_API_TYPES, publicApiTypeNames(ProtocolAdapters.class));
     }
 
     @Test
     void integrationModuleRequiresCoreTransitively() throws Exception {
-        ModuleDescriptor descriptor = moduleDescriptor(JsonCodec.class);
+        ModuleDescriptor descriptor = moduleDescriptor(ProtocolAdapters.class);
         ModuleDescriptor.Requires core = descriptor.requires().stream()
                 .filter(requires -> requires.name().equals("io.github.ulviar.procwright"))
                 .findFirst()

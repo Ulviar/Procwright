@@ -10,6 +10,14 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.JsonNodeType;
+import com.fasterxml.jackson.databind.node.TextNode;
+import com.fasterxml.jackson.databind.node.ValueNode;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
@@ -18,11 +26,10 @@ import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolTranscript;
 import io.github.ulviar.procwright.session.ProtocolWriter;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -33,15 +40,64 @@ import org.junit.jupiter.params.provider.MethodSource;
 final class ProtocolAdaptersTest {
 
     @Test
-    void jsonLinesAdapterWritesAndReadsJsonValues() {
+    void jsonLinesAdapterWritesAndReadsJacksonNodes() {
         RecordingWriter writer = new RecordingWriter();
+        ProtocolAdapter<JsonNode, JsonNode> adapter =
+                ProtocolAdapters.jsonLinesSession(1024).get();
+        JsonNode request = JsonNodeFactory.instance.objectNode().put("request", "line\nbreak");
+        JsonNode response = JsonNodeFactory.instance.objectNode().put("response", "ok");
+
+        adapter.writeRequest(request, writer);
+        JsonNode decoded = adapter.readResponse(readers("{\"response\":\"ok\"}\n"));
+
+        assertEquals("{\"request\":\"line\\nbreak\"}\n", writer.text());
+        assertEquals(response, decoded);
+    }
+
+    @Test
+    void jsonLinesAdapterRejectsMalformedAndTrailingJson() {
         var adapter = ProtocolAdapters.jsonLinesSession(1024).get();
 
-        adapter.writeRequest(JsonValue.object(Map.of("request", JsonValue.string("ok"))), writer);
-        JsonValue response = adapter.readResponse(readers("{\"response\":\"ok\"}\n"));
+        for (String response : new String[] {"{bad}\n", "{} []\n"}) {
+            IntegrationProtocolException failure =
+                    assertThrows(IntegrationProtocolException.class, () -> adapter.readResponse(readers(response)));
+            assertEquals(IntegrationProtocolException.Reason.MALFORMED_JSON, failure.reason());
+        }
+    }
 
-        assertEquals("{\"request\":\"ok\"}\n", writer.text());
-        assertEquals(JsonValue.object(Map.of("response", JsonValue.string("ok"))), response);
+    @Test
+    void jsonAdaptersRejectDuplicateKeysAndExcessiveNesting() {
+        String tooDeep = "[".repeat(257) + "0" + "]".repeat(257);
+        var adapter = ProtocolAdapters.jsonLinesSession(4096).get();
+
+        for (String response : new String[] {"{\"key\":1,\"key\":2}\n", tooDeep + "\n"}) {
+            IntegrationProtocolException failure =
+                    assertThrows(IntegrationProtocolException.class, () -> adapter.readResponse(readers(response)));
+            assertEquals(IntegrationProtocolException.Reason.MALFORMED_JSON, failure.reason());
+        }
+    }
+
+    @Test
+    void jsonLinesUsesStrictUtf8BytesIndependentlyOfTextDecodingPolicy() {
+        byte[] malformed = {'"', (byte) 0xFF, '"', '\n'};
+
+        IntegrationProtocolException failure = assertThrows(
+                IntegrationProtocolException.class,
+                () -> ProtocolAdapters.jsonLinesSession(1024).get().readResponse(readers(malformed)));
+
+        assertEquals(IntegrationProtocolException.Reason.INVALID_ENCODING, failure.reason());
+    }
+
+    @Test
+    void jsonLinesAdapterBoundsSerializationBeforeWriting() {
+        BoundedRecordingWriter writer = new BoundedRecordingWriter(5);
+
+        ProtocolSessionException failure = assertThrows(
+                ProtocolSessionException.class,
+                () -> ProtocolAdapters.jsonLinesSession(1024).get().writeRequest(TextNode.valueOf("payload"), writer));
+
+        assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
+        assertEquals(0, writer.bytes().length);
     }
 
     @Test
@@ -57,189 +113,177 @@ final class ProtocolAdaptersTest {
     }
 
     @Test
-    void delimiterAdapterRejectsAmbiguousRequestFrames() {
+    void delimiterAdapterRejectsAmbiguousRequestBeforeWriting() {
+        RecordingWriter writer = new RecordingWriter();
         var adapter = ProtocolAdapters.delimiterSession((byte) 0, 1024).get();
 
-        IntegrationProtocolException exception = assertThrows(
-                IntegrationProtocolException.class,
-                () -> adapter.writeRequest(new byte[] {1, 0}, new RecordingWriter()));
+        IntegrationProtocolException failure =
+                assertThrows(IntegrationProtocolException.class, () -> adapter.writeRequest(new byte[] {1, 0}, writer));
 
-        assertEquals(IntegrationProtocolException.Reason.BAD_FRAME, exception.reason());
+        assertEquals(IntegrationProtocolException.Reason.BAD_FRAME, failure.reason());
+        assertEquals(0, writer.bytes().length);
+    }
+
+    @Test
+    void delimiterAdapterPreflightsCapacityBeforeCopyingOrWriting() {
+        BoundedRecordingWriter writer = new BoundedRecordingWriter(1);
+
+        ProtocolSessionException failure = assertThrows(
+                ProtocolSessionException.class,
+                () -> ProtocolAdapters.delimiterSession((byte) 0, 1024)
+                        .get()
+                        .writeRequest(new byte[1024 * 1024], writer));
+
+        assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
+        assertEquals(0, writer.bytes().length);
     }
 
     @Test
     void contentLengthAdapterWritesAndReadsJsonFrames() {
         RecordingWriter writer = new RecordingWriter();
         var adapter = ProtocolAdapters.contentLengthJsonSession(1024).get();
-        JsonValue request = JsonValue.object(Map.of("id", JsonValue.number(1)));
-        JsonValue response = JsonValue.object(Map.of("ok", JsonValue.bool(true)));
+        JsonNode request = JsonNodeFactory.instance.objectNode().put("text", "é-🚀");
+        JsonNode response = JsonNodeFactory.instance.objectNode().put("ok", true);
 
         adapter.writeRequest(request, writer);
-        JsonValue decoded = adapter.readResponse(readers(ContentLengthJsonFrames.frame(response)));
+        JsonNode decoded = adapter.readResponse(readers(frame(response.toString())));
 
-        assertEquals(request, ContentLengthJsonFrames.read(new java.io.ByteArrayInputStream(writer.bytes()), 1024));
+        byte[] expectedBody = JacksonJson.writeBytes(request);
+        assertEquals(
+                "Content-Length: " + expectedBody.length + "\r\n\r\n"
+                        + new String(expectedBody, StandardCharsets.UTF_8),
+                writer.text());
         assertEquals(response, decoded);
     }
 
     @Test
-    void contentLengthAdapterStreamsTheCanonicalNumberSnapshotExactly() {
-        AdversarialBigDecimal input = new AdversarialBigDecimal("1.500");
-        RecordingWriter writer = new RecordingWriter();
-
-        ProtocolAdapters.contentLengthJsonSession(1024).get().writeRequest(JsonValue.number(input), writer);
-
-        assertEquals("Content-Length: 5\r\n\r\n1.500", writer.text());
-        assertEquals(0, input.stringCalls());
-    }
-
-    @Test
-    void contentLengthAdapterRejectsCanonicalNumberBeforeAnyOversizedWrite() {
-        AdversarialBigDecimal input = new AdversarialBigDecimal("1.500");
-        BoundedRecordingWriter writer = new BoundedRecordingWriter(25);
+    void contentLengthAdapterBoundsSerializationBeforeWriting() {
+        BoundedRecordingWriter writer = new BoundedRecordingWriter(24);
 
         ProtocolSessionException failure =
                 assertThrows(ProtocolSessionException.class, () -> ProtocolAdapters.contentLengthJsonSession(1024)
                         .get()
-                        .writeRequest(JsonValue.number(input), writer));
+                        .writeRequest(TextNode.valueOf("payload"), writer));
 
         assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
         assertEquals(0, writer.bytes().length);
-        assertEquals(0, input.stringCalls());
     }
 
     @Test
-    void contentLengthAdapterStreamsBmpAndSupplementaryCharactersWithoutReplacement() {
-        RecordingWriter writer = new RecordingWriter();
-        JsonValue value = JsonValue.string("é-🚀");
-
-        ProtocolAdapters.contentLengthJsonSession(1024).get().writeRequest(value, writer);
-
-        assertEquals("Content-Length: 9\r\n\r\n\"é-🚀\"", writer.text());
-    }
-
-    @Test
-    void contentLengthAdapterRejectsHugeRequestDuringBoundedPreflightBeforeWriting() {
-        BoundedRecordingWriter writer = new BoundedRecordingWriter(128);
-        JsonValue request = JsonValue.string("x".repeat(4 * 1024 * 1024));
+    void contentLengthAdapterPreflightsActualHeaderAndBodyBeforeWriting() {
+        BoundedRecordingWriter writer = new BoundedRecordingWriter(31);
 
         ProtocolSessionException failure = assertThrows(
                 ProtocolSessionException.class,
-                () -> ProtocolAdapters.contentLengthJsonSession(1024).get().writeRequest(request, writer));
+                () -> ProtocolAdapters.contentLengthJsonSession(1024)
+                        .get()
+                        .writeRequest(TextNode.valueOf("12345678"), writer));
 
         assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
         assertEquals(0, writer.bytes().length);
-        assertTrue(writer.capacityChecks() <= 2, "preflight should reject without one check per JSON byte");
     }
 
     @Test
-    void contentLengthAdapterAcceptsHeaderWhoseTerminatorEndsAtByteLimit() {
-        byte[] header = headerWithTotalBytes(8192, 2);
-        TrackingByteReader stdout = new TrackingByteReader(concatenate(header, "{}".getBytes(StandardCharsets.UTF_8)));
+    void contentLengthSerializesMutableNodeOnceBeforeWritingHeaderAndBody() {
+        RecordingWriter writer = new RecordingWriter();
+        ChangingTextNode request = new ChangingTextNode();
 
-        JsonValue decoded =
-                ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(stdout));
+        ProtocolAdapters.contentLengthJsonSession(1024).get().writeRequest(request, writer);
 
-        assertEquals(JsonValue.object(Map.of()), decoded);
-        assertEquals(1, stdout.readExactlyCalls());
+        assertEquals(1, request.serializations());
+        assertEquals("Content-Length: 9\r\n\r\n\"value-1\"", writer.text());
     }
 
     @Test
-    void contentLengthAdapterRejectsHeaderBeyondByteLimitWithoutReadingExtraByteOrBody() {
-        byte[] header = headerWithTotalBytes(8193, 2);
-        TrackingByteReader stdout = new TrackingByteReader(concatenate(header, "{}".getBytes(StandardCharsets.UTF_8)));
+    void jacksonWriteConstraintFailsBeforeWritingAnyFrameBytes() {
+        RecordingWriter writer = new RecordingWriter();
+        JsonNode nested = JsonNodeFactory.instance.arrayNode();
+        for (int depth = 0; depth < 257; depth++) {
+            nested = JsonNodeFactory.instance.arrayNode().add(nested);
+        }
+        JsonNode request = nested;
 
-        IntegrationProtocolException exception = assertThrows(
+        IntegrationProtocolException failure = assertThrows(
                 IntegrationProtocolException.class,
-                () -> ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(stdout)));
+                () -> ProtocolAdapters.contentLengthJsonSession(1024).get().writeRequest(request, writer));
 
-        assertEquals(IntegrationProtocolException.Reason.BAD_HEADER, exception.reason());
-        assertEquals(8192, stdout.bytesRead());
+        assertEquals(IntegrationProtocolException.Reason.BAD_FRAME, failure.reason());
+        assertEquals(0, writer.bytes().length);
+    }
+
+    @Test
+    void contentLengthAdapterRejectsOversizedBodyBeforeReadingIt() {
+        TrackingByteReader stdout = new TrackingByteReader(frame("{}"));
+
+        IntegrationProtocolException failure = assertThrows(
+                IntegrationProtocolException.class,
+                () -> ProtocolAdapters.contentLengthJsonSession(1).get().readResponse(readers(stdout)));
+
+        assertEquals(IntegrationProtocolException.Reason.OVERSIZED_FRAME, failure.reason());
         assertEquals(0, stdout.readExactlyCalls());
     }
 
     @Test
-    void contentLengthAdapterRejectsOversizedDeclaredBodyBeforeReadExactly() {
-        byte[] header = "Content-Length: 3\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
-        TrackingByteReader stdout = new TrackingByteReader(concatenate(header, "{}".getBytes(StandardCharsets.UTF_8)));
+    void contentLengthAdapterAcceptsHeaderAtLimitAndRejectsTheNextByte() {
+        byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+        TrackingByteReader atLimit = new TrackingByteReader(concatenate(headerWithTotalBytes(8192, body.length), body));
+        TrackingByteReader overLimit =
+                new TrackingByteReader(concatenate(headerWithTotalBytes(8193, body.length), body));
 
-        IntegrationProtocolException exception = assertThrows(
+        assertEquals(
+                JsonNodeFactory.instance.objectNode(),
+                ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(atLimit)));
+        IntegrationProtocolException failure = assertThrows(
                 IntegrationProtocolException.class,
-                () -> ProtocolAdapters.contentLengthJsonSession(2).get().readResponse(readers(stdout)));
+                () -> ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(overLimit)));
 
-        assertEquals(IntegrationProtocolException.Reason.OVERSIZED_FRAME, exception.reason());
-        assertEquals(0, stdout.readExactlyCalls());
+        assertEquals(IntegrationProtocolException.Reason.BAD_HEADER, failure.reason());
+        assertEquals(8192, overLimit.bytesRead());
+        assertEquals(0, overLimit.readExactlyCalls());
+    }
+
+    @Test
+    void contentLengthAdapterDistinguishesMalformedJsonFromInvalidUtf8() {
+        byte[] invalidUtf8 =
+                concatenate("Content-Length: 1\r\n\r\n".getBytes(StandardCharsets.US_ASCII), new byte[] {(byte) 0xFF});
+
+        IntegrationProtocolException malformed = assertThrows(
+                IntegrationProtocolException.class,
+                () -> ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(frame("{bad}"))));
+        IntegrationProtocolException encoding = assertThrows(
+                IntegrationProtocolException.class,
+                () -> ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(invalidUtf8)));
+
+        assertEquals(IntegrationProtocolException.Reason.MALFORMED_JSON, malformed.reason());
+        assertEquals(IntegrationProtocolException.Reason.INVALID_ENCODING, encoding.reason());
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("headerCases")
-    void contentLengthAdapterAppliesStrictSharedHeaderGrammar(ContentLengthHeaderTestCases.HeaderCase testCase) {
-        byte[] header = testCase.header();
-        byte[] inputBytes = testCase.expectedReason() == IntegrationProtocolException.Reason.EOF
-                ? header
-                : concatenate(header, "{}".getBytes(StandardCharsets.UTF_8));
-        TrackingByteReader stdout = new TrackingByteReader(inputBytes);
+    void contentLengthAdapterAppliesStrictHeaderGrammar(ContentLengthHeaderTestCases.HeaderCase testCase) {
+        byte[] input = testCase.expectedReason() == IntegrationProtocolException.Reason.EOF
+                ? testCase.header()
+                : concatenate(testCase.header(), "{}".getBytes(StandardCharsets.UTF_8));
+        TrackingByteReader stdout = new TrackingByteReader(input);
 
         if (testCase.expectedReason() == null) {
             assertEquals(
-                    JsonValue.object(Map.of()),
+                    JsonNodeFactory.instance.objectNode(),
                     ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(stdout)));
             return;
         }
-        IntegrationProtocolException exception = assertThrows(
+
+        IntegrationProtocolException failure = assertThrows(
                 IntegrationProtocolException.class,
                 () -> ProtocolAdapters.contentLengthJsonSession(1024).get().readResponse(readers(stdout)));
-        assertEquals(testCase.expectedReason(), exception.reason());
-        if (testCase.expectedReason() == IntegrationProtocolException.Reason.EOF) {
-            ProtocolSessionException cause = (ProtocolSessionException) exception.getCause();
-            assertEquals(ProtocolSessionException.Reason.EOF, cause.reason());
-        }
+        assertEquals(testCase.expectedReason(), failure.reason());
         assertEquals(0, stdout.readExactlyCalls());
-        assertTrue(stdout.bytesRead() <= header.length);
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("contentLengthEofCases")
-    void contentLengthEofHasTheSameIntegrationTaxonomyAcrossTransportPaths(ContentLengthReadCase testCase) {
-        IntegrationProtocolException failure = assertThrows(IntegrationProtocolException.class, testCase.read()::run);
-
-        assertEquals(IntegrationProtocolException.class, failure.getClass());
-        assertEquals(IntegrationProtocolException.Reason.EOF, failure.reason());
-        assertSame(testCase.expectedCause(), failure.getCause());
-    }
-
-    private static Stream<ContentLengthReadCase> contentLengthEofCases() {
-        byte[] incompleteHeader = "Content-Length: 2\r\n".getBytes(StandardCharsets.US_ASCII);
-        byte[] truncatedBody = "Content-Length: 3\r\n\r\n{}".getBytes(StandardCharsets.US_ASCII);
-        ProtocolSessionException headerEof = protocolFailure(ProtocolSessionException.Reason.EOF);
-        ProtocolSessionException bodyEof = protocolFailure(ProtocolSessionException.Reason.EOF);
-        return Stream.of(
-                new ContentLengthReadCase(
-                        "InputStream header EOF",
-                        () -> ContentLengthJsonFrames.read(new ByteArrayInputStream(incompleteHeader), 1024),
-                        null),
-                new ContentLengthReadCase(
-                        "InputStream truncated body",
-                        () -> ContentLengthJsonFrames.read(new ByteArrayInputStream(truncatedBody), 1024),
-                        null),
-                new ContentLengthReadCase(
-                        "ProtocolReader header EOF",
-                        () -> ProtocolAdapters.contentLengthJsonSession(1024)
-                                .get()
-                                .readResponse(readers(
-                                        new FaultingByteReader(incompleteHeader, incompleteHeader.length, headerEof))),
-                        headerEof),
-                new ContentLengthReadCase(
-                        "ProtocolReader truncated body",
-                        () -> ProtocolAdapters.contentLengthJsonSession(1024)
-                                .get()
-                                .readResponse(
-                                        readers(new FaultingByteReader(truncatedBody, truncatedBody.length, bodyEof))),
-                        bodyEof));
+        assertTrue(stdout.bytesRead() <= testCase.header().length);
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("nonEofProtocolFailures")
-    void contentLengthAdapterDoesNotNormalizeNonEofProtocolFailures(ProtocolFailureCase testCase) {
+    void contentLengthAdapterDoesNotNormalizeCoreProtocolFailures(ProtocolFailureCase testCase) {
         ProtocolSessionException propagated =
                 assertThrows(ProtocolSessionException.class, () -> ProtocolAdapters.contentLengthJsonSession(1024)
                         .get()
@@ -247,51 +291,68 @@ final class ProtocolAdaptersTest {
                                 testCase.bytes(), testCase.failureOffset(), testCase.failure()))));
 
         assertSame(testCase.failure(), propagated);
-        assertEquals(testCase.failure().reason(), propagated.reason());
-    }
-
-    private static Stream<ProtocolFailureCase> nonEofProtocolFailures() {
-        byte[] frame = "Content-Length: 2\r\n\r\n{}".getBytes(StandardCharsets.US_ASCII);
-        int bodyOffset = frame.length - 2;
-        return Arrays.stream(ProtocolSessionException.Reason.values())
-                .filter(reason -> reason != ProtocolSessionException.Reason.EOF)
-                .flatMap(reason -> Stream.of(
-                        new ProtocolFailureCase("ProtocolReader header " + reason, frame, 0, protocolFailure(reason)),
-                        new ProtocolFailureCase(
-                                "ProtocolReader body " + reason, frame, bodyOffset, protocolFailure(reason))));
     }
 
     @Test
-    void builtInSessionFactoriesCreateDistinctAdaptersForSessionsAndWorkers() {
+    void contentLengthEofHasStableIntegrationReasonAndOriginalCause() {
+        byte[] header = "Content-Length: 2\r\n".getBytes(StandardCharsets.US_ASCII);
+        ProtocolSessionException eof = protocolFailure(ProtocolSessionException.Reason.EOF);
+
+        IntegrationProtocolException failure =
+                assertThrows(IntegrationProtocolException.class, () -> ProtocolAdapters.contentLengthJsonSession(1024)
+                        .get()
+                        .readResponse(readers(new FaultingByteReader(header, header.length, eof))));
+
+        assertEquals(IntegrationProtocolException.Reason.EOF, failure.reason());
+        assertSame(eof, failure.getCause());
+    }
+
+    @Test
+    void contentLengthBodyEofHasStableIntegrationReasonAndOriginalCause() {
+        byte[] frame = frame("{}");
+        int bodyOffset = frame.length - 2;
+        ProtocolSessionException eof = protocolFailure(ProtocolSessionException.Reason.EOF);
+
+        IntegrationProtocolException failure =
+                assertThrows(IntegrationProtocolException.class, () -> ProtocolAdapters.contentLengthJsonSession(1024)
+                        .get()
+                        .readResponse(readers(new FaultingByteReader(frame, bodyOffset + 1, eof))));
+
+        assertEquals(IntegrationProtocolException.Reason.EOF, failure.reason());
+        assertSame(eof, failure.getCause());
+    }
+
+    @Test
+    void factoriesCreateFreshAdaptersAndComposeWithDirectAndPooledScenarios() {
         assertFresh(ProtocolAdapters.jsonLinesSession(1024));
         assertFresh(ProtocolAdapters.delimiterSession((byte) 0, 1024));
         assertFresh(ProtocolAdapters.contentLengthJsonSession(1024));
+
+        var command = Procwright.command(CommandSpec.of("not-started"));
+        var factory = ProtocolAdapters.jsonLinesSession(1024);
+        assertNotNull(command.protocolSession(factory));
+        assertNotNull(command.protocolSession(factory).pooled());
     }
 
     @Test
-    void typedJsonSessionFactoryCreatesFreshWrapperAndTransportForEachWorker() {
-        AtomicInteger transportsCreated = new AtomicInteger();
-        Supplier<ProtocolAdapter<JsonValue, JsonValue>> transportFactory = () -> {
-            transportsCreated.incrementAndGet();
+    void typedFactoryCreatesFreshWrappersAndTransports() {
+        AtomicInteger transports = new AtomicInteger();
+        Supplier<ProtocolAdapter<JsonNode, JsonNode>> transportFactory = () -> {
+            transports.incrementAndGet();
             return ProtocolAdapters.jsonLinesSession(1024).get();
         };
         Supplier<ProtocolAdapter<String, String>> factory =
-                ProtocolAdapters.typedJsonSession(JsonValue::string, JsonCodec::write, transportFactory);
+                ProtocolAdapters.typedJsonSession(TextNode::valueOf, JsonNode::textValue, transportFactory);
 
-        ProtocolAdapter<String, String> first = factory.get();
-        ProtocolAdapter<String, String> second = factory.get();
-
-        assertNotSame(first, second);
-        assertEquals(2, transportsCreated.get());
+        assertNotSame(factory.get(), factory.get());
+        assertEquals(2, transports.get());
     }
 
     @Test
-    void sessionFactoryComposesDirectlyWithProtocolSessionAndPoolDrafts() {
-        var command = Procwright.command(CommandSpec.of("not-started"));
-        var factory = ProtocolAdapters.jsonLinesSession(1024);
-
-        assertNotNull(command.protocolSession(factory));
-        assertNotNull(command.protocolSession(factory).pooled());
+    void adapterFactoriesRejectInvalidLimits() {
+        assertThrows(IllegalArgumentException.class, () -> ProtocolAdapters.jsonLinesSession(0));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolAdapters.delimiterSession((byte) 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> ProtocolAdapters.contentLengthJsonSession(0));
     }
 
     private static void assertFresh(Supplier<? extends ProtocolAdapter<?, ?>> factory) {
@@ -302,8 +363,30 @@ final class ProtocolAdaptersTest {
         return ContentLengthHeaderTestCases.cases();
     }
 
+    private static Stream<ProtocolFailureCase> nonEofProtocolFailures() {
+        byte[] frame = frame("{}");
+        int bodyOffset = frame.length - 2;
+        return Arrays.stream(ProtocolSessionException.Reason.values())
+                .filter(reason -> reason != ProtocolSessionException.Reason.EOF)
+                .flatMap(reason -> Stream.of(
+                        new ProtocolFailureCase("header " + reason, frame, 0, protocolFailure(reason)),
+                        new ProtocolFailureCase("body " + reason, frame, bodyOffset, protocolFailure(reason))));
+    }
+
     private static ProtocolSessionException protocolFailure(ProtocolSessionException.Reason reason) {
         return new ProtocolSessionException(reason, new ProtocolTranscript("", false, false), "controlled " + reason);
+    }
+
+    private static byte[] frame(String json) {
+        byte[] body = json.getBytes(StandardCharsets.UTF_8);
+        return concatenate(("Content-Length: " + body.length + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII), body);
+    }
+
+    private static byte[] headerWithTotalBytes(int totalBytes, int contentLength) {
+        String prefix = "Content-Length: " + contentLength + "\r\nX-Filler: ";
+        String suffix = "\r\n\r\n";
+        return (prefix + "a".repeat(totalBytes - prefix.length() - suffix.length()) + suffix)
+                .getBytes(StandardCharsets.US_ASCII);
     }
 
     private static ProtocolReaders readers(String stdout) {
@@ -314,33 +397,24 @@ final class ProtocolAdaptersTest {
         return readers(new ByteReader(stdout));
     }
 
-    private static ProtocolReaders readers(ProtocolReader stdoutReader) {
-        ByteReader stderrReader = new ByteReader(new byte[0]);
+    private static ProtocolReaders readers(ProtocolReader stdout) {
         return new ProtocolReaders() {
             @Override
             public ProtocolReader stdout() {
-                return stdoutReader;
+                return stdout;
             }
 
             @Override
             public ProtocolReader stderr() {
-                return stderrReader;
+                return new ByteReader(new byte[0]);
             }
         };
     }
 
-    private static byte[] headerWithTotalBytes(int totalBytes, int contentLength) {
-        String prefix = "Content-Length: " + contentLength + "\r\nX-Filler: ";
-        String suffix = "\r\n\r\n";
-        return (prefix + "a".repeat(totalBytes - prefix.length() - suffix.length()) + suffix)
-                .getBytes(StandardCharsets.US_ASCII);
-    }
-
     private static byte[] concatenate(byte[] first, byte[] second) {
-        byte[] combined = new byte[first.length + second.length];
-        System.arraycopy(first, 0, combined, 0, first.length);
-        System.arraycopy(second, 0, combined, first.length, second.length);
-        return combined;
+        byte[] result = Arrays.copyOf(first, first.length + second.length);
+        System.arraycopy(second, 0, result, first.length, second.length);
+        return result;
     }
 
     private static class RecordingWriter implements ProtocolWriter {
@@ -364,18 +438,17 @@ final class ProtocolAdaptersTest {
         @Override
         public void flush() {}
 
-        protected final byte[] bytes() {
+        final byte[] bytes() {
             return output.toByteArray();
         }
 
-        private String text() {
+        final String text() {
             return output.toString(StandardCharsets.UTF_8);
         }
     }
 
     private static final class BoundedRecordingWriter extends RecordingWriter {
         private final long capacity;
-        private int capacityChecks;
 
         private BoundedRecordingWriter(long capacity) {
             this.capacity = capacity;
@@ -387,21 +460,10 @@ final class ProtocolAdaptersTest {
         }
 
         @Override
-        public void ensureByteCapacity(long byteCount) {
-            capacityChecks++;
-            if (byteCount > remainingByteCapacity()) {
+        public void ensureByteCapacity(long bytes) {
+            if (bytes > remainingByteCapacity()) {
                 throw protocolFailure(ProtocolSessionException.Reason.REQUEST_TOO_LARGE);
             }
-        }
-
-        @Override
-        public void write(byte[] bytes, int offset, int length) {
-            ensureByteCapacity(length);
-            super.write(Arrays.copyOfRange(bytes, offset, offset + length));
-        }
-
-        private int capacityChecks() {
-            return capacityChecks;
         }
     }
 
@@ -416,36 +478,31 @@ final class ProtocolAdaptersTest {
         @Override
         public byte readByte() {
             if (offset == bytes.length) {
-                throw new ProtocolSessionException(
-                        ProtocolSessionException.Reason.EOF,
-                        new ProtocolTranscript("", false, false),
-                        "controlled EOF");
+                throw protocolFailure(ProtocolSessionException.Reason.EOF);
             }
             return bytes[offset++];
         }
 
         @Override
-        public int read(byte[] buffer, int offset, int length) {
-            int count = Math.min(length, bytes.length - this.offset);
-            System.arraycopy(bytes, this.offset, buffer, offset, count);
-            this.offset += count;
+        public int read(byte[] buffer, int targetOffset, int length) {
+            int count = Math.min(length, bytes.length - offset);
+            System.arraycopy(bytes, offset, buffer, targetOffset, count);
+            offset += count;
             return count;
         }
 
         @Override
         public byte[] readExactly(int length) {
             byte[] result = new byte[length];
-            read(result, 0, length);
+            for (int index = 0; index < length; index++) {
+                result[index] = readByte();
+            }
             return result;
         }
 
         @Override
         public String readTextExactly(int byteLength, int maxChars) {
-            String result = new String(readExactly(byteLength), StandardCharsets.UTF_8);
-            if (result.length() > maxChars) {
-                throw new AssertionError("text field exceeds maxChars");
-            }
-            return result;
+            return new String(readExactly(byteLength), StandardCharsets.UTF_8);
         }
 
         @Override
@@ -458,7 +515,7 @@ final class ProtocolAdaptersTest {
                     return result.toByteArray();
                 }
             }
-            throw new AssertionError("delimiter not found");
+            throw new AssertionError("delimiter not found within limit");
         }
 
         @Override
@@ -487,7 +544,7 @@ final class ProtocolAdaptersTest {
         }
 
         private int bytesRead() {
-            return super.offset;
+            return offset;
         }
 
         private int readExactlyCalls() {
@@ -512,26 +569,50 @@ final class ProtocolAdaptersTest {
             }
             return super.readByte();
         }
+    }
+
+    private static final class ChangingTextNode extends ValueNode {
+
+        private static final long serialVersionUID = 1L;
+        private int serializations;
 
         @Override
-        public byte[] readExactly(int length) {
-            byte[] result = new byte[length];
-            for (int index = 0; index < result.length; index++) {
-                result[index] = readByte();
-            }
-            return result;
+        public JsonToken asToken() {
+            return JsonToken.VALUE_STRING;
         }
-    }
 
-    @FunctionalInterface
-    private interface ContentLengthRead {
-        void run();
-    }
+        @Override
+        public JsonNodeType getNodeType() {
+            return JsonNodeType.STRING;
+        }
 
-    private record ContentLengthReadCase(String name, ContentLengthRead read, Throwable expectedCause) {
+        @Override
+        public String asText() {
+            return "value-" + serializations;
+        }
+
+        @Override
+        public void serialize(JsonGenerator generator, SerializerProvider serializers) throws IOException {
+            generator.writeString("value-" + ++serializations);
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(this);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other;
+        }
+
         @Override
         public String toString() {
-            return name;
+            return "\"value-" + serializations + "\"";
+        }
+
+        private int serializations() {
+            return serializations;
         }
     }
 

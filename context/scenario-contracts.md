@@ -204,9 +204,8 @@ Scenario Draft подключает `DiagnosticListener` и `DiagnosticTranscrip
 
 ## Optional integrations
 
-JSON Lines, delimiter, Content-Length и typed JSON adapters используют существующие `lineSession`/`protocolSession`,
-а command-backed tool helpers — `run`. Они валидируют frame size, depth и syntax до domain use, считают CLI output
-недоверенными данными и не включают raw unbounded diagnostics в structured errors.
+JSON Lines, delimiter, Content-Length и typed Jackson adapters используют существующий `protocolSession`. Они
+валидируют frame size, depth, UTF-8 и syntax до domain mapping; lifecycle, timeout и bounded diagnostics остаются у core.
 
 ## Gate
 

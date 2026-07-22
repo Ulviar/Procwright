@@ -62,12 +62,13 @@ Runtime dependencies модуля:
 
 ## Integrations module
 
-`:procwright-integrations` зависит от core module и экспортирует минимальную Jackson Databind dependency, потому что
-public `JsonCodec` предоставляет явный bridge между `JsonValue` и `JsonNode`. JSON/JSONL, Content-Length framing и
-command-backed tool wrappers используют существующий core runtime и не создают второй process engine.
+`:procwright-integrations` зависит от core module и экспортирует Jackson Databind, потому что adapters принимают и
+возвращают `JsonNode`. JSON Lines, delimiter и Content-Length adapters используют существующий core runtime и не
+создают второй process engine.
 
-Jackson находится только в optional integrations artifact. Он не попадает в core или Kotlin module и проверяется
-`externalLibraryBoundaryCheck` вместе с остальными module boundaries.
+Jackson находится только в optional integrations artifact. `externalLibraryBoundaryCheck` отклоняет Jackson artifacts в
+runtime classpath core и Kotlin module; exact release POM/module contract отдельно проверяет его публикацию из
+integrations.
 
 Реальный MCP SDK adapter намеренно не входит в текущий module, чтобы не переносить MCP dependency в core или базовый
 integration layer.

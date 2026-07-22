@@ -36,7 +36,7 @@ unsupported behavior, если provider недоступен, и не долже
 - Core public API живет в пакетах `io.github.ulviar.procwright`, `io.github.ulviar.procwright.command`,
   `io.github.ulviar.procwright.session`, `io.github.ulviar.procwright.diagnostics` и `io.github.ulviar.procwright.terminal`.
 - Kotlin ergonomics живет в `io.github.ulviar.procwright.kotlin`.
-- CLI-backed integration helpers живут в `io.github.ulviar.procwright.integration`; artifact `:procwright-integrations` является
+- Protocol adapters живут в `io.github.ulviar.procwright.integration`; artifact `:procwright-integrations` является
   именованным Java module `io.github.ulviar.procwright.integrations`.
 - Новые public packages требуют отдельного ADR.
 - Public top-level package surface покрывается tests, которые сканируют весь production artifact, чтобы случайная утечка

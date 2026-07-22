@@ -35,7 +35,7 @@ final class ScenarioCookbookCoverageTest {
         String cookbook = Files.readString(COOKBOOK, StandardCharsets.UTF_8);
         Set<String> methodNames = coreExampleMethods();
 
-        for (String methodName : cookbookExampleMethods(cookbook, "## `run`", "## CLI-backed integrations")) {
+        for (String methodName : cookbookExampleMethods(cookbook, "## `run`", "## Protocol integrations")) {
             assertTrue(
                     methodNames.contains(methodName),
                     () -> "scenario cookbook references non-compiled core example `" + methodName + "`");
@@ -60,7 +60,7 @@ final class ScenarioCookbookCoverageTest {
                 "## `listen`",
                 "## Nested pooled scenarios",
                 "## Диагностика",
-                "## CLI-backed integrations",
+                "## Protocol integrations",
                 "## Релизный gate")) {
             assertTrue(cookbook.contains(section), () -> "scenario cookbook must contain section " + section);
         }
@@ -122,9 +122,7 @@ final class ScenarioCookbookCoverageTest {
             if (columns.length < 4 || columns[3].contains("Compile-tested example")) {
                 continue;
             }
-            if (columns[2].contains(":procwright-integrations")
-                    || columns[2].contains("JsonLineSession")
-                    || columns[2].contains("ContentLengthJsonFrames")) {
+            if (columns[2].contains("ProtocolAdapters")) {
                 continue;
             }
             names.add(columns[3].trim().replace("`", ""));

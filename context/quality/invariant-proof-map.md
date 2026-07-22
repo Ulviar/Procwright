@@ -16,7 +16,7 @@
 | Runtime получает валидированный immutable plan. | Internal settings, `ExecutionPlan`, `SessionExecutionPlan`, `StreamExecutionPlan`, `ScenarioRuntime`. | settings/policy tests и integration tests всех сценариев. |
 | Direct argv — default, shell mode явный, environment inheritance выбирается policy. | `CommandSpec`, `LaunchSettings`, `EnvironmentPolicy`, `SystemShell`. | `CommandSpecTest`, scenario Draft tests, `OneShotExecutionIntegrationTest`. |
 | Public API не раскрывает internal/external types и не растет без решения. | JPMS descriptors, exact signature baseline, package boundary checks и проверка direct/resolved runtime dependencies публичных модулей. | `PublicApiSurfaceTest`, `PackageBoundaryTest`, `externalLibraryBoundaryCheck`, `apiCompatibilityCheck`. |
-| Экспортируемые Java packages core/integrations имеют `@NullMarked`; допустимые `@Nullable`/`UNION_NULL` positions и `requires static transitive org.jspecify` входят в compatibility surface. | Public `package-info.java`, explicit type-use annotations, JPMS descriptors и `compileOnlyApi` publication configuration. | [`PublicNullnessContractTest`](../../src/test/java/io/github/ulviar/procwright/PublicNullnessContractTest.java), [`IntegrationNullnessMetadataTest`](../../procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/IntegrationNullnessMetadataTest.java), Kotlin nullness fixtures (`:procwright-kotlin:kotlinNullnessFixturesCheck`, `:procwright-integrations:integrationKotlinNullnessCheck`), `apiCompatibilityCheck`. |
+| Экспортируемые Java packages core/integrations имеют `@NullMarked`; допустимые `@Nullable`/`UNION_NULL` positions и `requires static transitive org.jspecify` входят в compatibility surface. | Public `package-info.java`, explicit type-use annotations, JPMS descriptors и `compileOnlyApi` publication configuration. | [`PublicNullnessContractTest`](../../src/test/java/io/github/ulviar/procwright/PublicNullnessContractTest.java), [`IntegrationNullnessMetadataTest`](../../procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/IntegrationNullnessMetadataTest.java), Kotlin core nullness fixtures и `apiCompatibilityCheck`. |
 
 ## Process, I/O и lifecycle
 
@@ -73,7 +73,7 @@
 | Coroutine cancellation соблюдает ownership direct session, pooled worker, exit waiter и Flow collector. | Coroutine extensions и `StreamScenario.Draft.openFlow()`. | Kotlin cancellation/Flow tests. |
 | Kotlin protocol factory создает отдельный adapter wrapper на factory call. | `protocolAdapterFactory`, `ProtocolAdapterFactoryDsl`. | Kotlin factory isolation tests. |
 | Integrations используют core runtime и не добавляют внешнюю process library или MCP SDK. | `:procwright-integrations`, JPMS/build boundary. | module descriptor, external boundary и integration tests. |
-| JSON/framing helpers отклоняют malformed/oversized/deep input до небезопасного domain use. | `JsonCodec`, `JsonLines`, `ContentLengthJsonFrames`, `ProtocolAdapters`. | JSON/framing tests и external consumer example. |
+| Protocol adapters отклоняют malformed JSON, invalid UTF-8, invalid headers и oversized frames до domain mapping. | `ProtocolAdapters`, `ContentLengthHeaders`, Jackson. | `ProtocolAdaptersTest` и external consumer examples. |
 | Canonical Java/Kotlin/integration examples компилируются как внешние consumers в Gradle metadata и POM-only режимах. | Consumer fixture modules и publication metadata. | `publicApiConsumerCompilationCheck`, isolated publication smoke. |
 
 ## Release proofs

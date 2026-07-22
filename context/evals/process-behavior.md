@@ -113,23 +113,15 @@
 - `close()` запрещает новые requests, закрывает idle workers сразу и дает leased workers завершить текущий request.
 - `metrics()` возвращает snapshot counters для size, idle, leased, created, retired и request counts.
 
-## CLI-backed integrations
+## Protocol integrations
 
 - Optional `:procwright-integrations` module компилируется отдельно от core и не добавляет новый process runtime.
-- JSON codec round-trips object/array/string/number/boolean/null values и экранирует control characters.
-- JSON parser отклоняет trailing content, invalid numbers и raw unescaped control characters.
-- JSON Lines helper не допускает raw line separators в frame boundary, но сохраняет escaped embedded line separators.
-- `JsonLineSession` отправляет JSON request через existing `LineSession` и получает ровно одну JSON response line.
-- Malformed JSON response отличается от command launch failure и мапится в protocol error на adapter layer.
-- Content-Length framed JSON helper проверяет missing/invalid headers, oversized body и EOF before body completion.
-- `CommandBackedTool` передает handler failure в `CliAdapterError`: известный failure, выбранный после снятия только
-  leading `CompletionException`/`ExecutionException`, становится structured `ToolCallResult`. Инспекция primary cause
-  chain ограничена 64 узлами; найденный там `Error` намеренно пробрасывается. При превышении лимита неизвестный runtime
-  failure пробрасывается без изменений, checked failure оборачивается в `IllegalStateException`; suppressed failures
-  в классификации не участвуют.
-- `CliAdapterError` не включает raw stdout/stderr/transcript excerpts по умолчанию и сохраняет machine-readable
-  code/details, включая safe exit/truncation/malformed metadata, когда source exception их предоставляет.
-- Compile-tested examples показывают one-shot command-backed tool, JSONL tool и Content-Length framing.
+- JSON adapters принимают и возвращают Jackson `JsonNode`; собственной JSON-модели и parser framework нет.
+- JSON Lines adapter сохраняет escaped line separators и отклоняет malformed или trailing JSON.
+- Content-Length adapter проверяет header grammar и body limit до чтения body, затем применяет strict UTF-8 и Jackson.
+- Delimiter adapter отклоняет request, содержащий delimiter, до записи части frame.
+- Каждая factory создает отдельный adapter; `typedJsonSession` сохраняет это свойство для direct и pooled sessions.
+- Compile-tested examples выполняют JSON Lines, delimiter и typed Content-Length round-trips.
 
 ## Performance/stress
 

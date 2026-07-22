@@ -7,7 +7,6 @@ import static io.github.ulviar.procwright.integration.IntegrationProtocolExcepti
 import static io.github.ulviar.procwright.integration.IntegrationProtocolException.Reason.EOF;
 import static io.github.ulviar.procwright.integration.IntegrationProtocolException.Reason.MISSING_LENGTH;
 
-import java.io.IOException;
 import java.util.function.IntSupplier;
 
 final class ContentLengthHeaders {
@@ -16,13 +15,13 @@ final class ContentLengthHeaders {
 
     private ContentLengthHeaders() {}
 
-    static int read(ByteSource source) throws IOException {
+    static int read(IntSupplier source) {
         byte[] header = new byte[MAX_HEADER_BYTES];
         int previous3 = -1;
         int previous2 = -1;
         int previous1 = -1;
         for (int index = 0; index < header.length; index++) {
-            int value = source.read();
+            int value = source.getAsInt();
             if (value < 0) {
                 throw new IntegrationProtocolException(EOF, "Input ended before frame headers were complete");
             }
@@ -35,14 +34,6 @@ final class ContentLengthHeaders {
             previous1 = value;
         }
         throw new IntegrationProtocolException(BAD_HEADER, "Frame headers exceed limit");
-    }
-
-    static int readProtocol(IntSupplier source) {
-        try {
-            return read(source::getAsInt);
-        } catch (IOException impossible) {
-            throw new AssertionError("Protocol byte source does not throw checked I/O failures", impossible);
-        }
     }
 
     private static int parse(byte[] header, int length) {
@@ -165,10 +156,5 @@ final class ContentLengthHeaders {
 
     private static boolean isOptionalWhitespace(int value) {
         return value == ' ' || value == '\t';
-    }
-
-    @FunctionalInterface
-    interface ByteSource {
-        int read() throws IOException;
     }
 }

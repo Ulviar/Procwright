@@ -163,7 +163,7 @@ class ReleaseContractTest(unittest.TestCase):
                 "source_anchor": "io/github/ulviar/procwright/integration/ProtocolAdapters.java",
                 "documentation_anchor": "io/github/ulviar/procwright/integration/ProtocolAdapters.html",
                 "pom_name": "Procwright Integrations",
-                "pom_description": "Optional protocol and tool-adapter helpers for Procwright.",
+                "pom_description": "Optional JSON and byte-framing adapters for Procwright protocol sessions.",
                 "exports": ("io.github.ulviar.procwright.integration",),
                 "requires": (
                     ("com.fasterxml.jackson.databind", 0x20),
