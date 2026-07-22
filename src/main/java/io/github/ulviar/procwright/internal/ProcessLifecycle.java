@@ -25,6 +25,8 @@ public final class ProcessLifecycle {
     private static final ProcessTreeScanner PROCESS_TREE_SCANNER = ProcessTreeScanner.shared();
     private static final DestroyFallbackDispatcher DEFAULT_DESTROY_FALLBACK = BoundedDestroyDispatcher::dispatch;
     private static final StdinCloseDispatcher DEFAULT_STDIN_CLOSE = ProcessLifecycle::closeStdinAsync;
+    private static final long POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
+    private static final PollClock SYSTEM_POLL_CLOCK = new SystemPollClock();
 
     private ProcessLifecycle() {}
 
@@ -76,40 +78,80 @@ public final class ProcessLifecycle {
     public static boolean waitFor(
             Process process, Duration timeout, AtomicReference<Set<ProcessHandle>> descendantsSnapshot)
             throws InterruptedException {
+        return waitFor(process, timeout, descendantsSnapshot, SYSTEM_POLL_CLOCK);
+    }
+
+    static boolean waitFor(
+            Process process, Duration timeout, AtomicReference<Set<ProcessHandle>> descendantsSnapshot, PollClock clock)
+            throws InterruptedException {
         Objects.requireNonNull(process, "process");
         Objects.requireNonNull(timeout, "timeout");
         Objects.requireNonNull(descendantsSnapshot, "descendantsSnapshot");
+        Objects.requireNonNull(clock, "clock");
         if (timeout.isNegative()) {
             throw new IllegalArgumentException("timeout must not be negative");
         }
         descendantsSnapshot.compareAndSet(null, Set.of());
         boolean unbounded = timeout.isZero();
-        long deadlineNanos = unbounded ? 0 : DurationSupport.deadlineFromNow(timeout);
-        long pollNanos = TimeUnit.MILLISECONDS.toNanos(100);
+        boolean guarded = process instanceof GuardedProcess;
+        long deadlineNanos = unbounded ? 0 : DurationSupport.deadlineFrom(clock.nanoTime(), timeout);
         while (true) {
-            long remainingNanos = unbounded ? pollNanos : deadlineNanos - System.nanoTime();
+            long remainingNanos = unbounded ? POLL_NANOS : deadlineNanos - clock.nanoTime();
             if (remainingNanos <= 0) {
-                return process instanceof GuardedProcess ? false : hasExited(process);
+                return guarded ? false : hasExited(process);
             }
-            Duration pollBudget = Duration.ofNanos(Math.min(remainingNanos, pollNanos));
-            if (hasExited(process, pollBudget)) {
-                return true;
+            boolean finalPollInterval = !unbounded && remainingNanos <= POLL_NANOS;
+            Duration pollBudget = Duration.ofNanos(Math.min(remainingNanos, POLL_NANOS));
+            try {
+                if (hasExited(process, pollBudget)) {
+                    return true;
+                }
+            } catch (CommandExecutionException failure) {
+                if (guarded
+                        && !unbounded
+                        && (finalPollInterval || deadlineNanos - clock.nanoTime() <= 0)
+                        && ProcessTreeScanner.causedByOperationDeadline(failure)) {
+                    return false;
+                }
+                throw failure;
             }
-            remainingNanos = unbounded ? pollNanos : deadlineNanos - System.nanoTime();
+            remainingNanos = unbounded ? POLL_NANOS : deadlineNanos - clock.nanoTime();
             if (remainingNanos <= 0) {
                 return false;
             }
-            pollBudget = Duration.ofNanos(Math.min(remainingNanos, pollNanos));
+            pollBudget = Duration.ofNanos(Math.min(remainingNanos, POLL_NANOS));
             Set<ProcessHandle> current = descendantsOf(process, pollBudget);
             long mergeDeadline = unbounded ? DurationSupport.deadlineFromNow(pollBudget) : deadlineNanos;
             descendantsSnapshot.set(mergeDescendants(descendantsSnapshot.get(), current, mergeDeadline));
-            remainingNanos = unbounded ? pollNanos : deadlineNanos - System.nanoTime();
+            remainingNanos = unbounded ? POLL_NANOS : deadlineNanos - clock.nanoTime();
             if (remainingNanos <= 0) {
                 return false;
             }
-            if (process.waitFor(Math.min(remainingNanos, pollNanos), TimeUnit.NANOSECONDS)) {
+            long waitNanos = Math.min(remainingNanos, POLL_NANOS);
+            if (guarded) {
+                long sleepNanos = waitNanos < POLL_NANOS ? Math.max(1, waitNanos / 2) : waitNanos;
+                clock.sleep(sleepNanos);
+            } else if (process.waitFor(waitNanos, TimeUnit.NANOSECONDS)) {
                 return true;
             }
+        }
+    }
+
+    interface PollClock {
+        long nanoTime();
+
+        void sleep(long nanos) throws InterruptedException;
+    }
+
+    private static final class SystemPollClock implements PollClock {
+        @Override
+        public long nanoTime() {
+            return System.nanoTime();
+        }
+
+        @Override
+        public void sleep(long nanos) throws InterruptedException {
+            TimeUnit.NANOSECONDS.sleep(nanos);
         }
     }
 

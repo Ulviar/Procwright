@@ -76,8 +76,8 @@ final class PtyBootstrapTest {
     @Test
     void successfulHandshakeWritesTheBoundedFrameAndLeavesTargetStdinOpen() throws Exception {
         PtyTestProcess process = PtyTestProcess.completedWithOutput(143, HANDSHAKE);
-        PtyBootstrap.Prepared bootstrap =
-                PtyBootstrap.prepare(payload(List.of("/bin/true", ""), Map.of("EXACT", "line\nЖ")));
+        PtyBootstrap.Prepared bootstrap = PtyBootstrap.prepare(
+                payload(List.of("/bin/true", ""), Map.of("EXACT", "line\n-option=value ' $(data-only)")));
         try {
             Process initialized = PtyLaunchAdmission.launch(Duration.ofSeconds(1), context -> {
                 context.registerProcess(process);

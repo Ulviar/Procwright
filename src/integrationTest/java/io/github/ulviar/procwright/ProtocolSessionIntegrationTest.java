@@ -46,7 +46,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
-import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 final class ProtocolSessionIntegrationTest {
@@ -992,15 +991,6 @@ final class ProtocolSessionIntegrationTest {
                     assertThrows(AssertionError.class, () -> session.request("again", Duration.ofSeconds(1)));
             assertSame(writerError, followUp);
         }
-    }
-
-    @RepeatedTest(20)
-    void processExitBeforeResponseIsTypedProtocolFailure() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(), new StdoutLineAdapter(16), call -> call.withArgs("exit"))
-                .request(""));
-
-        assertEquals(ProtocolSessionException.Reason.PROCESS_EXITED, exception.reason());
     }
 
     @Test

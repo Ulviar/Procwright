@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -18,11 +17,20 @@ final class SystemPtyCapabilityProbeTest {
 
     private static final byte[] READY = "\u001ePROCWRIGHT_PTY_READY\u001f".getBytes(StandardCharsets.US_ASCII);
     private static final SystemPtyProvider.SystemTools TOOLS = new SystemPtyProvider.SystemTools(
-            Path.of("/usr/bin/script"),
-            Path.of("/bin/sh"),
-            Path.of("/usr/bin/stty"),
-            Path.of("/usr/bin/env"),
-            Path.of("/bin/dd"));
+            PtyTestPaths.SCRIPT, PtyTestPaths.SHELL, PtyTestPaths.STTY, PtyTestPaths.ENV, PtyTestPaths.DD);
+
+    @Test
+    void roundTripTokenIsPortableAndExercisesOpaquePayloadCharacters() {
+        String token = SystemPtyCapabilityProbe.ROUND_TRIP_VALUE;
+
+        assertTrue(StandardCharsets.US_ASCII.newEncoder().canEncode(token));
+        assertTrue(token.startsWith("-"), "the probe must exercise an option-like payload");
+        assertTrue(token.contains("assignment=value"), "the probe must exercise an assignment-like payload");
+        assertTrue(token.contains(" "), "the probe must exercise whitespace");
+        assertTrue(token.contains("'"), "the probe must exercise quotes");
+        assertTrue(token.contains("\""), "the probe must exercise quotes");
+        assertTrue(token.contains("\n"), "the probe must exercise embedded newlines");
+    }
 
     @Test
     void exactProbeUsesSanitizedEnvironmentAndTheSelectedAbsoluteScript() {
@@ -34,7 +42,9 @@ final class SystemPtyCapabilityProbeTest {
         assertEquals(TOOLS.scriptPath().toString(), starter.command().get(0));
         assertEquals(List.of("-q", "-e", "-c"), starter.command().subList(1, 4));
         assertEquals("/dev/null", starter.command().get(5));
-        assertEquals(Map.of("SHELL", "/bin/sh", "LC_ALL", "C", "LANG", "C", "TERM", "dumb"), starter.environment());
+        assertEquals(
+                Map.of("SHELL", TOOLS.shellPath().toString(), "LC_ALL", "C", "LANG", "C", "TERM", "dumb"),
+                starter.environment());
         assertFalse(starter.environment().containsKey("PATH"));
         assertFalse(starter.environment().containsKey("SHELLOPTS"));
         assertFalse(starter.environment().containsKey("LD_PRELOAD"));

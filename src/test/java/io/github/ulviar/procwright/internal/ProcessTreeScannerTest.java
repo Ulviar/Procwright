@@ -437,6 +437,7 @@ final class ProcessTreeScannerTest {
                     CommandExecutionException.class,
                     () -> scanner.required("procwright-capacity-test-", Duration.ofSeconds(1), () -> "unreachable"));
             assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, requiredFailure.reason());
+            assertFalse(ProcessTreeScanner.causedByOperationDeadline(requiredFailure));
             assertEquals(capacity, providerCalls.get());
         } finally {
             release.countDown();
@@ -561,6 +562,7 @@ final class ProcessTreeScannerTest {
                     throw lateFailure;
                 }));
         assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, timeout.reason());
+        assertTrue(ProcessTreeScanner.causedByOperationDeadline(timeout));
         assertTrue(entered.await(1, TimeUnit.SECONDS));
         assertEquals(0, scanner.availableOperationPermits());
         try {

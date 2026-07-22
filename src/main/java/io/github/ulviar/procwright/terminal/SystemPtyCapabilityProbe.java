@@ -13,7 +13,7 @@ final class SystemPtyCapabilityProbe implements SystemPtyProvider.ScriptCapabili
 
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(2);
     private static final int EXPECTED_EXIT = 73;
-    private static final String ROUND_TRIP_VALUE = " value ' $(data-only)\nline=two=Ж\n";
+    static final String ROUND_TRIP_VALUE = "-option-like ' \"quoted\" $(data-only)\nassignment=value\tend\n";
 
     private final ProcessStarter processStarter;
     private final Duration timeout;

@@ -24,18 +24,19 @@ import org.junit.jupiter.api.Test;
 
 final class SystemPtyProviderTest {
 
-    private static final Path SCRIPT = Path.of("/usr/bin/script");
-    private static final Path SHELL = Path.of("/bin/sh");
-    private static final Path STTY = Path.of("/usr/bin/stty");
-    private static final Path ENV = Path.of("/usr/bin/env");
-    private static final Path DD = Path.of("/bin/dd");
+    private static final Path SCRIPT = PtyTestPaths.SCRIPT;
+    private static final Path SHELL = PtyTestPaths.SHELL;
+    private static final Path STTY = PtyTestPaths.STTY;
+    private static final Path ENV = PtyTestPaths.ENV;
+    private static final Path DD = PtyTestPaths.DD;
 
     @Test
     void windowsIsExplicitlyUnavailableWithoutProbingUnixExecutables() {
         SystemPtyProvider.SystemPtySupport support = SystemPtyProvider.SystemPtySupport.detect(
                 "Windows 11",
                 path -> fail("Windows detection must not probe Unix executable " + path),
-                (flavor, tools) -> fail("Windows detection must not launch a capability probe"));
+                (flavor, tools) -> fail("Windows detection must not launch a capability probe"),
+                () -> fail("Windows detection must not construct Unix tool candidates"));
 
         assertFalse(support.available());
         assertEquals(SystemPtyProvider.ScriptFlavor.UNAVAILABLE, support.flavor());
@@ -47,7 +48,10 @@ final class SystemPtyProviderTest {
         Predicate<Path> allPrerequisites = executablePaths(SCRIPT, SHELL, STTY, ENV, DD);
 
         SystemPtyProvider.SystemPtySupport support = SystemPtyProvider.SystemPtySupport.detect(
-                "Darwin", allPrerequisites, (flavor, tools) -> flavor == SystemPtyProvider.ScriptFlavor.BSD);
+                "Darwin",
+                allPrerequisites,
+                (flavor, tools) -> flavor == SystemPtyProvider.ScriptFlavor.BSD,
+                PtyTestPaths.candidates());
 
         assertSupport(support, SystemPtyProvider.ScriptFlavor.BSD);
     }
@@ -57,9 +61,15 @@ final class SystemPtyProviderTest {
         Predicate<Path> allPrerequisites = executablePaths(SCRIPT, SHELL, STTY, ENV, DD);
 
         SystemPtyProvider.SystemPtySupport linux = SystemPtyProvider.SystemPtySupport.detect(
-                "Linux", allPrerequisites, (flavor, tools) -> flavor == SystemPtyProvider.ScriptFlavor.UTIL_LINUX);
+                "Linux",
+                allPrerequisites,
+                (flavor, tools) -> flavor == SystemPtyProvider.ScriptFlavor.UTIL_LINUX,
+                PtyTestPaths.candidates());
         SystemPtyProvider.SystemPtySupport bsd = SystemPtyProvider.SystemPtySupport.detect(
-                "Mac OS X", allPrerequisites, (flavor, tools) -> flavor == SystemPtyProvider.ScriptFlavor.BSD);
+                "Mac OS X",
+                allPrerequisites,
+                (flavor, tools) -> flavor == SystemPtyProvider.ScriptFlavor.BSD,
+                PtyTestPaths.candidates());
 
         assertSupport(linux, SystemPtyProvider.ScriptFlavor.UTIL_LINUX);
         assertSupport(bsd, SystemPtyProvider.ScriptFlavor.BSD);
@@ -70,7 +80,8 @@ final class SystemPtyProviderTest {
         SystemPtyProvider.SystemPtySupport support = SystemPtyProvider.SystemPtySupport.detect(
                 "Mac OS X",
                 executablePaths(SCRIPT, SHELL, STTY, ENV),
-                (flavor, tools) -> fail("missing dd(1) must prevent capability probes"));
+                (flavor, tools) -> fail("missing dd(1) must prevent capability probes"),
+                PtyTestPaths.candidates());
 
         assertFalse(support.available());
         assertEquals("Unix PTY support requires dd(1) in a trusted system path", support.description());
@@ -98,7 +109,8 @@ final class SystemPtyProviderTest {
             SystemPtyProvider.SystemPtySupport support = SystemPtyProvider.SystemPtySupport.detect(
                     "Linux",
                     detectionCase.executableProbe(),
-                    (flavor, tools) -> fail("missing prerequisites must prevent capability probes"));
+                    (flavor, tools) -> fail("missing prerequisites must prevent capability probes"),
+                    PtyTestPaths.candidates());
 
             assertFalse(support.available(), detectionCase.expectedDescription());
             assertEquals(SystemPtyProvider.ScriptFlavor.UNAVAILABLE, support.flavor());
@@ -111,11 +123,14 @@ final class SystemPtyProviderTest {
         Predicate<Path> allPrerequisites = executablePaths(SCRIPT, SHELL, STTY, ENV, DD);
         AtomicInteger probes = new AtomicInteger();
 
-        SystemPtyProvider.SystemPtySupport support =
-                SystemPtyProvider.SystemPtySupport.detect("Linux", allPrerequisites, (flavor, tools) -> {
+        SystemPtyProvider.SystemPtySupport support = SystemPtyProvider.SystemPtySupport.detect(
+                "Linux",
+                allPrerequisites,
+                (flavor, tools) -> {
                     probes.incrementAndGet();
                     return false;
-                });
+                },
+                PtyTestPaths.candidates());
 
         assertFalse(support.available());
         assertEquals(SystemPtyProvider.ScriptFlavor.UNAVAILABLE, support.flavor());
@@ -125,14 +140,15 @@ final class SystemPtyProviderTest {
 
     @Test
     void detectionUsesTheExactScriptPathThatPassedTheProbe() {
-        Path secondScript = Path.of("/bin/script");
+        Path secondScript = PtyTestPaths.SECOND_SCRIPT;
         Predicate<Path> allPrerequisites = executablePaths(SCRIPT, secondScript, SHELL, STTY, ENV, DD);
 
         SystemPtyProvider.SystemPtySupport support = SystemPtyProvider.SystemPtySupport.detect(
                 "Linux",
                 allPrerequisites,
                 (flavor, tools) ->
-                        tools.scriptPath().equals(secondScript) && flavor == SystemPtyProvider.ScriptFlavor.UTIL_LINUX);
+                        tools.scriptPath().equals(secondScript) && flavor == SystemPtyProvider.ScriptFlavor.UTIL_LINUX,
+                PtyTestPaths.candidates());
 
         assertTrue(support.available());
         assertEquals(secondScript, support.scriptPath());
@@ -158,7 +174,9 @@ final class SystemPtyProviderTest {
         List<String> wrapperCommand =
                 PtyBootstrap.commandFor(supported(SystemPtyProvider.ScriptFlavor.BSD), plan.terminalSize());
 
-        assertEquals(Map.of("SHELL", "/bin/sh", "LC_ALL", "C", "LANG", "C", "TERM", "dumb"), plan.wrapperEnvironment());
+        assertEquals(
+                Map.of("SHELL", SHELL.toString(), "LC_ALL", "C", "LANG", "C", "TERM", "dumb"),
+                plan.wrapperEnvironment());
         assertFalse(wrapperCommand.toString().contains("secret-value"));
         assertFalse(wrapperCommand.toString().contains("LD_PRELOAD"));
         assertFalse(plan.wrapperEnvironment().keySet().stream().anyMatch(childEnvironment::containsKey));
@@ -215,7 +233,9 @@ final class SystemPtyProviderTest {
                 .stream()
                 .map(SystemPtyProviderTest::shellQuote)
                 .collect(java.util.stream.Collectors.joining(" "));
-        assertEquals(List.of(SCRIPT.toString(), "-q", "-e", "-c", utilLinuxWrapper, "/dev/null"), utilLinuxCommand);
+        assertEquals(
+                List.of(SCRIPT.toString(), "-q", "-e", "-c", "exec " + utilLinuxWrapper, "/dev/null"),
+                utilLinuxCommand);
         for (List<String> command : List.of(bsdCommand, utilLinuxCommand)) {
             String rendered = String.join(" ", command);
             assertFalse(rendered.contains("secret-command-argument"));
@@ -271,7 +291,7 @@ final class SystemPtyProviderTest {
         String secretExecutable = "/secret-target-4d673a";
         SystemPtyProvider.SystemPtySupport missing = new SystemPtyProvider.SystemPtySupport(
                 SystemPtyProvider.ScriptFlavor.BSD,
-                Path.of("/procwright-missing-script"),
+                PtyTestPaths.MISSING_SCRIPT,
                 SHELL,
                 STTY,
                 ENV,
@@ -304,6 +324,30 @@ final class SystemPtyProviderTest {
                 IllegalArgumentException.class,
                 () -> new SystemPtyProvider.SystemPtySupport(
                         SystemPtyProvider.ScriptFlavor.BSD, SCRIPT, Path.of("sh"), STTY, ENV, DD, "relative helper"));
+    }
+
+    @Test
+    void detectionCandidatePathsMustAllBeAbsolute() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SystemPtyProvider.SystemToolCandidates(
+                        List.of(Path.of("script")), SHELL, List.of(STTY), List.of(ENV), List.of(DD)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SystemPtyProvider.SystemToolCandidates(
+                        List.of(SCRIPT), Path.of("sh"), List.of(STTY), List.of(ENV), List.of(DD)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SystemPtyProvider.SystemToolCandidates(
+                        List.of(SCRIPT), SHELL, List.of(Path.of("stty")), List.of(ENV), List.of(DD)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SystemPtyProvider.SystemToolCandidates(
+                        List.of(SCRIPT), SHELL, List.of(STTY), List.of(Path.of("env")), List.of(DD)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SystemPtyProvider.SystemToolCandidates(
+                        List.of(SCRIPT), SHELL, List.of(STTY), List.of(ENV), List.of(Path.of("dd"))));
     }
 
     private static void assertSupport(

@@ -291,7 +291,7 @@ final class PtyBootstrap {
     }
 
     private static List<String> utilLinuxCommand(java.nio.file.Path scriptPath, List<String> wrapper) {
-        return List.of(scriptPath.toString(), "-q", "-e", "-c", shellCommand(wrapper), "/dev/null");
+        return List.of(scriptPath.toString(), "-q", "-e", "-c", "exec " + shellCommand(wrapper), "/dev/null");
     }
 
     private static String shellCommand(List<String> command) {

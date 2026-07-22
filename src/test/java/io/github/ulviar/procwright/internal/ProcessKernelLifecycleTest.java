@@ -22,10 +22,13 @@ import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -204,27 +207,32 @@ final class ProcessKernelLifecycleTest {
     }
 
     @Test
-    void trailingDotAndSpaceAliasesForNewCaptureTargetsAreRejectedBeforeLaunch(@TempDir Path directory) {
-        Path stdout = directory.resolve("capture.log");
-        Path stderr = directory.resolve("capture.log. ");
-        AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
-            starts.incrementAndGet();
-            throw new AssertionError("capture validation must run before process launch");
-        });
+    void trailingDotAndSpaceAliasesForNewCaptureTargetsAreRejectedBeforeLaunch(@TempDir Path directory)
+            throws IOException {
+        URI archive =
+                URI.create("jar:" + directory.resolve("portable-paths.zip").toUri());
+        try (FileSystem paths = FileSystems.newFileSystem(archive, Map.of("create", "true"))) {
+            Path stdout = paths.getPath("/capture.log");
+            Path stderr = paths.getPath("/capture.log. ");
+            AtomicInteger starts = new AtomicInteger();
+            ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+                starts.incrementAndGet();
+                throw new AssertionError("capture validation must run before process launch");
+            });
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> kernel.run(executionPlan(
-                        CapturePolicy.toPath(stdout, stderr),
-                        DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
-                        OutputMode.SEPARATE,
-                        Duration.ofSeconds(1))));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> kernel.run(executionPlan(
+                            CapturePolicy.toPath(stdout, stderr),
+                            DiagnosticsSettings.disabled(),
+                            StdinPolicy.closed(),
+                            OutputMode.SEPARATE,
+                            Duration.ofSeconds(1))));
 
-        assertEquals(0, starts.get());
-        assertFalse(Files.exists(stdout));
-        assertFalse(Files.exists(stderr));
+            assertEquals(0, starts.get());
+            assertFalse(Files.exists(stdout));
+            assertFalse(Files.exists(stderr));
+        }
     }
 
     @Test

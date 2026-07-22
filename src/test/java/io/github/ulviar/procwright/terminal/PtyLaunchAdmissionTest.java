@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.EnvironmentPolicy;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,11 +26,11 @@ final class PtyLaunchAdmissionTest {
 
     private static final SystemPtyProvider.SystemPtySupport SUPPORT = new SystemPtyProvider.SystemPtySupport(
             SystemPtyProvider.ScriptFlavor.BSD,
-            Path.of("/usr/bin/script"),
-            Path.of("/bin/sh"),
-            Path.of("/usr/bin/stty"),
-            Path.of("/usr/bin/env"),
-            Path.of("/bin/dd"),
+            PtyTestPaths.SCRIPT,
+            PtyTestPaths.SHELL,
+            PtyTestPaths.STTY,
+            PtyTestPaths.ENV,
+            PtyTestPaths.DD,
             "admission test provider");
 
     @Test

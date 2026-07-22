@@ -63,10 +63,85 @@ final class ProcessLifecycleTest {
     }
 
     @Test
+    void guardedLivenessOperationTimeoutAtTheOuterDeadlineReturnsFalse() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofSeconds(5));
+        BlockingLivenessProcess delegate = new BlockingLivenessProcess();
+        try {
+            assertFalse(
+                    ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(25), new AtomicReference<>()));
+            assertTrue(delegate.livenessEntered.await(1, TimeUnit.SECONDS));
+        } finally {
+            delegate.releaseLiveness.countDown();
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    @Test
     void expiredDeadlineStillRecognizesAnAlreadyExitedProcess() throws Exception {
         AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
 
         assertTrue(ProcessLifecycle.waitFor(new CompletedProcess(), Duration.ofNanos(1), descendants));
+    }
+
+    @Test
+    void guardedProcessCompletionUsesLivenessPollingWithoutInvokingProviderWaitFor() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
+        PollingCompletionProcess delegate = new PollingCompletionProcess();
+        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        AdvancingPollClock clock = new AdvancingPollClock();
+
+        assertTrue(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofSeconds(1), descendants, clock));
+
+        assertEquals(2, delegate.livenessCalls());
+        assertEquals(0, delegate.timedWaitCalls());
+    }
+
+    @Test
+    void guardedProcessGetsAFinalLivenessProbeDuringTheLastPollInterval() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
+        PollingCompletionProcess delegate = new PollingCompletionProcess(3);
+        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        AdvancingPollClock clock = new AdvancingPollClock();
+
+        assertTrue(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
+
+        assertEquals(4, delegate.livenessCalls());
+        assertEquals(0, delegate.timedWaitCalls());
+    }
+
+    @Test
+    void guardedProcessTimeoutCompletesWithoutInvokingProviderWaitFor() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
+        PollingCompletionProcess delegate = new PollingCompletionProcess(Integer.MAX_VALUE);
+        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        AdvancingPollClock clock = new AdvancingPollClock();
+
+        assertFalse(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
+
+        assertTrue(clock.nanoTime() <= Duration.ofMillis(250).toNanos());
+        assertEquals(0, delegate.timedWaitCalls());
+    }
+
+    @Test
+    void providerFailureRemainsVisibleWhenItAdvancesTheOuterClockPastDeadline() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
+        AdvancingPollClock clock = new AdvancingPollClock();
+        CommandExecutionException providerFailure = new CommandExecutionException(
+                CommandExecutionException.Reason.RUNTIME_FAILURE, "provider liveness failed");
+        Process delegate = new PollingCompletionProcess() {
+            @Override
+            public boolean isAlive() {
+                clock.advance(Duration.ofMillis(250).toNanos());
+                throw providerFailure;
+            }
+        };
+
+        CommandExecutionException observed = assertThrows(
+                CommandExecutionException.class,
+                () -> ProcessLifecycle.waitFor(
+                        scanner.guard(delegate), Duration.ofMillis(250), new AtomicReference<>(), clock));
+
+        assertSame(providerFailure, observed);
     }
 
     @Test
@@ -906,6 +981,95 @@ final class ProcessLifecycleTest {
 
         @Override
         public void destroy() {}
+    }
+
+    private static class PollingCompletionProcess extends Process {
+
+        private final AtomicInteger livenessCalls = new AtomicInteger();
+        private final AtomicInteger timedWaitCalls = new AtomicInteger();
+        private final int livePolls;
+
+        private PollingCompletionProcess() {
+            this(1);
+        }
+
+        private PollingCompletionProcess(int livePolls) {
+            this.livePolls = livePolls;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            timedWaitCalls.incrementAndGet();
+            return false;
+        }
+
+        @Override
+        public int exitValue() {
+            if (livenessCalls.get() <= livePolls) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 0;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public boolean isAlive() {
+            return livenessCalls.incrementAndGet() <= livePolls;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+
+        private int livenessCalls() {
+            return livenessCalls.get();
+        }
+
+        private int timedWaitCalls() {
+            return timedWaitCalls.get();
+        }
+    }
+
+    private static final class AdvancingPollClock implements ProcessLifecycle.PollClock {
+
+        private long nanos;
+
+        @Override
+        public long nanoTime() {
+            return nanos;
+        }
+
+        @Override
+        public void sleep(long durationNanos) {
+            nanos += durationNanos;
+        }
+
+        private void advance(long durationNanos) {
+            nanos += durationNanos;
+        }
     }
 
     private static final class BlockingLivenessProcess extends Process {

@@ -16,6 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 final class SystemPtyProvider implements PtyProvider {
 
@@ -177,6 +178,15 @@ final class SystemPtyProvider implements PtyProvider {
         return path;
     }
 
+    private static List<Path> requireAbsolutePaths(List<Path> paths, String name) {
+        Objects.requireNonNull(paths, name);
+        ArrayList<Path> validated = new ArrayList<>(paths.size());
+        for (Path path : paths) {
+            validated.add(requireAbsolutePath(path, name));
+        }
+        return List.copyOf(validated);
+    }
+
     record PtyLaunchPlan(Map<String, String> wrapperEnvironment, PtyPayload payload, TerminalSize terminalSize) {
 
         PtyLaunchPlan {
@@ -229,6 +239,18 @@ final class SystemPtyProvider implements PtyProvider {
         }
     }
 
+    record SystemToolCandidates(
+            List<Path> scriptPaths, Path shellPath, List<Path> sttyPaths, List<Path> envPaths, List<Path> ddPaths) {
+
+        SystemToolCandidates {
+            scriptPaths = requireAbsolutePaths(scriptPaths, "scriptPaths");
+            shellPath = requireAbsolutePath(shellPath, "shellPath");
+            sttyPaths = requireAbsolutePaths(sttyPaths, "sttyPaths");
+            envPaths = requireAbsolutePaths(envPaths, "envPaths");
+            ddPaths = requireAbsolutePaths(ddPaths, "ddPaths");
+        }
+    }
+
     record SystemPtySupport(
             ScriptFlavor flavor,
             Path scriptPath,
@@ -255,50 +277,66 @@ final class SystemPtyProvider implements PtyProvider {
         }
 
         static SystemPtySupport detect() {
+            String osName = System.getProperty("os.name", "");
             return detect(
-                    System.getProperty("os.name", ""),
+                    osName,
                     SystemPtySupport::isTrustedExecutable,
-                    new SystemPtyCapabilityProbe());
+                    new SystemPtyCapabilityProbe(),
+                    SystemPtySupport::unixTools);
         }
 
         static SystemPtySupport detect(
-                String osName, Predicate<Path> executableProbe, ScriptCapabilityProbe capabilityProbe) {
+                String osName,
+                Predicate<Path> executableProbe,
+                ScriptCapabilityProbe capabilityProbe,
+                SystemToolCandidates candidates) {
+            Objects.requireNonNull(candidates, "candidates");
+            return detect(osName, executableProbe, capabilityProbe, () -> candidates);
+        }
+
+        static SystemPtySupport detect(
+                String osName,
+                Predicate<Path> executableProbe,
+                ScriptCapabilityProbe capabilityProbe,
+                Supplier<SystemToolCandidates> candidatesSupplier) {
             Objects.requireNonNull(osName, "osName");
             Objects.requireNonNull(executableProbe, "executableProbe");
             Objects.requireNonNull(capabilityProbe, "capabilityProbe");
+            Objects.requireNonNull(candidatesSupplier, "candidatesSupplier");
             String normalizedOsName = osName.strip().toLowerCase(Locale.ROOT);
-            if (normalizedOsName.startsWith("windows")) {
+            if (isWindows(normalizedOsName)) {
                 return unavailable("Windows ConPTY support is not implemented in the core artifact yet");
             }
+            SystemToolCandidates candidates =
+                    Objects.requireNonNull(candidatesSupplier.get(), "candidatesSupplier result");
 
-            List<Path> scripts =
-                    trustedExecutables(List.of(Path.of("/usr/bin/script"), Path.of("/bin/script")), executableProbe);
+            List<Path> scripts = trustedExecutables(candidates.scriptPaths(), executableProbe);
             if (scripts.isEmpty()) {
                 return unavailable("Unix PTY support requires script(1) in a trusted system path");
             }
-            Path shell = Path.of("/bin/sh");
+            Path shell = candidates.shellPath();
             if (!executableProbe.test(shell)) {
                 return unavailable("Unix PTY support requires executable /bin/sh");
             }
-            Path stty = findTrustedExecutable(List.of(Path.of("/usr/bin/stty"), Path.of("/bin/stty")), executableProbe);
+            Path stty = findTrustedExecutable(candidates.sttyPaths(), executableProbe);
             if (stty == null) {
                 return unavailable("Unix PTY support requires stty(1) in a trusted system path");
             }
-            Path env = findTrustedExecutable(List.of(Path.of("/usr/bin/env"), Path.of("/bin/env")), executableProbe);
+            Path env = findTrustedExecutable(candidates.envPaths(), executableProbe);
             if (env == null) {
                 return unavailable("Unix PTY support requires env(1) in a trusted system path");
             }
-            Path dd = findTrustedExecutable(List.of(Path.of("/usr/bin/dd"), Path.of("/bin/dd")), executableProbe);
+            Path dd = findTrustedExecutable(candidates.ddPaths(), executableProbe);
             if (dd == null) {
                 return unavailable("Unix PTY support requires dd(1) in a trusted system path");
             }
 
-            List<ScriptFlavor> candidates = normalizedOsName.contains("linux")
+            List<ScriptFlavor> flavorCandidates = normalizedOsName.contains("linux")
                     ? List.of(ScriptFlavor.UTIL_LINUX, ScriptFlavor.BSD)
                     : List.of(ScriptFlavor.BSD, ScriptFlavor.UTIL_LINUX);
             for (Path script : scripts) {
                 SystemTools tools = new SystemTools(script, shell, stty, env, dd);
-                for (ScriptFlavor candidate : candidates) {
+                for (ScriptFlavor candidate : flavorCandidates) {
                     if (capabilityProbe.supports(candidate, tools)) {
                         String label = candidate == ScriptFlavor.UTIL_LINUX ? "util-linux" : "BSD";
                         return new SystemPtySupport(
@@ -307,6 +345,19 @@ final class SystemPtyProvider implements PtyProvider {
                 }
             }
             return unavailable("Unix script(1) failed the bounded PTY capability probe");
+        }
+
+        private static boolean isWindows(String osName) {
+            return osName.strip().toLowerCase(Locale.ROOT).startsWith("windows");
+        }
+
+        private static SystemToolCandidates unixTools() {
+            return new SystemToolCandidates(
+                    List.of(Path.of("/usr/bin/script"), Path.of("/bin/script")),
+                    Path.of("/bin/sh"),
+                    List.of(Path.of("/usr/bin/stty"), Path.of("/bin/stty")),
+                    List.of(Path.of("/usr/bin/env"), Path.of("/bin/env")),
+                    List.of(Path.of("/usr/bin/dd"), Path.of("/bin/dd")));
         }
 
         private static SystemPtySupport unavailable(String description) {

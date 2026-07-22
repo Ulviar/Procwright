@@ -151,29 +151,37 @@ final class PooledLineSessionIntegrationTest {
     }
 
     @Test
-    void retiredWorkerCleansObservedDescendantAfterRootExit() throws Exception {
+    void retiredWorkerCleansDescendantBeforeReportingCloseCompletion() throws Exception {
         AtomicLong observedChildPid = new AtomicLong();
+        AtomicBoolean firstResponse = new AtomicBoolean(true);
         long childPid = -1;
         try (PooledLineSession pool = fixtureScenario()
                 .withResponseDecoder(reader -> {
                     String child = reader.readLine();
-                    observedChildPid.set(Long.parseLong(child.substring("child:".length())));
-                    return List.of(child, reader.readLine());
+                    if (firstResponse.compareAndSet(true, false)) {
+                        observedChildPid.set(Long.parseLong(child.substring("child:".length())));
+                    }
+                    return List.of(child);
                 })
-                .withArgs("spawn-child", "--child-scenario=never-exit", "--linger-millis=500")
+                .withReadiness(ready -> ready.request("observe-child"))
+                .withReadinessTimeout(Duration.ofSeconds(5))
+                .withArgs("spawn-child", "--child-scenario=never-exit", "--wait=true")
                 .pooled()
                 .withMaxSize(1)
+                .withWarmupSize(1)
                 .open()) {
             LineSessionException failure =
-                    assertThrows(LineSessionException.class, () -> pool.request("request", Duration.ofSeconds(2)));
+                    assertThrows(LineSessionException.class, () -> pool.request("request", Duration.ofMillis(200)));
             childPid = observedChildPid.get();
 
-            assertEquals(LineSessionException.Reason.EOF, failure.reason());
+            assertEquals(LineSessionException.Reason.TIMEOUT, failure.reason());
             assertTrue(childPid > 0, "worker output did not publish the child process id");
-            assertTrue(awaitRetired(pool, 1));
+            pool.closeAsync().get(2, TimeUnit.SECONDS);
             assertFalse(
                     ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false),
                     "retired pooled worker left an observed descendant alive");
+            assertEquals(1, pool.metrics().retired());
+            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.TIMEOUT));
         } finally {
             if (childPid >= 0) {
                 ProcessHandle.of(childPid).ifPresent(ProcessHandle::destroyForcibly);

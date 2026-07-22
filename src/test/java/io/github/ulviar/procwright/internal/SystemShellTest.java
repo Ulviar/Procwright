@@ -77,6 +77,7 @@ final class SystemShellTest {
         TestPlatform platform = new TestPlatform(true);
         Path differentlyCasedSystemDirectory = SYSTEM_ROOT.resolve("sYsTeM32");
         platform.canonicalSystemDirectory = differentlyCasedSystemDirectory;
+        platform.canonicalCommandInterpreter = differentlyCasedSystemDirectory.resolve("cmd.exe");
 
         assertEquals(
                 List.of(differentlyCasedSystemDirectory.resolve("cmd.exe").toString(), "/d", "/s", "/c", "echo ready"),
