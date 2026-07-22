@@ -17,7 +17,7 @@ dependencies {
     api("com.fasterxml.jackson.core:jackson-databind:2.22.0")
     compileOnlyApi("org.jspecify:jspecify:1.0.0")
 
-    testImplementation(platform("org.junit:junit-bom:6.0.0"))
+    testImplementation(platform("org.junit:junit-bom:6.1.2"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.jspecify:jspecify:1.0.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
