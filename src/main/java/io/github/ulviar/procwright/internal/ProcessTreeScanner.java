@@ -223,6 +223,22 @@ final class ProcessTreeScanner {
         return failure.getCause() instanceof OperationDeadlineExceeded;
     }
 
+    static CommandExecutionException operationDeadlineExceeded(String operation) {
+        return operationDeadlineExceeded(operation, null);
+    }
+
+    private static CommandExecutionException operationDeadlineExceeded(
+            String operation, TimeoutException timeoutFailure) {
+        OperationDeadlineExceeded deadline = new OperationDeadlineExceeded(operation);
+        if (timeoutFailure != null) {
+            deadline.initCause(timeoutFailure);
+        }
+        return new CommandExecutionException(
+                CommandExecutionException.Reason.RUNTIME_FAILURE,
+                "Provider process operation exceeded its bounded deadline: " + operation,
+                deadline);
+    }
+
     int descendantLimit() {
         return descendantLimit;
     }
@@ -574,12 +590,7 @@ final class ProcessTreeScanner {
             } catch (TimeoutException timeoutFailure) {
                 handoff.lateFailure().abandon();
                 handoff.execution().interrupt();
-                OperationDeadlineExceeded deadline = new OperationDeadlineExceeded(threadPrefix);
-                deadline.initCause(timeoutFailure);
-                throw new CommandExecutionException(
-                        CommandExecutionException.Reason.RUNTIME_FAILURE,
-                        "Provider process operation exceeded its bounded deadline: " + threadPrefix,
-                        deadline);
+                throw operationDeadlineExceeded(threadPrefix, timeoutFailure);
             } catch (ExecutionException impossible) {
                 throw new AssertionError("process operation completion stores failures as values", impossible);
             } catch (InterruptedException interruption) {

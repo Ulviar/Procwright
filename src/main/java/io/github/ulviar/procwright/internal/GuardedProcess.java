@@ -24,6 +24,10 @@ final class GuardedProcess extends Process {
         return delegate;
     }
 
+    Duration providerOperationTimeout() {
+        return scanner.providerOperationTimeout();
+    }
+
     @Override
     public OutputStream getOutputStream() {
         return required("procwright-provider-stdin-", delegate::getOutputStream);

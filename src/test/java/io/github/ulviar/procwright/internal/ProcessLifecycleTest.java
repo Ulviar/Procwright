@@ -17,9 +17,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -74,6 +79,144 @@ final class ProcessLifecycleTest {
             delegate.releaseLiveness.countDown();
         }
         assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    @Test
+    void unboundedGuardedWaitPreservesProviderLivenessBudgetExhaustion() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(100));
+        BlockingLivenessProcess delegate = new BlockingLivenessProcess();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Boolean> wait = executor.submit(
+                    () -> ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ZERO, new AtomicReference<>()));
+            assertTrue(delegate.livenessEntered.await(1, TimeUnit.SECONDS));
+
+            ExecutionException wrapper = assertThrows(ExecutionException.class, () -> wait.get(5, TimeUnit.SECONDS));
+            assertTrue(wrapper.getCause() instanceof CommandExecutionException);
+            CommandExecutionException failure = (CommandExecutionException) wrapper.getCause();
+            assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
+            assertTrue(failure.getMessage().contains("procwright-provider-liveness-"));
+        } finally {
+            delegate.releaseLiveness.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    @Test
+    void providerLimitedExitFallbackExhaustionRemainsTypedDuringUnboundedWait() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(500));
+        SecurityLivenessBlockingExitProcess delegate = new SecurityLivenessBlockingExitProcess();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Boolean> wait = executor.submit(
+                    () -> ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ZERO, new AtomicReference<>()));
+            assertTrue(delegate.exitValueEntered.await(1, TimeUnit.SECONDS));
+
+            ExecutionException wrapper = assertThrows(ExecutionException.class, () -> wait.get(5, TimeUnit.SECONDS));
+            assertTrue(wrapper.getCause() instanceof CommandExecutionException);
+            CommandExecutionException failure = (CommandExecutionException) wrapper.getCause();
+            assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
+            assertTrue(failure.getMessage().contains("procwright-provider-exit-"));
+        } finally {
+            delegate.releaseExitValue.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    @Test
+    void guardedShutdownTreatsLivenessTimeoutAtLifecycleDeadlineAsUnknownAndEscalates() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofSeconds(5));
+        DeadlineScriptedProcess delegate = new DeadlineScriptedProcess(true, false, false);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stopWithoutStdinClose(
+                    scanner.guard(delegate),
+                    Set.of(),
+                    ShutdownPolicy.interruptThenKill(Duration.ofMillis(40), Duration.ofMillis(250))));
+            assertTrue(delegate.gracefulWaitLivenessEntered.await(1, TimeUnit.SECONDS));
+            OptionalInt exitCode = shutdown.get(5, TimeUnit.SECONDS);
+
+            assertEquals(137, exitCode.orElseThrow());
+            assertEquals(1, delegate.forceDestroyCalls());
+            assertEquals(0, delegate.exitValueWhileAliveCalls());
+        } finally {
+            delegate.releaseGracefulWaitLiveness.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 4));
+    }
+
+    @Test
+    void guardedShutdownRetainsProviderLivenessTimeoutWhileLifecycleBudgetRemains() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofMillis(10));
+        DeadlineScriptedProcess delegate = new DeadlineScriptedProcess(true, true, false);
+        try {
+            CommandExecutionException failure = assertThrows(
+                    CommandExecutionException.class,
+                    () -> ProcessLifecycle.stopWithoutStdinClose(
+                            scanner.guard(delegate),
+                            Set.of(),
+                            ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofMillis(250))));
+
+            assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
+            assertTrue(failure.getMessage().contains("procwright-provider-liveness-"));
+            assertTrue(delegate.gracefulWaitLivenessEntered.await(1, TimeUnit.SECONDS));
+        } finally {
+            delegate.releaseGracefulWaitLiveness.countDown();
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 4));
+    }
+
+    @Test
+    void guardedDescendantLivenessTimeoutAtLifecycleDeadlineRemainsLiveAndIsForceStopped() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofSeconds(5));
+        DeadlineScriptedProcess root = new DeadlineScriptedProcess(false, false, true);
+        DeadlineScriptedProcessHandle descendant = new DeadlineScriptedProcessHandle(62, false);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stopWithoutStdinClose(
+                    scanner.guard(root),
+                    Set.of(scanner.guardObserved(descendant)),
+                    ShutdownPolicy.interruptThenKill(Duration.ofMillis(40), Duration.ofMillis(250))));
+            assertTrue(descendant.gracefulWaitLivenessEntered.await(1, TimeUnit.SECONDS));
+            OptionalInt exitCode = shutdown.get(5, TimeUnit.SECONDS);
+
+            assertEquals(137, exitCode.orElseThrow());
+            assertEquals(1, descendant.recordedForceDestroyCalls());
+            assertFalse(descendant.isAlive());
+        } finally {
+            descendant.releaseGracefulWaitLiveness.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 4));
+    }
+
+    @Test
+    void guardedDescendantProviderLivenessTimeoutRemainsFailureWhileLifecycleBudgetRemains() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofMillis(10));
+        DeadlineScriptedProcess root = new DeadlineScriptedProcess(false, false, true);
+        DeadlineScriptedProcessHandle descendant = new DeadlineScriptedProcessHandle(63, true);
+        try {
+            CommandExecutionException failure = assertThrows(
+                    CommandExecutionException.class,
+                    () -> ProcessLifecycle.stopWithoutStdinClose(
+                            scanner.guard(root),
+                            Set.of(scanner.guardObserved(descendant)),
+                            ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofMillis(250))));
+
+            assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
+            assertTrue(failure.getMessage().contains("procwright-provider-handle-liveness-"));
+            assertTrue(descendant.gracefulWaitLivenessEntered.await(1, TimeUnit.SECONDS));
+        } finally {
+            descendant.releaseGracefulWaitLiveness.countDown();
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 4));
     }
 
     @Test
@@ -1136,6 +1279,230 @@ final class ProcessLifecycleTest {
         @Override
         public Stream<ProcessHandle> descendants() {
             return Stream.empty();
+        }
+    }
+
+    private static final class SecurityLivenessBlockingExitProcess extends Process {
+
+        private final CountDownLatch exitValueEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseExitValue = new CountDownLatch(1);
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return false;
+        }
+
+        @Override
+        public int exitValue() {
+            exitValueEntered.countDown();
+            boolean restoreInterrupt = false;
+            while (true) {
+                try {
+                    releaseExitValue.await();
+                    break;
+                } catch (InterruptedException interruption) {
+                    restoreInterrupt = true;
+                }
+            }
+            if (restoreInterrupt) {
+                Thread.currentThread().interrupt();
+            }
+            return 0;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public boolean isAlive() {
+            throw new SecurityException("liveness observation is denied");
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+    }
+
+    private static final class DeadlineScriptedProcess extends Process {
+
+        private final boolean blockGracefulWaitLiveness;
+        private final boolean completeWhenLivenessIsInterrupted;
+        private final boolean completeOnGracefulDestroy;
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final AtomicInteger livenessCalls = new AtomicInteger();
+        private final AtomicInteger exitValueWhileAliveCalls = new AtomicInteger();
+        private final CountDownLatch gracefulWaitLivenessEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseGracefulWaitLiveness = new CountDownLatch(1);
+        private final ProcessHandle rootHandle = new MutableProcessHandle(61) {
+            @Override
+            public boolean destroy() {
+                if (completeOnGracefulDestroy) {
+                    alive.set(false);
+                }
+                return true;
+            }
+
+            @Override
+            public boolean destroyForcibly() {
+                alive.set(false);
+                return super.destroyForcibly();
+            }
+
+            @Override
+            public boolean isAlive() {
+                return alive.get();
+            }
+        };
+
+        private DeadlineScriptedProcess(
+                boolean blockGracefulWaitLiveness,
+                boolean completeWhenLivenessIsInterrupted,
+                boolean completeOnGracefulDestroy) {
+            this.blockGracefulWaitLiveness = blockGracefulWaitLiveness;
+            this.completeWhenLivenessIsInterrupted = completeWhenLivenessIsInterrupted;
+            this.completeOnGracefulDestroy = completeOnGracefulDestroy;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            alive.set(false);
+            return 137;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return !alive.get();
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive.get()) {
+                exitValueWhileAliveCalls.incrementAndGet();
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 137;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Process destroyForcibly() {
+            alive.set(false);
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            if (livenessCalls.incrementAndGet() == 2 && blockGracefulWaitLiveness) {
+                gracefulWaitLivenessEntered.countDown();
+                try {
+                    releaseGracefulWaitLiveness.await();
+                } catch (InterruptedException expected) {
+                    if (completeWhenLivenessIsInterrupted) {
+                        alive.set(false);
+                    }
+                }
+            }
+            return alive.get();
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            return rootHandle;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+
+        private int forceDestroyCalls() {
+            return ((MutableProcessHandle) rootHandle).forceDestroyCalls();
+        }
+
+        private int exitValueWhileAliveCalls() {
+            return exitValueWhileAliveCalls.get();
+        }
+    }
+
+    private static final class DeadlineScriptedProcessHandle extends MutableProcessHandle {
+
+        private final boolean completeWhenLivenessIsInterrupted;
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final AtomicInteger livenessCalls = new AtomicInteger();
+        private final CountDownLatch gracefulWaitLivenessEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseGracefulWaitLiveness = new CountDownLatch(1);
+
+        private DeadlineScriptedProcessHandle(long pid, boolean completeWhenLivenessIsInterrupted) {
+            super(pid);
+            this.completeWhenLivenessIsInterrupted = completeWhenLivenessIsInterrupted;
+        }
+
+        @Override
+        public boolean destroy() {
+            return true;
+        }
+
+        @Override
+        public boolean destroyForcibly() {
+            alive.set(false);
+            return super.destroyForcibly();
+        }
+
+        @Override
+        public boolean isAlive() {
+            if (livenessCalls.incrementAndGet() == 2) {
+                gracefulWaitLivenessEntered.countDown();
+                try {
+                    releaseGracefulWaitLiveness.await();
+                } catch (InterruptedException expected) {
+                    if (completeWhenLivenessIsInterrupted) {
+                        alive.set(false);
+                    }
+                }
+            }
+            return alive.get();
+        }
+
+        private int recordedForceDestroyCalls() {
+            return ((MutableProcessHandle) this).forceDestroyCalls();
         }
     }
 

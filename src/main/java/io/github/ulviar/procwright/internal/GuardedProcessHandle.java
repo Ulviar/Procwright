@@ -26,6 +26,10 @@ final class GuardedProcessHandle implements ProcessHandle {
         return delegate;
     }
 
+    Duration providerOperationTimeout() {
+        return scanner.providerOperationTimeout();
+    }
+
     @Override
     public long pid() {
         return required("procwright-provider-handle-pid-", delegate::pid);
