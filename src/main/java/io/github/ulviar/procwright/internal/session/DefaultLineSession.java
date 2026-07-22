@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -53,11 +52,10 @@ public final class DefaultLineSession implements LineSession {
     private final RequestTransitionProbe requestTransitionProbe;
     private final ResponseReadProbe responseReadProbe;
     private final LongSupplier nanoTime;
-    private final RequestLockWaiter requestLockWaiter;
+    private final SerializedRequestGate requestGate;
     private final BoundedLifecyclePublisher.Permit exitPublication;
     private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private final ArrayDeque<StdoutEvent> stdoutEvents = new ArrayDeque<>();
-    private final ReentrantLock requestLock = new ReentrantLock();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean malformed = new AtomicBoolean();
     private final AtomicReference<TerminalOutcome> terminalOutcome = new AtomicReference<>();
@@ -116,7 +114,7 @@ public final class DefaultLineSession implements LineSession {
                 writeTaskRunner,
                 requestTransitionProbe,
                 System::nanoTime,
-                RequestLockWaiter.timed());
+                SerializedRequestGate.Waiter.timed());
     }
 
     DefaultLineSession(
@@ -135,7 +133,7 @@ public final class DefaultLineSession implements LineSession {
                 writeTaskRunner,
                 requestTransitionProbe,
                 nanoTime,
-                RequestLockWaiter.timed());
+                SerializedRequestGate.Waiter.timed());
     }
 
     DefaultLineSession(
@@ -146,7 +144,7 @@ public final class DefaultLineSession implements LineSession {
             WriteTaskRunner writeTaskRunner,
             RequestTransitionProbe requestTransitionProbe,
             LongSupplier nanoTime,
-            RequestLockWaiter requestLockWaiter) {
+            SerializedRequestGate.Waiter requestLockWaiter) {
         this(
                 session,
                 options,
@@ -167,7 +165,7 @@ public final class DefaultLineSession implements LineSession {
             WriteTaskRunner writeTaskRunner,
             RequestTransitionProbe requestTransitionProbe,
             LongSupplier nanoTime,
-            RequestLockWaiter requestLockWaiter,
+            SerializedRequestGate.Waiter requestLockWaiter,
             ResponseReadProbe responseReadProbe) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
@@ -176,7 +174,7 @@ public final class DefaultLineSession implements LineSession {
         this.requestTransitionProbe = Objects.requireNonNull(requestTransitionProbe, "requestTransitionProbe");
         this.responseReadProbe = Objects.requireNonNull(responseReadProbe, "responseReadProbe");
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
-        this.requestLockWaiter = Objects.requireNonNull(requestLockWaiter, "requestLockWaiter");
+        this.requestGate = new SerializedRequestGate(requestLockWaiter);
         this.outputPumps = new OutputPumpCoordinator(session, OUTPUT_OWNER);
         this.transcript = new BoundedTranscriptBuffer(options.transcriptLimit());
         IncrementalTextDecoder stdoutTextDecoder;
@@ -227,7 +225,7 @@ public final class DefaultLineSession implements LineSession {
      * @return decoded response
      */
     public LineResponse request(String line, Duration timeout) {
-        Duration requestTimeout = requirePositive(timeout, "timeout");
+        Duration requestTimeout = DurationSupport.requirePositive(timeout, "timeout");
         long startedNanos = nanoTime.getAsLong();
         long deadlineNanos = DurationSupport.deadlineFromNow(requestTimeout);
         byte[] encodedLine = encodeLine(line, deadlineNanos);
@@ -236,7 +234,7 @@ public final class DefaultLineSession implements LineSession {
 
     LineResponse requestEncoded(byte[] encodedLine, Duration timeout) {
         Objects.requireNonNull(encodedLine, "encodedLine");
-        Duration requestTimeout = requirePositive(timeout, "timeout");
+        Duration requestTimeout = DurationSupport.requirePositive(timeout, "timeout");
         long startedNanos = nanoTime.getAsLong();
         long deadlineNanos = DurationSupport.deadlineFromNow(requestTimeout);
         return requestEncoded(encodedLine, startedNanos, deadlineNanos);
@@ -248,7 +246,7 @@ public final class DefaultLineSession implements LineSession {
             requestTransitionProbe.check(RequestTransition.AFTER_LOCK_ACQUIRED);
             return requestWhileLocked(encodedLine, startedNanos, deadlineNanos);
         } finally {
-            requestLock.unlock();
+            requestGate.release();
         }
     }
 
@@ -369,12 +367,8 @@ public final class DefaultLineSession implements LineSession {
     }
 
     private void acquireRequestLock(long deadlineNanos) {
-        long remainingNanos = deadlineNanos - System.nanoTime();
-        if (remainingNanos <= 0) {
-            throw arbitrateRequestLockFailure(this::timeout);
-        }
         try {
-            if (!requestLockWaiter.acquire(requestLock, remainingNanos)) {
+            if (!requestGate.acquireUntil(deadlineNanos)) {
                 throw arbitrateRequestLockFailure(this::timeout);
             }
         } catch (InterruptedException exception) {
@@ -1101,14 +1095,6 @@ public final class DefaultLineSession implements LineSession {
         }
     }
 
-    private static Duration requirePositive(Duration duration, String name) {
-        Objects.requireNonNull(duration, name);
-        if (duration.isZero() || duration.isNegative()) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return duration;
-    }
-
     private final class ResponseReader implements ResponseDecoder.Reader {
 
         private final long deadlineNanos;
@@ -1280,28 +1266,9 @@ public final class DefaultLineSession implements LineSession {
     }
 
     @FunctionalInterface
-    interface RequestLockWaiter {
-
-        boolean acquire(ReentrantLock lock, long remainingNanos) throws InterruptedException;
-
-        static RequestLockWaiter timed() {
-            return TimedRequestLockWaiter.INSTANCE;
-        }
-    }
-
-    @FunctionalInterface
     interface ResponseReadProbe {
 
         void check(ResponseReadTransition transition);
-    }
-
-    private enum TimedRequestLockWaiter implements RequestLockWaiter {
-        INSTANCE;
-
-        @Override
-        public boolean acquire(ReentrantLock lock, long remainingNanos) throws InterruptedException {
-            return lock.tryLock(remainingNanos, TimeUnit.NANOSECONDS);
-        }
     }
 
     enum RequestTransition {

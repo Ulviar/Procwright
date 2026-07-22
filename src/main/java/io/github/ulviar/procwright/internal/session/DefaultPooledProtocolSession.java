@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
 import io.github.ulviar.procwright.session.PooledProtocolSessionException;
@@ -77,7 +78,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
     @Override
     public O request(I request, Duration timeout) {
         Objects.requireNonNull(request, "request");
-        return requestObserved(request, requirePositive(timeout, "timeout"));
+        return requestObserved(request, DurationSupport.requirePositive(timeout, "timeout"));
     }
 
     private O requestObserved(I request, Duration timeout) {
@@ -255,14 +256,6 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
             return (DefaultProtocolSession<I, O>) defaultSession;
         }
         throw new IllegalArgumentException("workerFactory must create a Procwright protocol session");
-    }
-
-    private static Duration requirePositive(Duration duration, String name) {
-        Objects.requireNonNull(duration, name);
-        if (duration.isZero() || duration.isNegative()) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return duration;
     }
 
     private record ProtocolPoolOptions(WorkerPoolSettings<?> options) implements WorkerPoolController.PoolOptions {

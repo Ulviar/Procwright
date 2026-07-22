@@ -218,13 +218,6 @@ public final class ProcessIoResources {
                 () -> stderr.closeAsync("procwright-process-stderr-close-", failureHandler));
     }
 
-    public void closeOutputsAsync(Consumer<? super Throwable> failureHandler) {
-        Objects.requireNonNull(failureHandler, "failureHandler");
-        dispatchAll(
-                () -> stdout.closeAsync("procwright-process-stdout-close-", failureHandler),
-                () -> stderr.closeAsync("procwright-process-stderr-close-", failureHandler));
-    }
-
     public void rollbackConstruction(Throwable primaryFailure) {
         Objects.requireNonNull(primaryFailure, "primaryFailure");
         rollbackPreserving(stdin, primaryFailure);
@@ -379,7 +372,7 @@ public final class ProcessIoResources {
     interface ConstructionRollback {
 
         default void cleanupProcess(Process process) {
-            ProcessLifecycle.forceStopWithoutStdinClose(process, Set.of(), ACQUISITION_FAILURE_CLEANUP_TIMEOUT);
+            ProcessLifecycle.forceStop(process, Set.of(), ACQUISITION_FAILURE_CLEANUP_TIMEOUT);
         }
 
         default void release(BoundedCloseDispatcher.Reservation reservation) {

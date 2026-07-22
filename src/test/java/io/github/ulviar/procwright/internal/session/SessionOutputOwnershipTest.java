@@ -13,14 +13,12 @@ import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
-import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.internal.LaunchMode;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
-import io.github.ulviar.procwright.internal.ProcessIoResources;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.internal.SessionExecutionPlan;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
@@ -233,98 +231,6 @@ final class SessionOutputOwnershipTest {
         assertNull(rawCloseOutcome.get(2, TimeUnit.SECONDS));
         assertEquals(0, session.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
         assertEquals(1, stdout.closeCalls());
-    }
-
-    @Test
-    void closeClaimIsAtomicWhenBothCallersObserveTheStreamOpen() throws Exception {
-        CloseCountingInputStream delegate = new CloseCountingInputStream();
-        CountDownLatch openObserved = new CountDownLatch(2);
-        CountDownLatch releaseClaims = new CountDownLatch(1);
-        CloseOnceInputStream stream = new CloseOnceInputStream(delegate, () -> {
-            openObserved.countDown();
-            awaitUninterruptibly(releaseClaims);
-        });
-        CompletableFuture<Throwable> firstOutcome = new CompletableFuture<>();
-        CompletableFuture<Throwable> secondOutcome = new CompletableFuture<>();
-        Thread firstCloser = closeOnThread(stream, firstOutcome);
-        Thread secondCloser = closeOnThread(stream, secondOutcome);
-
-        firstCloser.start();
-        secondCloser.start();
-        try {
-            assertTrue(
-                    openObserved.await(2, TimeUnit.SECONDS),
-                    "both callers must observe the open state before either may claim close");
-        } finally {
-            releaseClaims.countDown();
-            firstCloser.join(TimeUnit.SECONDS.toMillis(2));
-            secondCloser.join(TimeUnit.SECONDS.toMillis(2));
-        }
-
-        assertFalse(firstCloser.isAlive());
-        assertFalse(secondCloser.isAlive());
-        assertNull(firstOutcome.get(2, TimeUnit.SECONDS));
-        assertNull(secondOutcome.get(2, TimeUnit.SECONDS));
-        assertEquals(1, delegate.closeCalls());
-    }
-
-    @Test
-    void pairReservationWinsAgainstAnOrdinaryClosePausedBeforeItsClaim() throws Exception {
-        OutputCloseReservation closeReservation = new OutputCloseReservation();
-        CloseCountingInputStream stdoutDelegate = new CloseCountingInputStream();
-        CloseCountingInputStream stderrDelegate = new CloseCountingInputStream();
-        CountDownLatch closeObservedOpen = new CountDownLatch(1);
-        CountDownLatch releaseCloseClaim = new CountDownLatch(1);
-        CountDownLatch physicalCloses = new CountDownLatch(2);
-        AtomicReference<OutputCloseReservation.Stream> pumpClose = new AtomicReference<>();
-        ProcessIoResources processResources = ProcessIoResources.acquire(
-                new StubProcess(stdoutDelegate, stderrDelegate), new BoundedCloseDispatcher(2, 2, 4));
-        CloseOnceInputStream stdout = new CloseOnceInputStream(
-                processResources.stdout(),
-                () -> {
-                    closeObservedOpen.countDown();
-                    awaitUninterruptibly(releaseCloseClaim);
-                },
-                closeReservation,
-                OutputCloseReservation.Stream.STDOUT);
-        CloseOnceInputStream stderr = new CloseOnceInputStream(
-                processResources.stderr(), closeReservation, OutputCloseReservation.Stream.STDERR);
-        CompletableFuture<Throwable> ordinaryCloseOutcome = new CompletableFuture<>();
-        Thread ordinaryCloser = closeOnThread(stdout, ordinaryCloseOutcome);
-
-        ordinaryCloser.start();
-        try {
-            assertTrue(closeObservedOpen.await(2, TimeUnit.SECONDS));
-            OutputCloseReservation.Reservation reservation = closeReservation.reserve(stdout, stderr, pumpClose::set);
-
-            releaseCloseClaim.countDown();
-            ordinaryCloser.join(TimeUnit.SECONDS.toMillis(2));
-
-            assertFalse(ordinaryCloser.isAlive());
-            assertNull(ordinaryCloseOutcome.get(2, TimeUnit.SECONDS));
-            assertEquals(OutputCloseReservation.Stream.STDOUT, pumpClose.get());
-            assertEquals(0, stdoutDelegate.closeCalls());
-            assertEquals(0, stderrDelegate.closeCalls());
-
-            reservation.dispatchClose(
-                    OutputCloseReservation.Stream.STDOUT,
-                    "test-stdout-close-",
-                    failure -> {},
-                    physicalCloses::countDown);
-            reservation.dispatchClose(
-                    OutputCloseReservation.Stream.STDERR,
-                    "test-stderr-close-",
-                    failure -> {},
-                    physicalCloses::countDown);
-
-            assertTrue(physicalCloses.await(2, TimeUnit.SECONDS));
-            assertEquals(1, stdoutDelegate.closeCalls());
-            assertEquals(1, stderrDelegate.closeCalls());
-        } finally {
-            releaseCloseClaim.countDown();
-            ordinaryCloser.join(TimeUnit.SECONDS.toMillis(2));
-            processResources.closeAllAsync(ignored -> {});
-        }
     }
 
     @Test
@@ -676,19 +582,6 @@ final class SessionOutputOwnershipTest {
 
     private static DiagnosticEmitter diagnostics() {
         return DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty());
-    }
-
-    private static Thread closeOnThread(InputStream stream, CompletableFuture<Throwable> outcome) {
-        Thread thread = new Thread(() -> {
-            try {
-                stream.close();
-                outcome.complete(null);
-            } catch (Throwable failure) {
-                outcome.complete(failure);
-            }
-        });
-        thread.setDaemon(true);
-        return thread;
     }
 
     private static void awaitUninterruptibly(CountDownLatch latch) {

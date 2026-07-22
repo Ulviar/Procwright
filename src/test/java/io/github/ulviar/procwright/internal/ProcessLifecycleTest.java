@@ -133,7 +133,7 @@ final class ProcessLifecycleTest {
         DeadlineScriptedProcess delegate = new DeadlineScriptedProcess(true, false, false);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stopWithoutStdinClose(
+            Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stop(
                     scanner.guard(delegate),
                     Set.of(),
                     ShutdownPolicy.interruptThenKill(Duration.ofMillis(40), Duration.ofMillis(250))));
@@ -158,7 +158,7 @@ final class ProcessLifecycleTest {
         try {
             CommandExecutionException failure = assertThrows(
                     CommandExecutionException.class,
-                    () -> ProcessLifecycle.stopWithoutStdinClose(
+                    () -> ProcessLifecycle.stop(
                             scanner.guard(delegate),
                             Set.of(),
                             ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofMillis(250))));
@@ -179,7 +179,7 @@ final class ProcessLifecycleTest {
         DeadlineScriptedProcessHandle descendant = new DeadlineScriptedProcessHandle(62, false);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stopWithoutStdinClose(
+            Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stop(
                     scanner.guard(root),
                     Set.of(scanner.guardObserved(descendant)),
                     ShutdownPolicy.interruptThenKill(Duration.ofMillis(40), Duration.ofMillis(250))));
@@ -205,7 +205,7 @@ final class ProcessLifecycleTest {
         try {
             CommandExecutionException failure = assertThrows(
                     CommandExecutionException.class,
-                    () -> ProcessLifecycle.stopWithoutStdinClose(
+                    () -> ProcessLifecycle.stop(
                             scanner.guard(root),
                             Set.of(scanner.guardObserved(descendant)),
                             ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofMillis(250))));
@@ -343,83 +343,6 @@ final class ProcessLifecycleTest {
     }
 
     @Test
-    void rejectedInjectedStdinCloseFailsCleanupWithoutLaunchingOrClosingTheRawStream() {
-        CloseTrackingOutputStream targetStdin = new CloseTrackingOutputStream();
-        AtomicInteger dispatchCalls = new AtomicInteger();
-
-        CommandExecutionException failure = assertThrows(
-                CommandExecutionException.class,
-                () -> ProcessLifecycle.stop(
-                        new CloseTrackingProcess(targetStdin),
-                        Set.of(),
-                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                        (threadPrefix, action) -> action.run(),
-                        (ignoredProcess, ignoredBudget) -> {
-                            dispatchCalls.incrementAndGet();
-                            return false;
-                        }));
-
-        assertTrue(failure.getMessage().contains("bounded close capacity is exhausted"));
-        assertEquals(1, dispatchCalls.get());
-        assertEquals(0, targetStdin.closeCalls());
-    }
-
-    @Test
-    void rejectedInjectedStdinCloseFailsForceCleanupWithoutClaimingSuccess() {
-        CloseTrackingOutputStream targetStdin = new CloseTrackingOutputStream();
-        AtomicInteger dispatchCalls = new AtomicInteger();
-
-        CommandExecutionException failure = assertThrows(
-                CommandExecutionException.class,
-                () -> ProcessLifecycle.forceStop(
-                        new CloseTrackingProcess(targetStdin),
-                        Set.of(),
-                        Duration.ZERO,
-                        (threadPrefix, action) -> action.run(),
-                        (ignoredProcess, ignoredBudget) -> {
-                            dispatchCalls.incrementAndGet();
-                            return false;
-                        }));
-
-        assertTrue(failure.getMessage().contains("bounded close capacity is exhausted"));
-        assertEquals(1, dispatchCalls.get());
-        assertEquals(0, targetStdin.closeCalls());
-    }
-
-    @Test
-    void forceStopUsesOneBoundedPhysicalStdinCloseForALiveProcess() throws Exception {
-        assertTrue(eventually(() -> BoundedCloseDispatcher.shared().outstandingCount() == 0));
-        int baselineOutstanding = BoundedCloseDispatcher.shared().outstandingCount();
-        BlockingCloseOutputStream stdin = new BlockingCloseOutputStream();
-        CloseTrackingProcess process = new CloseTrackingProcess(stdin);
-        try {
-            ProcessLifecycle.forceStop(process, Duration.ofMillis(100));
-
-            assertTrue(stdin.awaitCloseStarted());
-            assertEquals(1, stdin.closeCalls());
-            assertEquals(
-                    baselineOutstanding + 1, BoundedCloseDispatcher.shared().outstandingCount());
-            assertFalse(process.isAlive());
-        } finally {
-            stdin.releaseClose();
-        }
-        assertTrue(eventually(() -> BoundedCloseDispatcher.shared().outstandingCount() == baselineOutstanding));
-        assertEquals(1, stdin.closeCalls());
-    }
-
-    @Test
-    void forceStopStillClosesStdinExactlyOnceWhenTheProcessAlreadyExited() throws Exception {
-        CloseTrackingOutputStream stdin = new CloseTrackingOutputStream();
-        CloseTrackingProcess process = new CloseTrackingProcess(stdin);
-        process.complete();
-
-        ProcessLifecycle.forceStop(process, Duration.ofMillis(100));
-
-        assertTrue(eventually(() -> stdin.closeCalls() == 1));
-        assertEquals(1, stdin.closeCalls());
-    }
-
-    @Test
     void gracefulShutdownDiscoversAndStopsDescendantCreatedByRootTermination() {
         LateDescendantProcess process = new LateDescendantProcess();
 
@@ -451,7 +374,7 @@ final class ProcessLifecycleTest {
     void falseGracefulHandleResultDoesNotCloseOutputThroughProcessFallback() {
         FalseGracefulResultProcess process = new FalseGracefulResultProcess();
 
-        ProcessLifecycle.stopWithoutStdinClose(
+        ProcessLifecycle.stop(
                 process,
                 Set.of(),
                 ShutdownPolicy.interruptThenKill(Duration.ofMillis(100), Duration.ofMillis(100)),
@@ -581,7 +504,7 @@ final class ProcessLifecycleTest {
 
         AssertionError thrown = assertThrows(
                 AssertionError.class,
-                () -> ProcessLifecycle.stopWithoutStdinClose(
+                () -> ProcessLifecycle.stop(
                         process, descendants, ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ofMillis(100))));
 
         assertSame(rootGracefulFailure, thrown);
@@ -606,7 +529,7 @@ final class ProcessLifecycleTest {
         try {
             CommandExecutionException thrown = assertThrows(
                     CommandExecutionException.class,
-                    () -> ProcessLifecycle.stopWithoutStdinClose(
+                    () -> ProcessLifecycle.stop(
                             process,
                             Set.of(process.descendant()),
                             ShutdownPolicy.interruptThenKill(Duration.ofSeconds(1), Duration.ofSeconds(5))));
@@ -635,7 +558,7 @@ final class ProcessLifecycleTest {
         try {
             CommandExecutionException thrown = assertThrows(
                     CommandExecutionException.class,
-                    () -> ProcessLifecycle.stopWithoutStdinClose(
+                    () -> ProcessLifecycle.stop(
                             process,
                             Set.of(process.descendant()),
                             ShutdownPolicy.interruptThenKill(Duration.ofSeconds(1), Duration.ofSeconds(1)),
@@ -1567,155 +1490,6 @@ final class ProcessLifecycleTest {
         @Override
         public void destroy() {
             alive = false;
-        }
-    }
-
-    private static final class CloseTrackingProcess extends Process {
-
-        private final OutputStream stdin;
-        private final AtomicBoolean alive = new AtomicBoolean(true);
-        private final ProcessHandle rootHandle = new MutableProcessHandle(57) {
-            @Override
-            public boolean destroy() {
-                alive.set(false);
-                return true;
-            }
-
-            @Override
-            public boolean destroyForcibly() {
-                alive.set(false);
-                return true;
-            }
-
-            @Override
-            public boolean isAlive() {
-                return alive.get();
-            }
-        };
-
-        private CloseTrackingProcess(OutputStream stdin) {
-            this.stdin = stdin;
-        }
-
-        private void complete() {
-            alive.set(false);
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            return stdin;
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public int waitFor() {
-            alive.set(false);
-            return 143;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            return !alive.get();
-        }
-
-        @Override
-        public int exitValue() {
-            if (alive.get()) {
-                throw new IllegalThreadStateException("process is alive");
-            }
-            return 143;
-        }
-
-        @Override
-        public void destroy() {
-            alive.set(false);
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            alive.set(false);
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return alive.get();
-        }
-
-        @Override
-        public ProcessHandle toHandle() {
-            return rootHandle;
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
-        }
-    }
-
-    private static final class CloseTrackingOutputStream extends OutputStream {
-
-        private final AtomicInteger closeCalls = new AtomicInteger();
-
-        @Override
-        public void write(int value) {}
-
-        @Override
-        public void close() {
-            closeCalls.incrementAndGet();
-        }
-
-        private int closeCalls() {
-            return closeCalls.get();
-        }
-    }
-
-    private static final class BlockingCloseOutputStream extends OutputStream {
-
-        private final AtomicInteger closeCalls = new AtomicInteger();
-        private final CountDownLatch closeStarted = new CountDownLatch(1);
-        private final CountDownLatch closeRelease = new CountDownLatch(1);
-
-        @Override
-        public void write(int value) {}
-
-        @Override
-        public void close() {
-            closeCalls.incrementAndGet();
-            closeStarted.countDown();
-            boolean interrupted = false;
-            while (true) {
-                try {
-                    closeRelease.await();
-                    break;
-                } catch (InterruptedException exception) {
-                    interrupted = true;
-                }
-            }
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        private boolean awaitCloseStarted() throws InterruptedException {
-            return closeStarted.await(1, TimeUnit.SECONDS);
-        }
-
-        private void releaseClose() {
-            closeRelease.countDown();
-        }
-
-        private int closeCalls() {
-            return closeCalls.get();
         }
     }
 

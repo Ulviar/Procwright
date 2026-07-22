@@ -112,7 +112,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
      */
     public LineResponse request(String line, Duration timeout) {
         LineRequestEncoder.validate(line);
-        return requestObserved(line, requirePositive(timeout, "timeout"));
+        return requestObserved(line, DurationSupport.requirePositive(timeout, "timeout"));
     }
 
     private LineResponse requestObserved(String line, Duration requestTimeout) {
@@ -313,14 +313,6 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             return defaultSession;
         }
         throw new IllegalArgumentException("workerFactory must create a Procwright line session");
-    }
-
-    private static Duration requirePositive(Duration duration, String name) {
-        Objects.requireNonNull(duration, name);
-        if (duration.isZero() || duration.isNegative()) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return duration;
     }
 
     private record LinePoolOptions(WorkerPoolSettings<LineSession> options)

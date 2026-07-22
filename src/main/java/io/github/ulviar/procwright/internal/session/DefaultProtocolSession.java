@@ -24,11 +24,9 @@ import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -59,13 +57,12 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     private final ProtocolTextDecoderState stderrTextDecoder;
     private final TransitionProbe transitionProbe;
     private final ProtocolCallbackRunner callbackRunner;
-    private final RequestLockWaiter requestLockWaiter;
+    private final SerializedRequestGate requestGate;
     private final BoundedLifecyclePublisher.Permit exitPublication;
     private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private final AtomicReference<OptionalInt> cachedProcessExitCode = new AtomicReference<>(OptionalInt.empty());
     private final BoundedTaskRunner.CancellationSignal callbackCancellation =
             new BoundedTaskRunner.CancellationSignal();
-    private final ReentrantLock requestLock = new ReentrantLock();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<TerminalOutcome> terminalOutcome = new AtomicReference<>();
     private final Object requestOutcomeLock = new Object();
@@ -175,7 +172,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                 transitionProbe,
                 outputNanoTime,
                 callbackRunner,
-                RequestLockWaiter.timed());
+                SerializedRequestGate.Waiter.timed());
     }
 
     DefaultProtocolSession(
@@ -187,14 +184,14 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             TransitionProbe transitionProbe,
             LongSupplier outputNanoTime,
             ProtocolCallbackRunner callbackRunner,
-            RequestLockWaiter requestLockWaiter) {
+            SerializedRequestGate.Waiter requestLockWaiter) {
         this.session = Objects.requireNonNull(session, "session");
         this.adapter = Objects.requireNonNull(adapter, "adapter");
         this.options = Objects.requireNonNull(options, "options");
         this.zeroReadBackoff = Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
         this.transitionProbe = Objects.requireNonNull(transitionProbe, "transitionProbe");
         this.callbackRunner = Objects.requireNonNull(callbackRunner, "callbackRunner");
-        this.requestLockWaiter = Objects.requireNonNull(requestLockWaiter, "requestLockWaiter");
+        this.requestGate = new SerializedRequestGate(requestLockWaiter);
         this.outputPumps = new OutputPumpCoordinator(session, OUTPUT_OWNER);
         int responsePendingByteLimit = ProtocolResponseReader.pendingByteLimit(options);
         int responseOutputWithoutInputLimit = ProtocolResponseReader.outputWithoutInputLimit(options);
@@ -269,7 +266,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     @Override
     public O request(I request, Duration timeout) {
         Objects.requireNonNull(request, "request");
-        Duration requestTimeout = requirePositive(timeout, "timeout");
+        Duration requestTimeout = DurationSupport.requirePositive(timeout, "timeout");
         long deadlineNanos = DurationSupport.deadlineFromNow(requestTimeout);
         acquireRequestLock(deadlineNanos);
         RequestOutcome requestOutcome = beginRequest();
@@ -301,7 +298,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             throw finalizeFatalFailure(requestOutcome, fatalError);
         } finally {
             endRequest(requestOutcome);
-            requestLock.unlock();
+            requestGate.release();
         }
     }
 
@@ -376,12 +373,8 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     }
 
     private void acquireRequestLock(long deadlineNanos) {
-        long remainingNanos = deadlineNanos - System.nanoTime();
-        if (remainingNanos <= 0) {
-            throw arbitrateRequestLockFailure(() -> timeout(null));
-        }
         try {
-            if (!requestLockWaiter.acquire(requestLock, remainingNanos)) {
+            if (!requestGate.acquireUntil(deadlineNanos)) {
                 throw arbitrateRequestLockFailure(() -> timeout(null));
             }
         } catch (InterruptedException exception) {
@@ -1109,14 +1102,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                 : ProtocolSessionException.Reason.FAILURE;
     }
 
-    private static Duration requirePositive(Duration duration, String name) {
-        Objects.requireNonNull(duration, name);
-        if (duration.isZero() || duration.isNegative()) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return duration;
-    }
-
     private record Readers(ProtocolReader stdout, ProtocolReader stderr) implements ProtocolReaders {}
 
     interface TransitionProbe {
@@ -1154,24 +1139,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
 
         static ProtocolCallbackRunner bounded() {
             return BoundedProtocolCallbackRunner.INSTANCE;
-        }
-    }
-
-    interface RequestLockWaiter {
-
-        boolean acquire(ReentrantLock lock, long remainingNanos) throws InterruptedException;
-
-        static RequestLockWaiter timed() {
-            return TimedRequestLockWaiter.INSTANCE;
-        }
-    }
-
-    private enum TimedRequestLockWaiter implements RequestLockWaiter {
-        INSTANCE;
-
-        @Override
-        public boolean acquire(ReentrantLock lock, long remainingNanos) throws InterruptedException {
-            return lock.tryLock(remainingNanos, TimeUnit.NANOSECONDS);
         }
     }
 

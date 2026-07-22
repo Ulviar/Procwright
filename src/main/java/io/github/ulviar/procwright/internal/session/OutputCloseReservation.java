@@ -34,7 +34,7 @@ final class OutputCloseReservation {
         Consumer<Stream> observer = null;
         synchronized (lock) {
             if (reservation == null) {
-                return input.claimPhysicalClose();
+                return true;
             }
             reservation.requireStream(stream, input);
             if (reservation.markPumpClosed(stream)) {
@@ -116,6 +116,18 @@ final class OutputCloseReservation {
                     yield true;
                 }
             };
+        }
+
+        boolean pumpClosed(Stream stream) {
+            synchronized (owner.lock) {
+                if (owner.reservation != this) {
+                    throw new IllegalStateException("Process output close token is not active");
+                }
+                return switch (stream) {
+                    case STDOUT -> stdoutPumpClosed;
+                    case STDERR -> stderrPumpClosed;
+                };
+            }
         }
 
         void requireStream(Stream stream, CloseOnceInputStream input) {

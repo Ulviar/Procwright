@@ -123,7 +123,8 @@ scenario flags.
 
 - timeout, explicit close и failure используют общий shutdown policy;
 - process-tree cleanup повторно обнаруживает поздних descendants в пределах phase deadline;
-- `close()` идемпотентен, а первое terminal outcome не заменяется поздним;
+- `close()` идемпотентен; первое typed terminal outcome не заменяется другим typed outcome, но наблюдаемый поздний
+  JVM `Error` может стать каноническим fatal outcome до возврата request failure;
 - `onExit()` завершается ровно один раз;
 - readiness выполняется после launch, но до возврата handle или перевода worker в idle;
 - partial construction failure закрывает все уже созданные ресурсы.

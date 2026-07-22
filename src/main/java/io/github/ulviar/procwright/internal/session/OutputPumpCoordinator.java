@@ -36,8 +36,6 @@ final class OutputPumpCoordinator {
     private volatile DefaultSession.HelperCleanupRegistration helperCleanup;
     private boolean processCleanupCompleted;
     private boolean forceOutputClose;
-    private boolean stdoutPumpClosed;
-    private boolean stderrPumpClosed;
     private boolean stdoutCloseDispatched;
     private boolean stderrCloseDispatched;
     private int pumpTasksFinished;
@@ -172,12 +170,6 @@ final class OutputPumpCoordinator {
     }
 
     private void pumpClosed(OutputCloseReservation.Stream stream) {
-        synchronized (outputCloseLock) {
-            switch (stream) {
-                case STDOUT -> stdoutPumpClosed = true;
-                case STDERR -> stderrPumpClosed = true;
-            }
-        }
         dispatchReadyCloses();
     }
 
@@ -298,8 +290,10 @@ final class OutputPumpCoordinator {
             if (!processCleanupCompleted || reservation == null) {
                 return;
             }
-            dispatchStdout = !stdoutCloseDispatched && (forceOutputClose || stdoutPumpClosed);
-            dispatchStderr = !stderrCloseDispatched && (forceOutputClose || stderrPumpClosed);
+            dispatchStdout = !stdoutCloseDispatched
+                    && (forceOutputClose || reservation.pumpClosed(OutputCloseReservation.Stream.STDOUT));
+            dispatchStderr = !stderrCloseDispatched
+                    && (forceOutputClose || reservation.pumpClosed(OutputCloseReservation.Stream.STDERR));
             if (dispatchStdout) {
                 stdoutCloseDispatched = true;
             }

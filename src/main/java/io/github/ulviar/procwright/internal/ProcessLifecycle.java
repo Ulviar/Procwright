@@ -16,16 +16,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 public final class ProcessLifecycle {
 
     private static final ProcessTreeScanner PROCESS_TREE_SCANNER = ProcessTreeScanner.shared();
     private static final DestroyFallbackDispatcher DEFAULT_DESTROY_FALLBACK = BoundedDestroyDispatcher::dispatch;
-    private static final StdinCloseDispatcher DEFAULT_STDIN_CLOSE = ProcessLifecycle::closeStdinAsync;
     private static final long POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
     private static final String PROCESS_LIVENESS_OPERATION = "procwright-provider-liveness-";
     private static final String HANDLE_LIVENESS_OPERATION = "procwright-provider-handle-liveness-";
@@ -166,42 +163,25 @@ public final class ProcessLifecycle {
 
     public static OptionalInt stop(
             Process process, Set<ProcessHandle> knownDescendants, ShutdownPolicy shutdownPolicy) {
-        return stop(process, knownDescendants, shutdownPolicy, true, DEFAULT_DESTROY_FALLBACK, DEFAULT_STDIN_CLOSE);
-    }
-
-    public static OptionalInt stopWithoutStdinClose(
-            Process process, Set<ProcessHandle> knownDescendants, ShutdownPolicy shutdownPolicy) {
-        return stop(process, knownDescendants, shutdownPolicy, false, DEFAULT_DESTROY_FALLBACK, DEFAULT_STDIN_CLOSE);
+        return stop(process, knownDescendants, shutdownPolicy, DEFAULT_DESTROY_FALLBACK);
     }
 
     static OptionalInt stop(
             Process process,
             Set<ProcessHandle> knownDescendants,
             ShutdownPolicy shutdownPolicy,
-            DestroyFallbackDispatcher destroyFallback,
-            StdinCloseDispatcher stdinCloseDispatcher) {
-        return stop(process, knownDescendants, shutdownPolicy, true, destroyFallback, stdinCloseDispatcher);
+            DestroyFallbackDispatcher destroyFallback) {
+        return stopTree(process, knownDescendants, shutdownPolicy, destroyFallback);
     }
 
-    static OptionalInt stopWithoutStdinClose(
+    private static OptionalInt stopTree(
             Process process,
             Set<ProcessHandle> knownDescendants,
             ShutdownPolicy shutdownPolicy,
             DestroyFallbackDispatcher destroyFallback) {
-        return stop(process, knownDescendants, shutdownPolicy, false, destroyFallback, DEFAULT_STDIN_CLOSE);
-    }
-
-    private static OptionalInt stop(
-            Process process,
-            Set<ProcessHandle> knownDescendants,
-            ShutdownPolicy shutdownPolicy,
-            boolean closeStdin,
-            DestroyFallbackDispatcher destroyFallback,
-            StdinCloseDispatcher stdinCloseDispatcher) {
         Objects.requireNonNull(process, "process");
         Objects.requireNonNull(knownDescendants, "knownDescendants");
         Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
-        Objects.requireNonNull(stdinCloseDispatcher, "stdinCloseDispatcher");
         CleanupFailures failures = new CleanupFailures(destroyFallback);
         DescendantScanState scans = new DescendantScanState();
         long gracefulOperationDeadline =
@@ -219,11 +199,6 @@ public final class ProcessLifecycle {
             failures.interruptionBoundary();
             destroyDescendants(descendants, false, failures, gracefulOperationDeadline);
             failures.interruptionBoundary();
-            if (closeStdin) {
-                failures.attemptStdinClose(
-                        () -> stdinCloseDispatcher.closeAsync(process, operationBudget(gracefulOperationDeadline)));
-            }
-
             long gracefulWaitDeadline = DurationSupport.deadlineFromNow(shutdownPolicy.interruptGrace());
             long gracefulProviderDeadline =
                     shutdownPolicy.interruptGrace().isZero() ? gracefulOperationDeadline : gracefulWaitDeadline;
@@ -287,51 +262,17 @@ public final class ProcessLifecycle {
      * @param timeout maximum cleanup wait
      */
     public static void forceStop(Process process, Set<ProcessHandle> knownDescendants, Duration timeout) {
-        forceStop(process, knownDescendants, timeout, true, DEFAULT_DESTROY_FALLBACK, DEFAULT_STDIN_CLOSE);
-    }
-
-    public static void forceStopPreserving(
-            Process process, Set<ProcessHandle> knownDescendants, Duration timeout, Throwable primaryFailure) {
-        Objects.requireNonNull(primaryFailure, "primaryFailure");
-        try {
-            forceStop(
-                    process,
-                    knownDescendants,
-                    timeout,
-                    true,
-                    DEFAULT_DESTROY_FALLBACK,
-                    (target, budget) -> closeStdinAsync(
-                            target, closeFailure -> SuppressionSupport.attach(primaryFailure, closeFailure), budget));
-        } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
-        }
-    }
-
-    public static void forceStopWithoutStdinClose(
-            Process process, Set<ProcessHandle> knownDescendants, Duration timeout) {
-        forceStop(process, knownDescendants, timeout, false, DEFAULT_DESTROY_FALLBACK, DEFAULT_STDIN_CLOSE);
+        forceStop(process, knownDescendants, timeout, DEFAULT_DESTROY_FALLBACK);
     }
 
     static void forceStop(
             Process process,
             Set<ProcessHandle> knownDescendants,
             Duration timeout,
-            DestroyFallbackDispatcher destroyFallback,
-            StdinCloseDispatcher stdinCloseDispatcher) {
-        forceStop(process, knownDescendants, timeout, true, destroyFallback, stdinCloseDispatcher);
-    }
-
-    private static void forceStop(
-            Process process,
-            Set<ProcessHandle> knownDescendants,
-            Duration timeout,
-            boolean closeStdin,
-            DestroyFallbackDispatcher destroyFallback,
-            StdinCloseDispatcher stdinCloseDispatcher) {
+            DestroyFallbackDispatcher destroyFallback) {
         Objects.requireNonNull(process, "process");
         Objects.requireNonNull(knownDescendants, "knownDescendants");
         Objects.requireNonNull(timeout, "timeout");
-        Objects.requireNonNull(stdinCloseDispatcher, "stdinCloseDispatcher");
         CleanupFailures failures = new CleanupFailures(destroyFallback);
         DescendantScanState scans = new DescendantScanState();
         long operationDeadline = DurationSupport.deadlineFromNow(operationPhaseBudget(timeout));
@@ -344,19 +285,11 @@ public final class ProcessLifecycle {
             boolean rootAlive = mayStillBeAlive(process, failures, operationDeadline);
             failures.interruptionBoundary();
             if (!rootAlive && descendants.isEmpty() && !failures.hasFailure()) {
-                if (closeStdin) {
-                    failures.attemptStdinClose(
-                            () -> stdinCloseDispatcher.closeAsync(process, operationBudget(operationDeadline)));
-                }
                 failures.rethrowIfPresent();
                 return;
             }
             destroyTreeForcibly(process, descendants, failures, operationDeadline);
             failures.interruptionBoundary();
-            if (closeStdin) {
-                failures.attemptStdinClose(
-                        () -> stdinCloseDispatcher.closeAsync(process, operationBudget(operationDeadline)));
-            }
             long providerDeadline = timeout.isZero() ? operationDeadline : waitDeadline;
             if (!waitForTree(process, descendants, waitDeadline, providerDeadline, true, failures, scans)) {
                 failures.record(new CommandExecutionException("Command did not exit during forceful cleanup"));
@@ -365,52 +298,6 @@ public final class ProcessLifecycle {
         } finally {
             failures.restoreInterrupt();
         }
-    }
-
-    public static boolean closeStdinAsync(Process process) {
-        return closeStdinAsync(
-                process,
-                failure -> Threading.reportUncaught(Thread.currentThread(), failure),
-                PROCESS_TREE_SCANNER.providerOperationTimeout());
-    }
-
-    public static boolean closeStdinAsync(Process process, Consumer<? super Throwable> failureHandler) {
-        return closeStdinAsync(process, failureHandler, PROCESS_TREE_SCANNER.providerOperationTimeout());
-    }
-
-    private static boolean closeStdinAsync(Process process, Duration budget) {
-        return closeStdinAsync(process, failure -> Threading.reportUncaught(Thread.currentThread(), failure), budget);
-    }
-
-    private static boolean closeStdinAsync(
-            Process process, Consumer<? super Throwable> failureHandler, Duration budget) {
-        Objects.requireNonNull(process, "process");
-        Objects.requireNonNull(failureHandler, "failureHandler");
-        BoundedCloseDispatcher.Reservation reservation;
-        try {
-            reservation = BoundedCloseDispatcher.shared().reserve(1);
-        } catch (RejectedExecutionException exhausted) {
-            return false;
-        }
-        BoundedCloseDispatcher.Permit permit = reservation.takePermit();
-        java.io.OutputStream stdin;
-        try {
-            stdin = process instanceof GuardedProcess guarded
-                    ? guarded.outputStreamWithin(budget)
-                    : process.getOutputStream();
-        } catch (InterruptedException interruption) {
-            permit.release();
-            Thread.currentThread().interrupt();
-            throw new CommandExecutionException(
-                    CommandExecutionException.Reason.RUNTIME_FAILURE,
-                    "Interrupted while acquiring process stdin for close",
-                    interruption);
-        } catch (RuntimeException | Error failure) {
-            permit.release();
-            throw failure;
-        }
-        permit.dispatch(BoundedCloseDispatcher.closeRequest(stdin, "procwright-process-stdin-close-", failureHandler));
-        return true;
     }
 
     private static Set<ProcessHandle> descendantsOf(Process process, Duration budget) {
@@ -1056,20 +943,6 @@ public final class ProcessLifecycle {
             }
         }
 
-        private void attemptStdinClose(java.util.function.BooleanSupplier action) {
-            try {
-                if (!action.getAsBoolean()) {
-                    record(new CommandExecutionException(
-                            CommandExecutionException.Reason.RUNTIME_FAILURE,
-                            "Could not schedule process stdin close because bounded close capacity is exhausted"));
-                }
-            } catch (RuntimeException | Error failure) {
-                record(failure);
-            } finally {
-                interruptionBoundary();
-            }
-        }
-
         private void dispatchDestroyFallback(String threadPrefix, Runnable action) {
             attempt(() -> ProcessLifecycle.dispatchDestroyFallback(destroyFallback, threadPrefix, action));
         }
@@ -1147,11 +1020,5 @@ public final class ProcessLifecycle {
     interface DestroyFallbackDispatcher {
 
         void dispatch(String threadPrefix, Runnable action);
-    }
-
-    @FunctionalInterface
-    interface StdinCloseDispatcher {
-
-        boolean closeAsync(Process process, Duration budget);
     }
 }

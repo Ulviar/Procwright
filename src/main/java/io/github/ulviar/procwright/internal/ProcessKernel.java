@@ -406,7 +406,7 @@ public final class ProcessKernel {
 
     private static OptionalInt stopTimedOutWithoutStdinClose(
             Process process, Set<ProcessHandle> knownDescendants, ShutdownPolicy shutdownPolicy) {
-        return ProcessLifecycle.stopWithoutStdinClose(process, knownDescendants, shutdownPolicy);
+        return ProcessLifecycle.stop(process, knownDescendants, shutdownPolicy);
     }
 
     private static CommandExecutionException interruptedFailure(
@@ -423,7 +423,7 @@ public final class ProcessKernel {
                 DiagnosticEmitter.attributes("reason", "interrupted"),
                 failure);
         try {
-            ProcessLifecycle.stopWithoutStdinClose(process, knownDescendants(liveDescendants), plan.shutdownPolicy());
+            ProcessLifecycle.stop(process, knownDescendants(liveDescendants), plan.shutdownPolicy());
         } catch (RuntimeException | Error shutdownFailure) {
             SuppressionSupport.attach(failure, shutdownFailure);
         }
@@ -591,7 +591,7 @@ public final class ProcessKernel {
     private static void forceStopAfterFailureWithoutStreamClose(
             Process process, Set<ProcessHandle> knownDescendants, Throwable primaryFailure) {
         try {
-            ProcessLifecycle.forceStopWithoutStdinClose(process, knownDescendants, CLEANUP_TIMEOUT);
+            ProcessLifecycle.forceStop(process, knownDescendants, CLEANUP_TIMEOUT);
         } catch (RuntimeException | Error cleanupFailure) {
             SuppressionSupport.attach(primaryFailure, cleanupFailure);
         }

@@ -3795,7 +3795,7 @@ final class DefaultProtocolSessionTest {
         }
     }
 
-    private static final class ControlledRequestLockWaiter implements DefaultProtocolSession.RequestLockWaiter {
+    private static final class ControlledRequestLockWaiter implements SerializedRequestGate.Waiter {
 
         private final CountDownLatch contended = new CountDownLatch(1);
         private final CountDownLatch expired = new CountDownLatch(1);

@@ -1401,7 +1401,7 @@ final class DefaultLineSessionTest {
                         BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task),
                 transition -> {},
                 System::nanoTime,
-                DefaultLineSession.RequestLockWaiter.timed(),
+                SerializedRequestGate.Waiter.timed(),
                 transition -> {
                     responseLineClaimed.countDown();
                     if (!responseFailureFirst) {
@@ -2127,7 +2127,7 @@ final class DefaultLineSessionTest {
         }
     }
 
-    private static final class ControlledRequestLockWaiter implements DefaultLineSession.RequestLockWaiter {
+    private static final class ControlledRequestLockWaiter implements SerializedRequestGate.Waiter {
 
         private final CountDownLatch contended = new CountDownLatch(1);
         private final CountDownLatch expired = new CountDownLatch(1);

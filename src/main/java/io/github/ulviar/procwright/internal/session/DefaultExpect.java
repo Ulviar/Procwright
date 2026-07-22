@@ -223,7 +223,7 @@ public final class DefaultExpect implements Expect {
      */
     public ExpectMatch expectTextMatch(String text, Duration timeout) {
         Objects.requireNonNull(text, "text");
-        long deadlineNanos = deadlineFromNow(requirePositive(timeout, "timeout"));
+        long deadlineNanos = deadlineFromNow(DurationSupport.requirePositive(timeout, "timeout"));
         String timeoutMessage = expectedMessage("Expected text not found", text);
         synchronized (monitor) {
             throwIfUnavailableAtOperationStart(timeoutMessage);
@@ -285,7 +285,7 @@ public final class DefaultExpect implements Expect {
      */
     public ExpectMatch expectRegexMatch(Pattern pattern, Duration timeout) {
         Objects.requireNonNull(pattern, "pattern");
-        long deadlineNanos = deadlineFromNow(requirePositive(timeout, "timeout"));
+        long deadlineNanos = deadlineFromNow(DurationSupport.requirePositive(timeout, "timeout"));
         String timeoutMessage = expectedMessage("Expected regex not found", pattern.pattern());
         synchronized (monitor) {
             throwIfUnavailableAtOperationStart(timeoutMessage);
@@ -690,14 +690,6 @@ public final class DefaultExpect implements Expect {
         }
         terminal = candidate;
         return true;
-    }
-
-    private static Duration requirePositive(Duration duration, String name) {
-        Objects.requireNonNull(duration, name);
-        if (duration.isZero() || duration.isNegative()) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return duration;
     }
 
     private static long deadlineFromNow(Duration duration) {

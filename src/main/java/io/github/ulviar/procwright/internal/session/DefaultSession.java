@@ -608,8 +608,7 @@ public final class DefaultSession implements Session {
                 return processTreeExitCode;
             }
             try {
-                processTreeExitCode =
-                        ProcessLifecycle.stopWithoutStdinClose(process, knownDescendants(), shutdownPolicy);
+                processTreeExitCode = ProcessLifecycle.stop(process, knownDescendants(), shutdownPolicy);
                 return processTreeExitCode;
             } finally {
                 processTreeCleanupCompleted = true;
@@ -623,7 +622,7 @@ public final class DefaultSession implements Session {
                 return;
             }
             try {
-                ProcessLifecycle.forceStopWithoutStdinClose(process, knownDescendants(), Duration.ofSeconds(5));
+                ProcessLifecycle.forceStop(process, knownDescendants(), Duration.ofSeconds(5));
             } catch (RuntimeException | Error cleanupFailure) {
                 SuppressionSupport.attach(primaryFailure, cleanupFailure);
             } finally {
@@ -638,8 +637,7 @@ public final class DefaultSession implements Session {
                 return;
             }
             try {
-                processTreeExitCode =
-                        ProcessLifecycle.stopWithoutStdinClose(process, knownDescendants(), shutdownPolicy);
+                processTreeExitCode = ProcessLifecycle.stop(process, knownDescendants(), shutdownPolicy);
             } catch (RuntimeException | Error cleanupFailure) {
                 SuppressionSupport.attach(primaryFailure, cleanupFailure);
             } finally {
@@ -1024,7 +1022,7 @@ public final class DefaultSession implements Session {
         }
 
         default void cleanupProcess(Process process) {
-            ProcessLifecycle.forceStopWithoutStdinClose(process, Set.of(), CONSTRUCTION_FAILURE_CLEANUP_TIMEOUT);
+            ProcessLifecycle.forceStop(process, Set.of(), CONSTRUCTION_FAILURE_CLEANUP_TIMEOUT);
         }
 
         default void rollback(ProcessIoResources resources, Throwable primaryFailure) {
