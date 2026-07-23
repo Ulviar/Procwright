@@ -105,7 +105,7 @@ classpath и прямые dependency declarations core, Kotlin и integrations m
 ## Зависимости CI
 
 GitHub Actions закреплены по commit SHA. CI использует минимальные permissions, проверяет Java 17 artifact на
-Linux, macOS и Windows, запускает его на JDK 17/21/25 и отдельно собирает source targets 21/25 на Linux.
+Linux/macOS/Windows с JDK 17 и на Linux с JDK 21/25; source targets 21/25 отдельно проходят scenario checks на Linux.
 Documentation workflow получает `pages: write` и `id-token: write` только в deploy job; build job имеет только
 `contents: read`. `WorkflowPolicyTest` запрещает unpinned external actions, `pull_request_target`,
 `continue-on-error` и неожиданные write permissions без собственного YAML framework.

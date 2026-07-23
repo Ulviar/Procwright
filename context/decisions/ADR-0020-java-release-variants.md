@@ -19,8 +19,8 @@ source tree и механически проверяемые варианты с
 - Java 25.
 
 Gradle property `procwright.javaRelease` выбирает compilation target. Значение по умолчанию — `25`; published artifacts
-используют только Java 17 target. Каждая ячейка CI-матрицы Linux/macOS/Windows × Temurin JDK 17/21/25 независимо
-компилирует и проверяет build с Java 17 target. Отдельные Linux jobs запускают `check` и Javadoc для targets 21/25 на
+используют только Java 17 target. CI проверяет этот artifact на Temurin JDK 17 под Linux, macOS и Windows, а также на
+Temurin JDK 21/25 под Linux. Отдельные Linux jobs запускают scenario checks для source targets 21/25 на
 соответствующих JDK.
 Канонические команды release/agent checks явно передают `--project-prop=procwright.javaRelease=17`, поэтому работают на
 минимальной поддерживаемой JDK; default 25 остается удобным для локальной разработки на новейшей JDK.

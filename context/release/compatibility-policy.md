@@ -20,10 +20,10 @@
 - macOS latest;
 - Windows 2025 hosted runner.
 
-Каждая ячейка матрицы OS/JDK независимо компилирует и проверяет build с Java 17 target на Temurin JDK 17, 21 или 25.
+Java 17-targeted build проверяется на Temurin JDK 17 под Linux, macOS и Windows, а также на Temurin JDK 21/25 под Linux.
 Отдельно на Linux исходники собираются и тестируются с targets 21 и 25 на соответствующих JDK. Такое разделение
-доказывает minimum bytecode compatibility, runtime compatibility и source compatibility; compilation и проверки
-каждой matrix cell остаются независимыми.
+проверяет minimum bytecode compatibility, три основные OS на минимальной JDK, новые runtimes и source compatibility,
+не заявляя полный Cartesian product OS × JDK.
 
 Все кроссплатформенные сценарии должны проходить на всех трех платформах. Сценарии, которым нужен POSIX shell или
 system PTY provider, skip-аются через JUnit assumptions, если платформа не предоставляет нужную возможность.

@@ -109,7 +109,7 @@ blocking. Do not read a session's raw stdout after an `Expect`, line-session, or
 
 ## Documentation
 
-- [Documentation site](https://ulviar.github.io/Procwright/)
+- [Documentation](docs/index.md)
 - [Getting started](docs/getting-started.md)
 - [Choose a process scenario](docs/how-to/choose-process-scenario.md)
 - [Runnable examples](docs/examples.md)

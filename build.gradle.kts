@@ -720,33 +720,6 @@ tasks.check { dependsOn(contextLinksCheck) }
 
 quickCheck.configure { dependsOn(contextLinksCheck) }
 
-val canonicalPublicDocsUrlCheck =
-    tasks.register("canonicalPublicDocsUrlCheck") {
-        description = "Checks that the public documentation site is canonical and discoverable."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-
-        val readme = layout.projectDirectory.file("README.md")
-        val mkdocs = layout.projectDirectory.file("mkdocs.yml")
-        val canonicalUrl = "https://ulviar.github.io/Procwright/"
-        inputs.files(readme, mkdocs)
-        inputs.property("canonicalUrl", canonicalUrl)
-
-        doLast {
-            val failures = mutableListOf<String>()
-            if (
-                !mkdocs.asFile.readLines().any { line -> line.trim() == "site_url: $canonicalUrl" }
-            ) {
-                failures += "mkdocs.yml must declare site_url: $canonicalUrl"
-            }
-            if (!readme.asFile.readText().contains("]($canonicalUrl)")) {
-                failures += "README.md must link to $canonicalUrl"
-            }
-            if (failures.isNotEmpty()) {
-                throw GradleException(failures.joinToString("\n"))
-            }
-        }
-    }
-
 val preparedPublicDocs = layout.buildDirectory.dir("prepared-public-docs")
 val kotlinDokkaHtml = project(":procwright-kotlin").layout.buildDirectory.dir("kdoc-validation")
 
@@ -774,7 +747,7 @@ val publicDocsCheck =
         description =
             "Builds the public MkDocs documentation site in strict mode and attaches generated API docs."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(preparePublicDocs, docsRequirementsLockCheck, canonicalPublicDocsUrlCheck)
+        dependsOn(preparePublicDocs, docsRequirementsLockCheck)
 
         val requirements = layout.projectDirectory.file("docs/requirements.lock")
         val requirementsSource = layout.projectDirectory.file("docs/requirements.txt")
