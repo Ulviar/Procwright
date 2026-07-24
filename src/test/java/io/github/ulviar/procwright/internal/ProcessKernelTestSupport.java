@@ -84,14 +84,6 @@ abstract class ProcessKernelTestSupport {
                 diagnostics);
     }
 
-    static List<Byte> boxed(byte[] bytes) {
-        java.util.ArrayList<Byte> boxed = new java.util.ArrayList<>(bytes.length);
-        for (byte value : bytes) {
-            boxed.add(value);
-        }
-        return boxed;
-    }
-
     static boolean eventually(BooleanSupplier condition) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
         while (System.nanoTime() < deadline) {

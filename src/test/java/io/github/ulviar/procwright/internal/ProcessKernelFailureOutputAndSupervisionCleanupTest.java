@@ -16,7 +16,6 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -161,34 +160,10 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
     }
 
     @Test
-    void decodeFailureDoesNotCallHostileDisplayNameOrMaskOriginalCause() {
-        IllegalStateException decoderFailure = new IllegalStateException("decoder failed");
-        AssertionError displayNameFailure = new AssertionError("displayName must not be called");
-        HostileDisplayNameCharset charset = new HostileDisplayNameCharset(decoderFailure, displayNameFailure);
-        ExecutionPlan plan = executionPlan(charset);
-
-        CommandExecutionException thrown = assertThrows(
-                CommandExecutionException.class,
-                () -> ProcessKernel.decodeCapturedOutputs(
-                        new CapturedOutput(new byte[] {'A'}, false),
-                        new CapturedOutput(new byte[] {'B'}, false),
-                        plan,
-                        OptionalInt.of(0),
-                        false,
-                        Duration.ofMillis(1)));
-
-        assertEquals(CommandExecutionException.Reason.DECODE_ERROR, thrown.reason());
-        assertSame(decoderFailure, thrown.getCause());
-        assertEquals(0, charset.displayNameCalls());
-        assertEquals("A", thrown.result().orElseThrow().stdout());
-        assertEquals("B", thrown.result().orElseThrow().stderr());
-        assertEquals(List.of((byte) 'A'), boxed(thrown.result().orElseThrow().stdoutBytes()));
-        assertEquals(List.of((byte) 'B'), boxed(thrown.result().orElseThrow().stderrBytes()));
-    }
-
-    @Test
     void decodeFailureElapsedIsSampledAfterBlockedSupervisionCleanup() throws Exception {
         AtomicBoolean cleanupFinished = new AtomicBoolean();
+        AtomicBoolean failureObservedAfterCleanup = new AtomicBoolean();
+        List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         BlockingCleanupInputStream stdout = new BlockingCleanupInputStream(cleanupFinished);
         TerminalProcess process = new TerminalProcess(stdout, new TrackingInputStream(), new TrackingOutputStream());
         AtomicInteger nanoReads = new AtomicInteger();
@@ -199,7 +174,15 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
                 Duration.ofSeconds(1),
                 () -> nanoReads.getAndIncrement() == 0 ? 100L : cleanupFinished.get() ? 500L : 200L);
         ExecutionPlan plan = executionPlan(
-                DiagnosticsSettings.disabled(), StdinPolicy.closed(), OutputMode.SEPARATE, Duration.ofSeconds(1));
+                DiagnosticsSettings.disabled().withListener(event -> {
+                    events.add(event);
+                    if (event.type() == DiagnosticEventType.PROCESS_FAILED) {
+                        failureObservedAfterCleanup.set(cleanupFinished.get());
+                    }
+                }),
+                StdinPolicy.closed(),
+                OutputMode.SEPARATE,
+                Duration.ofSeconds(1));
         FutureTask<Throwable> execution = new FutureTask<>(() -> captureFailure(() -> kernel.run(plan)));
         Thread runner = new Thread(execution, "procwright-decode-cleanup-elapsed-test");
         runner.setDaemon(true);
@@ -215,6 +198,9 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         assertEquals(CommandExecutionException.Reason.DECODE_ERROR, failure.reason());
         assertEquals(Duration.ofNanos(400), failure.result().orElseThrow().elapsed());
         assertTrue(cleanupFinished.get());
+        assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
+        assertTrue(failureObservedAfterCleanup.get());
+        assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
     }
 
     @Test

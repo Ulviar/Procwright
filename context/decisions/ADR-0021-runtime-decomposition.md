@@ -19,7 +19,8 @@ wrappers, применяет readiness и передает diagnostics даль�
 `ProcessKernel` оркестрирует one-shot run, но не вычисляет OS redirects и конкурентный terminal outcome. Immutable
 `OneShotIoPlan` переводит согласованный `ExecutionPlan` в redirects, stdin action и точное число I/O tasks до launch.
 `OneShotTermination` выбирает первый из process exit, timeout и stdin failure; cleanup, diagnostics и перевод failure в
-public exception остаются у kernel.
+public lifecycle exception остаются у kernel. После cleanup `OneShotResultAssembler` декодирует завершенные captures и
+строит success либо typed decode-failure `CommandResult`, сохраняя raw bytes в обоих случаях.
 
 `DefaultProtocolSession` остается владельцем lifecycle протокольной сессии, serialized request lock, transcript snapshot
 и process exit snapshot. Внутренние детали чтения и записи разделены на маленькие владельцы:
@@ -39,6 +40,8 @@ public exception остаются у kernel.
 
 - Public scenario API не раскрывает `ScenarioRuntime` или protocol implementation classes.
 - One-shot I/O topology вычисляется один раз до launch, а первый terminal outcome после выбора не заменяется.
+- One-shot result decoding не зависит от process lifecycle и сохраняет исходные captured bytes в success и typed
+  decode-failure results.
 - У каждого protocol limit есть один runtime-владелец: request limits у writer, response limits у reader/budget,
   backlog limit у queue.
 - Failure taxonomy остается в публичных scenario-specific exceptions, а внутренние helpers только строят эти failures.
@@ -64,5 +67,6 @@ public exception остаются у kernel.
 - `ApiCompatibilityCheck` фиксирует `ProcwrightException` как часть exact public API baseline.
 - `PackageBoundaryTest` допускает dependency на root package только как public error boundary.
 - `ProcwrightExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
-- `OneShotIoPlanTest` и `OneShotTerminationTest` проверяют one-shot topology и terminal arbitration напрямую.
+- `OneShotIoPlanTest`, `OneShotTerminationTest` и `OneShotResultAssemblerTest` проверяют one-shot topology, terminal
+  arbitration и result assembly напрямую.
 - Protocol/session integration tests проверяют behavior через публичные сценарии, а не через internal classes.

@@ -75,6 +75,8 @@ Runtime получает только согласованный plan и не у
 После запуска владельцем инварианта становится конкретный runtime component:
 
 - первый one-shot terminal outcome из process exit, timeout и stdin failure — `OneShotTermination`;
+- декодирование завершенных one-shot captures и success/typed decode-failure `CommandResult` snapshot —
+  `OneShotResultAssembler`;
 - session construction transaction — `SessionConstruction`;
 - session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, public cleanup
   barrier — `SessionExitBarrier`;

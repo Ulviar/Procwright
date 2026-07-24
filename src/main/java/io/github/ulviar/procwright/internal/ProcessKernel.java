@@ -7,9 +7,6 @@ import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import java.io.OutputStream;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CoderMalfunctionError;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.OptionalInt;
@@ -262,24 +259,15 @@ public final class ProcessKernel {
             rethrow(primaryFailure);
         }
         Duration elapsed = DurationSupport.elapsed(startedNanos, nanoTime.getAsLong());
-        PendingResult pendingResult;
+        CommandResult result;
         try {
-            DecodedOutputs decoded = decodeCapturedOutputs(
+            result = OneShotResultAssembler.assemble(
                     pendingCapture.stdout(),
                     pendingCapture.stderr(),
-                    plan,
+                    plan.charsetPolicy(),
                     pendingCapture.exitCode(),
                     pendingCapture.timedOut(),
                     elapsed);
-            pendingResult = new PendingResult(
-                    pendingCapture.exitCode(),
-                    pendingCapture.stdout().bytes(),
-                    pendingCapture.stderr().bytes(),
-                    decoded.stdout(),
-                    decoded.stderr(),
-                    pendingCapture.stdout().truncated(),
-                    pendingCapture.stderr().truncated(),
-                    pendingCapture.timedOut());
         } catch (RuntimeException | Error decodeFailure) {
             emitSuppressed(
                     diagnostics,
@@ -290,14 +278,12 @@ public final class ProcessKernel {
             throw decodeFailure;
         }
         try {
-            diagnostics.emit(
-                    DiagnosticEventType.PROCESS_EXITED,
-                    exitAttributes(pendingResult.exitCode(), pendingResult.timedOut()));
+            diagnostics.emit(DiagnosticEventType.PROCESS_EXITED, exitAttributes(result.exitCode(), result.timedOut()));
         } catch (RuntimeException | Error diagnosticFailure) {
             diagnostics.emitProcessFailure(diagnosticFailure);
             throw diagnosticFailure;
         }
-        return pendingResult.toCommandResult(elapsed);
+        return result;
     }
 
     private static OneShotIoTaskOwner.OwnedFuture<Void> startStdinWriter(
@@ -434,52 +420,6 @@ public final class ProcessKernel {
         }
     }
 
-    private static String decode(CapturedOutput output, ExecutionPlan plan) {
-        try {
-            if (output.truncated()) {
-                return decodeTruncatedPrefix(output.bytes(), plan);
-            }
-            return OneShotTextDecoder.decode(output.bytes(), plan.charsetPolicy());
-        } catch (CharacterCodingException | RuntimeException | CoderMalfunctionError exception) {
-            throw new OutputDecodingException("Could not decode command output", exception);
-        }
-    }
-
-    static DecodedOutputs decodeCapturedOutputs(
-            CapturedOutput stdout,
-            CapturedOutput stderr,
-            ExecutionPlan plan,
-            OptionalInt exitCode,
-            boolean timedOut,
-            Duration elapsed) {
-        try {
-            return new DecodedOutputs(decode(stdout, plan), decode(stderr, plan));
-        } catch (OutputDecodingException decodeFailure) {
-            CommandResult diagnosticResult = new CommandResult(
-                    exitCode,
-                    stdout.bytes(),
-                    stderr.bytes(),
-                    diagnosticText(stdout.bytes(), plan, decodeFailure.getCause()),
-                    diagnosticText(stderr.bytes(), plan, decodeFailure.getCause()),
-                    stdout.truncated(),
-                    stderr.truncated(),
-                    timedOut,
-                    elapsed);
-            throw new CommandExecutionException(
-                    CommandExecutionException.Reason.DECODE_ERROR,
-                    decodeFailure.getMessage() + " with " + plan.charset().name(),
-                    decodeFailure.getCause(),
-                    diagnosticResult);
-        }
-    }
-
-    private static String decodeTruncatedPrefix(byte[] bytes, ExecutionPlan plan) throws CharacterCodingException {
-        int completePrefixLength = OneShotTextDecoder.completePrefixLength(bytes, plan.charsetPolicy());
-        byte[] completePrefix =
-                completePrefixLength == bytes.length ? bytes : java.util.Arrays.copyOf(bytes, completePrefixLength);
-        return OneShotTextDecoder.decode(completePrefix, plan.charsetPolicy());
-    }
-
     static void forceStopAfterFailure(Process process, Set<ProcessHandle> knownDescendants, Throwable primaryFailure) {
         ProcessIoResources resources;
         try {
@@ -532,17 +472,6 @@ public final class ProcessKernel {
         }
     }
 
-    private static String diagnosticText(byte[] bytes, ExecutionPlan plan, Throwable decodeFailure) {
-        if (decodeFailure instanceof CharacterCodingException) {
-            try {
-                return new String(bytes, plan.charset());
-            } catch (RuntimeException | Error diagnosticFailure) {
-                SuppressionSupport.attach(decodeFailure, diagnosticFailure);
-            }
-        }
-        return new String(bytes, StandardCharsets.ISO_8859_1);
-    }
-
     private static java.util.Map<String, String> exitAttributes(OptionalInt exitCode, boolean timedOut) {
         java.util.LinkedHashMap<String, String> attributes = new java.util.LinkedHashMap<>();
         attributes.put("timedOut", Boolean.toString(timedOut));
@@ -560,34 +489,8 @@ public final class ProcessKernel {
         throw new AssertionError("command lifecycle failure must be unchecked", failure);
     }
 
-    private record PendingResult(
-            OptionalInt exitCode,
-            byte[] stdoutBytes,
-            byte[] stderrBytes,
-            String stdout,
-            String stderr,
-            boolean stdoutTruncated,
-            boolean stderrTruncated,
-            boolean timedOut) {
-
-        private CommandResult toCommandResult(Duration elapsed) {
-            return new CommandResult(
-                    exitCode,
-                    stdoutBytes,
-                    stderrBytes,
-                    stdout,
-                    stderr,
-                    stdoutTruncated,
-                    stderrTruncated,
-                    timedOut,
-                    elapsed);
-        }
-    }
-
     private record PendingCapture(
             OptionalInt exitCode, CapturedOutput stdout, CapturedOutput stderr, boolean timedOut) {}
-
-    record DecodedOutputs(String stdout, String stderr) {}
 
     private static final class FailureCollector {
 
@@ -599,14 +502,6 @@ public final class ProcessKernel {
 
         private synchronized Throwable failure() {
             return failure;
-        }
-    }
-
-    @SuppressWarnings("serial")
-    private static final class OutputDecodingException extends RuntimeException {
-
-        private OutputDecodingException(String message, Throwable cause) {
-            super(message, cause);
         }
     }
 

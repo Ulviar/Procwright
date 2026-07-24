@@ -22,7 +22,7 @@
 
 | Инвариант | Владелец | Доказательство |
 | --- | --- | --- |
-| One-shot capture bounded, сообщает truncation и сохраняет raw bytes при decode failure. | `CapturePolicy`, `CapturedOutput`, `OneShotTextDecoder`, `CommandResult`. | `CapturedOutputTest`, `CommandResultTest`, hostile-decoder integration cases, stress tests. |
+| One-shot capture bounded, сообщает truncation и сохраняет raw bytes в success и typed decode-failure results. | `CapturePolicy`, `CapturedOutput`, `OneShotTextDecoder`, `OneShotResultAssembler`, `CommandResult`. | `CapturedOutputTest`, `OneShotResultAssemblerTest`, `CommandResultTest`, hostile-decoder integration cases, stress tests. |
 | One-shot run выбирает ровно один первый terminal outcome из process exit, timeout и stdin failure; позднее событие не заменяет победителя. | `OneShotTermination`. | `OneShotTerminationTest`, `ProcessKernelTaskAdmissionAndInputTest.earlyStdinFailureWinsBeforeLongDeadlineAndStopsTheLiveProcess`, timeout и interrupted-run integration cases. |
 | Timeout/close/failure останавливает process tree; зависающий destroy использует общую bounded capacity без fallback threads. | `ShutdownPolicy`, `ProcessLifecycle`, `BoundedDestroyDispatcher`, `LateTaskFailureReporter`. | `ProcessLifecycleObservationAndDeadlineTest`, `ProcessLifecycleProcessTreeDiscoveryAndShutdownTest`, `ProcessLifecycleCleanupFailureAndInterruptionTest`, `BoundedDestroyDispatcherTest`, timeout integration/stress cases. |
 | Все cleanup phases выполняются независимо; первый failure сохраняется, остальные подавляются без циклов. | `SuppressionSupport`, runtime lifecycle owners. | `SuppressionSupportTest`, `ProcessKernelFailureOutputAndSupervisionCleanupTest`, `DefaultSessionWatcherCleanupTest`, `DefaultSessionOutputCleanupTest`. |

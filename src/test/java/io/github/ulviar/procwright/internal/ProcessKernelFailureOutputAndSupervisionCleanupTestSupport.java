@@ -5,10 +5,6 @@ package io.github.ulviar.procwright.internal;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CharsetEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -216,44 +212,6 @@ abstract class ProcessKernelFailureOutputAndSupervisionCleanupTestSupport extend
         public void close() {
             super.close();
             throw closeFailure;
-        }
-    }
-
-    static final class HostileDisplayNameCharset extends Charset {
-
-        final RuntimeException decoderFailure;
-        final Error displayNameFailure;
-        final AtomicInteger displayNameCalls = new AtomicInteger();
-
-        HostileDisplayNameCharset(RuntimeException decoderFailure, Error displayNameFailure) {
-            super("x-procwright-hostile-display-name", null);
-            this.decoderFailure = decoderFailure;
-            this.displayNameFailure = displayNameFailure;
-        }
-
-        @Override
-        public boolean contains(Charset charset) {
-            return charset == this;
-        }
-
-        @Override
-        public String displayName() {
-            displayNameCalls.incrementAndGet();
-            throw displayNameFailure;
-        }
-
-        @Override
-        public CharsetDecoder newDecoder() {
-            throw decoderFailure;
-        }
-
-        @Override
-        public CharsetEncoder newEncoder() {
-            return StandardCharsets.UTF_8.newEncoder();
-        }
-
-        int displayNameCalls() {
-            return displayNameCalls.get();
         }
     }
 
