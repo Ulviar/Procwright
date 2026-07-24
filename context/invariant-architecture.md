@@ -67,11 +67,14 @@ Settings не являются public compatibility surface. Они перено
 доказать одним setter-ом.
 
 Runtime получает только согласованный plan и не угадывает, какие defaults или overrides имел в виду пользователь.
+Для one-shot run `OneShotIoPlan` до launch один раз преобразует этот plan в OS redirects, stdin action и точное
+множество I/O tasks.
 
 ### Stateful runtime
 
 После запуска владельцем инварианта становится конкретный runtime component:
 
+- первый one-shot terminal outcome из process exit, timeout и stdin failure — `OneShotTermination`;
 - session construction transaction — `SessionConstruction`;
 - session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, public cleanup
   barrier — `SessionExitBarrier`;

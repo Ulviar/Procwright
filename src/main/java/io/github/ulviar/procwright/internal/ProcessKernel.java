@@ -2,10 +2,8 @@
 
 package io.github.ulviar.procwright.internal;
 
-import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.CommandResult;
-import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import java.io.OutputStream;
@@ -114,18 +112,18 @@ public final class ProcessKernel {
         DiagnosticEmitter diagnostics =
                 DiagnosticEmitter.of(plan.diagnostics(), "run", () -> CommandEchoSupport.from(plan.launchPlan()));
         diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
-        CapturePolicy.Bounded boundedCapture =
-                plan.capturePolicy() instanceof CapturePolicy.Bounded bounded ? bounded : null;
+        OneShotIoPlan ioPlan;
         OneShotIoTaskOwner.Reservation ioTasks;
         try {
-            ioTasks = ioTaskOwner.reserve(requiredIoTasks(plan, boundedCapture));
+            ioPlan = OneShotIoPlan.resolve(plan);
+            ioTasks = ioTaskOwner.reserve(ioPlan.taskCount());
         } catch (RuntimeException | Error failure) {
             diagnostics.emitProcessFailure(failure);
             throw failure;
         }
         Process process;
         try {
-            process = processStarter.start(plan.launchPlan(), stdioConfig(plan));
+            process = processStarter.start(plan.launchPlan(), ioPlan.stdio());
         } catch (RuntimeException | Error exception) {
             ioTasks.close();
             diagnostics.emitProcessFailure(exception);
@@ -153,39 +151,37 @@ public final class ProcessKernel {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_STARTED,
                     DiagnosticEmitter.attributes("pid", Long.toString(process.pid())));
-            if (requiredIoTasks(plan, boundedCapture) > 0) {
+            if (ioPlan.taskCount() > 0) {
                 executor = Threading.newTaskExecutor("procwright-output-pump-");
             }
-            Future<CapturedOutput> stdout = boundedCapture == null
+            Future<CapturedOutput> stdout = !ioPlan.capturesStdout()
                     ? null
                     : ioTasks.submit(
-                            executor, () -> CapturedOutput.capture(resources.stdout().stream(), boundedCapture));
-            Future<CapturedOutput> stderr = boundedCapture == null || plan.outputMode() == OutputMode.MERGED
+                            executor,
+                            () -> CapturedOutput.capture(resources.stdout().stream(), ioPlan.boundedCapture()));
+            Future<CapturedOutput> stderr = !ioPlan.capturesStderr()
                     ? null
                     : ioTasks.submit(
-                            executor, () -> CapturedOutput.capture(resources.stderr().stream(), boundedCapture));
+                            executor,
+                            () -> CapturedOutput.capture(resources.stderr().stream(), ioPlan.boundedCapture()));
             OneShotIoTaskOwner.OwnedFuture<Void> stdin =
-                    startStdinWriter(resources.stdin(), plan.stdin(), executor, ioTasks, recordCloseFailure);
+                    startStdinWriter(resources.stdin(), ioPlan.stdinOperation(), executor, ioTasks, recordCloseFailure);
 
-            OneShotTerminalArbiter terminalArbiter = new OneShotTerminalArbiter();
+            OneShotTermination termination = new OneShotTermination(process, plan.timeout(), liveDescendants);
             if (stdin != null) {
-                stdin.actualCompletion().whenComplete((outcome, impossible) -> {
-                    if (outcome != null && outcome.failure() != null) {
-                        terminalArbiter.claim(new StdinFailure(outcome.failure()));
-                    }
-                });
+                stdin.onFailure(termination.stdinFailureHandler());
             }
-            OneShotOutcome terminalOutcome;
+            OneShotTermination.Outcome terminalOutcome;
             try {
-                terminalOutcome = awaitTerminal(process, plan.timeout(), liveDescendants, terminalArbiter);
+                terminalOutcome = termination.await();
             } catch (InterruptedException exception) {
                 restoreInterrupt = true;
                 throw interruptedFailure(process, plan, liveDescendants, diagnostics, exception);
             }
-            if (terminalOutcome instanceof StdinFailure stdinFailure) {
+            if (terminalOutcome instanceof OneShotTermination.StdinFailure stdinFailure) {
                 throwStdinFailure(stdinFailure.failure());
             }
-            boolean timedOut = terminalOutcome instanceof TimedOut;
+            boolean timedOut = terminalOutcome instanceof OneShotTermination.TimedOut;
             OptionalInt exitCode;
             if (timedOut) {
                 diagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
@@ -208,13 +204,19 @@ public final class ProcessKernel {
                 diagnostics.emit(
                         DiagnosticEventType.OUTPUT_TRUNCATED,
                         DiagnosticEmitter.attributes(
-                                "source", "stdout", "limitBytes", Integer.toString(boundedCapture.byteLimit())));
+                                "source",
+                                "stdout",
+                                "limitBytes",
+                                Integer.toString(ioPlan.boundedCapture().byteLimit())));
             }
             if (stderrOutput.truncated()) {
                 diagnostics.emit(
                         DiagnosticEventType.OUTPUT_TRUNCATED,
                         DiagnosticEmitter.attributes(
-                                "source", "stderr", "limitBytes", Integer.toString(boundedCapture.byteLimit())));
+                                "source",
+                                "stderr",
+                                "limitBytes",
+                                Integer.toString(ioPlan.boundedCapture().byteLimit())));
             }
             pendingCapture = new PendingCapture(exitCode, stdoutOutput, stderrOutput, timedOut);
         } catch (RuntimeException | Error exception) {
@@ -298,92 +300,33 @@ public final class ProcessKernel {
         return pendingResult.toCommandResult(elapsed);
     }
 
-    private static int requiredIoTasks(ExecutionPlan plan, CapturePolicy.Bounded boundedCapture) {
-        int taskCount = boundedCapture == null ? 0 : 1;
-        if (boundedCapture != null && plan.outputMode() != OutputMode.MERGED) {
-            taskCount++;
-        }
-        if (plan.stdin().mode() == StdinPolicy.Mode.INPUT
-                && plan.stdin().input().path().isEmpty()) {
-            taskCount++;
-        }
-        return taskCount;
-    }
-
-    private static StdioConfig stdioConfig(ExecutionPlan plan) {
-        return new StdioConfig(stdinRedirect(plan.stdin()), stdoutRedirect(plan), stderrRedirect(plan));
-    }
-
-    private static ProcessBuilder.Redirect stdinRedirect(StdinPolicy stdin) {
-        if (stdin.mode() != StdinPolicy.Mode.INPUT) {
-            return ProcessBuilder.Redirect.PIPE;
-        }
-        return stdin.input()
-                .path()
-                .map(path -> {
-                    if (!java.nio.file.Files.isRegularFile(path)) {
-                        throw new CommandExecutionException(
-                                CommandExecutionException.Reason.LAUNCH_FAILED,
-                                "Stdin source file does not exist or is not a regular file: " + path);
-                    }
-                    return ProcessBuilder.Redirect.from(path.toFile());
-                })
-                .orElse(ProcessBuilder.Redirect.PIPE);
-    }
-
-    private static ProcessBuilder.Redirect stdoutRedirect(ExecutionPlan plan) {
-        if (plan.capturePolicy() instanceof CapturePolicy.Discard) {
-            return ProcessBuilder.Redirect.DISCARD;
-        }
-        if (plan.capturePolicy() instanceof CapturePolicy.ToPath toPath) {
-            return ProcessBuilder.Redirect.to(toPath.stdout().toFile());
-        }
-        return ProcessBuilder.Redirect.PIPE;
-    }
-
-    private static ProcessBuilder.Redirect stderrRedirect(ExecutionPlan plan) {
-        // With OutputMode.MERGED the stderr redirect is ignored by ProcessBuilder.redirectErrorStream(true).
-        if (plan.capturePolicy() instanceof CapturePolicy.Discard) {
-            return ProcessBuilder.Redirect.DISCARD;
-        }
-        if (plan.capturePolicy() instanceof CapturePolicy.ToPath toPath) {
-            return toPath.stderr()
-                    .map(path -> ProcessBuilder.Redirect.to(path.toFile()))
-                    .orElse(ProcessBuilder.Redirect.DISCARD);
-        }
-        return ProcessBuilder.Redirect.PIPE;
-    }
-
     private static OneShotIoTaskOwner.OwnedFuture<Void> startStdinWriter(
             ProcessIoResources.Resource<OutputStream> output,
-            StdinPolicy stdin,
+            OneShotIoPlan.StdinOperation stdin,
             ExecutorService executor,
             OneShotIoTaskOwner.Reservation ioTasks,
             Consumer<? super Throwable> closeFailureHandler) {
-        if (stdin.mode() == StdinPolicy.Mode.OPEN) {
-            throw new CommandExecutionException("One-shot execution cannot keep stdin open");
-        }
-        if (stdin.mode() == StdinPolicy.Mode.CLOSED) {
-            output.closeAsync("procwright-process-stdin-close-", closeFailureHandler);
-            return null;
-        }
-        if (stdin.input().path().isPresent()) {
-            // Stdin is redirected from the source file at the operating-system level; there is nothing to write.
-            return null;
-        }
-        return ioTasks.submit(executor, () -> {
-            writeStdin(output, stdin, closeFailureHandler);
-            return null;
-        });
+        return switch (stdin.action()) {
+            case CLOSE -> {
+                output.closeAsync("procwright-process-stdin-close-", closeFailureHandler);
+                yield null;
+            }
+            case REDIRECT -> null;
+            case WRITE ->
+                ioTasks.submit(executor, () -> {
+                    writeStdin(output, stdin, closeFailureHandler);
+                    return null;
+                });
+        };
     }
 
     private static void writeStdin(
             ProcessIoResources.Resource<OutputStream> output,
-            StdinPolicy stdin,
+            OneShotIoPlan.StdinOperation stdin,
             Consumer<? super Throwable> closeFailureHandler) {
         Throwable primaryFailure = null;
         try {
-            output.stream().write(stdin.input().copyBytes());
+            output.stream().write(stdin.writeInput().copyBytes());
         } catch (java.io.IOException exception) {
             primaryFailure = new CommandExecutionException(
                     CommandExecutionException.Reason.RUNTIME_FAILURE, "Could not write command stdin", exception);
@@ -464,41 +407,6 @@ public final class ProcessKernel {
     private static Set<ProcessHandle> knownDescendants(AtomicReference<Set<ProcessHandle>> liveDescendants) {
         Set<ProcessHandle> snapshot = liveDescendants.get();
         return snapshot == null ? Set.of() : snapshot;
-    }
-
-    private static OneShotOutcome awaitTerminal(
-            Process process,
-            Duration timeout,
-            AtomicReference<Set<ProcessHandle>> liveDescendants,
-            OneShotTerminalArbiter arbiter)
-            throws InterruptedException {
-        boolean unbounded = timeout.isZero();
-        long deadlineNanos = unbounded ? 0 : DurationSupport.deadlineFromNow(timeout);
-        long pollNanos = TimeUnit.MILLISECONDS.toNanos(10);
-        while (true) {
-            OneShotOutcome selected = arbiter.outcome();
-            if (selected != null) {
-                return selected;
-            }
-            long remainingNanos = unbounded ? pollNanos : deadlineNanos - System.nanoTime();
-            if (remainingNanos <= 0) {
-                arbiter.claim(new TimedOut());
-                return arbiter.outcome();
-            }
-            try {
-                boolean exited = ProcessLifecycle.waitFor(
-                        process, Duration.ofNanos(Math.min(remainingNanos, pollNanos)), liveDescendants);
-                if (exited) {
-                    arbiter.claim(new ProcessExited());
-                }
-            } catch (InterruptedException interruption) {
-                if (arbiter.outcome() != null) {
-                    Thread.currentThread().interrupt();
-                    return arbiter.outcome();
-                }
-                throw interruption;
-            }
-        }
     }
 
     private static void throwStdinFailure(Throwable failure) {
@@ -680,32 +588,6 @@ public final class ProcessKernel {
             OptionalInt exitCode, CapturedOutput stdout, CapturedOutput stderr, boolean timedOut) {}
 
     record DecodedOutputs(String stdout, String stderr) {}
-
-    private sealed interface OneShotOutcome permits ProcessExited, TimedOut, StdinFailure {}
-
-    private record ProcessExited() implements OneShotOutcome {}
-
-    private record TimedOut() implements OneShotOutcome {}
-
-    private record StdinFailure(Throwable failure) implements OneShotOutcome {
-
-        private StdinFailure {
-            Objects.requireNonNull(failure, "failure");
-        }
-    }
-
-    private static final class OneShotTerminalArbiter {
-
-        private final AtomicReference<OneShotOutcome> outcome = new AtomicReference<>();
-
-        private boolean claim(OneShotOutcome candidate) {
-            return outcome.compareAndSet(null, Objects.requireNonNull(candidate, "candidate"));
-        }
-
-        private OneShotOutcome outcome() {
-            return outcome.get();
-        }
-    }
 
     private static final class FailureCollector {
 

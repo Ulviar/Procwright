@@ -16,6 +16,11 @@
 scenario-specific internal settings. `ScenarioRuntime` строит execution/session plans из их snapshot, открывает runtime
 wrappers, применяет readiness и передает diagnostics дальше в runtime.
 
+`ProcessKernel` оркестрирует one-shot run, но не вычисляет OS redirects и конкурентный terminal outcome. Immutable
+`OneShotIoPlan` переводит согласованный `ExecutionPlan` в redirects, stdin action и точное число I/O tasks до launch.
+`OneShotTermination` выбирает первый из process exit, timeout и stdin failure; cleanup, diagnostics и перевод failure в
+public exception остаются у kernel.
+
 `DefaultProtocolSession` остается владельцем lifecycle протокольной сессии, serialized request lock, transcript snapshot
 и process exit snapshot. Внутренние детали чтения и записи разделены на маленькие владельцы:
 
@@ -33,6 +38,7 @@ wrappers, применяет readiness и передает diagnostics даль�
 ## Инварианты
 
 - Public scenario API не раскрывает `ScenarioRuntime` или protocol implementation classes.
+- One-shot I/O topology вычисляется один раз до launch, а первый terminal outcome после выбора не заменяется.
 - У каждого protocol limit есть один runtime-владелец: request limits у writer, response limits у reader/budget,
   backlog limit у queue.
 - Failure taxonomy остается в публичных scenario-specific exceptions, а внутренние helpers только строят эти failures.
@@ -58,4 +64,5 @@ wrappers, применяет readiness и передает diagnostics даль�
 - `ApiCompatibilityCheck` фиксирует `ProcwrightException` как часть exact public API baseline.
 - `PackageBoundaryTest` допускает dependency на root package только как public error boundary.
 - `ProcwrightExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
+- `OneShotIoPlanTest` и `OneShotTerminationTest` проверяют one-shot topology и terminal arbitration напрямую.
 - Protocol/session integration tests проверяют behavior через публичные сценарии, а не через internal classes.

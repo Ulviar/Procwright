@@ -11,6 +11,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /** Owns the global admission bound for one-shot stdin and output tasks. */
 final class OneShotIoTaskOwner {
@@ -153,12 +154,17 @@ final class OneShotIoTaskOwner {
             }
         }
 
-        CompletableFuture<TaskOutcome<T>> actualCompletion() {
-            return actualCompletion.copy();
+        void onFailure(Consumer<? super Throwable> handler) {
+            Objects.requireNonNull(handler, "handler");
+            actualCompletion.thenAccept(outcome -> {
+                if (outcome.failure() != null) {
+                    handler.accept(outcome.failure());
+                }
+            });
         }
     }
 
-    record TaskOutcome<T>(T value, Throwable failure, boolean cancelled) {
+    private record TaskOutcome<T>(T value, Throwable failure, boolean cancelled) {
 
         private static <T> TaskOutcome<T> completed(T value) {
             return new TaskOutcome<>(value, null, false);
