@@ -63,6 +63,9 @@ final class ProcessExitWaiter {
             } else {
                 descendants.refresh(process, scanBudget, deadlineNanos);
             }
+            if (Thread.interrupted()) {
+                throw new InterruptedException("interrupted while observing process descendants");
+            }
             remainingNanos = unbounded ? POLL_NANOS : deadlineNanos - clock.nanoTime();
             if (remainingNanos <= 0) {
                 return guarded ? false : ProcessLiveness.hasExited(process);

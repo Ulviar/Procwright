@@ -5,7 +5,6 @@ package io.github.ulviar.procwright.internal;
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -37,24 +36,28 @@ final class ProcessProviderOperationOwner {
                 capacity, Threading::unstartedPlatformNonInheriting, BoundedFailureReporter.shared());
     }
 
-    <T> Optional<T> bestEffort(String threadPrefix, Duration timeout, Callable<T> operation) {
+    <T> BestEffortResult<T> bestEffortResult(String threadPrefix, Duration timeout, Callable<T> operation) {
         Permit permit = new Permit(permits);
         if (!permit.tryAcquire()) {
-            return Optional.empty();
+            return BestEffortResult.unavailable();
         }
         try {
-            return Optional.ofNullable(execute(threadPrefix, timeout, operation, permit));
+            return BestEffortResult.completed(execute(threadPrefix, timeout, operation, permit));
         } catch (InterruptedException interruption) {
             Thread.currentThread().interrupt();
-            return Optional.empty();
+            return BestEffortResult.interrupted();
         } catch (SecurityException | UnsupportedOperationException unavailable) {
-            return Optional.empty();
+            return BestEffortResult.unavailable();
+        } catch (CommandExecutionException failure) {
+            return causedByOperationDeadline(failure)
+                    ? BestEffortResult.deadlineExceeded()
+                    : BestEffortResult.unavailable();
         } catch (RuntimeException unavailable) {
-            return Optional.empty();
+            return BestEffortResult.unavailable();
         } catch (Error fatal) {
             throw fatal;
         } catch (Exception impossible) {
-            return Optional.empty();
+            return BestEffortResult.unavailable();
         }
     }
 
@@ -154,7 +157,7 @@ final class ProcessProviderOperationOwner {
             }
             permit.close();
             completion.complete(outcome);
-            settlement.workerCompleted(outcome.failure());
+            settlement.workerCompleted(outcome.lateFailure());
         } catch (RuntimeException | Error infrastructureFailure) {
             if (!completion.isDone()) {
                 permit.close();
@@ -223,14 +226,56 @@ final class ProcessProviderOperationOwner {
             ProcessProviderOperationCancellation cancellation,
             Permit permit) {}
 
-    private record Outcome<T>(T value, Throwable failure) {
+    interface AbandonedFailureCarrier {
+
+        Throwable abandonedFailure();
+    }
+
+    private record Outcome<T>(T value, Throwable failure, Throwable lateFailure) {
 
         private static <T> Outcome<T> completed(T value) {
-            return new Outcome<>(value, null);
+            Throwable lateFailure =
+                    value instanceof AbandonedFailureCarrier carrier ? carrier.abandonedFailure() : null;
+            return new Outcome<>(value, null, lateFailure);
         }
 
         private static <T> Outcome<T> failed(Throwable failure) {
-            return new Outcome<>(null, Objects.requireNonNull(failure, "failure"));
+            Throwable observed = Objects.requireNonNull(failure, "failure");
+            return new Outcome<>(null, observed, observed);
+        }
+    }
+
+    record BestEffortResult<T>(T value, Failure failure) {
+
+        BestEffortResult {
+            failure = Objects.requireNonNull(failure, "failure");
+        }
+
+        private static <T> BestEffortResult<T> completed(T value) {
+            return new BestEffortResult<>(value, Failure.NONE);
+        }
+
+        private static <T> BestEffortResult<T> deadlineExceeded() {
+            return new BestEffortResult<>(null, Failure.DEADLINE);
+        }
+
+        private static <T> BestEffortResult<T> unavailable() {
+            return new BestEffortResult<>(null, Failure.UNAVAILABLE);
+        }
+
+        private static <T> BestEffortResult<T> interrupted() {
+            return new BestEffortResult<>(null, Failure.INTERRUPTED);
+        }
+
+        boolean completed() {
+            return failure == Failure.NONE;
+        }
+
+        enum Failure {
+            NONE,
+            DEADLINE,
+            INTERRUPTED,
+            UNAVAILABLE
         }
     }
 

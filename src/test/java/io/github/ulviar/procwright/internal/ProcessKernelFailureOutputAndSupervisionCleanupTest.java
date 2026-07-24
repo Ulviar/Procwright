@@ -16,7 +16,6 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
@@ -53,10 +52,11 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         LivenessRestrictedProcess process = new LivenessRestrictedProcess();
         IllegalStateException primaryFailure = new IllegalStateException("primary failure");
 
-        ProcessKernel.forceStopAfterFailure(process, Set.of(), primaryFailure);
+        ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
 
         assertEquals(1, process.forceDestroyCalls());
-        assertTrue(primaryFailure.getSuppressed().length == 0);
+        assertEquals(1, primaryFailure.getSuppressed().length);
+        assertTrue(primaryFailure.getSuppressed()[0].getMessage().contains("discovery did not complete"));
     }
 
     @Test
@@ -64,7 +64,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         AssertionError primaryFailure = new AssertionError("primary failure");
         SelfFailingCleanupProcess process = new SelfFailingCleanupProcess(primaryFailure);
 
-        ProcessKernel.forceStopAfterFailure(process, Set.of(), primaryFailure);
+        ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
 
         assertTrue(eventually(() -> process.stdoutClosed() && process.stderrClosed()));
         assertEquals(0, primaryFailure.getSuppressed().length);
@@ -78,7 +78,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         CleanupProcess process = new CleanupProcess(stdin);
         AssertionError primaryFailure = new AssertionError("primary failure");
         try {
-            ProcessKernel.forceStopAfterFailure(process, Set.of(), primaryFailure);
+            ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
 
             assertTrue(stdin.awaitClose());
             assertEquals(1, stdin.closeCalls());
@@ -98,7 +98,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         CleanupProcess process = new CleanupProcess(stdin);
         AssertionError primaryFailure = new AssertionError("primary failure");
 
-        ProcessKernel.forceStopAfterFailure(process, Set.of(), primaryFailure);
+        ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
 
         assertTrue(stdin.awaitClose());
         assertEquals(1, stdin.closeCalls());

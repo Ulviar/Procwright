@@ -12,7 +12,6 @@ import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import java.time.Duration;
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -122,7 +121,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         try {
             Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stop(
                     scanner.guard(delegate),
-                    Set.of(),
+                    KnownDescendants.empty(),
                     ShutdownPolicy.interruptThenKill(Duration.ofMillis(40), Duration.ofMillis(250))));
             assertTrue(delegate.gracefulWaitLivenessEntered.await(1, TimeUnit.SECONDS));
             OptionalInt exitCode = shutdown.get(5, TimeUnit.SECONDS);
@@ -147,7 +146,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
                     CommandExecutionException.class,
                     () -> ProcessLifecycle.stop(
                             scanner.guard(delegate),
-                            Set.of(),
+                            KnownDescendants.empty(),
                             ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofMillis(250))));
 
             assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
@@ -160,6 +159,34 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
     }
 
     @Test
+    void guardedExitCodeUsesThePostSignalWaitDeadline() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(25), Duration.ofSeconds(1));
+        DelayedPostSignalExitProcess delegate = DelayedPostSignalExitProcess.afterGracefulSignal();
+
+        OptionalInt exitCode = ProcessLifecycle.stop(
+                scanner.guard(delegate),
+                KnownDescendants.empty(),
+                ShutdownPolicy.interruptThenKill(Duration.ofMillis(200), Duration.ofMillis(100)));
+
+        assertEquals(23, exitCode.orElseThrow());
+        assertEquals(0, delegate.forceDestroyCalls());
+    }
+
+    @Test
+    void guardedExitCodeUsesThePostForceSignalWaitDeadline() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(25), Duration.ofSeconds(1));
+        DelayedPostSignalExitProcess delegate = DelayedPostSignalExitProcess.afterForcefulSignal();
+
+        OptionalInt exitCode = ProcessLifecycle.stop(
+                scanner.guard(delegate),
+                KnownDescendants.empty(),
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ofMillis(200)));
+
+        assertEquals(23, exitCode.orElseThrow());
+        assertEquals(1, delegate.forceDestroyCalls());
+    }
+
+    @Test
     void guardedDescendantLivenessTimeoutAtLifecycleDeadlineRemainsLiveAndIsForceStopped() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofSeconds(5));
         DeadlineScriptedProcess root = new DeadlineScriptedProcess(false, false, true);
@@ -168,7 +195,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         try {
             Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stop(
                     scanner.guard(root),
-                    Set.of(scanner.guardObserved(descendant)),
+                    knownDescendants(scanner.guardObserved(descendant)),
                     ShutdownPolicy.interruptThenKill(Duration.ofMillis(40), Duration.ofMillis(250))));
             assertTrue(descendant.gracefulWaitLivenessEntered.await(1, TimeUnit.SECONDS));
             OptionalInt exitCode = shutdown.get(5, TimeUnit.SECONDS);
@@ -194,7 +221,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
                     CommandExecutionException.class,
                     () -> ProcessLifecycle.stop(
                             scanner.guard(root),
-                            Set.of(scanner.guardObserved(descendant)),
+                            knownDescendants(scanner.guardObserved(descendant)),
                             ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofMillis(250))));
 
             assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
@@ -289,7 +316,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
     void descendantSnapshotPrunesExitedHandles() throws Exception {
         ProcessHandle exited = new TestProcessHandle(42, false);
         ProcessHandle live = ProcessHandle.current();
-        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot(Set.of(exited));
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot(knownDescendants(exited));
 
         assertTrue(ProcessLifecycle.waitFor(new ReparentingProcess(live), Duration.ofSeconds(1), descendants));
 

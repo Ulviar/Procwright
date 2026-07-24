@@ -78,6 +78,22 @@ final class ProcessExitWaiterTest {
         assertSame(expected, actual);
     }
 
+    @Test
+    void interruptedDescendantScanWinsOverAnExpiredWaitDeadline() {
+        AdvancingClock clock = new AdvancingClock();
+        Thread caller = Thread.currentThread();
+        InterruptingScanProcess process = new InterruptingScanProcess(caller, clock);
+
+        try {
+            assertThrows(
+                    InterruptedException.class,
+                    () -> ProcessExitWaiter.waitFor(
+                            process, Duration.ofMillis(250), new LiveDescendantSnapshot(), clock));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     private abstract static class TestProcess extends Process {
 
         @Override
@@ -196,6 +212,32 @@ final class ProcessExitWaiterTest {
         @Override
         public Stream<ProcessHandle> descendants() {
             clock.nanos = Duration.ofMillis(250).toNanos();
+            return Stream.empty();
+        }
+    }
+
+    private static final class InterruptingScanProcess extends TestProcess {
+
+        private final Thread caller;
+        private final AdvancingClock clock;
+
+        private InterruptingScanProcess(Thread caller, AdvancingClock clock) {
+            this.caller = caller;
+            this.clock = clock;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return true;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            clock.nanos = Duration.ofMillis(250).toNanos();
+            caller.interrupt();
+            while (!Thread.currentThread().isInterrupted()) {
+                Thread.onSpinWait();
+            }
             return Stream.empty();
         }
     }

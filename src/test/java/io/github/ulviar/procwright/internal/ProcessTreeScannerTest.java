@@ -32,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,12 +55,73 @@ final class ProcessTreeScannerTest {
             }
         };
 
-        Set<ProcessHandle> descendants = scanner.descendants(process);
+        ProcessTreeScanner.DescendantScan scan = scanner.scanDescendants(process, Duration.ofSeconds(1));
+        Set<ProcessHandle> descendants = scan.handles();
 
         assertEquals(3, descendants.size());
-        assertEquals(3, produced.get());
+        assertFalse(scan.complete());
+        assertTrue(scan.truncated());
+        assertFalse(scan.incomplete());
+        assertEquals(4, produced.get());
         assertEquals(1, streamCloses.get());
         assertEquals(1, scanner.availableOperationPermits());
+    }
+
+    @Test
+    void exactDescendantLimitIsCompleteWithoutReadingPastTheStream() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 3, Duration.ofSeconds(1), Duration.ofMillis(50));
+        AtomicInteger produced = new AtomicInteger();
+        Process process = new StubProcess() {
+            @Override
+            public Stream<ProcessHandle> descendants() {
+                return Stream.<ProcessHandle>generate(() -> new StubHandle(produced.incrementAndGet()))
+                        .limit(3);
+            }
+        };
+
+        ProcessTreeScanner.DescendantScan scan = scanner.scanDescendants(process, Duration.ofSeconds(1));
+
+        assertEquals(3, scan.handles().size());
+        assertTrue(scan.complete());
+        assertFalse(scan.truncated());
+        assertFalse(scan.incomplete());
+        assertEquals(3, produced.get());
+    }
+
+    @Test
+    void handleTraversalBoundsUniqueRootsAndChildrenRatherThanWrapperCount() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 1, Duration.ofSeconds(1), Duration.ofMillis(50));
+        ProcessHandle root = new StubHandle(710);
+        ProcessHandle duplicateRoot = new StubHandle(710);
+        ProcessHandle extraRoot = new StubHandle(711);
+
+        assertTrue(scanner.scanDescendantsOfHandles(List.of(root), Duration.ofSeconds(1))
+                .complete());
+        assertTrue(scanner.scanDescendantsOfHandles(List.of(root, duplicateRoot), Duration.ofSeconds(1))
+                .complete());
+        assertTrue(scanner.scanDescendantsOfHandles(List.of(root, extraRoot), Duration.ofSeconds(1))
+                .truncated());
+
+        ProcessHandle child = new StubHandle(712);
+        ProcessHandle duplicateChild = new StubHandle(712);
+        ProcessHandle extraChild = new StubHandle(713);
+        ProcessHandle exactChildren = handleWithChildren(714, child);
+        ProcessHandle duplicateChildren = handleWithChildren(715, child, duplicateChild);
+        ProcessHandle overflowChildren = handleWithChildren(716, child, extraChild);
+
+        ProcessTreeScanner.DescendantScan exact =
+                scanner.scanDescendantsOfHandles(List.of(exactChildren), Duration.ofSeconds(1));
+        ProcessTreeScanner.DescendantScan duplicate =
+                scanner.scanDescendantsOfHandles(List.of(duplicateChildren), Duration.ofSeconds(1));
+        ProcessTreeScanner.DescendantScan overflow =
+                scanner.scanDescendantsOfHandles(List.of(overflowChildren), Duration.ofSeconds(1));
+
+        assertTrue(exact.complete());
+        assertEquals(1, exact.handles().size());
+        assertTrue(duplicate.complete());
+        assertEquals(1, duplicate.handles().size());
+        assertTrue(overflow.truncated());
+        assertEquals(1, overflow.handles().size());
     }
 
     @Test
@@ -67,12 +129,25 @@ final class ProcessTreeScannerTest {
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(50));
         IllegalStateException unavailable = new IllegalStateException("sysctl unavailable");
         AssertionError fatal = new AssertionError("fatal enumeration");
+        ProcessHandle fatalPrefix = new StubHandle(700);
+        Process fatalProcess = new StubProcess() {
+            @Override
+            public Stream<ProcessHandle> descendants() {
+                return streamFailingAfter(fatalPrefix, fatal);
+            }
+        };
 
-        assertTrue(
-                scanner.descendants(new ThrowingDescendantsProcess(unavailable)).isEmpty());
-        AssertionError thrown =
-                assertThrows(AssertionError.class, () -> scanner.descendants(new ThrowingDescendantsProcess(fatal)));
+        ProcessTreeScanner.DescendantScan unavailableScan =
+                scanner.scanDescendants(new ThrowingDescendantsProcess(unavailable), Duration.ofMillis(50));
+        assertTrue(unavailableScan.handles().isEmpty());
+        assertFalse(unavailableScan.complete());
+        assertTrue(unavailableScan.incomplete());
+        assertSame(ProcessTreeScanner.IncompleteReason.UNAVAILABLE, unavailableScan.incompleteReason());
+        ProcessTreeScanner.DescendantScan fatalScan = scanner.scanDescendants(fatalProcess, Duration.ofMillis(50));
+        AssertionError thrown = assertThrows(AssertionError.class, () -> scanner.descendants(fatalProcess));
 
+        assertEquals(Set.of(fatalPrefix), fatalScan.handles());
+        assertSame(fatal, fatalScan.failure());
         assertSame(fatal, thrown);
         assertEquals(1, scanner.availableOperationPermits());
     }
@@ -81,13 +156,17 @@ final class ProcessTreeScannerTest {
     void timedOutHostileScanRetainsItsOnlyPermitUntilTheOperationActuallyReturns() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
         BlockingDescendantsProcess blocked = new BlockingDescendantsProcess();
-        FutureTask<Set<ProcessHandle>> scan = new FutureTask<>(() -> scanner.descendants(blocked));
+        FutureTask<ProcessTreeScanner.DescendantScan> scan =
+                new FutureTask<>(() -> scanner.scanDescendants(blocked, Duration.ofMillis(25)));
         Thread worker = new Thread(scan, "process-tree-scan-test");
         worker.setDaemon(true);
         worker.start();
         try {
             assertTrue(blocked.entered.await(1, TimeUnit.SECONDS));
-            assertTrue(scan.get(1, TimeUnit.SECONDS).isEmpty());
+            ProcessTreeScanner.DescendantScan timedOut = scan.get(1, TimeUnit.SECONDS);
+            assertTrue(timedOut.handles().isEmpty());
+            assertTrue(timedOut.incomplete());
+            assertSame(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE, timedOut.incompleteReason());
             assertEquals(0, scanner.availableOperationPermits());
 
             CountingDescendantsProcess rejected = new CountingDescendantsProcess();
@@ -102,6 +181,341 @@ final class ProcessTreeScannerTest {
         CountingDescendantsProcess recovered = new CountingDescendantsProcess();
         assertTrue(scanner.descendants(recovered).isEmpty());
         assertEquals(1, recovered.calls.get(), "the released owner must accept later provider work");
+    }
+
+    @Test
+    void abandonedRootIndexingReportsItsEmbeddedFatalError() throws Exception {
+        CountDownLatch indexingEntered = new CountDownLatch(1);
+        CountDownLatch releaseIndexing = new CountDownLatch(1);
+        CountDownLatch failureReported = new CountDownLatch(1);
+        AtomicInteger reports = new AtomicInteger();
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        AssertionError fatal = new AssertionError("fatal root identity");
+        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
+        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
+                1,
+                (threadPrefix, task) -> {
+                    Thread thread = new Thread(task, threadPrefix + "fatal-root");
+                    thread.setUncaughtExceptionHandler((ignored, failure) -> {
+                        reports.incrementAndGet();
+                        reported.set(failure);
+                        failureReported.countDown();
+                    });
+                    return thread;
+                },
+                failureReporter);
+        ProcessTreeScanner scanner = new ProcessTreeScanner(owner, 4, Duration.ofMillis(25), Duration.ofMillis(25));
+        ProcessHandle root = new StubHandle(728) {
+            @Override
+            public long pid() {
+                indexingEntered.countDown();
+                awaitUninterruptibly(releaseIndexing);
+                throw fatal;
+            }
+        };
+
+        try {
+            ProcessTreeScanner.DescendantScan scan =
+                    scanner.scanDescendantsOfHandles(List.of(root), Duration.ofMillis(25));
+
+            assertTrue(indexingEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(scan.incomplete());
+            assertSame(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE, scan.incompleteReason());
+            assertEquals(0, scanner.availableOperationPermits());
+        } finally {
+            releaseIndexing.countDown();
+        }
+
+        assertTrue(failureReported.await(1, TimeUnit.SECONDS));
+        assertSame(fatal, reported.get());
+        assertEquals(1, reports.get());
+        assertTrue(scanner.awaitReportingSettlement(Duration.ofSeconds(1)));
+        assertEquals(1, scanner.availableOperationPermits());
+    }
+
+    @Test
+    void deadlineShortenedStreamAndChildGraphScansAreIncomplete() throws Exception {
+        assertDeadlineShortenedScanIsIncomplete(true);
+        assertDeadlineShortenedScanIsIncomplete(false);
+    }
+
+    @Test
+    void zeroBudgetCannotProveACompleteScan() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
+
+        ProcessTreeScanner.DescendantScan processScan = scanner.scanDescendants(new StubProcess(), Duration.ZERO);
+        ProcessTreeScanner.DescendantScan handleScan =
+                scanner.scanDescendantsOfHandles(List.of(new StubHandle(720)), Duration.ZERO);
+
+        assertTrue(processScan.incomplete());
+        assertTrue(handleScan.incomplete());
+        assertSame(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE, processScan.incompleteReason());
+        assertSame(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE, handleScan.incompleteReason());
+        assertFalse(processScan.complete());
+        assertFalse(handleScan.complete());
+    }
+
+    @Test
+    void knownSnapshotKeepsGuardedBoundaryAndCachedIdentity() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(50));
+        AtomicInteger pidCalls = new AtomicInteger();
+        AtomicInteger infoCalls = new AtomicInteger();
+        ProcessHandle delegate = new StubHandle(721) {
+            @Override
+            public long pid() {
+                pidCalls.incrementAndGet();
+                return super.pid();
+            }
+
+            @Override
+            public Info info() {
+                infoCalls.incrementAndGet();
+                return super.info();
+            }
+        };
+        ProcessHandle guarded = scanner.guardObserved(delegate);
+        int identityPidCalls = pidCalls.get();
+        int identityInfoCalls = infoCalls.get();
+
+        KnownDescendants known = ProcessLifecycleSharedSupport.knownDescendants(guarded);
+
+        ProcessHandle indexed = known.handles().iterator().next();
+        assertTrue(indexed instanceof GuardedProcessHandle);
+        assertSame(guarded, indexed);
+        assertEquals(identityPidCalls, pidCalls.get());
+        assertEquals(identityInfoCalls, infoCalls.get());
+        assertEquals(ProcessTreeScanner.identity(guarded), ProcessTreeScanner.identity(indexed));
+        assertEquals(identityPidCalls, pidCalls.get());
+        assertEquals(identityInfoCalls, infoCalls.get());
+    }
+
+    @Test
+    void hostileRootIdentityLookupIsDeadlineBounded() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ProcessHandle root = new StubHandle(722) {
+            @Override
+            public long pid() {
+                entered.countDown();
+                awaitUninterruptibly(release);
+                return super.pid();
+            }
+        };
+        FutureTask<ProcessTreeScanner.DescendantScan> task =
+                new FutureTask<>(() -> scanner.scanDescendantsOfHandles(List.of(root), Duration.ofMillis(25)));
+        Thread caller = new Thread(task, "hostile-root-identity-scan-test");
+        caller.setDaemon(true);
+        caller.start();
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            ProcessTreeScanner.DescendantScan scan = task.get(1, TimeUnit.SECONDS);
+            assertTrue(scan.incomplete());
+            assertSame(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE, scan.incompleteReason());
+            assertTrue(scan.handles().isEmpty());
+            assertEquals(0, scanner.availableOperationPermits());
+        } finally {
+            release.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    @Test
+    void internalScanTimeoutIsUnavailableRatherThanCallerDeadline() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
+        BlockingDescendantsProcess blocked = new BlockingDescendantsProcess();
+        FutureTask<ProcessTreeScanner.DescendantScan> task =
+                new FutureTask<>(() -> scanner.scanDescendants(blocked, Duration.ofSeconds(1)));
+        Thread caller = new Thread(task, "internal-process-scan-timeout-test");
+        caller.setDaemon(true);
+        caller.start();
+        try {
+            assertTrue(blocked.entered.await(1, TimeUnit.SECONDS));
+            ProcessTreeScanner.DescendantScan scan = task.get(1, TimeUnit.SECONDS);
+            assertTrue(scan.incomplete());
+            assertSame(ProcessTreeScanner.IncompleteReason.UNAVAILABLE, scan.incompleteReason());
+            assertEquals(0, scanner.availableOperationPermits());
+        } finally {
+            blocked.release.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    @Test
+    void interruptedScanIsNotReportedAsProviderUnavailability() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofSeconds(1));
+        BlockingDescendantsProcess blocked = new BlockingDescendantsProcess();
+        AtomicReference<ProcessTreeScanner.DescendantScan> result = new AtomicReference<>();
+        AtomicBoolean interrupted = new AtomicBoolean();
+        Thread caller = new Thread(() -> {
+            result.set(scanner.scanDescendants(blocked, Duration.ofSeconds(1)));
+            interrupted.set(Thread.currentThread().isInterrupted());
+        });
+
+        caller.start();
+        try {
+            assertTrue(blocked.entered.await(1, TimeUnit.SECONDS));
+            caller.interrupt();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+
+            assertFalse(caller.isAlive());
+            assertTrue(result.get().incomplete());
+            assertSame(
+                    ProcessTreeScanner.IncompleteReason.INTERRUPTED,
+                    result.get().incompleteReason());
+            assertTrue(interrupted.get());
+        } finally {
+            blocked.release.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    @Test
+    void ordinaryTraversalFailurePreservesTheObservedPrefix() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofSeconds(1));
+        ProcessHandle processChild = new StubHandle(723);
+        Process process = new StubProcess() {
+            @Override
+            public Stream<ProcessHandle> descendants() {
+                return streamFailingAfter(processChild);
+            }
+        };
+        ProcessHandle graphChild = new StubHandle(724);
+        ProcessHandle root = new StubHandle(725) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                return streamFailingAfter(graphChild);
+            }
+        };
+
+        ProcessTreeScanner.DescendantScan processScan = scanner.scanDescendants(process, Duration.ofSeconds(1));
+        ProcessTreeScanner.DescendantScan graphScan =
+                scanner.scanDescendantsOfHandles(List.of(root), Duration.ofSeconds(1));
+
+        assertEquals(Set.of(processChild), processScan.handles());
+        assertTrue(processScan.incomplete());
+        assertSame(ProcessTreeScanner.IncompleteReason.UNAVAILABLE, processScan.incompleteReason());
+        assertEquals(Set.of(graphChild), graphScan.handles());
+        assertTrue(graphScan.incomplete());
+        assertSame(ProcessTreeScanner.IncompleteReason.UNAVAILABLE, graphScan.incompleteReason());
+    }
+
+    @Test
+    void fatalChildrenInvocationPreservesEarlierRootPrefixAndStopsTraversal() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofSeconds(1));
+        ProcessHandle child = new StubHandle(726);
+        AtomicInteger laterRootCalls = new AtomicInteger();
+        ProcessHandle firstRoot = handleWithChildren(727, child);
+        AssertionError fatal = new AssertionError("children failed");
+        ProcessHandle failingRoot = new StubHandle(728) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                throw fatal;
+            }
+        };
+        ProcessHandle unvisitedRoot = new StubHandle(729) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                laterRootCalls.incrementAndGet();
+                return Stream.empty();
+            }
+        };
+
+        ProcessTreeScanner.DescendantScan scan =
+                scanner.scanDescendantsOfHandles(List.of(firstRoot, failingRoot, unvisitedRoot), Duration.ofSeconds(1));
+
+        assertEquals(Set.of(child), scan.handles());
+        assertSame(fatal, scan.failure());
+        assertEquals(0, laterRootCalls.get());
+    }
+
+    @Test
+    void fatalRootIndexingStopsBeforeChildTraversal() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofSeconds(1));
+        AtomicInteger childTraversalCalls = new AtomicInteger();
+        ProcessHandle indexedRoot = new StubHandle(733) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                childTraversalCalls.incrementAndGet();
+                return Stream.empty();
+            }
+        };
+        AssertionError fatal = new AssertionError("root identity failed");
+        ProcessHandle failingRoot = new StubHandle(734) {
+            @Override
+            public long pid() {
+                throw fatal;
+            }
+        };
+
+        ProcessTreeScanner.DescendantScan scan =
+                scanner.scanDescendantsOfHandles(List.of(indexedRoot, failingRoot), Duration.ofSeconds(1));
+
+        assertTrue(scan.incomplete());
+        assertTrue(scan.handles().isEmpty());
+        assertSame(fatal, scan.failure());
+        assertEquals(0, childTraversalCalls.get());
+    }
+
+    @Test
+    void embeddedFatalChildPrefixStopsBeforeTheNextRoot() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofSeconds(1));
+        ProcessHandle child = new StubHandle(730);
+        AssertionError fatal = new AssertionError("child traversal failed");
+        ProcessHandle failingRoot = new StubHandle(731) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                return streamFailingAfter(child, fatal);
+            }
+        };
+        AtomicInteger laterRootCalls = new AtomicInteger();
+        ProcessHandle unvisitedRoot = new StubHandle(732) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                laterRootCalls.incrementAndGet();
+                return Stream.empty();
+            }
+        };
+
+        ProcessTreeScanner.DescendantScan scan =
+                scanner.scanDescendantsOfHandles(List.of(failingRoot, unvisitedRoot), Duration.ofSeconds(1));
+
+        assertEquals(Set.of(child), scan.handles());
+        assertSame(fatal, scan.failure());
+        assertEquals(0, laterRootCalls.get());
+    }
+
+    @Test
+    void provenRootOverflowSurvivesAChildScanTimeout() throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 1, Duration.ofMillis(25), Duration.ofMillis(25));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ProcessHandle root = new StubHandle(726) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                entered.countDown();
+                awaitUninterruptibly(release);
+                return Stream.empty();
+            }
+        };
+        FutureTask<ProcessTreeScanner.DescendantScan> task = new FutureTask<>(
+                () -> scanner.scanDescendantsOfHandles(List.of(root, new StubHandle(727)), Duration.ofMillis(25)));
+        Thread caller = new Thread(task, "truncated-root-child-timeout-test");
+        caller.setDaemon(true);
+        caller.start();
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            ProcessTreeScanner.DescendantScan scan = task.get(1, TimeUnit.SECONDS);
+            assertTrue(scan.truncated());
+            assertFalse(scan.incomplete());
+        } finally {
+            release.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
     }
 
     @Test
@@ -299,6 +713,75 @@ final class ProcessTreeScannerTest {
                 StandardCharsets.UTF_8,
                 provider,
                 TerminalSize.defaults());
+    }
+
+    private static void assertDeadlineShortenedScanIsIncomplete(boolean streamTraversal) throws Exception {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        FutureTask<ProcessTreeScanner.DescendantScan> scan;
+        if (streamTraversal) {
+            Process process = new StubProcess() {
+                @Override
+                public Stream<ProcessHandle> descendants() {
+                    return Stream.generate(() -> {
+                        entered.countDown();
+                        awaitUninterruptibly(release);
+                        return new StubHandle(701);
+                    });
+                }
+            };
+            scan = new FutureTask<>(() -> scanner.scanDescendants(process, Duration.ofMillis(25)));
+        } else {
+            ProcessHandle root = new StubHandle(702) {
+                @Override
+                public Stream<ProcessHandle> children() {
+                    entered.countDown();
+                    awaitUninterruptibly(release);
+                    return Stream.empty();
+                }
+            };
+            scan = new FutureTask<>(() -> scanner.scanDescendantsOfHandles(List.of(root), Duration.ofMillis(25)));
+        }
+        Thread caller = new Thread(scan, "deadline-shortened-descendant-scan-test");
+        caller.setDaemon(true);
+        caller.start();
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            ProcessTreeScanner.DescendantScan result = scan.get(1, TimeUnit.SECONDS);
+            assertTrue(result.handles().isEmpty());
+            assertTrue(result.incomplete());
+            assertSame(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE, result.incompleteReason());
+            assertFalse(result.complete());
+            assertFalse(result.truncated());
+            assertEquals(0, scanner.availableOperationPermits());
+        } finally {
+            release.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+        }
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
+    }
+
+    private static ProcessHandle handleWithChildren(long pid, ProcessHandle... children) {
+        return new StubHandle(pid) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                return Stream.of(children);
+            }
+        };
+    }
+
+    private static Stream<ProcessHandle> streamFailingAfter(ProcessHandle handle) {
+        return streamFailingAfter(handle, new IllegalStateException("enumeration failed"));
+    }
+
+    private static Stream<ProcessHandle> streamFailingAfter(ProcessHandle handle, Throwable failure) {
+        return Stream.concat(Stream.of(handle), Stream.generate(() -> {
+            if (failure instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw (Error) failure;
+        }));
     }
 
     private static Throwable captureFailure(ThrowingRunnable action) {

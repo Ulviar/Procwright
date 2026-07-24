@@ -27,8 +27,14 @@ public lifecycle exception остаются у kernel. После cleanup `OneSh
 `LIVE`, `EXITED`, исчерпанный lifecycle budget `UNKNOWN` и недоступное OS/provider state `UNOBSERVABLE`. Два последних
 состояния не доказывают выход. `ProcessExitWaiter` владеет caller-thread polling и wait deadline, а
 `LiveDescendantSnapshot` накапливает bounded immutable snapshot живых либо временно недоступных для наблюдения
-descendants. `ProcessLifecycle` делегирует natural-exit wait и пока остается владельцем process-tree shutdown state
-machine; эти части не раскрываются в пользовательском API.
+descendants. `ProcessLifecycle` является внутренним facade для natural-exit wait и shutdown. Единый
+`ProcessTreeShutdown` оркестрирует graceful-to-forceful или force-only sequence; `ShutdownTreeState` владеет bounded
+discovery, pending descendants и descendant proof state, `ProcessShutdownSignals` — порядком сигналов и bounded JDK
+fallback, а `ShutdownFailureLedger` — failure identity, suppression order и временным снятием/restoration interrupt
+status. Итоговое решение о completion root и всего дерева после stabilization refresh принадлежит
+`ProcessTreeShutdown`.
+Первое interruption становится primary failure; накопленный до него failure и последующие failures сохраняются
+suppressed в порядке наблюдения. Эти части не раскрываются в пользовательском API.
 
 `DefaultProtocolSession` остается владельцем lifecycle протокольной сессии, serialized request lock, transcript snapshot
 и process exit snapshot. Внутренние детали чтения и записи разделены на маленькие владельцы:
@@ -53,6 +59,39 @@ machine; эти части не раскрываются в пользовате
 - Provider operation timeout остается typed failure, а исчерпание внешнего lifecycle deadline становится `UNKNOWN`;
   ни `UNKNOWN`, ни `UNOBSERVABLE` не считаются доказательством выхода процесса.
 - Наблюдавшиеся descendants переживают reparenting после выхода root и остаются доступны последующему cleanup.
+- Graceful и forceful shutdown остаются одной последовательностью фаз; tree state, signal policy и failure/interruption
+  policy имеют разных владельцев.
+- Успешный shutdown требует доказанного `EXITED` для root и известных descendants. Фаза с положительным wait budget
+  также требует финального discovery до дедлайна; zero-wait phase ничего не ожидает и принимает уже наблюдённый выход.
+  `UNKNOWN` и `UNOBSERVABLE` не доказывают завершение. В positive-wait фазах `stop()` один `WaitPhase` владеет
+  post-signal deadline и для completion observation, и для следующего за ним exit-code snapshot. Zero-wait не создаёт
+  окно ожидания, а force-only cleanup целиком остаётся внутри исходного operation deadline. Polling не начинает
+  provider operation в последнем 10 ms кванте, но успешный выход всё равно требует stabilization с любым положительным
+  остатком. Если времени на stabilization уже нет, текущая фаза завершается без успеха; forceful phase выполняет
+  собственный scan до сигнала root. Как и у самого `ProcessHandle`, descendant, успевший reparenting до любого
+  наблюдения, остаётся вне доказуемых гарантий runtime.
+- `ProcessTreeScanner` различает `COMPLETE`, `LIMIT_REACHED` и `INCOMPLETE`: ровно limit допустим после доказанного
+  исчерпания источника, следующий уникальный handle доказывает truncation, а unavailable или прерванный дедлайном scan
+  остаётся incomplete. Operation owner сообщает deadline отдельно от unavailable provider state, а scanner сохраняет
+  происхождение deadline: только фактически примененный caller budget дает `CALLER_DEADLINE`; внутренний
+  `scanTimeout` дает `UNAVAILABLE`, а caller interruption — `INTERRUPTED`. Любой incomplete scan внутри уже начатого
+  shutdown навсегда запрещает completion proof этого shutdown: следующий scan не может доказать отсутствие уже
+  reparented процесса. Overflow также постоянен.
+  Shutdown принимает known handles только как `KnownDescendants`: immutable insertion-ordered identity map, уже
+  ограниченный общим descendant limit. Watcher сохраняет handles и sticky `LIMIT_REACHED`/`UNAVAILABLE`;
+  `CALLER_DEADLINE` не отравляет следующий cleanup, а `INTERRUPTED` немедленно возвращается владельцу lifecycle.
+  Cleanup handoff ждёт завершения активного watcher refresh и атомарно запечатывает snapshot, поэтому ни текущий, ни
+  будущий refresh не публикует status или handle после handoff. Поэтому shutdown не индексирует handles повторно и не
+  обходит произвольную caller-owned коллекцию до обязательного cleanup. Во всех случаях root и уже известные
+  descendants получают cleanup-сигналы, но unavailable observation не выдаётся за успешный observable completion
+  proof.
+- Scanner и shutdown state считают уникальные процессы по `pid + startInstant`, а не по identity wrapper-объекта:
+  повторное представление того же handle между scans и phases не расходует limit и не создаёт ложный overflow.
+  `KnownDescendants` переносит уже вычисленную identity и исходный guarded owner в shutdown state без повторных
+  provider calls. Обычный сбой traversal сохраняет уже обнаруженный prefix как incomplete scan. Fatal traversal
+  переносит тот же prefix вместе с исходным `Error` и немедленно прекращает дальнейший graph traversal: cleanup сначала
+  принимает и сигналит handles, затем возвращает Error без замены identity. Если caller успел abandon-нуть provider
+  operation на границе deadline, operation owner публикует embedded Error через тот же bounded late-failure channel.
 - У каждого protocol limit есть один runtime-владелец: request limits у writer, response limits у reader/budget,
   backlog limit у queue.
 - Failure taxonomy остается в публичных scenario-specific exceptions, а внутренние helpers только строят эти failures.
@@ -82,4 +121,6 @@ machine; эти части не раскрываются в пользовате
   arbitration и result assembly напрямую.
 - `ProcessLauncherTest`, `ProcessLivenessTest`, `ProcessExitWaiterTest` и `LiveDescendantSnapshotTest` проверяют
   процессный launch, наблюдение, natural wait и snapshot без фиксации внутренностей shutdown-автомата.
+- `ShutdownFailureLedgerTest`, `ShutdownTreeStateTest` и `ProcessShutdownSignalsTest` напрямую проверяют извлеченные
+  shutdown-инварианты; `ProcessLifecycle*Test` остается сквозным контрактом всей последовательности фаз.
 - Protocol/session integration tests проверяют behavior через публичные сценарии, а не через internal classes.

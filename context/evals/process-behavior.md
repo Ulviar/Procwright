@@ -19,11 +19,12 @@
 - Timeout при заблокированной записи stdin завершается bounded cleanup, а не оставляет lifecycle task без ожидания.
 - Graceful и forceful shutdown повторно обнаруживают descendants до своего deadline, включая child, созданный root
   process уже во время graceful termination.
-- `SecurityException`/unsupported access при перечислении descendants или проверке liveness не отменяет попытку
-  остановить root process и не пропускает failure cleanup.
+- `SecurityException`/unsupported access при перечислении descendants не отменяет попытку остановить root process, но
+  shutdown возвращает typed failure: недоступный scan не доказывает остановку всего дерева. Недоступное liveness
+  известных процессов также не считается доказательством выхода.
 - Вызовы `Process.destroy()`/`destroyForcibly()`, которые сами зависают, выполняются через общую bounded capacity.
-  Исчерпание capacity дает typed failure без создания fallback threads; немедленный `Error` возвращается caller-у, а
-  поздний failure после окончания окна наблюдения передается uncaught-exception handler.
+  Исчерпание capacity дает typed failure и не создаёт новый disposable thread; немедленный `Error` возвращается
+  caller-у, а поздний failure после окончания окна наблюдения передается uncaught-exception handler.
 - Очень большие значения `Duration` насыщаются во внутреннем runtime и не превращаются в сырой `ArithmeticException`.
 - Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
 - Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.

@@ -7,11 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.command.CommandExecutionException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProcessLivenessTest extends ProcessLifecycleSharedSupport {
@@ -158,6 +163,105 @@ final class ProcessLivenessTest extends ProcessLifecycleSharedSupport {
         }
     }
 
+    @Test
+    void cleanupObservationReturnsFailuresSeparatelyInObservationOrder() {
+        IllegalStateException livenessFailure = new IllegalStateException("liveness failed");
+        AssertionError exitFailure = new AssertionError("exit failed");
+        ObservationProcess process = new ObservationProcess(true, livenessFailure, exitFailure, () -> {});
+
+        ProcessLiveness.ExitObservation observation =
+                ProcessLiveness.observeExitForCleanup(process, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+
+        assertSame(ProcessLiveness.Observation.UNOBSERVABLE, observation.state());
+        assertEquals(List.of(livenessFailure, exitFailure), observation.events());
+        assertEquals(0, livenessFailure.getSuppressed().length);
+    }
+
+    @Test
+    void cleanupGuardedObservationClassifiesCompletionWithoutSyntheticEvents() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(2, 4, Duration.ofMillis(100));
+        List<ObservationExpectation> expectations = List.of(
+                new ObservationExpectation(new ObservationProcess(false, null), ProcessLiveness.Observation.EXITED),
+                new ObservationExpectation(new ObservationProcess(true, null), ProcessLiveness.Observation.LIVE),
+                new ObservationExpectation(
+                        new ObservationProcess(false, new SecurityException("liveness denied"), null, () -> {}),
+                        ProcessLiveness.Observation.EXITED),
+                new ObservationExpectation(
+                        new ObservationProcess(true, new SecurityException("liveness denied"), null, () -> {}),
+                        ProcessLiveness.Observation.LIVE),
+                new ObservationExpectation(
+                        new ObservationProcess(
+                                true,
+                                new SecurityException("liveness denied"),
+                                new UnsupportedOperationException("exit denied"),
+                                () -> {}),
+                        ProcessLiveness.Observation.UNOBSERVABLE));
+
+        for (ObservationExpectation expectation : expectations) {
+            ProcessLiveness.ExitObservation observation = ProcessLiveness.observeExitForCleanup(
+                    scanner.guard(expectation.process()), DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+
+            assertSame(expectation.expected(), observation.state());
+            assertEquals(List.of(), observation.events());
+        }
+
+        ObservationProcess uncalled = new ObservationProcess(true, new AssertionError("must not be called"));
+        ProcessLiveness.ExitObservation exhausted =
+                ProcessLiveness.observeExitForCleanup(scanner.guard(uncalled), System.nanoTime() - 1);
+        assertSame(ProcessLiveness.Observation.UNKNOWN, exhausted.state());
+        assertEquals(List.of(), exhausted.events());
+        assertEquals(0, uncalled.livenessCalls.get());
+        assertEquals(0, uncalled.exitValueCalls.get());
+    }
+
+    @Test
+    void cleanupObservationRetainsFailureBeforeInterruptedFallbackWithoutRetry() throws Exception {
+        IllegalStateException livenessFailure = new IllegalStateException("liveness failed");
+        BlockingExitProcess delegate = new BlockingExitProcess(livenessFailure);
+        ProcessTreeScanner scanner = new ProcessTreeScanner(2, 4, Duration.ofMillis(100));
+        Process guarded = scanner.guard(delegate);
+        AtomicReference<ProcessLiveness.ExitObservation> observed = new AtomicReference<>();
+        AtomicReference<Throwable> unexpected = new AtomicReference<>();
+        Thread caller = new Thread(
+                () -> {
+                    try {
+                        observed.set(ProcessLiveness.observeExitForCleanup(
+                                guarded, DurationSupport.deadlineFromNow(Duration.ofSeconds(5))));
+                    } catch (Throwable failure) {
+                        unexpected.set(failure);
+                    }
+                },
+                "cleanup-liveness-interruption-test");
+        caller.start();
+
+        assertTrue(delegate.exitEntered.await(1, TimeUnit.SECONDS));
+        caller.interrupt();
+        caller.join(TimeUnit.SECONDS.toMillis(2));
+        delegate.exitRelease.countDown();
+
+        assertFalse(caller.isAlive());
+        assertSame(null, unexpected.get());
+        ProcessLiveness.ExitObservation observation = observed.get();
+        assertSame(ProcessLiveness.Observation.UNKNOWN, observation.state());
+        assertEquals(2, observation.events().size());
+        assertSame(livenessFailure, observation.events().get(0));
+        assertTrue(observation.events().get(1) instanceof InterruptedException);
+        assertEquals(1, delegate.exitValueCalls.get());
+        assertEquals(0, livenessFailure.getSuppressed().length);
+        ShutdownFailureLedger ledger = new ShutdownFailureLedger();
+        ledger.recordObserved(observation.events());
+        try {
+            CommandExecutionException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                    CommandExecutionException.class, ledger::rethrowIfPresent);
+            assertSame(observation.events().get(1), failure.getCause());
+            assertEquals(List.of(livenessFailure), List.of(failure.getSuppressed()));
+        } finally {
+            ledger.restoreInterrupt();
+            Thread.interrupted();
+        }
+        assertTrue(scanner.awaitReportingSettlement(Duration.ofSeconds(1)));
+    }
+
     private static Throwable captureFailure(ThrowingOperation operation) {
         try {
             operation.run();
@@ -172,7 +276,9 @@ final class ProcessLivenessTest extends ProcessLifecycleSharedSupport {
         void run() throws Exception;
     }
 
-    private static final class ObservationProcess extends Process {
+    private record ObservationExpectation(ObservationProcess process, ProcessLiveness.Observation expected) {}
+
+    private static class ObservationProcess extends Process {
 
         private final boolean alive;
         private final Throwable livenessFailure;
@@ -241,6 +347,36 @@ final class ProcessLivenessTest extends ProcessLifecycleSharedSupport {
             if (failure instanceof Error error) {
                 throw error;
             }
+        }
+    }
+
+    private static final class BlockingExitProcess extends ObservationProcess {
+
+        private final CountDownLatch exitEntered = new CountDownLatch(1);
+        private final CountDownLatch exitRelease = new CountDownLatch(1);
+        private final AtomicInteger exitValueCalls = new AtomicInteger();
+
+        private BlockingExitProcess(Throwable livenessFailure) {
+            super(true, livenessFailure, null, () -> {});
+        }
+
+        @Override
+        public int exitValue() {
+            exitValueCalls.incrementAndGet();
+            exitEntered.countDown();
+            boolean interrupted = false;
+            while (true) {
+                try {
+                    exitRelease.await();
+                    break;
+                } catch (InterruptedException ignored) {
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return 0;
         }
     }
 }

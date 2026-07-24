@@ -4,6 +4,8 @@ package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /** Owns ordinary and deadline-bounded process liveness semantics. */
@@ -65,23 +67,38 @@ final class ProcessLiveness {
         try {
             return observe(process, budget);
         } catch (SecurityException | UnsupportedOperationException livenessUnavailable) {
-            Optional<Duration> remaining = budget.remainingOperationBudget(EXIT_VALUE_OPERATION);
-            if (remaining.isEmpty()) {
-                return Observation.UNKNOWN;
-            }
+            return observeGuardedExitValue(process, budget);
+        }
+    }
+
+    static ExitObservation observeExitForCleanup(Process process, long lifecycleDeadlineNanos) {
+        List<Throwable> events = new ArrayList<>(2);
+        if (process instanceof GuardedProcess guarded) {
+            LivenessObservationBudget budget = LivenessObservationBudget.untilLifecycleDeadline(
+                    lifecycleDeadlineNanos, guarded.providerOperationTimeout());
             try {
-                process.exitValueWithin(remaining.orElseThrow());
-                return Observation.EXITED;
-            } catch (IllegalThreadStateException stillRunning) {
-                return Observation.LIVE;
-            } catch (SecurityException | UnsupportedOperationException exitUnavailable) {
-                return Observation.UNOBSERVABLE;
-            } catch (CommandExecutionException failure) {
-                if (ProcessTreeScanner.causedByOperationDeadline(failure) && budget.lifecycleLimited()) {
-                    return Observation.UNKNOWN;
-                }
-                throw failure;
+                return new ExitObservation(observe(guarded, budget), events);
+            } catch (SecurityException | UnsupportedOperationException unavailable) {
+                return observeGuardedExitValueForCleanup(guarded, budget, events);
+            } catch (InterruptedException interruption) {
+                events.add(interruption);
+                return observeGuardedExitValueForCleanup(guarded, budget, events);
+            } catch (RuntimeException | Error livenessFailure) {
+                events.add(livenessFailure);
+                return observeGuardedExitValueForCleanup(guarded, budget, events);
             }
+        }
+        try {
+            Observation observation = observe(process, lifecycleDeadlineNanos);
+            return observation == Observation.UNOBSERVABLE
+                    ? observeExitValueForCleanup(process, lifecycleDeadlineNanos, events)
+                    : new ExitObservation(observation, events);
+        } catch (InterruptedException interruption) {
+            events.add(interruption);
+            return observeExitValueForCleanup(process, lifecycleDeadlineNanos, events);
+        } catch (RuntimeException | Error livenessFailure) {
+            events.add(livenessFailure);
+            return observeExitValueForCleanup(process, lifecycleDeadlineNanos, events);
         }
     }
 
@@ -124,20 +141,70 @@ final class ProcessLiveness {
         }
     }
 
-    static boolean exitObserved(Process process, long lifecycleDeadlineNanos) throws InterruptedException {
+    private static Observation observeExitValue(Process process, long lifecycleDeadlineNanos)
+            throws InterruptedException {
         try {
             if (process instanceof GuardedProcess guarded) {
                 long remainingNanos = lifecycleDeadlineNanos - System.nanoTime();
                 if (remainingNanos <= 0) {
-                    return false;
+                    return Observation.UNKNOWN;
                 }
                 guarded.exitValueWithin(Duration.ofNanos(remainingNanos));
             } else {
                 process.exitValue();
             }
-            return true;
-        } catch (IllegalThreadStateException | SecurityException | UnsupportedOperationException unavailable) {
-            return false;
+            return Observation.EXITED;
+        } catch (IllegalThreadStateException stillRunning) {
+            return Observation.LIVE;
+        } catch (SecurityException | UnsupportedOperationException unavailable) {
+            return Observation.UNOBSERVABLE;
+        }
+    }
+
+    private static Observation observeGuardedExitValue(GuardedProcess process, LivenessObservationBudget budget)
+            throws InterruptedException {
+        Optional<Duration> remaining = budget.remainingOperationBudget(EXIT_VALUE_OPERATION);
+        if (remaining.isEmpty()) {
+            return Observation.UNKNOWN;
+        }
+        try {
+            process.exitValueWithin(remaining.orElseThrow());
+            return Observation.EXITED;
+        } catch (IllegalThreadStateException stillRunning) {
+            return Observation.LIVE;
+        } catch (SecurityException | UnsupportedOperationException unavailable) {
+            return Observation.UNOBSERVABLE;
+        } catch (CommandExecutionException failure) {
+            if (ProcessTreeScanner.causedByOperationDeadline(failure) && budget.lifecycleLimited()) {
+                return Observation.UNKNOWN;
+            }
+            throw failure;
+        }
+    }
+
+    private static ExitObservation observeGuardedExitValueForCleanup(
+            GuardedProcess process, LivenessObservationBudget budget, List<Throwable> events) {
+        try {
+            return new ExitObservation(observeGuardedExitValue(process, budget), events);
+        } catch (InterruptedException interruption) {
+            events.add(interruption);
+            return new ExitObservation(Observation.UNKNOWN, events);
+        } catch (RuntimeException | Error failure) {
+            events.add(failure);
+            return new ExitObservation(Observation.UNOBSERVABLE, events);
+        }
+    }
+
+    private static ExitObservation observeExitValueForCleanup(
+            Process process, long lifecycleDeadlineNanos, List<Throwable> events) {
+        try {
+            return new ExitObservation(observeExitValue(process, lifecycleDeadlineNanos), events);
+        } catch (InterruptedException interruption) {
+            events.add(interruption);
+            return new ExitObservation(Observation.UNKNOWN, events);
+        } catch (RuntimeException | Error failure) {
+            events.add(failure);
+            return new ExitObservation(Observation.UNOBSERVABLE, events);
         }
     }
 
@@ -147,5 +214,12 @@ final class ProcessLiveness {
         EXITED,
         UNKNOWN,
         UNOBSERVABLE
+    }
+
+    record ExitObservation(Observation state, List<Throwable> events) {
+
+        ExitObservation {
+            events = List.copyOf(events);
+        }
     }
 }

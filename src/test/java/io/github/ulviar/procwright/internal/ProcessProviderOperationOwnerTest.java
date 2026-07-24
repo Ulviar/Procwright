@@ -26,6 +26,103 @@ import org.junit.jupiter.api.Test;
 final class ProcessProviderOperationOwnerTest {
 
     @Test
+    void bestEffortResultDistinguishesDeadlineFromUnavailableProviderState() throws Exception {
+        ProcessProviderOperationOwner owner = ProcessProviderOperationOwner.production(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        ProcessProviderOperationOwner.BestEffortResult<String> deadline =
+                owner.bestEffortResult("procwright-best-effort-deadline-", Duration.ofMillis(25), () -> {
+                    awaitUninterruptibly(release);
+                    return "late";
+                });
+
+        assertSame(ProcessProviderOperationOwner.BestEffortResult.Failure.DEADLINE, deadline.failure());
+        assertFalse(deadline.completed());
+        release.countDown();
+        assertTrue(eventually(() -> owner.availablePermits() == 1));
+
+        ProcessProviderOperationOwner.BestEffortResult<String> unavailable =
+                owner.bestEffortResult("procwright-best-effort-unavailable-", Duration.ofSeconds(1), () -> {
+                    throw new SecurityException("provider denied operation");
+                });
+
+        assertSame(ProcessProviderOperationOwner.BestEffortResult.Failure.UNAVAILABLE, unavailable.failure());
+        assertFalse(unavailable.completed());
+    }
+
+    @Test
+    void bestEffortResultDistinguishesCallerInterruption() throws Exception {
+        ProcessProviderOperationOwner owner = ProcessProviderOperationOwner.production(1);
+        CountDownLatch operationEntered = new CountDownLatch(1);
+        CountDownLatch releaseOperation = new CountDownLatch(1);
+        AtomicReference<ProcessProviderOperationOwner.BestEffortResult<String>> result = new AtomicReference<>();
+        AtomicReference<Boolean> interrupted = new AtomicReference<>();
+        Thread caller = new Thread(() -> {
+            result.set(owner.bestEffortResult("procwright-best-effort-interrupted-", Duration.ofSeconds(1), () -> {
+                operationEntered.countDown();
+                awaitUninterruptibly(releaseOperation);
+                return "late";
+            }));
+            interrupted.set(Thread.currentThread().isInterrupted());
+        });
+
+        caller.start();
+        try {
+            assertTrue(operationEntered.await(1, TimeUnit.SECONDS));
+            caller.interrupt();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+
+            assertFalse(caller.isAlive());
+            assertSame(
+                    ProcessProviderOperationOwner.BestEffortResult.Failure.INTERRUPTED,
+                    result.get().failure());
+            assertTrue(interrupted.get());
+        } finally {
+            releaseOperation.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+        }
+        assertTrue(eventually(() -> owner.availablePermits() == 1));
+    }
+
+    @Test
+    void abandonedCompletedCarrierReportsItsEmbeddedFailure() throws Exception {
+        CountDownLatch operationEntered = new CountDownLatch(1);
+        CountDownLatch releaseOperation = new CountDownLatch(1);
+        CountDownLatch failureReported = new CountDownLatch(1);
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        AssertionError embedded = new AssertionError("embedded provider failure");
+        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
+        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
+                1,
+                (threadPrefix, task) -> {
+                    Thread thread = new Thread(task, threadPrefix + "carrier");
+                    thread.setUncaughtExceptionHandler((ignored, failure) -> {
+                        reported.set(failure);
+                        failureReported.countDown();
+                    });
+                    return thread;
+                },
+                failureReporter);
+
+        ProcessProviderOperationOwner.BestEffortResult<EmbeddedFailureValue> result;
+        try {
+            result = owner.bestEffortResult("procwright-embedded-failure-", Duration.ofMillis(25), () -> {
+                operationEntered.countDown();
+                awaitUninterruptibly(releaseOperation);
+                return new EmbeddedFailureValue(embedded);
+            });
+            assertTrue(operationEntered.await(1, TimeUnit.SECONDS));
+            assertSame(ProcessProviderOperationOwner.BestEffortResult.Failure.DEADLINE, result.failure());
+        } finally {
+            releaseOperation.countDown();
+        }
+        assertTrue(failureReported.await(1, TimeUnit.SECONDS));
+        assertSame(embedded, reported.get());
+        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
+        assertEquals(1, owner.availablePermits());
+    }
+
+    @Test
     void ownerInterruptAfterProviderTimeoutDoesNotReportCheckedInterruption() throws Exception {
         assertOwnerInducedCheckedInterruptionIsSuppressed(false);
     }
@@ -182,11 +279,10 @@ final class ProcessProviderOperationOwnerTest {
 
             AtomicInteger rejectedCalls = new AtomicInteger();
             long started = System.nanoTime();
-            assertTrue(owner.bestEffort(
-                            "procwright-capacity-best-effort-",
-                            Duration.ofSeconds(1),
-                            () -> rejectedCalls.incrementAndGet())
-                    .isEmpty());
+            ProcessProviderOperationOwner.BestEffortResult<Integer> rejected = owner.bestEffortResult(
+                    "procwright-capacity-best-effort-", Duration.ofSeconds(1), rejectedCalls::incrementAndGet);
+            assertFalse(rejected.completed());
+            assertSame(ProcessProviderOperationOwner.BestEffortResult.Failure.UNAVAILABLE, rejected.failure());
             Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
             assertEquals(0, rejectedCalls.get());
             assertTrue(elapsed.compareTo(Duration.ofMillis(100)) < 0, () -> "capacity rejection took " + elapsed);
@@ -459,16 +555,17 @@ final class ProcessProviderOperationOwnerTest {
                 },
                 new BoundedFailureReporter(1, 4));
 
-        assertTrue(
-                owner.bestEffort("procwright-rejected-owner-", Duration.ofMillis(50), operationCalls::incrementAndGet)
-                        .isEmpty());
+        ProcessProviderOperationOwner.BestEffortResult<Integer> rejected = owner.bestEffortResult(
+                "procwright-rejected-owner-", Duration.ofMillis(50), operationCalls::incrementAndGet);
+        assertFalse(rejected.completed());
+        assertSame(ProcessProviderOperationOwner.BestEffortResult.Failure.UNAVAILABLE, rejected.failure());
         assertEquals(0, operationCalls.get());
         assertEquals(1, owner.availablePermits());
 
-        assertEquals(
-                1,
-                owner.bestEffort("procwright-recovered-owner-", Duration.ofMillis(50), operationCalls::incrementAndGet)
-                        .orElseThrow());
+        ProcessProviderOperationOwner.BestEffortResult<Integer> recovered = owner.bestEffortResult(
+                "procwright-recovered-owner-", Duration.ofMillis(50), operationCalls::incrementAndGet);
+        assertTrue(recovered.completed());
+        assertEquals(1, recovered.value());
         assertEquals(1, operationCalls.get());
         assertEquals(1, owner.availablePermits());
     }
@@ -607,6 +704,9 @@ final class ProcessProviderOperationOwnerTest {
             Thread.UncaughtExceptionHandler uncaughtExceptionHandler,
             int priority,
             boolean interrupted) {}
+
+    private record EmbeddedFailureValue(Throwable abandonedFailure)
+            implements ProcessProviderOperationOwner.AbandonedFailureCarrier {}
 
     private enum SetupFailureKind {
         RUNTIME_EXCEPTION {

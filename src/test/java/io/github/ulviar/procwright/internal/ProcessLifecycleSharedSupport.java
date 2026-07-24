@@ -5,6 +5,8 @@ package io.github.ulviar.procwright.internal;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -12,6 +14,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 class ProcessLifecycleSharedSupport {
+    static KnownDescendants knownDescendants(ProcessHandle... handles) {
+        return knownDescendants(List.of(handles));
+    }
+
+    static KnownDescendants knownDescendants(Iterable<? extends ProcessHandle> handles) {
+        LinkedHashMap<ProcessTreeScanner.HandleIdentity, ProcessHandle> indexed = new LinkedHashMap<>();
+        boolean truncated = false;
+        for (ProcessHandle handle : handles) {
+            ProcessTreeScanner.HandleIdentity identity = ProcessTreeScanner.identity(handle);
+            if (indexed.containsKey(identity)) {
+                continue;
+            }
+            if (indexed.size() == ProcessTreeScanner.shared().descendantLimit()) {
+                truncated = true;
+                break;
+            }
+            indexed.put(identity, handle);
+        }
+        return KnownDescendants.copyOf(indexed, truncated, false);
+    }
+
     static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
         while (System.nanoTime() < deadline) {
@@ -52,6 +75,11 @@ class ProcessLifecycleSharedSupport {
 
         @Override
         public void destroy() {}
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
     }
 
     static class MutableProcessHandle implements ProcessHandle {

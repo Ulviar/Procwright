@@ -82,15 +82,17 @@ Runtime получает только согласованный plan и не у
   barrier — `SessionExitBarrier`;
 - pipe process launch — `ProcessLauncher`; ordinary и provider-bounded liveness — `ProcessLiveness`;
 - ожидание natural exit — `ProcessExitWaiter`, накопление наблюдавшихся живых descendants —
-  `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessLifecycle`, exact-once session cleanup —
-  `SessionProcessCleanup`;
+  `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessTreeShutdown`, bounded tree state —
+  `ShutdownTreeState`, signals и JDK fallback — `ProcessShutdownSignals`, failure/interruption policy —
+  `ShutdownFailureLedger`; facade — `ProcessLifecycle`, exact-once session cleanup — `SessionProcessCleanup`;
 - bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; execution owner policy —
   `BoundedTaskOwner`, lifecycle одного accepted вызова — `BoundedTaskExecution`;
 - stdin serialization/close, output ownership и distinct terminal/physical close callbacks — `SessionResources`,
   output failure classification и physical settlement — `SessionOutputCleanup`;
 - арбитрация attach/report для cleanup failures после terminal outcome — `SessionLateFailures`;
 - выбор output consumer-а внутри resource owner — `SessionOutputOwnership`;
-- bounded process/provider traversal — `ProcessTreeScanner`; fresh owner каждой provider operation —
+- bounded immutable cleanup snapshot — `KnownDescendants`; bounded process/provider traversal — `ProcessTreeScanner`;
+  fresh owner каждой provider operation —
   `ProcessProviderOperationOwner`, cancellation — `ProcessProviderOperationCancellation`, reporting settlement —
   `ProcessProviderOperationSettlement`;
 - line/protocol request serialization — `SerializedRequestGate`; active request и terminal arbitration —

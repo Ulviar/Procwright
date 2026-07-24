@@ -7,7 +7,6 @@ import io.github.ulviar.procwright.internal.ProcessLifecycle;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 /** Owns resources until session construction either commits or rolls back. */
@@ -78,7 +77,7 @@ final class SessionConstruction {
     }
 
     private static void stopProcessPreserving(Process process, Throwable primaryFailure) {
-        preserving(primaryFailure, () -> ProcessLifecycle.forceStop(process, Set.of(), PROCESS_CLEANUP_TIMEOUT));
+        preserving(primaryFailure, () -> ProcessLifecycle.forceStop(process, PROCESS_CLEANUP_TIMEOUT));
     }
 
     private static void preserving(Throwable primaryFailure, Runnable cleanup) {

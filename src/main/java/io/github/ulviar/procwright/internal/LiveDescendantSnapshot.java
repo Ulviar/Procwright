@@ -3,8 +3,8 @@
 package io.github.ulviar.procwright.internal;
 
 import java.time.Duration;
-import java.util.Collections;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -12,7 +12,8 @@ import java.util.Set;
  * Accumulates live process descendants across lifecycle polls for later cleanup.
  *
  * <p>One lifecycle watcher refreshes the snapshot. Cleanup and diagnostics may read the latest immutable value
- * concurrently.
+ * concurrently. Cleanup atomically waits for an active refresh and seals the snapshot, so no later refresh can publish
+ * handles or sticky status after the handoff.
  *
  * <p>This type is public only for use by non-exported internal subpackages.
  */
@@ -20,70 +21,141 @@ public final class LiveDescendantSnapshot {
 
     private static final ProcessTreeScanner PROCESS_TREE_SCANNER = ProcessTreeScanner.shared();
 
-    private volatile Set<ProcessHandle> observed;
+    private volatile KnownDescendants observed;
+    private boolean sealed;
 
     /** Creates an empty snapshot. */
     public LiveDescendantSnapshot() {
-        this(Set.of());
+        this(KnownDescendants.empty());
     }
 
-    LiveDescendantSnapshot(Set<ProcessHandle> initial) {
-        observed = immutableBounded(Objects.requireNonNull(initial, "initial"));
+    LiveDescendantSnapshot(KnownDescendants initial) {
+        observed = Objects.requireNonNull(initial, "initial");
     }
 
     /** Returns the latest immutable set of retained live or unobservable descendants. */
     public Set<ProcessHandle> current() {
+        return observed.handles();
+    }
+
+    /** Seals observation and returns the final invariant-carrying snapshot for process-tree cleanup. */
+    public synchronized KnownDescendants sealForCleanup() {
+        sealed = true;
         return observed;
     }
 
-    void refreshWithFreshLivenessBudget(Process process, Duration scanBudget) throws InterruptedException {
-        Set<ProcessHandle> current = scan(process, scanBudget);
+    synchronized void refreshWithFreshLivenessBudget(Process process, Duration scanBudget) throws InterruptedException {
+        if (sealed) {
+            return;
+        }
+        ProcessTreeScanner.DescendantScan current = scan(process, scanBudget);
+        if (observationInterrupted(current)) {
+            publishWithoutPruning(current);
+            return;
+        }
         replaceWithMerged(current, DurationSupport.deadlineFromNow(scanBudget));
     }
 
-    void refresh(Process process, Duration scanBudget, long livenessDeadline) throws InterruptedException {
-        Set<ProcessHandle> current = scan(process, scanBudget);
+    synchronized void refresh(Process process, Duration scanBudget, long livenessDeadline) throws InterruptedException {
+        if (sealed) {
+            return;
+        }
+        ProcessTreeScanner.DescendantScan current = scan(process, scanBudget);
+        if (observationInterrupted(current)) {
+            publishWithoutPruning(current);
+            return;
+        }
         replaceWithMerged(current, livenessDeadline);
     }
 
-    private static Set<ProcessHandle> scan(Process process, Duration scanBudget) {
+    private static ProcessTreeScanner.DescendantScan scan(Process process, Duration scanBudget) {
         Objects.requireNonNull(process, "process");
         Objects.requireNonNull(scanBudget, "scanBudget");
-        return new LinkedHashSet<>(PROCESS_TREE_SCANNER.descendants(process, scanBudget));
+        return PROCESS_TREE_SCANNER.scanDescendants(process, scanBudget);
     }
 
-    private void replaceWithMerged(Set<ProcessHandle> current, long livenessDeadline) throws InterruptedException {
-        Set<ProcessHandle> merged = new LinkedHashSet<>();
-        addLiveBounded(merged, observed, livenessDeadline);
-        addLiveBounded(merged, current, livenessDeadline);
-        observed = Collections.unmodifiableSet(merged);
-    }
-
-    private static void addLiveBounded(
-            Set<ProcessHandle> target, Iterable<ProcessHandle> candidates, long livenessDeadline)
+    private void replaceWithMerged(ProcessTreeScanner.DescendantScan current, long livenessDeadline)
             throws InterruptedException {
-        for (ProcessHandle candidate : candidates) {
-            if (target.size() == PROCESS_TREE_SCANNER.descendantLimit()) {
-                return;
+        try {
+            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> merged = new LinkedHashMap<>();
+            boolean mergeOverflow = addLiveBounded(merged, observed.handlesByIdentity(), livenessDeadline);
+            mergeOverflow |= addLiveBounded(merged, current.handlesByIdentity(), livenessDeadline);
+            publish(current, merged, mergeOverflow);
+        } catch (InterruptedException interruption) {
+            publishWithoutPruning(current);
+            SuppressionSupport.attach(interruption, current.failure());
+            throw interruption;
+        } catch (RuntimeException | Error failure) {
+            publishWithoutPruning(current);
+            if (current.failure() != null) {
+                SuppressionSupport.attach(current.failure(), failure);
+                throw current.failure();
             }
-            if (mayStillBeAlive(candidate, livenessDeadline)) {
-                target.add(candidate);
+            throw failure;
+        }
+        current.rethrowFailure();
+    }
+
+    private void publishWithoutPruning(ProcessTreeScanner.DescendantScan current) {
+        Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> merged = new LinkedHashMap<>();
+        boolean mergeOverflow = addBounded(merged, observed.handlesByIdentity());
+        mergeOverflow |= addBounded(merged, current.handlesByIdentity());
+        publish(current, merged, mergeOverflow);
+    }
+
+    private void publish(
+            ProcessTreeScanner.DescendantScan current,
+            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> merged,
+            boolean mergeOverflow) {
+        observed = KnownDescendants.copyOf(
+                merged,
+                observed.truncated() || current.truncated() || mergeOverflow,
+                observed.discoveryUnavailable() || observationUnavailable(current));
+    }
+
+    private static boolean observationUnavailable(ProcessTreeScanner.DescendantScan scan) {
+        return scan.incompleteReason() == ProcessTreeScanner.IncompleteReason.UNAVAILABLE;
+    }
+
+    private static boolean observationInterrupted(ProcessTreeScanner.DescendantScan scan) {
+        return scan.incompleteReason() == ProcessTreeScanner.IncompleteReason.INTERRUPTED;
+    }
+
+    private static boolean addBounded(
+            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> target,
+            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> candidates) {
+        for (Map.Entry<ProcessTreeScanner.HandleIdentity, ProcessHandle> candidate : candidates.entrySet()) {
+            if (target.containsKey(candidate.getKey())) {
+                continue;
+            }
+            if (target.size() == PROCESS_TREE_SCANNER.descendantLimit()) {
+                return true;
+            }
+            target.put(candidate.getKey(), candidate.getValue());
+        }
+        return false;
+    }
+
+    private static boolean addLiveBounded(
+            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> target,
+            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> candidates,
+            long livenessDeadline)
+            throws InterruptedException {
+        for (Map.Entry<ProcessTreeScanner.HandleIdentity, ProcessHandle> candidate : candidates.entrySet()) {
+            if (target.containsKey(candidate.getKey())) {
+                continue;
+            }
+            if (target.size() == PROCESS_TREE_SCANNER.descendantLimit()) {
+                return true;
+            }
+            if (mayStillBeAlive(candidate.getValue(), livenessDeadline)) {
+                target.put(candidate.getKey(), candidate.getValue());
             }
         }
+        return false;
     }
 
     private static boolean mayStillBeAlive(ProcessHandle handle, long livenessDeadline) throws InterruptedException {
         return ProcessLiveness.observe(handle, livenessDeadline) != ProcessLiveness.Observation.EXITED;
-    }
-
-    private static Set<ProcessHandle> immutableBounded(Iterable<ProcessHandle> candidates) {
-        Set<ProcessHandle> bounded = new LinkedHashSet<>();
-        for (ProcessHandle candidate : candidates) {
-            if (bounded.size() == PROCESS_TREE_SCANNER.descendantLimit()) {
-                break;
-            }
-            bounded.add(Objects.requireNonNull(candidate, "candidate"));
-        }
-        return Collections.unmodifiableSet(bounded);
     }
 }

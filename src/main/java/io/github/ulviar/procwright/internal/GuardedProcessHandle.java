@@ -26,6 +26,10 @@ final class GuardedProcessHandle implements ProcessHandle {
         return delegate;
     }
 
+    ProcessTreeScanner.HandleIdentity identity() {
+        return identity;
+    }
+
     Duration providerOperationTimeout() {
         return scanner.providerOperationTimeout();
     }

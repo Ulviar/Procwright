@@ -9,7 +9,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -251,7 +250,7 @@ public final class ProcessIoResources {
 
     private static void cleanupProcessPreserving(Process process, Throwable primaryFailure) {
         try {
-            ProcessLifecycle.forceStop(process, Set.of(), ACQUISITION_FAILURE_CLEANUP_TIMEOUT);
+            ProcessLifecycle.forceStop(process, ACQUISITION_FAILURE_CLEANUP_TIMEOUT);
         } catch (Throwable cleanupFailure) {
             attachPreserving(primaryFailure, cleanupFailure);
         }

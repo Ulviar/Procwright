@@ -191,7 +191,7 @@ abstract class DefaultSessionWatcherCleanupTestSupport extends DefaultSessionLif
 
         @Override
         public Stream<ProcessHandle> descendants() {
-            throw new SecurityException("descendant enumeration is denied");
+            return Stream.empty();
         }
 
         IllegalStateException watcherFailure() {
@@ -289,7 +289,7 @@ abstract class DefaultSessionWatcherCleanupTestSupport extends DefaultSessionLif
 
         @Override
         public Stream<ProcessHandle> descendants() {
-            throw new SecurityException("descendant enumeration is denied");
+            return Stream.empty();
         }
 
         IllegalStateException failure() {

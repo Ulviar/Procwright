@@ -3,13 +3,13 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
+import io.github.ulviar.procwright.internal.KnownDescendants;
 import io.github.ulviar.procwright.internal.LiveDescendantSnapshot;
 import io.github.ulviar.procwright.internal.ProcessLifecycle;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.OptionalInt;
-import java.util.Set;
 
 /** Owns descendant observation and the exactly-once process-tree cleanup result for one session. */
 final class SessionProcessCleanup {
@@ -81,7 +81,7 @@ final class SessionProcessCleanup {
         }
     }
 
-    private Set<ProcessHandle> knownDescendants() {
-        return liveDescendants.current();
+    private KnownDescendants knownDescendants() {
+        return liveDescendants.sealForCleanup();
     }
 }

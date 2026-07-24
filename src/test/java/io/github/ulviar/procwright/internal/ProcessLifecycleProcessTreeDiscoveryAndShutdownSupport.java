@@ -6,12 +6,458 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Stream;
 
 class ProcessLifecycleProcessTreeDiscoveryAndShutdownSupport extends ProcessLifecycleSharedSupport {
+    static final class FatalPrefixProcess extends Process {
+
+        private final AssertionError failure;
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final MutableProcessHandle descendant = new MutableProcessHandle(36);
+        private final ProcessHandle rootHandle = new MutableProcessHandle(35) {
+            @Override
+            public boolean destroyForcibly() {
+                alive.set(false);
+                return true;
+            }
+
+            @Override
+            public boolean isAlive() {
+                return alive.get();
+            }
+        };
+
+        FatalPrefixProcess(AssertionError failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            alive.set(false);
+            return 137;
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive.get()) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 137;
+        }
+
+        @Override
+        public void destroy() {
+            alive.set(false);
+        }
+
+        @Override
+        public Process destroyForcibly() {
+            alive.set(false);
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive.get();
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            return rootHandle;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.concat(Stream.of(descendant), Stream.generate(() -> {
+                throw failure;
+            }));
+        }
+
+        MutableProcessHandle descendant() {
+            return descendant;
+        }
+    }
+
+    static final class ReparentingDeadlineProcess extends Process {
+
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final AtomicBoolean gracefulSignalled = new AtomicBoolean();
+        private final AtomicInteger scans = new AtomicInteger();
+        private final MutableProcessHandle hiddenDescendant = new MutableProcessHandle(38);
+        private final ProcessHandle rootHandle = new MutableProcessHandle(37) {
+            @Override
+            public boolean destroy() {
+                gracefulSignalled.set(true);
+                return true;
+            }
+
+            @Override
+            public boolean destroyForcibly() {
+                alive.set(false);
+                return true;
+            }
+
+            @Override
+            public boolean isAlive() {
+                return alive.get();
+            }
+        };
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            alive.set(false);
+            return 0;
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive.get()) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 0;
+        }
+
+        @Override
+        public void destroy() {
+            gracefulSignalled.set(true);
+        }
+
+        @Override
+        public Process destroyForcibly() {
+            alive.set(false);
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive.get();
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            return rootHandle;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            int scan = scans.incrementAndGet();
+            if (scan == 2 && gracefulSignalled.get()) {
+                alive.set(false);
+                try {
+                    new CountDownLatch(1).await();
+                } catch (InterruptedException expectedDeadlineCancellation) {
+                    return Stream.of(hiddenDescendant);
+                }
+            }
+            return Stream.empty();
+        }
+
+        MutableProcessHandle hiddenDescendant() {
+            return hiddenDescendant;
+        }
+    }
+
+    static final class InitialScanBlockingExitedProcess extends Process {
+
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final AtomicInteger scanCalls = new AtomicInteger();
+        private final AtomicInteger forceDestroyCalls = new AtomicInteger();
+        private final CountDownLatch scanEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseScan = new CountDownLatch(1);
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive.get()) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 0;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Process destroyForcibly() {
+            forceDestroyCalls.incrementAndGet();
+            alive.set(false);
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive.get();
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            if (scanCalls.incrementAndGet() == 1) {
+                alive.set(false);
+                scanEntered.countDown();
+                boolean restoreInterrupt = false;
+                while (true) {
+                    try {
+                        releaseScan.await();
+                        break;
+                    } catch (InterruptedException interruption) {
+                        restoreInterrupt = true;
+                    }
+                }
+                if (restoreInterrupt) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return Stream.empty();
+        }
+
+        boolean awaitScan() throws InterruptedException {
+            return scanEntered.await(1, TimeUnit.SECONDS);
+        }
+
+        void releaseScan() {
+            releaseScan.countDown();
+        }
+
+        int forceDestroyCalls() {
+            return forceDestroyCalls.get();
+        }
+    }
+
+    static final class FinalScanBlockingProcess extends Process {
+
+        private final AtomicInteger scanCalls = new AtomicInteger();
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public int exitValue() {
+            return 0;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            if (scanCalls.incrementAndGet() >= 3) {
+                long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(250);
+                while (deadline - System.nanoTime() > 0) {
+                    LockSupport.parkNanos(deadline - System.nanoTime());
+                    Thread.interrupted();
+                }
+            }
+            return Stream.empty();
+        }
+
+        int scanCalls() {
+            return scanCalls.get();
+        }
+    }
+
+    static final class OverflowAfterInitializationProcess extends Process {
+
+        private final AtomicInteger scans = new AtomicInteger();
+        private final MutableProcessHandle overflow = new MutableProcessHandle(60_000);
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public int exitValue() {
+            return 0;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return scans.getAndIncrement() == 0 ? Stream.empty() : Stream.of(overflow);
+        }
+
+        MutableProcessHandle overflow() {
+            return overflow;
+        }
+    }
+
+    static final class PendingAcrossPhaseProcess extends Process {
+
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final AtomicBoolean descendantVisible = new AtomicBoolean();
+        private final MutableProcessHandle descendant = new MutableProcessHandle(41);
+        private final ProcessHandle rootHandle = new MutableProcessHandle(42) {
+            @Override
+            public boolean destroy() {
+                descendantVisible.set(true);
+                return true;
+            }
+
+            @Override
+            public boolean destroyForcibly() {
+                alive.set(false);
+                return true;
+            }
+
+            @Override
+            public boolean isAlive() {
+                return alive.get();
+            }
+        };
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            alive.set(false);
+            return 137;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return !alive.get();
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive.get()) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 137;
+        }
+
+        @Override
+        public void destroy() {
+            rootHandle.destroy();
+        }
+
+        @Override
+        public Process destroyForcibly() {
+            alive.set(false);
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive.get();
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            return rootHandle;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return descendantVisible.get() ? Stream.of(descendant) : Stream.empty();
+        }
+
+        MutableProcessHandle descendant() {
+            return descendant;
+        }
+    }
+
     static final class LateDescendantProcess extends Process {
 
         private final AtomicBoolean alive = new AtomicBoolean(true);
@@ -491,78 +937,6 @@ class ProcessLifecycleProcessTreeDiscoveryAndShutdownSupport extends ProcessLife
 
         MutableProcessHandle descendant() {
             return descendant;
-        }
-    }
-
-    static final class SuccessiveDescendantsHandle implements ProcessHandle {
-
-        private final long pid;
-        private final int descendantLimit;
-        private final AtomicInteger discoveryCalls = new AtomicInteger();
-
-        SuccessiveDescendantsHandle(long pid, int descendantLimit) {
-            this.pid = pid;
-            this.descendantLimit = descendantLimit;
-        }
-
-        @Override
-        public long pid() {
-            return pid;
-        }
-
-        @Override
-        public Optional<ProcessHandle> parent() {
-            return Optional.empty();
-        }
-
-        @Override
-        public Stream<ProcessHandle> children() {
-            return Stream.empty();
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            int discovery = discoveryCalls.incrementAndGet();
-            return discovery <= descendantLimit ? Stream.of(new MutableProcessHandle(pid + discovery)) : Stream.empty();
-        }
-
-        @Override
-        public Info info() {
-            return ProcessHandle.current().info();
-        }
-
-        @Override
-        public CompletableFuture<ProcessHandle> onExit() {
-            throw new UnsupportedOperationException("exit observation is denied");
-        }
-
-        @Override
-        public boolean supportsNormalTermination() {
-            return true;
-        }
-
-        @Override
-        public boolean destroy() {
-            return true;
-        }
-
-        @Override
-        public boolean destroyForcibly() {
-            return true;
-        }
-
-        @Override
-        public boolean isAlive() {
-            throw new SecurityException("liveness observation is denied");
-        }
-
-        @Override
-        public int compareTo(ProcessHandle other) {
-            return Long.compare(pid, other.pid());
-        }
-
-        int discoveryCalls() {
-            return discoveryCalls.get();
         }
     }
 

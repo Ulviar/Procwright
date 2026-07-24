@@ -10,7 +10,6 @@ import java.io.OutputStream;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -184,7 +183,8 @@ public final class ProcessKernel {
                 diagnostics.emit(
                         DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "timeout"));
                 resources.stdin().closeAsync("procwright-process-stdin-close-", recordCloseFailure);
-                exitCode = stopTimedOutWithoutStdinClose(process, liveDescendants.current(), plan.shutdownPolicy());
+                exitCode =
+                        stopTimedOutWithoutStdinClose(process, liveDescendants.sealForCleanup(), plan.shutdownPolicy());
             } else {
                 exitCode = OptionalInt.of(process.exitValue());
             }
@@ -224,7 +224,7 @@ public final class ProcessKernel {
                     DiagnosticEventType.SHUTDOWN_REQUESTED,
                     DiagnosticEmitter.attributes("reason", "failure"),
                     exception);
-            forceStopAfterFailureWithoutStreamClose(process, liveDescendants.current(), exception);
+            forceStopAfterFailureWithoutStreamClose(process, liveDescendants.sealForCleanup(), exception);
         } finally {
             try {
                 try {
@@ -332,7 +332,7 @@ public final class ProcessKernel {
     }
 
     private static OptionalInt stopTimedOutWithoutStdinClose(
-            Process process, Set<ProcessHandle> knownDescendants, ShutdownPolicy shutdownPolicy) {
+            Process process, KnownDescendants knownDescendants, ShutdownPolicy shutdownPolicy) {
         return ProcessLifecycle.stop(process, knownDescendants, shutdownPolicy);
     }
 
@@ -350,7 +350,7 @@ public final class ProcessKernel {
                 DiagnosticEmitter.attributes("reason", "interrupted"),
                 failure);
         try {
-            ProcessLifecycle.stop(process, liveDescendants.current(), plan.shutdownPolicy());
+            ProcessLifecycle.stop(process, liveDescendants.sealForCleanup(), plan.shutdownPolicy());
         } catch (RuntimeException | Error shutdownFailure) {
             SuppressionSupport.attach(failure, shutdownFailure);
         }
@@ -413,7 +413,7 @@ public final class ProcessKernel {
         }
     }
 
-    static void forceStopAfterFailure(Process process, Set<ProcessHandle> knownDescendants, Throwable primaryFailure) {
+    static void forceStopAfterFailure(Process process, KnownDescendants knownDescendants, Throwable primaryFailure) {
         ProcessIoResources resources;
         try {
             resources = ProcessIoResources.acquire(process);
@@ -430,7 +430,7 @@ public final class ProcessKernel {
     }
 
     private static void forceStopAfterFailureWithoutStreamClose(
-            Process process, Set<ProcessHandle> knownDescendants, Throwable primaryFailure) {
+            Process process, KnownDescendants knownDescendants, Throwable primaryFailure) {
         try {
             ProcessLifecycle.forceStop(process, knownDescendants, CLEANUP_TIMEOUT);
         } catch (RuntimeException | Error cleanupFailure) {

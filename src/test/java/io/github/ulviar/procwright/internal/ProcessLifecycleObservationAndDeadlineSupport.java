@@ -13,6 +13,117 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 class ProcessLifecycleObservationAndDeadlineSupport extends ProcessLifecycleSharedSupport {
+    static final class DelayedPostSignalExitProcess extends Process {
+
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final AtomicInteger livenessCalls = new AtomicInteger();
+        private final AtomicInteger forceDestroyCalls = new AtomicInteger();
+        private final int exitOnLivenessCall;
+        private final long gracefulSignalDelayMillis;
+        private final long forcefulSignalDelayMillis;
+        private final ProcessHandle rootHandle = new MutableProcessHandle(60) {
+            @Override
+            public boolean destroy() {
+                sleepUninterruptibly(gracefulSignalDelayMillis);
+                return true;
+            }
+
+            @Override
+            public boolean destroyForcibly() {
+                forceDestroyCalls.incrementAndGet();
+                sleepUninterruptibly(forcefulSignalDelayMillis);
+                return true;
+            }
+
+            @Override
+            public boolean isAlive() {
+                return alive.get();
+            }
+        };
+
+        private DelayedPostSignalExitProcess(
+                int exitOnLivenessCall, long gracefulSignalDelayMillis, long forcefulSignalDelayMillis) {
+            this.exitOnLivenessCall = exitOnLivenessCall;
+            this.gracefulSignalDelayMillis = gracefulSignalDelayMillis;
+            this.forcefulSignalDelayMillis = forcefulSignalDelayMillis;
+        }
+
+        static DelayedPostSignalExitProcess afterGracefulSignal() {
+            return new DelayedPostSignalExitProcess(2, 120, 0);
+        }
+
+        static DelayedPostSignalExitProcess afterForcefulSignal() {
+            return new DelayedPostSignalExitProcess(4, 0, 120);
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            alive.set(false);
+            return 23;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return !alive.get();
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive.get()) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 23;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Process destroyForcibly() {
+            forceDestroyCalls.incrementAndGet();
+            alive.set(false);
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            if (livenessCalls.incrementAndGet() == exitOnLivenessCall) {
+                sleepUninterruptibly(120);
+                alive.set(false);
+            }
+            return alive.get();
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            return rootHandle;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+
+        int forceDestroyCalls() {
+            return forceDestroyCalls.get();
+        }
+    }
+
     static class PollingCompletionProcess extends Process {
 
         private final AtomicInteger livenessCalls = new AtomicInteger();
@@ -99,6 +210,25 @@ class ProcessLifecycleObservationAndDeadlineSupport extends ProcessLifecycleShar
 
         void advance(long durationNanos) {
             nanos += durationNanos;
+        }
+    }
+
+    private static void sleepUninterruptibly(long milliseconds) {
+        boolean restoreInterrupt = false;
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(milliseconds);
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                break;
+            }
+            try {
+                TimeUnit.NANOSECONDS.sleep(remaining);
+            } catch (InterruptedException interruption) {
+                restoreInterrupt = true;
+            }
+        }
+        if (restoreInterrupt) {
+            Thread.currentThread().interrupt();
         }
     }
 

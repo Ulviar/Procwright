@@ -110,7 +110,7 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
     }
 
     @Test
-    void exitWatcherFailureForceStopsRootWhenLivenessCannotBeObserved() throws Exception {
+    void exitWatcherFailureForceStopsRootWhenHandleAccessIsUnavailable() throws Exception {
         WatcherFailureProcess process = new WatcherFailureProcess();
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch shutdownFailurePublished = new CountDownLatch(1);

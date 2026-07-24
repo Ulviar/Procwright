@@ -806,6 +806,11 @@ final class SessionOutputOwnershipTest {
         public long pid() {
             return 1L;
         }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
     }
 
     private static final class TrackingInputStream extends InputStream {
