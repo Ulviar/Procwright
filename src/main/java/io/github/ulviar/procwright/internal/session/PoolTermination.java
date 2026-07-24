@@ -12,8 +12,8 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Owns construction resolution, closing state, terminal failure precedence, and the pool drain outcome.
  *
- * <p>Mutable transition methods are serialized by the pool state monitor. Drain publication remains outside that
- * monitor so user continuations cannot run while pool state is locked.
+ * <p>{@link WorkerPoolState} serializes mutable transition methods with its monitor. Drain publication remains outside
+ * that monitor so user continuations cannot run while pool state is locked.
  */
 final class PoolTermination {
 
@@ -21,11 +21,13 @@ final class PoolTermination {
     private final WorkerCloseFailureAccumulator failures = new WorkerCloseFailureAccumulator();
     private final Set<Throwable> observedFailures = Collections.newSetFromMap(new IdentityHashMap<>());
     private final PoolDrain drain;
+    private final Publication publication;
     private boolean closing;
     private boolean drainClaimed;
 
     PoolTermination(PoolTerminalPublisher publisher) {
         drain = new PoolDrain(Objects.requireNonNull(publisher, "publisher"));
+        publication = new Publication(drain);
     }
 
     boolean closing() {
@@ -76,7 +78,8 @@ final class PoolTermination {
             return null;
         }
         drainClaimed = true;
-        return new Publication(failures.failure());
+        publication.prepare(failures.failure());
+        return publication;
     }
 
     CompletableFuture<Void> view() {
@@ -85,7 +88,10 @@ final class PoolTermination {
 
     void publish(Publication publication) {
         PoolTermination.Publication claimed = Objects.requireNonNull(publication, "publication");
-        drain.publish(claimed.failure());
+        if (claimed != this.publication) {
+            throw new IllegalArgumentException("terminal publication belongs to another pool");
+        }
+        claimed.publish();
     }
 
     record ConstructionResult(boolean successful, List<FailureReport> reports, Throwable failure) {
@@ -98,7 +104,35 @@ final class PoolTermination {
         }
     }
 
-    record Publication(Throwable failure) {}
+    static final class Publication {
+
+        private final PoolDrain drain;
+        private Throwable failure;
+        private boolean prepared;
+
+        private Publication(PoolDrain drain) {
+            this.drain = Objects.requireNonNull(drain, "drain");
+        }
+
+        Throwable failure() {
+            if (!prepared) {
+                throw new IllegalStateException("terminal publication is not prepared");
+            }
+            return failure;
+        }
+
+        private void prepare(Throwable selectedFailure) {
+            if (prepared) {
+                throw new IllegalStateException("terminal publication is already prepared");
+            }
+            failure = selectedFailure;
+            prepared = true;
+        }
+
+        private void publish() {
+            drain.publish(failure());
+        }
+    }
 
     enum FailureDisposition {
         NONE,

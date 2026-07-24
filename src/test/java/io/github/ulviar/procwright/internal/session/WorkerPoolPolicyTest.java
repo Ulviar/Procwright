@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 
 final class WorkerPoolPolicyTest {
@@ -25,8 +26,8 @@ final class WorkerPoolPolicyTest {
     void idleAndReplenishingWorkersBothSatisfyMinIdle() {
         WorkerPoolPolicy policy = new WorkerPoolPolicy(new Options(3, 0, 2, true, 10));
         PoolPartition<PoolWorker<String>> partition = new PoolPartition<>(3);
-        PoolWorker<String> idle = new PoolWorker<>();
-        PoolWorker<String> replenishing = new PoolWorker<>();
+        PoolWorker<String> idle = worker();
+        PoolWorker<String> replenishing = worker();
         replenishing.startupPurpose(PoolWorker.StartupPurpose.REPLENISHMENT);
         partition.addStarting(idle);
         partition.startingToLeased(idle);
@@ -41,13 +42,18 @@ final class WorkerPoolPolicyTest {
     @Test
     void requestLimitRetiresWorkerAtTheConfiguredBoundary() {
         WorkerPoolPolicy policy = new WorkerPoolPolicy(new Options(1, 0, 0, false, 2));
-        PoolWorker<String> worker = new PoolWorker<>();
+        PoolWorker<String> worker = worker();
         worker.recordRequest();
         assertNull(policy.retirementReasonFor(worker));
 
         worker.recordRequest();
 
         assertEquals(PooledWorkerRetireReason.MAX_REQUESTS, policy.retirementReasonFor(worker));
+    }
+
+    private static PoolWorker<String> worker() {
+        return new PoolWorker<>(
+                (session, admission) -> () -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
     }
 
     private record Options(int maxSize, int warmupSize, int minIdle, boolean background, int maxRequests)

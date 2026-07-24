@@ -115,21 +115,22 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
                     },
                     Duration.ofSeconds(1)));
             assertTrue(predicateStarted.await(1, TimeUnit.SECONDS));
-            Future<PoolWorker<TestWorker>> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> {
-                healthEntered.countDown();
-                awaitIgnoringInterrupt(releaseHealth);
-                return HEALTHY;
-            }));
+            Future<WorkerPoolState.Lease<TestWorker>> acquire =
+                    executor.submit(() -> pool.acquire((worker, deadline) -> {
+                        healthEntered.countDown();
+                        awaitIgnoringInterrupt(releaseHealth);
+                        return HEALTHY;
+                    }));
             assertTrue(healthEntered.await(1, TimeUnit.SECONDS));
             assertTrue(waiterObservedLease.await(1, TimeUnit.SECONDS));
 
             now.set(175L);
             releaseHealth.countDown();
 
-            PoolWorker<TestWorker> worker = acquire.get(1, TimeUnit.SECONDS);
+            WorkerPoolState.Lease<TestWorker> worker = acquire.get(1, TimeUnit.SECONDS);
             assertTrue(metricsWait.get(1, TimeUnit.SECONDS));
             assertEquals(75L, pool.metrics().totalAcquireWaitNanos());
-            pool.release(worker, true, null);
+            pool.releaseReusable(worker);
         } finally {
             releaseHealth.countDown();
             executor.shutdownNow();

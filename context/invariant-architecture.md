@@ -99,12 +99,16 @@ Runtime получает только согласованный plan и не у
   `LineSessionState` и `ProtocolSessionState`;
 - protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader` и `ProtocolResponseBudget`;
 - output backlog — bounded queue владельца сценария;
-- pool partition — `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
+- единый monitor, составные pool transitions и связанные с partition поля worker — `WorkerPoolState`; partition —
+  `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
 - startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
+- обязательные post-monitor retirement, admission release и terminal publication — одноразовый `PoolStateEffects`;
+- failure-atomic pool commit — заранее подготовленные result/effects/publication owners, bounded capacity
+  `PoolPartition` и target-first переходы;
 - pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
-- construction/closing/failure/drain decision — `PoolTermination`, terminal outcome и cancellation-isolated views —
-  `PoolDrain`;
+- construction/closing/failure/drain decision внутри state owner — `PoolTermination`, terminal outcome и
+  cancellation-isolated views — `PoolDrain`;
 - pool terminal reservation и disposable publication owner — `PoolTerminalPublisher`;
 - bounded retirement/report/replenishment domains — `PoolLifecycleDispatcher`, late failures — `PoolFailurePublisher`;
 - transcript retention — bounded transcript owner;

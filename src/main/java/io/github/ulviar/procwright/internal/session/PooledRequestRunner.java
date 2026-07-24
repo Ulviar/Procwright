@@ -13,13 +13,13 @@ import java.util.function.Supplier;
 final class PooledRequestRunner<S> {
 
     private final WorkerPoolController<S> pool;
-    private final Supplier<PoolWorker<S>> acquire;
+    private final Supplier<WorkerPoolState.Lease<S>> acquire;
     private final Consumer<S> reset;
     private final FailureMapper failureMapper;
 
     PooledRequestRunner(
             WorkerPoolController<S> pool,
-            Supplier<PoolWorker<S>> acquire,
+            Supplier<WorkerPoolState.Lease<S>> acquire,
             Consumer<S> reset,
             FailureMapper failureMapper) {
         this.pool = Objects.requireNonNull(pool, "pool");
@@ -54,17 +54,17 @@ final class PooledRequestRunner<S> {
 
     private <R> R runObserved(RequestObservation observation, Function<S, R> request) {
         Objects.requireNonNull(request, "request");
-        PoolWorker<S> worker = null;
+        WorkerPoolState.Lease<S> lease = null;
         boolean reusable = false;
         PooledWorkerRetireReason retireReason = PooledWorkerRetireReason.WORKER_FAILED;
         try {
-            worker = acquire.get();
+            lease = acquire.get();
             observation.resumeAfterAcquire();
-            R response = request.apply(worker.session());
-            worker.recordRequest();
-            if (pool.retirementReasonFor(worker) == null) {
+            R response = request.apply(lease.session());
+            PooledWorkerRetireReason policyReason = pool.recordRequestAndRetirementReason(lease);
+            if (policyReason == null) {
                 try {
-                    reset.accept(worker.session());
+                    reset.accept(lease.session());
                 } catch (RuntimeException resetFailure) {
                     retireReason = PooledWorkerRetireReason.RESET_FAILED;
                     observation.succeed();
@@ -74,9 +74,11 @@ final class PooledRequestRunner<S> {
                     observation.succeed();
                     throw resetFailure;
                 }
+                reusable = true;
+            } else {
+                retireReason = policyReason;
             }
             observation.succeed();
-            reusable = true;
             return response;
         } catch (RuntimeException failure) {
             observation.fail();
@@ -87,8 +89,12 @@ final class PooledRequestRunner<S> {
             observation.fail();
             throw failure;
         } finally {
-            if (worker != null) {
-                pool.release(worker, reusable, retireReason);
+            if (lease != null) {
+                if (reusable) {
+                    pool.releaseReusable(lease);
+                } else {
+                    pool.retire(lease, retireReason);
+                }
             }
         }
     }

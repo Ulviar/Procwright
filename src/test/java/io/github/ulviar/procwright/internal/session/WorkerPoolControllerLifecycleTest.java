@@ -403,7 +403,8 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ofNanos(1), false));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<PoolWorker<TestWorker>> first = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
+            Future<WorkerPoolState.Lease<TestWorker>> first =
+                    executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
             assertTrue(retirementEntered.await(1, TimeUnit.SECONDS));
 
             assertEquals(1, created.get(), "a replacement must not start before the retiring process closes");
@@ -412,9 +413,9 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
             assertFalse(first.isDone(), "the acquire must remain pending while the only slot is retiring");
 
             allowRetirement.countDown();
-            PoolWorker<TestWorker> leased = first.get(1, TimeUnit.SECONDS);
+            WorkerPoolState.Lease<TestWorker> leased = first.get(1, TimeUnit.SECONDS);
             assertEquals(2, created.get());
-            pool.release(leased, false, PooledWorkerRetireReason.CLOSED);
+            pool.retire(leased, PooledWorkerRetireReason.CLOSED);
         } finally {
             allowRetirement.countDown();
             executor.shutdownNow();
@@ -529,10 +530,10 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 Failures.INSTANCE,
                 "close-aware worker",
                 "test-close-aware-");
-        PoolWorker<CloseAwareWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
+        WorkerPoolState.Lease<CloseAwareWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
         session.failPhysicalClose(firstCloseFailure);
 
-        pool.release(worker, false, PooledWorkerRetireReason.WORKER_FAILED);
+        pool.retire(worker, PooledWorkerRetireReason.WORKER_FAILED);
 
         assertTrue(pool.awaitMetrics(metrics -> metrics.failedWorkerCloses() == 1, Duration.ofSeconds(1)));
         assertEquals(1, session.physicalCloseCalls.get());
@@ -557,12 +558,12 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
-        PoolWorker<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
+        WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
 
         try {
             Future<?> releaseCall = releaseExecutor.submit(() -> {
                 try {
-                    pool.release(worker, false, PooledWorkerRetireReason.WORKER_FAILED);
+                    pool.retire(worker, PooledWorkerRetireReason.WORKER_FAILED);
                 } finally {
                     releaseReturned.countDown();
                 }

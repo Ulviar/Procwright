@@ -12,6 +12,7 @@ final class PoolDrain {
     private final AtomicReference<State> state = new AtomicReference<>(State.OPEN);
     private final CompletableFuture<Void> terminal = new CompletableFuture<>();
     private final PoolTerminalPublisher publisher;
+    private final TerminalAction terminalAction = new TerminalAction();
 
     PoolDrain(PoolTerminalPublisher publisher) {
         this.publisher = Objects.requireNonNull(publisher, "publisher");
@@ -29,7 +30,8 @@ final class PoolDrain {
         if (!state.compareAndSet(State.CLAIMED, State.PUBLISHED)) {
             throw new IllegalStateException("pool drain outcome is not exclusively claimed");
         }
-        publisher.assign(() -> complete(failure));
+        terminalAction.failure = failure;
+        publisher.assign(terminalAction);
     }
 
     private void complete(Throwable failure) {
@@ -37,6 +39,16 @@ final class PoolDrain {
             terminal.complete(null);
         } else {
             terminal.completeExceptionally(failure);
+        }
+    }
+
+    private final class TerminalAction implements Runnable {
+
+        private Throwable failure;
+
+        @Override
+        public void run() {
+            complete(failure);
         }
     }
 

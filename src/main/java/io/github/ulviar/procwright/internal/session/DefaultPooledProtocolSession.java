@@ -127,7 +127,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         PoolCloseSupport.await(pool::closeAsync, options.closeTimeout(), ProtocolPoolFailures.INSTANCE);
     }
 
-    private PoolWorker<DefaultProtocolSession<I, O>> acquire() {
+    private WorkerPoolState.Lease<DefaultProtocolSession<I, O>> acquire() {
         return pool.acquire(this::isHealthy);
     }
 

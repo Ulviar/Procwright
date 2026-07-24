@@ -30,12 +30,12 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
         try {
             assertTrue(pool.awaitMetrics(metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
 
-            PoolWorker<TestWorker> leased = pool.acquire((worker, deadline) -> HEALTHY);
+            WorkerPoolState.Lease<TestWorker> leased = pool.acquire((worker, deadline) -> HEALTHY);
 
             assertTrue(pool.awaitMetrics(metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
             assertEquals(2, pool.metrics().size());
             assertEquals(1, pool.metrics().leased());
-            pool.release(leased, true, null);
+            pool.releaseReusable(leased);
         } finally {
             pool.closeAsync();
             assertTrue(pool.closeAsync().get(1, TimeUnit.SECONDS) == null);
@@ -62,9 +62,9 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 new Options(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
 
         try {
-            PoolWorker<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
-            worker.recordRequest();
-            pool.release(worker, true, null);
+            WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
+            pool.recordRequestAndRetirementReason(worker);
+            pool.releaseReusable(worker);
             assertTrue(replenishmentEntered.await(1, TimeUnit.SECONDS));
 
             pool.closeAsync();
@@ -102,9 +102,9 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 new Options(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
 
         try {
-            PoolWorker<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
-            worker.recordRequest();
-            pool.release(worker, true, null);
+            WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
+            pool.recordRequestAndRetirementReason(worker);
+            pool.releaseReusable(worker);
             assertTrue(replenishmentEntered.await(1, TimeUnit.SECONDS));
 
             pool.closeAsync();
@@ -132,10 +132,10 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 task -> {
                     throw schedulingFailure;
                 });
-        PoolWorker<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
+        WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
 
         assertEquals(1, pool.metrics().leased());
-        pool.release(worker, true, null);
+        pool.releaseReusable(worker);
 
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));

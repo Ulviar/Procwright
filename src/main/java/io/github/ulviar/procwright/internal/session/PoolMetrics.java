@@ -10,7 +10,7 @@ import java.util.Objects;
 /**
  * Owns the cumulative counters of one pool; current worker state remains owned by {@link PoolPartition}.
  *
- * <p>The pool monitor serializes all access.
+ * <p>{@link WorkerPoolState} confines all access to its monitor.
  */
 final class PoolMetrics {
 

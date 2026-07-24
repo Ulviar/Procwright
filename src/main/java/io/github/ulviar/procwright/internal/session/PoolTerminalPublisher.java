@@ -16,6 +16,7 @@ final class PoolTerminalPublisher {
 
     private static final String THREAD_PREFIX = "procwright-pool-terminal-";
     private static final Capacity SHARED = new Capacity(WorkerPoolSettings.MAX_SIZE);
+    private static final Runnable ABORT = () -> {};
 
     private final Capacity capacity;
     private final ArrayBlockingQueue<Runnable> action = new ArrayBlockingQueue<>(1);
@@ -39,6 +40,10 @@ final class PoolTerminalPublisher {
         if (!action.offer(terminalAction)) {
             throw new IllegalStateException("pool terminal owner rejected its only action");
         }
+    }
+
+    void abort() {
+        assign(ABORT);
     }
 
     private void run() {

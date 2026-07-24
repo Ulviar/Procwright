@@ -9,16 +9,38 @@ import java.util.concurrent.CompletionException;
 /** Owns exact-once initiation and normalized observation of one worker retirement. */
 final class WorkerRetirement<S> {
 
-    private final S session;
-    private final PoolLifecycleDispatcher.Admission admission;
     private final Action<S> action;
+    private S session;
+    private PoolLifecycleDispatcher.Admission admission;
     private Observation observation;
     private CompletableFuture<Outcome> outcome;
 
-    WorkerRetirement(S session, PoolLifecycleDispatcher.Admission admission, Action<S> action) {
-        this.session = Objects.requireNonNull(session, "session");
-        this.admission = Objects.requireNonNull(admission, "admission");
+    WorkerRetirement(Action<S> action) {
         this.action = Objects.requireNonNull(action, "action");
+    }
+
+    synchronized void admission(PoolLifecycleDispatcher.Admission acceptedAdmission) {
+        if (admission != null) {
+            throw new IllegalStateException("worker retirement admission is already owned");
+        }
+        admission = Objects.requireNonNull(acceptedAdmission, "acceptedAdmission");
+    }
+
+    synchronized PoolLifecycleDispatcher.Admission admissionOrNull() {
+        return admission;
+    }
+
+    synchronized PoolLifecycleDispatcher.Admission detachAdmission() {
+        PoolLifecycleDispatcher.Admission owned = admission;
+        admission = null;
+        return owned;
+    }
+
+    synchronized void accept(S acceptedSession) {
+        if (session != null) {
+            throw new IllegalStateException("worker session is already accepted");
+        }
+        session = Objects.requireNonNull(acceptedSession, "workerFactory returned null");
     }
 
     synchronized void initiate() {
@@ -27,7 +49,10 @@ final class WorkerRetirement<S> {
         }
         try {
             observation = Objects.requireNonNull(
-                    action.initiate(session, admission), "worker close action returned null observation");
+                    action.initiate(
+                            Objects.requireNonNull(session, "worker has no accepted session"),
+                            Objects.requireNonNull(admission, "worker has no retirement admission")),
+                    "worker close action returned null observation");
         } catch (Throwable failure) {
             observation = () -> CompletableFuture.completedFuture(Outcome.failure(failure));
         }

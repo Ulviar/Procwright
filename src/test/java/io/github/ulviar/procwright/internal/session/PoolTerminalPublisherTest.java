@@ -137,6 +137,19 @@ final class PoolTerminalPublisherTest {
         recovered.view().get(1, TimeUnit.SECONDS);
     }
 
+    @Test
+    void abortedConstructionReleasesReservedCapacity() throws Exception {
+        PoolTerminalPublisher.Capacity capacity = new PoolTerminalPublisher.Capacity(1);
+        PoolTerminalPublisher abandoned = capacity.reserve();
+        assertThrows(RejectedExecutionException.class, capacity::reserve);
+
+        abandoned.abort();
+
+        PoolDrain recovered = drainEventually(capacity, Duration.ofSeconds(1));
+        claimAndPublish(recovered, null);
+        recovered.view().get(1, TimeUnit.SECONDS);
+    }
+
     private static PoolDrain drain(PoolTerminalPublisher.Capacity capacity) {
         return new PoolDrain(capacity.reserve());
     }

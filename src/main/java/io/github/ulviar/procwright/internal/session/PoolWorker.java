@@ -9,7 +9,8 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Owns the lifecycle-local state and resources of one pooled worker.
  *
- * <p>Mutable startup and retirement fields are confined to the owning pool monitor.
+ * <p>Partition-related metadata is confined to {@link WorkerPoolState}. {@link WorkerStartup} and
+ * {@link WorkerRetirement} protect their own exact-once temporal transitions.
  */
 final class PoolWorker<S> {
 
@@ -17,12 +18,15 @@ final class PoolWorker<S> {
     private StartupStage startupStage = StartupStage.QUEUED;
     private StartupPurpose startupPurpose = StartupPurpose.DEMAND;
     private S session;
-    private WorkerRetirement<S> retirement;
-    private PoolLifecycleDispatcher.Admission retirementAdmission;
+    private final WorkerRetirement<S> retirement;
     private long createdAtNanos;
     private int requests;
     private PooledWorkerRetireReason retireReason;
     private boolean failureReported;
+
+    PoolWorker(WorkerRetirement.Action<S> closeAction) {
+        retirement = new WorkerRetirement<>(closeAction);
+    }
 
     S session() {
         return Objects.requireNonNull(session, "worker has not completed startup");
@@ -51,41 +55,35 @@ final class PoolWorker<S> {
         this.startup = Objects.requireNonNull(startup, "startup");
     }
 
-    void accept(S acceptedSession, WorkerRetirement.Action<S> closeAction) {
+    void accept(S acceptedSession) {
         if (session != null) {
             throw new IllegalStateException("worker session is already accepted");
         }
-        session = Objects.requireNonNull(acceptedSession, "workerFactory returned null");
-        retirement = new WorkerRetirement<>(
-                session,
-                Objects.requireNonNull(retirementAdmission, "worker has no retirement admission"),
-                closeAction);
+        S candidate = Objects.requireNonNull(acceptedSession, "workerFactory returned null");
+        retirement.accept(candidate);
+        session = candidate;
         createdAtNanos = System.nanoTime();
         startup = null;
     }
 
     void retirementAdmission(PoolLifecycleDispatcher.Admission admission) {
-        if (retirementAdmission != null) {
-            throw new IllegalStateException("worker retirement admission is already owned");
-        }
-        retirementAdmission = Objects.requireNonNull(admission, "admission");
+        retirement.admission(admission);
     }
 
-    void releaseRetirementAdmission() {
-        PoolLifecycleDispatcher.Admission owned = retirementAdmission;
-        retirementAdmission = null;
-        if (owned != null) {
-            owned.close();
-        }
+    PoolLifecycleDispatcher.Admission retirementAdmissionOrNull() {
+        return retirement.admissionOrNull();
+    }
+
+    PoolLifecycleDispatcher.Admission detachRetirementAdmission() {
+        return retirement.detachAdmission();
     }
 
     void initiateClose() {
-        Objects.requireNonNull(retirement, "worker has no retirement owner").initiate();
+        retirement.initiate();
     }
 
     CompletableFuture<WorkerRetirement.Outcome> closeOutcome() {
-        return Objects.requireNonNull(retirement, "worker has no retirement owner")
-                .outcome();
+        return retirement.outcome();
     }
 
     StartupPurpose startupPurpose() {

@@ -106,7 +106,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
                 new Options(1, 0, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false));
-        PoolWorker<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
+        WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
         boolean released = false;
         try {
             pool.closeAsync();
@@ -116,7 +116,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertEquals(0, physicalCloses.get());
             assertPartition(pool, 1, 0, 1, 0, 0);
 
-            pool.release(worker, true, null);
+            pool.releaseReusable(worker);
             released = true;
             assertTrue(retirementEntered.await(1, TimeUnit.SECONDS));
             assertFalse(pool.closeAsync().isDone(), "the physical worker close is still in progress");
@@ -133,7 +133,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertPartition(pool, 0, 0, 0, 0, 0);
         } finally {
             if (!released) {
-                pool.release(worker, true, null);
+                pool.releaseReusable(worker);
             }
             releaseRetirement.countDown();
             pool.closeAsync();

@@ -166,7 +166,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         PoolCloseSupport.await(pool::closeAsync, options.closeTimeout(), LinePoolFailures.INSTANCE);
     }
 
-    private PoolWorker<DefaultLineSession> acquire() {
+    private WorkerPoolState.Lease<DefaultLineSession> acquire() {
         return pool.acquire(this::isHealthy);
     }
 

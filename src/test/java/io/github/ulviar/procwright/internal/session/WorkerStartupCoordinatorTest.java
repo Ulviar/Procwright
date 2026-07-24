@@ -3,10 +3,13 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -19,7 +22,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         StartupState state = new StartupState();
         PoolWorker<String> worker = worker(() -> "ready");
         WorkerStartupCoordinator<String> coordinator = coordinator(admissions, state);
-        WorkerStartupCoordinator.Reservation<String> reservation = coordinator.newReservation(worker);
+        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         WorkerStartupCoordinator.Completion<String> completion = coordinator.start(
                 reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1), PoolWorker.StartupPurpose.DEMAND);
@@ -28,7 +31,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, completion.decision());
         assertThrows(IllegalStateException.class, reservation::worker);
         assertEquals(0, admissions.availablePermits());
-        worker.releaseRetirementAdmission();
+        releaseAdmission(worker);
         assertEquals(1, admissions.availablePermits());
     }
 
@@ -43,7 +46,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             return "unexpected";
         });
         WorkerStartupCoordinator<String> coordinator = coordinator(admissions, state);
-        WorkerStartupCoordinator.Reservation<String> reservation = coordinator.newReservation(worker);
+        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
@@ -55,7 +58,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertEquals(FailureKind.CLOSED, observed.kind);
         assertEquals(0, factoryCalls.get());
         assertEquals(1, admissions.availablePermits());
-        assertSame(worker, reservation.releaseForFailure());
+        assertTrue(reservation.canRollback());
     }
 
     @Test
@@ -67,7 +70,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             throw factoryFailure;
         });
         WorkerStartupCoordinator<String> coordinator = coordinator(admissions, state);
-        WorkerStartupCoordinator.Reservation<String> reservation = coordinator.newReservation(worker);
+        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
@@ -80,7 +83,8 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertSame(factoryFailure, observed.getCause());
         assertEquals(1, state.factoryFailures.get());
         assertEquals(1, admissions.availablePermits());
-        assertNull(reservation.releaseForFailure());
+        assertFalse(reservation.canRollback());
+        assertThrows(IllegalStateException.class, reservation::stateWorker);
     }
 
     @Test
@@ -96,7 +100,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             return "unexpected";
         });
         WorkerStartupCoordinator<String> coordinator = coordinator(admissions, state);
-        WorkerStartupCoordinator.Reservation<String> reservation = coordinator.newReservation(worker);
+        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         IllegalStateException observed = assertThrows(
                 IllegalStateException.class,
@@ -108,9 +112,9 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertSame(claimFailure, observed);
         assertEquals(0, factoryCalls.get());
         assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
-        assertSame(worker, reservation.releaseForFailure());
+        assertTrue(reservation.canRollback());
         assertEquals(0, admissions.availablePermits());
-        worker.releaseRetirementAdmission();
+        releaseAdmission(worker);
         assertEquals(1, admissions.availablePermits());
     }
 
@@ -125,7 +129,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             return "unexpected";
         });
         WorkerStartupCoordinator<String> coordinator = coordinator(admissions, state);
-        WorkerStartupCoordinator.Reservation<String> reservation = coordinator.newReservation(worker);
+        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
@@ -137,8 +141,8 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertEquals(FailureKind.CLOSED, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.CLOSED, worker.startup().terminalDecision());
         assertEquals(0, factoryCalls.get());
-        assertSame(worker, reservation.releaseForFailure());
-        worker.releaseRetirementAdmission();
+        assertTrue(reservation.canRollback());
+        releaseAdmission(worker);
         assertEquals(1, admissions.availablePermits());
     }
 
@@ -153,7 +157,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             return "unexpected";
         });
         WorkerStartupCoordinator<String> coordinator = coordinator(admissions, state);
-        WorkerStartupCoordinator.Reservation<String> reservation = coordinator.newReservation(worker);
+        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
@@ -165,8 +169,8 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertEquals(FailureKind.ACQUIRE_TIMEOUT, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, worker.startup().terminalDecision());
         assertEquals(0, factoryCalls.get());
-        assertSame(worker, reservation.releaseForFailure());
-        worker.releaseRetirementAdmission();
+        assertTrue(reservation.canRollback());
+        releaseAdmission(worker);
         assertEquals(1, admissions.availablePermits());
     }
 
@@ -186,9 +190,29 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
     }
 
     private static PoolWorker<String> worker(java.util.function.Supplier<String> factory) {
-        PoolWorker<String> worker = new PoolWorker<>();
+        PoolWorker<String> worker = new PoolWorker<>(
+                (session, admission) -> () -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
         worker.startup(new WorkerStartup<>(factory, "test-startup-coordinator-", completion -> {}));
         return worker;
+    }
+
+    private static WorkerStartupCoordinator.Reservation<String> reservation(PoolWorker<String> worker) {
+        WorkerRetirementCoordinator<String> retirements = new WorkerRetirementCoordinator<>(
+                Runnable::run, (retired, outcome) -> null, (retired, failure) -> {}, report -> {});
+        WorkerPoolState<String> state = new WorkerPoolState<>(
+                new WorkerPoolPolicy(TestOptions.INSTANCE),
+                new PoolTermination(new PoolTerminalPublisher.Capacity(1).reserve()),
+                () -> {
+                    throw new AssertionError("unused reservation factory");
+                });
+        return new WorkerStartupCoordinator.Reservation<>(worker, new PoolStateEffects<>(state, retirements));
+    }
+
+    private static void releaseAdmission(PoolWorker<?> worker) {
+        PoolLifecycleDispatcher.Admission admission = worker.detachRetirementAdmission();
+        if (admission != null) {
+            admission.close();
+        }
     }
 
     private static final class StartupState implements WorkerStartupCoordinator.PoolState<String> {
@@ -200,41 +224,82 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
         @Override
         public boolean attachAdmission(
-                PoolWorker<String> reservation,
+                WorkerStartupCoordinator.Reservation<String> reservation,
                 PoolLifecycleDispatcher.Admission admission,
                 PoolWorker.StartupPurpose purpose) {
             if (!acceptAdmission) {
                 return false;
             }
-            reservation.retirementAdmission(admission);
-            reservation.startupPurpose(purpose);
+            reservation.stateWorker().retirementAdmission(admission);
+            reservation.stateWorker().startupPurpose(purpose);
             return true;
         }
 
         @Override
-        public WorkerStartupCoordinator.StartupClaim claimLaunch(PoolWorker<String> reservation, long deadlineNanos) {
+        public WorkerStartupCoordinator.StartupClaim claimLaunch(
+                WorkerStartupCoordinator.Reservation<String> reservation, long deadlineNanos) {
             if (claimFailure != null) {
                 throw claimFailure;
             }
             if (claim == WorkerStartupCoordinator.StartupClaim.CLOSED) {
-                reservation.startup().signalClosed();
+                reservation.stateWorker().startup().signalClosed();
             } else if (claim == WorkerStartupCoordinator.StartupClaim.TIMED_OUT) {
-                reservation.startup().signalTimeout();
+                reservation.stateWorker().startup().signalTimeout();
             } else {
-                reservation.startupStage(PoolWorker.StartupStage.RUNNING);
+                reservation.stateWorker().startupStage(PoolWorker.StartupStage.RUNNING);
             }
             return claim;
         }
 
         @Override
-        public void launchFailed(PoolWorker<String> reservation) {
-            reservation.releaseRetirementAdmission();
+        public void launchFailed(WorkerStartupCoordinator.Reservation<String> reservation) {
+            releaseAdmission(reservation.stateWorker());
         }
 
         @Override
-        public boolean factoryFailed(PoolWorker<String> reservation, Throwable failure) {
+        public boolean factoryFailed(WorkerStartupCoordinator.Reservation<String> reservation, Throwable failure) {
             factoryFailures.incrementAndGet();
-            reservation.releaseRetirementAdmission();
+            releaseAdmission(reservation.stateWorker());
+            reservation.completeWithoutLease();
+            return false;
+        }
+    }
+
+    private enum TestOptions implements WorkerPoolPolicy.Options {
+        INSTANCE;
+
+        @Override
+        public int maxSize() {
+            return 1;
+        }
+
+        @Override
+        public int warmupSize() {
+            return 0;
+        }
+
+        @Override
+        public int minIdle() {
+            return 0;
+        }
+
+        @Override
+        public Duration acquireTimeout() {
+            return Duration.ofSeconds(1);
+        }
+
+        @Override
+        public Duration maxWorkerAge() {
+            return Duration.ZERO;
+        }
+
+        @Override
+        public int maxRequestsPerWorker() {
+            return 0;
+        }
+
+        @Override
+        public boolean backgroundReplenishment() {
             return false;
         }
     }

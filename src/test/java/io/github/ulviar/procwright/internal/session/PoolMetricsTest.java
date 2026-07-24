@@ -28,6 +28,7 @@ final class PoolMetricsTest {
         assertEquals(3, snapshot.size());
         assertEquals(1, snapshot.idle());
         assertEquals(1, snapshot.leased());
+        assertEquals(0, snapshot.starting());
         assertEquals(1, snapshot.retiring());
         assertEquals(2, snapshot.created());
         assertEquals(2, snapshot.retired());

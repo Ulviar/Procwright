@@ -16,7 +16,7 @@ final class WorkerRetirementTest {
     void closeIsInitiatedAndObservedExactlyOnce() {
         AtomicInteger initiations = new AtomicInteger();
         CompletableFuture<WorkerRetirement.Outcome> observed = new CompletableFuture<>();
-        WorkerRetirement<String> retirement = new WorkerRetirement<>("worker", admission(), (worker, admission) -> {
+        WorkerRetirement<String> retirement = retirement((worker, admission) -> {
             initiations.incrementAndGet();
             return () -> observed;
         });
@@ -34,7 +34,7 @@ final class WorkerRetirementTest {
     @Test
     void initiationFailureBecomesAStableOutcome() {
         AssertionError expected = new AssertionError("close failed");
-        WorkerRetirement<String> retirement = new WorkerRetirement<>("worker", admission(), (worker, admission) -> {
+        WorkerRetirement<String> retirement = retirement((worker, admission) -> {
             throw expected;
         });
 
@@ -45,16 +45,16 @@ final class WorkerRetirementTest {
     @Test
     void exceptionalObservationIsNormalizedToCloseOutcome() {
         IllegalStateException expected = new IllegalStateException("observation failed");
-        WorkerRetirement<String> retirement = new WorkerRetirement<>(
-                "worker", admission(), (worker, admission) -> () -> CompletableFuture.failedFuture(expected));
+        WorkerRetirement<String> retirement =
+                retirement((worker, admission) -> () -> CompletableFuture.failedFuture(expected));
 
         assertSame(expected, retirement.outcome().join().failure());
     }
 
     @Test
     void nullOutcomeIsNormalizedToStableFailure() {
-        WorkerRetirement<String> retirement = new WorkerRetirement<>(
-                "worker", admission(), (worker, admission) -> () -> CompletableFuture.completedFuture(null));
+        WorkerRetirement<String> retirement =
+                retirement((worker, admission) -> () -> CompletableFuture.completedFuture(null));
 
         Throwable first = retirement.outcome().join().failure();
         Throwable second = retirement.outcome().join().failure();
@@ -69,5 +69,12 @@ final class WorkerRetirementTest {
             throw new AssertionError("test admission unavailable");
         }
         return admission;
+    }
+
+    private static WorkerRetirement<String> retirement(WorkerRetirement.Action<String> action) {
+        WorkerRetirement<String> retirement = new WorkerRetirement<>(action);
+        retirement.admission(admission());
+        retirement.accept("worker");
+        return retirement;
     }
 }

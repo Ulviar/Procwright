@@ -27,18 +27,14 @@ final class WorkerStartupCoordinator<S> {
         this.poolState = Objects.requireNonNull(poolState, "poolState");
     }
 
-    Reservation<S> newReservation(PoolWorker<S> worker) {
-        return new Reservation<>(worker);
-    }
-
     Completion<S> start(Reservation<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
         Objects.requireNonNull(reservation, "reservation");
         Objects.requireNonNull(purpose, "purpose");
 
         PoolWorker<S> worker = reservation.worker();
-        BoundedTaskPermit permit = acquireResources(worker, deadlineNanos, purpose);
+        BoundedTaskPermit permit = acquireResources(reservation, deadlineNanos, purpose);
         WorkerStartup<S> owner = launch(reservation, permit, deadlineNanos, purpose);
-        WorkerStartup.CreatedWorker<S> createdWorker = await(owner, worker, deadlineNanos, purpose);
+        WorkerStartup.CreatedWorker<S> createdWorker = await(owner, reservation, deadlineNanos, purpose);
         return new Completion<>(createdWorker, owner.terminalDecision());
     }
 
@@ -55,7 +51,7 @@ final class WorkerStartupCoordinator<S> {
     }
 
     private BoundedTaskPermit acquireResources(
-            PoolWorker<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
+            Reservation<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
         PoolLifecycleDispatcher.Admission admission = null;
         try {
             admission = admissions.acquire(deadlineNanos);
@@ -68,11 +64,11 @@ final class WorkerStartupCoordinator<S> {
             return BoundedTaskLimits.WORKER_STARTUPS.acquire(deadlineNanos);
         } catch (TimeoutException failure) {
             close(admission);
-            throw preLaunchTimeout(reservation, purpose, failure);
+            throw preLaunchTimeout(reservation.worker(), purpose, failure);
         } catch (InterruptedException failure) {
             close(admission);
             Thread.currentThread().interrupt();
-            throw preLaunchInterruption(reservation, purpose, failure);
+            throw preLaunchInterruption(reservation.worker(), purpose, failure);
         } catch (RuntimeException | Error failure) {
             close(admission);
             throw failure;
@@ -87,7 +83,7 @@ final class WorkerStartupCoordinator<S> {
         boolean transferred = false;
         PoolWorker<S> worker = reservation.worker();
         try {
-            StartupClaim claim = poolState.claimLaunch(worker, deadlineNanos);
+            StartupClaim claim = poolState.claimLaunch(reservation, deadlineNanos);
             if (claim == StartupClaim.CLOSED) {
                 throw failures.closed("Pool is closed");
             }
@@ -101,7 +97,7 @@ final class WorkerStartupCoordinator<S> {
                 owner.start(permit);
             } catch (RuntimeException | Error failure) {
                 try {
-                    poolState.launchFailed(worker);
+                    poolState.launchFailed(reservation);
                 } catch (RuntimeException | Error cleanupFailure) {
                     SuppressionSupport.attach(failure, cleanupFailure);
                 }
@@ -116,7 +112,7 @@ final class WorkerStartupCoordinator<S> {
     }
 
     private WorkerStartup.CreatedWorker<S> await(
-            WorkerStartup<S> owner, PoolWorker<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
+            WorkerStartup<S> owner, Reservation<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
         try {
             return owner.await(deadlineNanos);
         } catch (TimeoutException failure) {
@@ -206,15 +202,15 @@ final class WorkerStartupCoordinator<S> {
     interface PoolState<S> {
 
         boolean attachAdmission(
-                PoolWorker<S> reservation,
+                Reservation<S> reservation,
                 PoolLifecycleDispatcher.Admission admission,
                 PoolWorker.StartupPurpose purpose);
 
-        StartupClaim claimLaunch(PoolWorker<S> reservation, long deadlineNanos);
+        StartupClaim claimLaunch(Reservation<S> reservation, long deadlineNanos);
 
-        void launchFailed(PoolWorker<S> reservation);
+        void launchFailed(Reservation<S> reservation);
 
-        boolean factoryFailed(PoolWorker<S> reservation, Throwable failure);
+        boolean factoryFailed(Reservation<S> reservation, Throwable failure);
     }
 
     enum StartupClaim {
@@ -225,30 +221,92 @@ final class WorkerStartupCoordinator<S> {
 
     static final class Reservation<S> {
 
-        private PoolWorker<S> worker;
+        private final PoolWorker<S> worker;
+        private final PoolStateEffects<S> effects;
+        private Ownership ownership = Ownership.RESERVATION;
+        private WorkerPoolState.Lease<S> lease;
 
-        private Reservation(PoolWorker<S> worker) {
+        Reservation(PoolWorker<S> worker, PoolStateEffects<S> effects) {
             this.worker = Objects.requireNonNull(worker, "worker");
+            this.effects = Objects.requireNonNull(effects, "effects");
         }
 
         PoolWorker<S> worker() {
-            if (worker == null) {
+            if (ownership != Ownership.RESERVATION) {
                 throw new IllegalStateException("startup reservation has no slot");
             }
             return worker;
         }
 
-        PoolWorker<S> releaseForFailure() {
-            PoolWorker<S> failedWorker = worker;
-            worker = null;
-            return failedWorker;
+        boolean canRollback() {
+            return ownership == Ownership.RESERVATION;
         }
 
         private void transferToAttempt() {
-            if (worker == null) {
+            if (ownership != Ownership.RESERVATION) {
                 throw new IllegalStateException("startup reservation has no slot");
             }
-            worker = null;
+            ownership = Ownership.ATTEMPT;
+        }
+
+        PoolWorker<S> stateWorker() {
+            requireActive();
+            return worker;
+        }
+
+        PoolStateEffects<S> effects() {
+            requireActive();
+            return effects;
+        }
+
+        void requireEffects(PoolStateEffects<S> candidate) {
+            requireActive();
+            if (effects != candidate) {
+                throw new IllegalArgumentException("startup transition requires its reservation effects");
+            }
+        }
+
+        void prepareLease(WorkerPoolState.Lease<S> preparedLease) {
+            if (ownership != Ownership.RESERVATION || lease != null) {
+                throw new IllegalStateException("startup reservation cannot accept a lease");
+            }
+            lease = Objects.requireNonNull(preparedLease, "preparedLease");
+        }
+
+        WorkerPoolState.Lease<S> preparedLease() {
+            requireActive();
+            if (lease == null) {
+                throw new IllegalStateException("startup reservation has no prepared lease");
+            }
+            return lease;
+        }
+
+        WorkerPoolState.Lease<S> completeWithLease() {
+            WorkerPoolState.Lease<S> completedLease = preparedLease();
+            lease = null;
+            ownership = Ownership.TERMINATED;
+            return completedLease;
+        }
+
+        void completeWithoutLease() {
+            requireActive();
+            if (lease != null) {
+                lease.clear(worker);
+                lease = null;
+            }
+            ownership = Ownership.TERMINATED;
+        }
+
+        private void requireActive() {
+            if (ownership == Ownership.TERMINATED) {
+                throw new IllegalStateException("startup reservation is terminated");
+            }
+        }
+
+        private enum Ownership {
+            RESERVATION,
+            ATTEMPT,
+            TERMINATED
         }
     }
 

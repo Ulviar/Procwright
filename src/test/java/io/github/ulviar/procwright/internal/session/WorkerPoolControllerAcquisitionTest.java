@@ -35,7 +35,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                 worker -> physicalCloses.incrementAndGet(),
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         try {
-            PoolWorker<TestWorker> worker =
+            WorkerPoolState.Lease<TestWorker> worker =
                     pool.acquire((candidate, deadline) -> candidate.id() == 1 ? PROCESS_EXITED : HEALTHY);
 
             assertEquals(2, worker.session().id());
@@ -43,7 +43,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
             assertEquals(1, pool.metrics().retired());
             assertEquals(1L, pool.metrics().retireReasons().get(PooledWorkerRetireReason.PROCESS_EXITED));
             assertFalse(pool.metrics().retireReasons().containsKey(PooledWorkerRetireReason.HEALTH_FAILED));
-            pool.release(worker, true, PooledWorkerRetireReason.WORKER_FAILED);
+            pool.releaseReusable(worker);
         } finally {
             pool.closeAsync();
         }
@@ -57,13 +57,13 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                 worker -> {},
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         try {
-            PoolWorker<TestWorker> worker =
+            WorkerPoolState.Lease<TestWorker> worker =
                     pool.acquire((candidate, deadline) -> candidate.id() == 1 ? HEALTH_FAILED : HEALTHY);
 
             assertEquals(2, worker.session().id());
             assertEquals(1L, pool.metrics().retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
             assertFalse(pool.metrics().retireReasons().containsKey(PooledWorkerRetireReason.PROCESS_EXITED));
-            pool.release(worker, true, PooledWorkerRetireReason.WORKER_FAILED);
+            pool.releaseReusable(worker);
         } finally {
             pool.closeAsync();
         }
@@ -95,9 +95,9 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
             assertTrue(pool.metrics().retireReasons().isEmpty());
             assertPartition(pool, 1, 1, 0, 0, 0);
 
-            PoolWorker<TestWorker> sameWorker = pool.acquire((worker, deadline) -> HEALTHY);
+            WorkerPoolState.Lease<TestWorker> sameWorker = pool.acquire((worker, deadline) -> HEALTHY);
             assertEquals(1, sameWorker.session().id());
-            pool.release(sameWorker, true, PooledWorkerRetireReason.WORKER_FAILED);
+            pool.releaseReusable(sameWorker);
         } finally {
             pool.closeAsync();
         }
@@ -127,7 +127,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                 () -> new TestWorker(1),
                 worker -> {},
                 new Options(1, 1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false));
-        PoolWorker<TestWorker> leased = pool.acquire((worker, deadline) -> HEALTHY);
+        WorkerPoolState.Lease<TestWorker> leased = pool.acquire((worker, deadline) -> HEALTHY);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<Boolean> interrupted = new AtomicReference<>();
         Thread waiting = new Thread(() -> {
@@ -155,7 +155,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         } finally {
             waiting.interrupt();
             waiting.join(TimeUnit.SECONDS.toMillis(1));
-            pool.release(leased, true, null);
+            pool.releaseReusable(leased);
             pool.closeAsync().get(1, TimeUnit.SECONDS);
         }
     }
@@ -195,7 +195,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                 worker -> {},
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         try {
-            PoolWorker<TestWorker> worker = pool.acquire((candidate, deadline) -> {
+            WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> {
                 if (candidate.id() == 1) {
                     firstDeadline.set(deadline);
                     return HEALTH_FAILED;
@@ -206,7 +206,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
 
             assertEquals(2, worker.session().id());
             assertEquals(firstDeadline.get(), secondDeadline.get());
-            pool.release(worker, true, null);
+            pool.releaseReusable(worker);
         } finally {
             pool.closeAsync();
         }
@@ -291,16 +291,16 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                 new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<PoolWorker<TestWorker>> acquiring =
+            Future<WorkerPoolState.Lease<TestWorker>> acquiring =
                     executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
             assertTrue(startupEntered.await(1, TimeUnit.SECONDS));
             assertPartition(pool, 1, 0, 0, 1, 0);
 
             releaseStartup.countDown();
-            PoolWorker<TestWorker> worker = acquiring.get(1, TimeUnit.SECONDS);
+            WorkerPoolState.Lease<TestWorker> worker = acquiring.get(1, TimeUnit.SECONDS);
             assertPartition(pool, 1, 0, 1, 0, 0);
 
-            pool.release(worker, true, null);
+            pool.releaseReusable(worker);
             assertPartition(pool, 1, 1, 0, 0, 0);
 
             pool.closeAsync();
