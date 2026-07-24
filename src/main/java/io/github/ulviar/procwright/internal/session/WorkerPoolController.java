@@ -258,11 +258,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     private void cleanupFailedConstruction(Throwable primary) {
-        WorkerPoolState.FailedConstruction failedConstruction;
+        List<FailureReport> completedFailures;
         try (PoolStateEffects<S> effects = newEffects()) {
-            failedConstruction = state.failConstructionAndClose(effects);
+            completedFailures = state.failConstructionAndClose(effects);
         }
-        awaitFailedConstructionCleanup(primary, failedConstruction.reports());
+        awaitFailedConstructionCleanup(primary, completedFailures);
     }
 
     private void awaitFailedConstructionCleanup(Throwable primary, List<FailureReport> completedFailures) {
@@ -378,11 +378,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     private void finishAbandonedStart(
             WorkerStartupCoordinator.Reservation<S> reservation, WorkerStartup.LateCompletion<S> completion) {
-        WorkerPoolState.AbandonedResult result;
+        boolean present;
         try (PoolStateEffects<S> effects = reservation.effects()) {
-            result = state.completeAbandonedStartup(reservation, completion, effects);
+            present = state.completeAbandonedStartup(reservation, completion, effects);
         }
-        if (!result.present()) {
+        if (!present) {
             return;
         }
         ensureReplenishmentOwner();
@@ -422,7 +422,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     private void returnLease(WorkerPoolState.Lease<S> lease) {
         try (PoolStateEffects<S> effects = newEffects()) {
-            state.returnLease(lease, effects);
+            state.releaseReusable(lease, effects);
         }
     }
 

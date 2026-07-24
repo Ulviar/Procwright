@@ -31,11 +31,10 @@ Pool runtime перестраивается вокруг следующих вл
 - `WorkerRetirement` создаётся вместе с reservation до регистрации slot, затем принимает admission и factory session
   без аллокации, инициирует close ровно один раз и нормализует любой close outcome;
 - `WorkerRetirementCoordinator` владеет post-monitor batch: сначала инициирует все closes, затем наблюдает outcomes и
-  включает все outcomes в state и только после этого публикует late failures; исполняемый batch и bounded report
-  storage подготовлены до state commit;
+  включает все outcomes в state и только после этого публикует late failures;
 - `PoolStateEffects` является одноразовым `AutoCloseable`: накапливает выбранные state-транзакцией retirement,
   admission-release и terminal-publication effects и при закрытии пытается выполнить их все вне monitor, даже если
-  один effect завершился ошибкой; массовый close заранее резервирует bounded capacity effects;
+  один effect завершился ошибкой;
 - `PoolReplenisher` поддерживает не более одного активного цикла `minIdle` и владеет backoff;
 - `WorkerPoolPolicy` владеет immutable options, reuse policy и расчетом `minIdle`;
 - `PooledRequestRunner` владеет observation, preparation и exact-once `WorkerPoolState.Lease`, не получая сырой
@@ -89,8 +88,8 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - блокирующая synchronous continuation удерживает только terminal slot своего pool: она не задерживает closes других
   accepted pools, но при занятых 256 slots не позволяет открыть новый pool;
 - ни один внешний callback и ни одно завершение public future не выполняются под pool monitor;
-- необратимый pool transition не зависит от последующей обязательной аллокации: result, batch capacity и terminal
-  publication owner подготавливаются до commit;
+- startup reservation и terminal publication owner создаются до регистрации worker или claim drain; post-monitor
+  effects выбираются под pool monitor и выполняются после его освобождения;
 - controller не содержит `synchronized` и не получает ссылку на monitor или partition;
 - тестовые seams находятся на границах владельцев и не добавляют test-only переходы в production lifecycle.
 
@@ -99,6 +98,10 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - Actor на каждый pool добавляет mailbox, owner-thread lifecycle и future hops в синхронный API.
 - Несколько независимо синхронизированных state owners переносят сложность в lock ordering и handshake protocols.
 - Механическое разбиение исходного controller по файлам не уменьшает число одновременно удерживаемых инвариантов.
+- Предварительное резервирование capacity каждого внутреннего effects-списка усложняет state transitions ради попытки
+  пережить `OutOfMemoryError` во время служебной аллокации. JVM после исчерпания памяти не даёт надежной транзакционной
+  гарантии всему process runtime, поэтому pool сохраняет обязательный порядок effects и обработку ошибок callbacks,
+  но не строит отдельный протокол OOME-atomicity.
 
 ## Проверка
 

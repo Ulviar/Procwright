@@ -40,14 +40,14 @@ final class WorkerPoolState<S> {
         }
     }
 
-    FailedConstruction failConstructionAndClose(PoolStateEffects<S> effects) {
+    List<FailureReport> failConstructionAndClose(PoolStateEffects<S> effects) {
         requireEffects(effects);
         synchronized (monitor) {
             List<FailureReport> reports = termination.failConstruction();
             enterClosingLocked(null, effects);
             changedLocked();
             effects.publish(claimDrainLocked());
-            return new FailedConstruction(reports);
+            return reports;
         }
     }
 
@@ -233,7 +233,7 @@ final class WorkerPoolState<S> {
         }
     }
 
-    AbandonedResult completeAbandonedStartup(
+    boolean completeAbandonedStartup(
             WorkerStartupCoordinator.Reservation<S> reservation,
             WorkerStartup.LateCompletion<S> completion,
             PoolStateEffects<S> effects) {
@@ -244,7 +244,7 @@ final class WorkerPoolState<S> {
         synchronized (monitor) {
             if (!partition.contains(worker)) {
                 reservation.completeWithoutLease();
-                return new AbandonedResult(false);
+                return false;
             }
             metrics.startupFailed();
             if (completion.session() == null) {
@@ -258,7 +258,7 @@ final class WorkerPoolState<S> {
             changedLocked();
             reservation.completeWithoutLease();
             effects.publish(claimDrainLocked());
-            return new AbandonedResult(true);
+            return true;
         }
     }
 
@@ -311,24 +311,6 @@ final class WorkerPoolState<S> {
             PoolWorker<S> worker = lease.requireWorker(this);
             partition.requireState(worker, PoolPartition.State.LEASED);
             queueRetirementLocked(worker, reason, effects);
-            lease.clear(worker);
-            changedLocked();
-        }
-    }
-
-    void returnLease(Lease<S> lease, PoolStateEffects<S> effects) {
-        Objects.requireNonNull(lease, "lease");
-        requireEffects(effects);
-        synchronized (monitor) {
-            PoolWorker<S> worker = lease.requireWorker(this);
-            partition.requireState(worker, PoolPartition.State.LEASED);
-            PooledWorkerRetireReason reason =
-                    termination.closing() ? PooledWorkerRetireReason.CLOSED : policy.retirementReasonFor(worker);
-            if (reason == null) {
-                partition.leasedToIdle(worker);
-            } else {
-                queueRetirementLocked(worker, reason, effects);
-            }
             lease.clear(worker);
             changedLocked();
         }
@@ -548,14 +530,6 @@ final class WorkerPoolState<S> {
     private PoolTermination.FailureDisposition enterClosingLocked(Throwable failure, PoolStateEffects<S> effects) {
         List<PoolWorker<S>> startingWorkers = partition.startingWorkers();
         List<PoolWorker<S>> idleWorkers = partition.idleWorkers();
-        int startingAdmissions = 0;
-        for (PoolWorker<S> worker : startingWorkers) {
-            if (worker.retirementAdmissionOrNull() != null) {
-                startingAdmissions++;
-            }
-        }
-        effects.prepare(idleWorkers.size(), startingAdmissions + 1);
-
         PoolTermination.FailureDisposition disposition = termination.beginClosing(failure);
         for (PoolWorker<S> worker : startingWorkers) {
             if (partition.is(worker, PoolPartition.State.STARTING)) {
@@ -579,7 +553,6 @@ final class WorkerPoolState<S> {
 
     private void queueRetirementLocked(
             PoolWorker<S> worker, PooledWorkerRetireReason reason, PoolStateEffects<S> effects) {
-        effects.prepare(1, 0);
         markRetiringLocked(worker, reason);
         effects.retire(worker);
     }
@@ -603,7 +576,6 @@ final class WorkerPoolState<S> {
             throw new IllegalStateException("cannot remove live worker in state " + state);
         }
         PoolLifecycleDispatcher.Admission admission = worker.retirementAdmissionOrNull();
-        effects.prepare(0, admission == null ? 0 : 1);
         effects.release(admission);
         PoolLifecycleDispatcher.Admission detached = worker.detachRetirementAdmission();
         if (detached != admission) {
@@ -685,11 +657,6 @@ final class WorkerPoolState<S> {
             WorkerStartupCoordinator.Reservation<S> reservation,
             InterruptedException interruption) {
 
-        private static final AcquireResult<?> RETRY = new AcquireResult<>(AcquireStatus.RETRY, null, null, null);
-        private static final AcquireResult<?> CLOSED = new AcquireResult<>(AcquireStatus.CLOSED, null, null, null);
-        private static final AcquireResult<?> TIMED_OUT =
-                new AcquireResult<>(AcquireStatus.TIMED_OUT, null, null, null);
-
         AcquireResult {
             Objects.requireNonNull(status, "status");
             if ((status == AcquireStatus.LEASED) != (lease != null)) {
@@ -713,42 +680,24 @@ final class WorkerPoolState<S> {
         }
 
         private static <S> AcquireResult<S> retry() {
-            return shared(RETRY);
+            return new AcquireResult<>(AcquireStatus.RETRY, null, null, null);
         }
 
         private static <S> AcquireResult<S> closed() {
-            return shared(CLOSED);
+            return new AcquireResult<>(AcquireStatus.CLOSED, null, null, null);
         }
 
         private static <S> AcquireResult<S> timedOut() {
-            return shared(TIMED_OUT);
+            return new AcquireResult<>(AcquireStatus.TIMED_OUT, null, null, null);
         }
 
         private static <S> AcquireResult<S> interrupted(InterruptedException failure) {
             return new AcquireResult<>(
                     AcquireStatus.INTERRUPTED, null, null, Objects.requireNonNull(failure, "failure"));
         }
-
-        @SuppressWarnings("unchecked")
-        private static <S> AcquireResult<S> shared(AcquireResult<?> result) {
-            return (AcquireResult<S>) result;
-        }
     }
-
-    record FailedConstruction(List<FailureReport> reports) {
-
-        FailedConstruction {
-            reports = List.copyOf(Objects.requireNonNull(reports, "reports"));
-        }
-    }
-
-    record AbandonedResult(boolean present) {}
 
     record ReservationResult<S>(ReserveStatus status, WorkerStartupCoordinator.Reservation<S> reservation) {
-
-        private static final ReservationResult<?> CLOSED = new ReservationResult<>(ReserveStatus.CLOSED, null);
-        private static final ReservationResult<?> FULL = new ReservationResult<>(ReserveStatus.FULL, null);
-        private static final ReservationResult<?> NOT_NEEDED = new ReservationResult<>(ReserveStatus.NOT_NEEDED, null);
 
         ReservationResult {
             Objects.requireNonNull(status, "status");
@@ -762,20 +711,15 @@ final class WorkerPoolState<S> {
         }
 
         private static <S> ReservationResult<S> closed() {
-            return shared(CLOSED);
+            return new ReservationResult<>(ReserveStatus.CLOSED, null);
         }
 
         private static <S> ReservationResult<S> full() {
-            return shared(FULL);
+            return new ReservationResult<>(ReserveStatus.FULL, null);
         }
 
         private static <S> ReservationResult<S> notNeeded() {
-            return shared(NOT_NEEDED);
-        }
-
-        @SuppressWarnings("unchecked")
-        private static <S> ReservationResult<S> shared(ReservationResult<?> result) {
-            return (ReservationResult<S>) result;
+            return new ReservationResult<>(ReserveStatus.NOT_NEEDED, null);
         }
     }
 

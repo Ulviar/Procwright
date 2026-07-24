@@ -4,27 +4,20 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
 
 /**
  * Owns the post-monitor effects selected by one pool-state transaction.
  *
- * <p>The first retirement and admission require no secondary allocation. Closing the effects owner attempts every
- * physical effect and the selected terminal publication before propagating a failure.
+ * <p>Closing the effects owner attempts every physical effect and the selected terminal publication before propagating
+ * a failure.
  */
-final class PoolStateEffects<S> implements AutoCloseable, Runnable {
+final class PoolStateEffects<S> implements AutoCloseable {
 
     private final WorkerPoolState<S> state;
     private final WorkerRetirementCoordinator<S> retirements;
-    private PoolWorker<S> firstRetirement;
-    private ArrayList<PoolWorker<S>> additionalRetirements;
-    private FailureReport firstImmediateReport;
-    private FailureReport[] additionalImmediateReports;
-    private int immediateReportCount;
-    private PoolLifecycleDispatcher.Admission firstAdmission;
-    private ArrayList<PoolLifecycleDispatcher.Admission> additionalAdmissions;
+    private ArrayList<PoolWorker<S>> workersToRetire;
+    private ArrayList<PoolLifecycleDispatcher.Admission> admissionsToRelease;
     private PoolTermination.Publication publication;
     private RuntimeException runtimeFailure;
     private Error fatalFailure;
@@ -42,38 +35,12 @@ final class PoolStateEffects<S> implements AutoCloseable, Runnable {
         }
     }
 
-    void prepare(int retirementAdditions, int admissionAdditions) {
-        requireOpen();
-        if (retirementAdditions < 0 || admissionAdditions < 0) {
-            throw new IllegalArgumentException("effect additions must not be negative");
-        }
-        additionalRetirements = ensureCapacity(additionalRetirements, firstRetirement != null, retirementAdditions);
-        int retirementCount = (firstRetirement == null ? 0 : 1)
-                + (additionalRetirements == null ? 0 : additionalRetirements.size())
-                + retirementAdditions;
-        int requiredReports = Math.max(0, retirementCount - 1);
-        if (requiredReports > 0
-                && (additionalImmediateReports == null || additionalImmediateReports.length < requiredReports)) {
-            additionalImmediateReports = new FailureReport[requiredReports];
-        }
-        additionalAdmissions = ensureCapacity(additionalAdmissions, firstAdmission != null, admissionAdditions);
-    }
-
     void retire(PoolWorker<S> worker) {
         requireOpen();
-        PoolWorker<S> candidate = Objects.requireNonNull(worker, "worker");
-        if (firstRetirement == null) {
-            firstRetirement = candidate;
-            return;
+        if (workersToRetire == null) {
+            workersToRetire = new ArrayList<>();
         }
-        if (additionalRetirements == null) {
-            additionalRetirements = new ArrayList<>();
-        }
-        int requiredReports = additionalRetirements.size() + 1;
-        if (additionalImmediateReports == null || additionalImmediateReports.length < requiredReports) {
-            additionalImmediateReports = new FailureReport[requiredReports];
-        }
-        additionalRetirements.add(candidate);
+        workersToRetire.add(Objects.requireNonNull(worker, "worker"));
     }
 
     void release(PoolLifecycleDispatcher.Admission admission) {
@@ -81,14 +48,10 @@ final class PoolStateEffects<S> implements AutoCloseable, Runnable {
         if (admission == null) {
             return;
         }
-        if (firstAdmission == null) {
-            firstAdmission = admission;
-            return;
+        if (admissionsToRelease == null) {
+            admissionsToRelease = new ArrayList<>();
         }
-        if (additionalAdmissions == null) {
-            additionalAdmissions = new ArrayList<>();
-        }
-        additionalAdmissions.add(admission);
+        admissionsToRelease.add(admission);
     }
 
     void publish(PoolTermination.Publication selected) {
@@ -109,9 +72,9 @@ final class PoolStateEffects<S> implements AutoCloseable, Runnable {
         }
         closed = true;
         closeAdmissions();
-        if (firstRetirement != null) {
+        if (workersToRetire != null) {
             try {
-                retirements.dispatch(this);
+                retirements.dispatch(workersToRetire);
             } catch (RuntimeException | Error failure) {
                 record(failure);
             }
@@ -124,46 +87,9 @@ final class PoolStateEffects<S> implements AutoCloseable, Runnable {
         throwRecordedFailure();
     }
 
-    @Override
-    public void run() {
-        retirements.run(this, firstRetirement, additionalRetirements == null ? List.of() : additionalRetirements);
-    }
-
-    void recordImmediateReport(FailureReport report) {
-        if (report == null) {
-            return;
-        }
-        if (immediateReportCount == 0) {
-            firstImmediateReport = report;
-        } else {
-            if (additionalImmediateReports == null || immediateReportCount > additionalImmediateReports.length) {
-                throw new IllegalStateException("retirement report capacity was not prepared");
-            }
-            additionalImmediateReports[immediateReportCount - 1] = report;
-        }
-        immediateReportCount++;
-    }
-
-    void publishImmediateReports(Consumer<FailureReport> reporter) {
-        Objects.requireNonNull(reporter, "reporter");
-        if (firstImmediateReport != null) {
-            reporter.accept(firstImmediateReport);
-        }
-        for (int index = 1; index < immediateReportCount; index++) {
-            reporter.accept(additionalImmediateReports[index - 1]);
-        }
-    }
-
     private void closeAdmissions() {
-        if (firstAdmission != null) {
-            try {
-                firstAdmission.close();
-            } catch (RuntimeException | Error failure) {
-                record(failure);
-            }
-        }
-        if (additionalAdmissions != null) {
-            for (PoolLifecycleDispatcher.Admission admission : additionalAdmissions) {
+        if (admissionsToRelease != null) {
+            for (PoolLifecycleDispatcher.Admission admission : admissionsToRelease) {
                 try {
                     admission.close();
                 } catch (RuntimeException | Error failure) {
@@ -212,18 +138,5 @@ final class PoolStateEffects<S> implements AutoCloseable, Runnable {
         } catch (RuntimeException | Error ignored) {
             // Cleanup must continue even when optional failure bookkeeping is unavailable.
         }
-    }
-
-    private static <T> ArrayList<T> ensureCapacity(ArrayList<T> additional, boolean hasFirst, int additions) {
-        int existing = (hasFirst ? 1 : 0) + (additional == null ? 0 : additional.size());
-        int requiredAdditional = Math.max(0, existing + additions - 1);
-        if (requiredAdditional == 0) {
-            return additional;
-        }
-        if (additional == null) {
-            return new ArrayList<>(requiredAdditional);
-        }
-        additional.ensureCapacity(requiredAdditional);
-        return additional;
     }
 }

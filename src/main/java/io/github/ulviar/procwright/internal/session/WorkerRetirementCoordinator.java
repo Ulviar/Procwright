@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -28,8 +29,12 @@ final class WorkerRetirementCoordinator<S> {
         this.reporter = Objects.requireNonNull(reporter, "reporter");
     }
 
-    void dispatch(Runnable retirement) {
-        Objects.requireNonNull(retirement, "retirement");
+    void dispatch(List<PoolWorker<S>> workers) {
+        List<PoolWorker<S>> batch = List.copyOf(Objects.requireNonNull(workers, "workers"));
+        if (batch.isEmpty()) {
+            throw new IllegalArgumentException("retirement batch must not be empty");
+        }
+        Runnable retirement = () -> run(batch);
         try {
             dispatcher.accept(retirement);
         } catch (RuntimeException | Error dispatchFailure) {
@@ -38,19 +43,18 @@ final class WorkerRetirementCoordinator<S> {
         }
     }
 
-    void run(PoolStateEffects<S> effects, PoolWorker<S> first, List<PoolWorker<S>> additional) {
-        Objects.requireNonNull(effects, "effects");
-        Objects.requireNonNull(first, "first");
-        Objects.requireNonNull(additional, "additional");
-        first.initiateClose();
-        for (int index = 0; index < additional.size(); index++) {
-            additional.get(index).initiateClose();
+    private void run(List<PoolWorker<S>> workers) {
+        for (PoolWorker<S> worker : workers) {
+            worker.initiateClose();
         }
-        effects.recordImmediateReport(observeSafely(first));
-        for (int index = 0; index < additional.size(); index++) {
-            effects.recordImmediateReport(observeSafely(additional.get(index)));
+        List<FailureReport> immediateReports = new ArrayList<>(workers.size());
+        for (PoolWorker<S> worker : workers) {
+            FailureReport report = observeSafely(worker);
+            if (report != null) {
+                immediateReports.add(report);
+            }
         }
-        effects.publishImmediateReports(reporter);
+        immediateReports.forEach(reporter);
     }
 
     private FailureReport observeSafely(PoolWorker<S> worker) {

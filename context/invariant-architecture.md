@@ -105,8 +105,8 @@ Runtime получает только согласованный plan и не у
 - startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
 - обязательные post-monitor retirement, admission release и terminal publication — одноразовый `PoolStateEffects`;
-- failure-atomic pool commit — заранее подготовленные result/effects/publication owners, bounded capacity
-  `PoolPartition` и target-first переходы;
+- pool commit — заранее подготовленные startup/terminal owners, bounded capacity `PoolPartition`, target-first
+  переходы и post-monitor `PoolStateEffects`;
 - pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
 - construction/closing/failure/drain decision внутри state owner — `PoolTermination`, terminal outcome и
   cancellation-isolated views — `PoolDrain`;
