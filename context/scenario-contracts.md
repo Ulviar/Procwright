@@ -157,10 +157,14 @@ Listener должен быстро завершаться; тяжелая обр
   резервирует process-wide capacity;
 - независимый process-wide worker admission допускает суммарно не более 256 workers всех pools; admission захватывается
   до worker factory и удерживается через startup/live/retirement до завершения physical close;
-- независимый process-wide pool-completion admission удерживает не более 256 completion owners/pools одновременно; он
-  захватывается до запуска completion owner и warmup, удерживается до terminal completion и не расходует worker admission;
+- независимый process-wide terminal admission допускает не более 256 accepted pool lifecycles; terminal slot
+  резервируется во время `open()` до worker/adapter factory, а отсутствие slot дает `STARTUP_FAILED`;
 - завершившийся close, включая close с ошибкой, освобождает worker admission, а незавершившийся close сохраняет
   backpressure; порядок получения освободившегося admission разными pools не является контрактом;
+- accepted pool уже имеет terminal slot, поэтому `closeAsync()` не ожидает terminal admission;
+- terminal slot освобождается после возврата synchronous continuations terminal future; блокирующая continuation
+  удерживает только slot своего pool, не задерживает closes других accepted pools и блокирует новые открытия только при
+  занятых 256 slots;
 - warmup failure закрывает уже созданных workers;
 - worker становится idle только после readiness;
 - acquire timeout и request timeout различаются;
@@ -172,7 +176,8 @@ Listener должен быстро завершаться; тяжелая обр
 - `close()` bounded синхронно запрещает новые requests, закрывает idle workers и ждет retirement активных после request;
 - `closeAsync()` запускает тот же terminal cleanup и возвращает cancellation-isolated future;
 - `DRAIN_TIMEOUT` не отменяет cleanup; failed worker close дает `WORKER_FAILED` и остается видимым в metrics/outcome;
-- retirement dispatch bounded; saturation observable и не создает новый thread;
+- retirement, replenishment и reporting bounded и не запускают fallback thread; terminal publication использует
+  заранее зарезервированный disposable owner без общей task queue;
 - metrics дают согласованный snapshot counters, durations, live states и retire reasons.
 
 Protocol pool дополнительно гарантирует отдельный adapter на worker. Persistent branches разделяют factory reference,

@@ -25,6 +25,8 @@ public final class Threading {
     private static final Class<?> THREAD_BUILDER = type("java.lang.Thread$Builder");
     private static final Method THREAD_BUILDER_NAME =
             THREAD_BUILDER == null ? null : method(THREAD_BUILDER, "name", String.class, long.class);
+    private static final Method THREAD_BUILDER_INHERIT_INHERITABLE_THREAD_LOCALS =
+            THREAD_BUILDER == null ? null : method(THREAD_BUILDER, "inheritInheritableThreadLocals", boolean.class);
     private static final Method THREAD_BUILDER_FACTORY =
             THREAD_BUILDER == null ? null : method(THREAD_BUILDER, "factory");
 
@@ -130,6 +132,7 @@ public final class Threading {
         return THREAD_OF_VIRTUAL != null
                 && EXECUTORS_NEW_THREAD_PER_TASK_EXECUTOR != null
                 && THREAD_BUILDER_NAME != null
+                && THREAD_BUILDER_INHERIT_INHERITABLE_THREAD_LOCALS != null
                 && THREAD_BUILDER_FACTORY != null;
     }
 
@@ -146,7 +149,8 @@ public final class Threading {
     private static ThreadFactory virtualThreadFactory(String namePrefix) {
         try {
             Object builder = THREAD_OF_VIRTUAL.invoke(null);
-            Object namedBuilder = THREAD_BUILDER_NAME.invoke(builder, namePrefix, 0L);
+            Object nonInheritingBuilder = THREAD_BUILDER_INHERIT_INHERITABLE_THREAD_LOCALS.invoke(builder, false);
+            Object namedBuilder = THREAD_BUILDER_NAME.invoke(nonInheritingBuilder, namePrefix, 0L);
             return (ThreadFactory) THREAD_BUILDER_FACTORY.invoke(namedBuilder);
         } catch (IllegalAccessException exception) {
             throw new IllegalStateException("Could not access virtual-thread factory", exception);

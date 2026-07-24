@@ -11,10 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.ProcessIoResources;
 import io.github.ulviar.procwright.internal.Threading;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -30,6 +28,25 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 final class DefaultSessionConstructionTest {
+
+    @Test
+    void validationFailureAfterProcessHandoffStopsProcessBeforeStreamAcquisition() throws Exception {
+        TrackingProcess process = new TrackingProcess();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DefaultSession(
+                        process,
+                        Duration.ofNanos(-1),
+                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                        StandardCharsets.UTF_8));
+
+        assertTrue(process.destroyed.await(1, TimeUnit.SECONDS));
+        assertFalse(process.isAlive());
+        assertEquals(0, process.stdinGets.get());
+        assertEquals(0, process.stdoutGets.get());
+        assertEquals(0, process.stderrGets.get());
+    }
 
     @Test
     void everyWatcherStartFailureRollsBackAllStableResourcesExactlyOnce() throws Exception {
@@ -154,134 +171,6 @@ final class DefaultSessionConstructionTest {
         assertEquals(0, process.waitCalls.get());
     }
 
-    @Test
-    void everyInjectedConstructionFailureRollsBackProcessResourcesAndPublicationOwners() throws Exception {
-        for (DefaultSession.ConstructionPoint failedPoint : DefaultSession.ConstructionPoint.values()) {
-            TrackingProcess process = new TrackingProcess();
-            BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(3, 3, 6);
-            BoundedLifecyclePublisher resourcePublisher = new BoundedLifecyclePublisher(3);
-            BoundedLifecyclePublisher exitPublisher = new BoundedLifecyclePublisher(1);
-            OutOfMemoryError expected = new OutOfMemoryError("injected at " + failedPoint);
-            List<Thread> startedThreads = new ArrayList<>();
-            DefaultSession.WatcherStarter starter = (name, task) -> {
-                Thread started = Threading.start(name, task);
-                startedThreads.add(started);
-                return started;
-            };
-
-            OutOfMemoryError actual = assertThrows(
-                    OutOfMemoryError.class,
-                    () -> DefaultSession.openTransactionally(
-                            process,
-                            Duration.ofSeconds(1),
-                            ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                            StandardCharsets.UTF_8,
-                            diagnostics(),
-                            () -> {},
-                            closeDispatcher,
-                            resourcePublisher,
-                            exitPublisher,
-                            starter,
-                            point -> {
-                                if (point == failedPoint) {
-                                    throw expected;
-                                }
-                            }));
-
-            assertSame(expected, actual, failedPoint.toString());
-            assertTrue(process.destroyed.await(1, TimeUnit.SECONDS), failedPoint.toString());
-            assertTrue(eventually(() -> closeDispatcher.outstandingCount() == 0
-                    && resourcePublisher.ownerCount() == 0
-                    && exitPublisher.ownerCount() == 0));
-            assertEquals(process.stdinGets.get(), process.stdin.closeCalls.get(), failedPoint.toString());
-            assertEquals(process.stdoutGets.get(), process.stdout.closeCalls.get(), failedPoint.toString());
-            assertEquals(process.stderrGets.get(), process.stderr.closeCalls.get(), failedPoint.toString());
-            for (Thread started : startedThreads) {
-                started.join(TimeUnit.SECONDS.toMillis(1));
-                assertFalse(started.isAlive(), "aborted watcher at " + failedPoint);
-            }
-            assertEquals(0, process.waitCalls.get(), failedPoint.toString());
-        }
-    }
-
-    @Test
-    void constructionLedgerContinuesAfterEveryReleaseAndCleanupFailure() throws Exception {
-        AssertionError primary = new AssertionError("session construction failed");
-        OutOfMemoryError publicationReleaseFailure = new OutOfMemoryError("exit publication release failed");
-        IllegalStateException reservationReleaseFailure = new IllegalStateException("exit reservation release failed");
-        OutOfMemoryError processCleanupFailure = new OutOfMemoryError("process cleanup failed");
-        IllegalArgumentException resourceRollbackFailure =
-                new IllegalArgumentException("process resources rollback failed");
-        TrackingProcess process = new TrackingProcess();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(3, 3, 6);
-        BoundedLifecyclePublisher resourcePublisher = new BoundedLifecyclePublisher(3);
-        BoundedLifecyclePublisher exitPublisher = new BoundedLifecyclePublisher(1);
-        DefaultSession.ConstructionRollback rollback = new DefaultSession.ConstructionRollback() {
-            @Override
-            public void release(BoundedLifecyclePublisher.Permit publication) {
-                DefaultSession.ConstructionRollback.super.release(publication);
-                throw publicationReleaseFailure;
-            }
-
-            @Override
-            public void release(BoundedLifecyclePublisher.Reservation reservation) {
-                DefaultSession.ConstructionRollback.super.release(reservation);
-                throw reservationReleaseFailure;
-            }
-
-            @Override
-            public void cleanupProcess(Process target) {
-                DefaultSession.ConstructionRollback.super.cleanupProcess(target);
-                throw processCleanupFailure;
-            }
-
-            @Override
-            public void rollback(ProcessIoResources resources, Throwable primaryFailure) {
-                DefaultSession.ConstructionRollback.super.rollback(resources, primaryFailure);
-                throw resourceRollbackFailure;
-            }
-        };
-
-        AssertionError actual = assertThrows(
-                AssertionError.class,
-                () -> DefaultSession.openTransactionally(
-                        process,
-                        Duration.ofSeconds(1),
-                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                        StandardCharsets.UTF_8,
-                        diagnostics(),
-                        () -> {},
-                        closeDispatcher,
-                        resourcePublisher,
-                        exitPublisher,
-                        Threading::start,
-                        point -> {
-                            if (point == DefaultSession.ConstructionPoint.AFTER_EXIT_PUBLICATION_TRANSFER) {
-                                throw primary;
-                            }
-                        },
-                        rollback));
-
-        assertSame(primary, actual);
-        assertTrue(process.destroyed.await(1, TimeUnit.SECONDS));
-        assertFalse(process.isAlive());
-        assertTrue(process.stdin.closed.await(1, TimeUnit.SECONDS));
-        assertTrue(process.stdout.closed.await(1, TimeUnit.SECONDS));
-        assertTrue(process.stderr.closed.await(1, TimeUnit.SECONDS));
-        assertEquals(1, process.stdin.closeCalls.get());
-        assertEquals(1, process.stdout.closeCalls.get());
-        assertEquals(1, process.stderr.closeCalls.get());
-        assertTrue(eventually(() -> closeDispatcher.outstandingCount() == 0
-                && resourcePublisher.ownerCount() == 0
-                && exitPublisher.ownerCount() == 0));
-        assertSuppressedInOrder(
-                primary,
-                publicationReleaseFailure,
-                reservationReleaseFailure,
-                processCleanupFailure,
-                resourceRollbackFailure);
-    }
-
     private static DiagnosticEmitter diagnostics() {
         return DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "construction-test", CommandEcho.empty());
     }
@@ -291,25 +180,6 @@ final class DefaultSessionConstructionTest {
             throw runtimeFailure;
         }
         throw (Error) failure;
-    }
-
-    private static void assertSuppressedInOrder(Throwable primary, Throwable... expected) {
-        Throwable[] actual = primary.getSuppressed();
-        assertEquals(expected.length, actual.length);
-        for (int index = 0; index < expected.length; index++) {
-            assertSame(expected[index], actual[index], "suppressed failure " + index);
-        }
-    }
-
-    private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        while (!condition.getAsBoolean()) {
-            if (deadline - System.nanoTime() <= 0) {
-                return false;
-            }
-            Thread.sleep(5);
-        }
-        return true;
     }
 
     private static final class TrackingProcess extends Process {

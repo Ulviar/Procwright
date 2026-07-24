@@ -10,6 +10,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 final class PoolCloseSupport {
 
@@ -34,12 +35,18 @@ final class PoolCloseSupport {
         return view;
     }
 
-    static void await(CompletableFuture<Void> cleanup, Duration timeout, FailureFactory failures) {
-        Objects.requireNonNull(cleanup, "cleanup");
+    static void await(Supplier<CompletableFuture<Void>> cleanupLookup, Duration timeout, FailureFactory failures) {
+        Objects.requireNonNull(cleanupLookup, "cleanupLookup");
         Duration configuredTimeout = DurationSupport.requirePositive(timeout, "timeout");
         Objects.requireNonNull(failures, "failures");
+        long deadlineNanos = DurationSupport.deadlineFromNow(configuredTimeout);
+        CompletableFuture<Void> cleanup = Objects.requireNonNull(cleanupLookup.get(), "cleanupLookup returned null");
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+            throw Objects.requireNonNull(failures.drainTimeout(configuredTimeout), "drain timeout failure");
+        }
         try {
-            cleanup.get(DurationSupport.saturatedNanos(configuredTimeout), TimeUnit.NANOSECONDS);
+            cleanup.get(remainingNanos, TimeUnit.NANOSECONDS);
         } catch (TimeoutException exception) {
             throw Objects.requireNonNull(failures.drainTimeout(configuredTimeout), "drain timeout failure");
         } catch (InterruptedException exception) {

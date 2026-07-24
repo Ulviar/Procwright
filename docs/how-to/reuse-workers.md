@@ -117,10 +117,13 @@ startup, surfaced hook or lifecycle failures, and close.
 The default close timeout is 15 seconds and `withCloseTimeout(...)` accepts any positive duration. Java resource scopes
 automatically suppress a close failure when the body already failed.
 
-Use `closeAsync()` only for a nonblocking terminal. It starts the same idempotent cleanup and returns a
-cancellation-isolated future. `DRAIN_TIMEOUT` does not cancel that cleanup; another `closeAsync()` view can observe its
-eventual completion. Healthy in-flight requests are allowed to finish, while a callback that ignores interruption can keep
-the future incomplete even after bounded `close()` returns.
+Use `closeAsync()` when you need a future for terminal cleanup. It starts the same idempotent cleanup without waiting for
+workers to drain and returns a cancellation-isolated future. The pool reserves its terminal slot during `open()`, so an
+accepted pool does not wait for terminal admission here. Keep synchronous continuations attached before completion short:
+a blocking continuation retains only this pool's slot and cannot delay another accepted pool's close, but new pool
+openings fail with `STARTUP_FAILED` while all 256 slots remain occupied. `DRAIN_TIMEOUT` does not cancel cleanup; another
+`closeAsync()` view can observe its eventual completion. Healthy in-flight requests are allowed to finish, while a
+callback that ignores interruption can keep the future incomplete even after bounded `close()` returns.
 
 ## Observe cleanup after a close timeout
 

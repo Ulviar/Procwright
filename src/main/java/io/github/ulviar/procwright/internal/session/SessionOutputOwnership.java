@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Objects;
-import java.util.function.Supplier;
 
 /** Selects one output consumer and transfers close responsibility together with an internal helper claim. */
 final class SessionOutputOwnership {
@@ -16,23 +15,12 @@ final class SessionOutputOwnership {
     private static final String PUBLIC_OUTPUT_OWNER = "public output streams";
 
     private final Object lock = new Object();
-    private final Runnable publicOperationAdmissionProbe;
     private String owner;
     private CloseResponsibility closeResponsibility = CloseResponsibility.LIFECYCLE;
     private boolean lifecycleCloseClaimed;
-    private int activePublicOperations;
-
-    SessionOutputOwnership() {
-        this(() -> {});
-    }
-
-    SessionOutputOwnership(Runnable publicOperationAdmissionProbe) {
-        this.publicOperationAdmissionProbe =
-                Objects.requireNonNull(publicOperationAdmissionProbe, "publicOperationAdmissionProbe");
-    }
 
     InputStream publicStream(InputStream stream) {
-        return new OutputGuardInputStream(stream, this::beginPublicOperation, this::closePublicStream);
+        return new OutputGuardInputStream(stream, this);
     }
 
     void claim(String requestedOwner) {
@@ -40,9 +28,6 @@ final class SessionOutputOwnership {
         synchronized (lock) {
             if (lifecycleCloseClaimed) {
                 throw new IllegalStateException("Session output is closed by the session lifecycle");
-            }
-            if (activePublicOperations > 0) {
-                throw new IllegalStateException("Session output is in use by " + PUBLIC_OUTPUT_OWNER);
             }
             if (owner != null) {
                 throw new IllegalStateException("Session output is already owned by " + owner);
@@ -75,7 +60,7 @@ final class SessionOutputOwnership {
         }
     }
 
-    private OutputAccess beginPublicOperation() {
+    private void beginPublicOperation() {
         synchronized (lock) {
             if (lifecycleCloseClaimed) {
                 throw new IllegalStateException("Session output is closed by the session lifecycle");
@@ -85,15 +70,6 @@ final class SessionOutputOwnership {
             } else if (!PUBLIC_OUTPUT_OWNER.equals(owner)) {
                 throw new IllegalStateException("Session output is owned by " + owner);
             }
-            activePublicOperations++;
-        }
-        OutputAccess access = this::endPublicOperation;
-        try {
-            publicOperationAdmissionProbe.run();
-            return access;
-        } catch (RuntimeException | Error failure) {
-            access.close();
-            throw failure;
         }
     }
 
@@ -107,31 +83,8 @@ final class SessionOutputOwnership {
             } else if (!PUBLIC_OUTPUT_OWNER.equals(owner)) {
                 throw new IllegalStateException("Session output is owned by " + owner);
             }
-            activePublicOperations++;
         }
-        try {
-            closeOperation.run();
-        } finally {
-            endPublicOperation();
-        }
-    }
-
-    private void endPublicOperation() {
-        synchronized (lock) {
-            activePublicOperations--;
-        }
-    }
-
-    private interface OutputAccess extends AutoCloseable {
-
-        @Override
-        void close();
-    }
-
-    @FunctionalInterface
-    private interface OutputCloseGuard {
-
-        void close(OutputCloseOperation closeOperation) throws IOException;
+        closeOperation.run();
     }
 
     @FunctionalInterface
@@ -147,14 +100,11 @@ final class SessionOutputOwnership {
 
     private static final class OutputGuardInputStream extends FilterInputStream {
 
-        private final Supplier<OutputAccess> accessSupplier;
-        private final OutputCloseGuard closeGuard;
+        private final SessionOutputOwnership ownership;
 
-        private OutputGuardInputStream(
-                InputStream delegate, Supplier<OutputAccess> accessSupplier, OutputCloseGuard closeGuard) {
+        private OutputGuardInputStream(InputStream delegate, SessionOutputOwnership ownership) {
             super(Objects.requireNonNull(delegate, "delegate"));
-            this.accessSupplier = Objects.requireNonNull(accessSupplier, "accessSupplier");
-            this.closeGuard = Objects.requireNonNull(closeGuard, "closeGuard");
+            this.ownership = Objects.requireNonNull(ownership, "ownership");
         }
 
         @Override
@@ -230,22 +180,14 @@ final class SessionOutputOwnership {
 
         @Override
         public synchronized void mark(int readLimit) {
-            OutputAccess access = accessSupplier.get();
-            try {
-                in.mark(readLimit);
-            } finally {
-                access.close();
-            }
+            ownership.beginPublicOperation();
+            in.mark(readLimit);
         }
 
         @Override
         public boolean markSupported() {
-            OutputAccess access = accessSupplier.get();
-            try {
-                return in.markSupported();
-            } finally {
-                access.close();
-            }
+            ownership.beginPublicOperation();
+            return in.markSupported();
         }
 
         @Override
@@ -261,25 +203,17 @@ final class SessionOutputOwnership {
 
         @Override
         public void close() throws IOException {
-            closeGuard.close(in::close);
+            ownership.closePublicStream(in::close);
         }
 
         private <T> T withAccess(IoSupplier<T> operation) throws IOException {
-            OutputAccess access = accessSupplier.get();
-            try {
-                return operation.get();
-            } finally {
-                access.close();
-            }
+            ownership.beginPublicOperation();
+            return operation.get();
         }
 
         private void withAccessVoid(IoRunnable operation) throws IOException {
-            OutputAccess access = accessSupplier.get();
-            try {
-                operation.run();
-            } finally {
-                access.close();
-            }
+            ownership.beginPublicOperation();
+            operation.run();
         }
 
         @FunctionalInterface

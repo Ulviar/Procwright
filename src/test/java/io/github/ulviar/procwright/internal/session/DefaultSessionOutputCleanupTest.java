@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
@@ -297,7 +298,7 @@ final class DefaultSessionOutputCleanupTest {
         }
     }
 
-    @Test
+    @RepeatedTest(25)
     void terminalStdinFailureOwnsBothLaterOutputCloseFailures() throws Exception {
         AssertionError stdinFailure = new AssertionError("stdin close failed");
         AssertionError stdoutFailure = new AssertionError("stdout close failed");
@@ -885,7 +886,6 @@ final class DefaultSessionOutputCleanupTest {
         private final InputStream stdout;
         private final InputStream stderr;
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicBoolean alive = new AtomicBoolean(true);
         private final AtomicInteger stdinGetterCalls = new AtomicInteger();
         private final AtomicInteger stdoutGetterCalls = new AtomicInteger();
         private final AtomicInteger stderrGetterCalls = new AtomicInteger();
@@ -957,7 +957,7 @@ final class DefaultSessionOutputCleanupTest {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override
@@ -966,7 +966,6 @@ final class DefaultSessionOutputCleanupTest {
         }
 
         private void complete(int exitCode) {
-            alive.set(false);
             exit.complete(exitCode);
         }
 
@@ -983,7 +982,7 @@ final class DefaultSessionOutputCleanupTest {
         }
     }
 
-    private enum PoolTestOptions implements WorkerPoolController.PoolOptions {
+    private enum PoolTestOptions implements WorkerPoolPolicy.Options {
         INSTANCE;
 
         @Override

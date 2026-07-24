@@ -26,8 +26,6 @@ public final class ProcessIoResources {
 
     private static final Duration ACQUISITION_FAILURE_CLEANUP_TIMEOUT = Duration.ofSeconds(5);
     private static final Consumer<Throwable> IGNORE_INLINE_CLOSE_FAILURE = ignored -> {};
-    private static final ConstructionProbe NO_CONSTRUCTION_FAILURES = point -> {};
-    private static final ConstructionRollback DEFAULT_CONSTRUCTION_ROLLBACK = new ConstructionRollback() {};
 
     private final Resource<OutputStream> stdin;
     private final Resource<InputStream> stdout;
@@ -45,30 +43,16 @@ public final class ProcessIoResources {
                 process,
                 BoundedCloseDispatcher.shared(),
                 BoundedLifecyclePublisher.shared(),
-                IGNORE_INLINE_CLOSE_FAILURE,
-                NO_CONSTRUCTION_FAILURES,
-                DEFAULT_CONSTRUCTION_ROLLBACK);
+                IGNORE_INLINE_CLOSE_FAILURE);
     }
 
     public static ProcessIoResources acquire(Process process, BoundedCloseDispatcher dispatcher) {
-        return acquire(
-                process,
-                dispatcher,
-                BoundedLifecyclePublisher.shared(),
-                IGNORE_INLINE_CLOSE_FAILURE,
-                NO_CONSTRUCTION_FAILURES,
-                DEFAULT_CONSTRUCTION_ROLLBACK);
+        return acquire(process, dispatcher, BoundedLifecyclePublisher.shared(), IGNORE_INLINE_CLOSE_FAILURE);
     }
 
     static ProcessIoResources acquire(
             Process process, BoundedCloseDispatcher dispatcher, BoundedLifecyclePublisher lifecyclePublisher) {
-        return acquire(
-                process,
-                dispatcher,
-                lifecyclePublisher,
-                IGNORE_INLINE_CLOSE_FAILURE,
-                NO_CONSTRUCTION_FAILURES,
-                DEFAULT_CONSTRUCTION_ROLLBACK);
+        return acquire(process, dispatcher, lifecyclePublisher, IGNORE_INLINE_CLOSE_FAILURE);
     }
 
     public static ProcessIoResources acquire(
@@ -81,8 +65,7 @@ public final class ProcessIoResources {
                 dispatcher,
                 lifecyclePublisher,
                 inlineOutputCloseFailureHandler,
-                NO_CONSTRUCTION_FAILURES,
-                DEFAULT_CONSTRUCTION_ROLLBACK);
+                (failureTarget, failure) -> BoundedFailureReporter.shared().report(failureTarget, failure));
     }
 
     static ProcessIoResources acquire(
@@ -90,109 +73,78 @@ public final class ProcessIoResources {
             BoundedCloseDispatcher dispatcher,
             BoundedLifecyclePublisher lifecyclePublisher,
             Consumer<? super Throwable> inlineOutputCloseFailureHandler,
-            ConstructionProbe constructionProbe) {
-        return acquire(
-                process,
-                dispatcher,
-                lifecyclePublisher,
-                inlineOutputCloseFailureHandler,
-                constructionProbe,
-                DEFAULT_CONSTRUCTION_ROLLBACK);
-    }
-
-    static ProcessIoResources acquire(
-            Process process,
-            BoundedCloseDispatcher dispatcher,
-            BoundedLifecyclePublisher lifecyclePublisher,
-            Consumer<? super Throwable> inlineOutputCloseFailureHandler,
-            ConstructionProbe constructionProbe,
-            ConstructionRollback constructionRollback) {
+            CallbackFailureReporter failureReporter) {
         Objects.requireNonNull(process, "process");
         Objects.requireNonNull(dispatcher, "dispatcher");
         Objects.requireNonNull(lifecyclePublisher, "lifecyclePublisher");
         Objects.requireNonNull(inlineOutputCloseFailureHandler, "inlineOutputCloseFailureHandler");
-        Objects.requireNonNull(constructionProbe, "constructionProbe");
-        Objects.requireNonNull(constructionRollback, "constructionRollback");
+        Objects.requireNonNull(failureReporter, "failureReporter");
         BoundedCloseDispatcher.Reservation closeReservation;
         try {
             closeReservation = dispatcher.reserve(3);
         } catch (RuntimeException | Error failure) {
-            cleanupProcessPreserving(process, failure, constructionRollback);
+            cleanupProcessPreserving(process, failure);
             throw failure;
         }
         BoundedLifecyclePublisher.Reservation publicationReservation;
         try {
             publicationReservation = lifecyclePublisher.reserve(3);
         } catch (RuntimeException | Error failure) {
-            releasePreserving(closeReservation, failure, constructionRollback);
-            cleanupProcessPreserving(process, failure, constructionRollback);
+            releasePreserving(closeReservation, failure);
+            cleanupProcessPreserving(process, failure);
             throw failure;
         }
 
         ConstructionLedger ledger;
         try {
-            ledger = new ConstructionLedger(closeReservation, publicationReservation, constructionRollback);
+            ledger = new ConstructionLedger(closeReservation, publicationReservation);
         } catch (RuntimeException | Error failure) {
-            releasePreserving(closeReservation, failure, constructionRollback);
-            releasePreserving(publicationReservation, failure, constructionRollback);
-            cleanupProcessPreserving(process, failure, constructionRollback);
+            releasePreserving(closeReservation, failure);
+            releasePreserving(publicationReservation, failure);
+            cleanupProcessPreserving(process, failure);
             throw failure;
         }
         try {
             ledger.transferPermits();
-            constructionProbe.at(ConstructionPoint.BEFORE_CLOSE_CLAIM_LOCK);
             Object closeClaimLock = new Object();
-            constructionProbe.at(ConstructionPoint.AFTER_CLOSE_CLAIM_LOCK);
 
-            constructionProbe.at(ConstructionPoint.BEFORE_STDIN_STREAM_ACQUISITION);
             OutputStream stdinStream = process.getOutputStream();
             ledger.stdin.stream = stdinStream;
-            constructionProbe.at(ConstructionPoint.AFTER_STDIN_STREAM_ACQUISITION);
-            constructionProbe.at(ConstructionPoint.BEFORE_STDIN_RESOURCE_CONSTRUCTION);
             Resource<OutputStream> stdin = new Resource<>(
                     stdinStream,
                     ledger.stdin.closePermit,
                     ledger.stdin.publicationPermit,
                     closeClaimLock,
-                    IGNORE_INLINE_CLOSE_FAILURE);
+                    IGNORE_INLINE_CLOSE_FAILURE,
+                    failureReporter);
             ledger.stdin.resource = stdin;
-            constructionProbe.at(ConstructionPoint.AFTER_STDIN_RESOURCE_CONSTRUCTION);
 
-            constructionProbe.at(ConstructionPoint.BEFORE_STDOUT_STREAM_ACQUISITION);
             InputStream stdoutStream = process.getInputStream();
             ledger.stdout.stream = stdoutStream;
-            constructionProbe.at(ConstructionPoint.AFTER_STDOUT_STREAM_ACQUISITION);
-            constructionProbe.at(ConstructionPoint.BEFORE_STDOUT_RESOURCE_CONSTRUCTION);
             Resource<InputStream> stdout = new Resource<>(
                     stdoutStream,
                     ledger.stdout.closePermit,
                     ledger.stdout.publicationPermit,
                     closeClaimLock,
-                    inlineOutputCloseFailureHandler);
+                    inlineOutputCloseFailureHandler,
+                    failureReporter);
             ledger.stdout.resource = stdout;
-            constructionProbe.at(ConstructionPoint.AFTER_STDOUT_RESOURCE_CONSTRUCTION);
 
-            constructionProbe.at(ConstructionPoint.BEFORE_STDERR_STREAM_ACQUISITION);
             InputStream stderrStream = process.getErrorStream();
             ledger.stderr.stream = stderrStream;
-            constructionProbe.at(ConstructionPoint.AFTER_STDERR_STREAM_ACQUISITION);
-            constructionProbe.at(ConstructionPoint.BEFORE_STDERR_RESOURCE_CONSTRUCTION);
             Resource<InputStream> stderr = new Resource<>(
                     stderrStream,
                     ledger.stderr.closePermit,
                     ledger.stderr.publicationPermit,
                     closeClaimLock,
-                    inlineOutputCloseFailureHandler);
+                    inlineOutputCloseFailureHandler,
+                    failureReporter);
             ledger.stderr.resource = stderr;
-            constructionProbe.at(ConstructionPoint.AFTER_STDERR_RESOURCE_CONSTRUCTION);
 
-            constructionProbe.at(ConstructionPoint.BEFORE_CONTAINER_CONSTRUCTION);
             ProcessIoResources resources = new ProcessIoResources(stdin, stdout, stderr);
-            constructionProbe.at(ConstructionPoint.AFTER_CONTAINER_CONSTRUCTION);
-            ledger.commit();
             return resources;
         } catch (RuntimeException | Error failure) {
-            cleanupProcessPreserving(process, failure, constructionRollback);
+            cleanupProcessPreserving(process, failure);
             ledger.rollback(failure);
             throw failure;
         }
@@ -283,6 +235,10 @@ public final class ProcessIoResources {
         if (first == second || first.closeClaimLock != second.closeClaimLock) {
             throw new IllegalArgumentException("Paired close resources must be distinct owners from one process");
         }
+        BoundedCloseDispatcher.CloseRequest firstRequest =
+                first.ownedCloseRequest(firstThreadPrefix, firstFailureHandler, firstCompletionHandler);
+        BoundedCloseDispatcher.CloseRequest secondRequest =
+                second.ownedCloseRequest(secondThreadPrefix, secondFailureHandler, secondCompletionHandler);
         synchronized (first.closeClaimLock) {
             if (first.closeClaimed.get() || second.closeClaimed.get()) {
                 throw new IllegalStateException("Paired process output close has already started");
@@ -290,39 +246,28 @@ public final class ProcessIoResources {
             first.closeClaimed.set(true);
             second.closeClaimed.set(true);
         }
-        BoundedCloseDispatcher.CloseRequest firstRequest =
-                first.ownedCloseRequest(firstThreadPrefix, firstFailureHandler, firstCompletionHandler);
-        BoundedCloseDispatcher.CloseRequest secondRequest =
-                second.ownedCloseRequest(secondThreadPrefix, secondFailureHandler, secondCompletionHandler);
         first.closePermit.dispatchPair(firstRequest, second.closePermit, secondRequest);
     }
 
-    private static void cleanupProcessPreserving(
-            Process process, Throwable primaryFailure, ConstructionRollback constructionRollback) {
+    private static void cleanupProcessPreserving(Process process, Throwable primaryFailure) {
         try {
-            constructionRollback.cleanupProcess(process);
+            ProcessLifecycle.forceStop(process, Set.of(), ACQUISITION_FAILURE_CLEANUP_TIMEOUT);
         } catch (Throwable cleanupFailure) {
             attachPreserving(primaryFailure, cleanupFailure);
         }
     }
 
-    private static void releasePreserving(
-            BoundedCloseDispatcher.Reservation reservation,
-            Throwable primaryFailure,
-            ConstructionRollback constructionRollback) {
+    private static void releasePreserving(BoundedCloseDispatcher.Reservation reservation, Throwable primaryFailure) {
         try {
-            constructionRollback.release(reservation);
+            reservation.release();
         } catch (Throwable releaseFailure) {
             attachPreserving(primaryFailure, releaseFailure);
         }
     }
 
-    private static void releasePreserving(
-            BoundedLifecyclePublisher.Reservation reservation,
-            Throwable primaryFailure,
-            ConstructionRollback constructionRollback) {
+    private static void releasePreserving(BoundedLifecyclePublisher.Reservation reservation, Throwable primaryFailure) {
         try {
-            constructionRollback.release(reservation);
+            reservation.release();
         } catch (Throwable releaseFailure) {
             attachPreserving(primaryFailure, releaseFailure);
         }
@@ -344,79 +289,19 @@ public final class ProcessIoResources {
         }
     }
 
-    enum ConstructionPoint {
-        BEFORE_CLOSE_CLAIM_LOCK,
-        AFTER_CLOSE_CLAIM_LOCK,
-        BEFORE_STDIN_STREAM_ACQUISITION,
-        AFTER_STDIN_STREAM_ACQUISITION,
-        BEFORE_STDIN_RESOURCE_CONSTRUCTION,
-        AFTER_STDIN_RESOURCE_CONSTRUCTION,
-        BEFORE_STDOUT_STREAM_ACQUISITION,
-        AFTER_STDOUT_STREAM_ACQUISITION,
-        BEFORE_STDOUT_RESOURCE_CONSTRUCTION,
-        AFTER_STDOUT_RESOURCE_CONSTRUCTION,
-        BEFORE_STDERR_STREAM_ACQUISITION,
-        AFTER_STDERR_STREAM_ACQUISITION,
-        BEFORE_STDERR_RESOURCE_CONSTRUCTION,
-        AFTER_STDERR_RESOURCE_CONSTRUCTION,
-        BEFORE_CONTAINER_CONSTRUCTION,
-        AFTER_CONTAINER_CONSTRUCTION
-    }
-
-    @FunctionalInterface
-    interface ConstructionProbe {
-
-        void at(ConstructionPoint point);
-    }
-
-    interface ConstructionRollback {
-
-        default void cleanupProcess(Process process) {
-            ProcessLifecycle.forceStop(process, Set.of(), ACQUISITION_FAILURE_CLEANUP_TIMEOUT);
-        }
-
-        default void release(BoundedCloseDispatcher.Reservation reservation) {
-            reservation.release();
-        }
-
-        default void release(BoundedLifecyclePublisher.Reservation reservation) {
-            reservation.release();
-        }
-
-        default void release(BoundedCloseDispatcher.Permit permit) {
-            permit.release();
-        }
-
-        default void release(BoundedLifecyclePublisher.Permit permit) {
-            permit.release();
-        }
-
-        default void closeInline(BoundedCloseDispatcher.Permit permit, Closeable stream) throws IOException {
-            permit.closeInline(stream);
-        }
-
-        default void rollback(Resource<?> resource, Throwable primaryFailure) {
-            resource.rollbackConstruction(primaryFailure);
-        }
-    }
-
     private static final class ConstructionLedger {
 
         private final BoundedCloseDispatcher.Reservation closeReservation;
         private final BoundedLifecyclePublisher.Reservation publicationReservation;
-        private final ConstructionRollback constructionRollback;
         private final ResourceSlot stdin = new ResourceSlot();
         private final ResourceSlot stdout = new ResourceSlot();
         private final ResourceSlot stderr = new ResourceSlot();
-        private boolean committed;
 
         private ConstructionLedger(
                 BoundedCloseDispatcher.Reservation closeReservation,
-                BoundedLifecyclePublisher.Reservation publicationReservation,
-                ConstructionRollback constructionRollback) {
+                BoundedLifecyclePublisher.Reservation publicationReservation) {
             this.closeReservation = closeReservation;
             this.publicationReservation = publicationReservation;
-            this.constructionRollback = constructionRollback;
         }
 
         private void transferPermits() {
@@ -428,19 +313,12 @@ public final class ProcessIoResources {
             stderr.publicationPermit = publicationReservation.takePermit();
         }
 
-        private void commit() {
-            committed = true;
-        }
-
         private void rollback(Throwable primaryFailure) {
-            if (committed) {
-                return;
-            }
-            releasePreserving(closeReservation, primaryFailure, constructionRollback);
-            releasePreserving(publicationReservation, primaryFailure, constructionRollback);
-            stdin.rollback(primaryFailure, constructionRollback);
-            stdout.rollback(primaryFailure, constructionRollback);
-            stderr.rollback(primaryFailure, constructionRollback);
+            releasePreserving(closeReservation, primaryFailure);
+            releasePreserving(publicationReservation, primaryFailure);
+            stdin.rollback(primaryFailure);
+            stdout.rollback(primaryFailure);
+            stderr.rollback(primaryFailure);
         }
     }
 
@@ -451,22 +329,22 @@ public final class ProcessIoResources {
         private Closeable stream;
         private Resource<? extends Closeable> resource;
 
-        private void rollback(Throwable primaryFailure, ConstructionRollback constructionRollback) {
+        private void rollback(Throwable primaryFailure) {
             if (resource != null) {
                 try {
-                    constructionRollback.rollback(resource, primaryFailure);
+                    resource.rollbackConstruction(primaryFailure);
                 } catch (Throwable rollbackFailure) {
                     attachPreserving(primaryFailure, rollbackFailure);
                 }
             } else {
-                releaseUntransferredResource(primaryFailure, constructionRollback);
+                releaseUntransferredResource(primaryFailure);
             }
         }
 
-        private void releaseUntransferredResource(Throwable primaryFailure, ConstructionRollback constructionRollback) {
+        private void releaseUntransferredResource(Throwable primaryFailure) {
             if (publicationPermit != null) {
                 try {
-                    constructionRollback.release(publicationPermit);
+                    publicationPermit.release();
                 } catch (Throwable releaseFailure) {
                     attachPreserving(primaryFailure, releaseFailure);
                 }
@@ -476,14 +354,14 @@ public final class ProcessIoResources {
             }
             if (stream == null) {
                 try {
-                    constructionRollback.release(closePermit);
+                    closePermit.release();
                 } catch (Throwable releaseFailure) {
                     attachPreserving(primaryFailure, releaseFailure);
                 }
                 return;
             }
             try {
-                constructionRollback.closeInline(closePermit, stream);
+                closePermit.closeInline(stream);
             } catch (Throwable closeFailure) {
                 attachPreserving(primaryFailure, closeFailure);
             }
@@ -498,6 +376,7 @@ public final class ProcessIoResources {
         private final BoundedLifecyclePublisher.Permit publicationPermit;
         private final Object closeClaimLock;
         private final Consumer<? super Throwable> inlineCloseFailureHandler;
+        private final CallbackFailureReporter failureReporter;
         private final AtomicBoolean closeClaimed = new AtomicBoolean();
         private final CompletableFuture<Void> closeCompletion = new CompletableFuture<>();
         private Throwable closeFailure;
@@ -507,13 +386,15 @@ public final class ProcessIoResources {
                 BoundedCloseDispatcher.Permit closePermit,
                 BoundedLifecyclePublisher.Permit publicationPermit,
                 Object closeClaimLock,
-                Consumer<? super Throwable> inlineCloseFailureHandler) {
+                Consumer<? super Throwable> inlineCloseFailureHandler,
+                CallbackFailureReporter failureReporter) {
             this.stream = Objects.requireNonNull(stream, "process stream");
             this.closePermit = Objects.requireNonNull(closePermit, "closePermit");
             this.publicationPermit = Objects.requireNonNull(publicationPermit, "publicationPermit");
             this.closeClaimLock = Objects.requireNonNull(closeClaimLock, "closeClaimLock");
             this.inlineCloseFailureHandler =
                     Objects.requireNonNull(inlineCloseFailureHandler, "inlineCloseFailureHandler");
+            this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
         }
 
         public T stream() {
@@ -664,12 +545,35 @@ public final class ProcessIoResources {
                 } catch (Throwable failure) {
                     callbackFailure = SuppressionSupport.combine(callbackFailure, failure);
                 }
-                recordCloseFailure(callbackFailure);
-                if (callbackFailure != null) {
-                    BoundedFailureReporter.shared().report(failureTarget, callbackFailure);
+                try {
+                    recordCloseFailure(callbackFailure);
+                    if (callbackFailure != null) {
+                        try {
+                            failureReporter.report(failureTarget, callbackFailure);
+                        } catch (RuntimeException | Error reporterFailure) {
+                            rethrowCombined(callbackFailure, reporterFailure);
+                        }
+                    }
+                } finally {
+                    closeCompletion.complete(null);
                 }
-                closeCompletion.complete(null);
             }));
+        }
+
+        private static void rethrowCombined(Throwable callbackFailure, Throwable reporterFailure) {
+            if (callbackFailure instanceof RuntimeException runtimeFailure) {
+                SuppressionSupport.attach(runtimeFailure, reporterFailure);
+                throw runtimeFailure;
+            }
+            if (callbackFailure instanceof Error error) {
+                SuppressionSupport.attach(error, reporterFailure);
+                throw error;
+            }
+            SuppressionSupport.attach(reporterFailure, callbackFailure);
+            if (reporterFailure instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            throw (Error) reporterFailure;
         }
 
         private void settleClose(Throwable physicalFailure) {
@@ -707,5 +611,11 @@ public final class ProcessIoResources {
                 });
             });
         }
+    }
+
+    @FunctionalInterface
+    interface CallbackFailureReporter {
+
+        void report(BoundedFailureReporter.FailureTarget failureTarget, Throwable failure);
     }
 }

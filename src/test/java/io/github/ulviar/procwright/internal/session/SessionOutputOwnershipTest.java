@@ -38,7 +38,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -47,7 +46,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -101,54 +99,6 @@ final class SessionOutputOwnershipTest {
                 Arguments.of("reset()", (GuardedInputStreamOperation) InputStream::reset),
                 Arguments.of("markSupported()", (GuardedInputStreamOperation) InputStream::markSupported),
                 Arguments.of("close()", (GuardedInputStreamOperation) InputStream::close));
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("compositeGuardedInputStreamOperations")
-    void compositeGuardedInputStreamOperationAcquiresOwnershipExactlyOnce(
-            String operationName, GuardedInputStreamOperation operation) throws Exception {
-        AtomicInteger admissions = new AtomicInteger();
-        SessionOutputOwnership ownership = new SessionOutputOwnership(admissions::incrementAndGet);
-        InputStream rawOutput = ownership.publicStream(new ByteArrayInputStream(new byte[] {1, 2, 3, 4}));
-
-        operation.invoke(rawOutput);
-
-        assertEquals(1, admissions.get());
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("compositeGuardedInputStreamOperations")
-    void lifecycleCloseAfterCompositeAdmissionDoesNotCauseNestedReadmission(
-            String operationName, GuardedInputStreamOperation operation) throws Exception {
-        AtomicReference<SessionOutputOwnership> ownershipReference = new AtomicReference<>();
-        AtomicBoolean closeSelected = new AtomicBoolean();
-        AtomicInteger admissions = new AtomicInteger();
-        SessionOutputOwnership ownership = new SessionOutputOwnership(() -> {
-            admissions.incrementAndGet();
-            if (closeSelected.compareAndSet(false, true)) {
-                assertTrue(Objects.requireNonNull(ownershipReference.get(), "ownership")
-                        .claimLifecycleClose());
-            }
-        });
-        ownershipReference.set(ownership);
-        InputStream rawOutput = ownership.publicStream(new ByteArrayInputStream(new byte[] {1, 2, 3, 4}));
-
-        assertDoesNotThrow(() -> operation.invoke(rawOutput));
-
-        assertTrue(closeSelected.get());
-        assertEquals(1, admissions.get());
-    }
-
-    private static Stream<Arguments> compositeGuardedInputStreamOperations() {
-        return Stream.of(
-                Arguments.of("read(byte[])", (GuardedInputStreamOperation) input -> input.read(new byte[2])),
-                Arguments.of("readAllBytes()", (GuardedInputStreamOperation) InputStream::readAllBytes),
-                Arguments.of("readNBytes(int)", (GuardedInputStreamOperation) input -> input.readNBytes(2)),
-                Arguments.of("readNBytes(byte[], int, int)", (GuardedInputStreamOperation)
-                        input -> input.readNBytes(new byte[4], 1, 2)),
-                Arguments.of("skipNBytes(long)", (GuardedInputStreamOperation) input -> input.skipNBytes(2)),
-                Arguments.of("transferTo(OutputStream)", (GuardedInputStreamOperation)
-                        input -> input.transferTo(OutputStream.nullOutputStream())));
     }
 
     @Test

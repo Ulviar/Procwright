@@ -10,9 +10,8 @@ import java.util.Objects;
  *
  * <p>This snapshot describes one pool. Its {@code size} is bounded by that pool's configured maximum from 1 through 256,
  * which neither reserves nor reports process-wide capacity. Across all line and protocol pools, a separate limit admits
- * at most 256 aggregate workers from before factory invocation through completed physical retirement, and another limit
- * retains at most 256 pool-completion owners and their pools concurrently. This snapshot exposes neither remaining
- * aggregate capacity nor any inter-pool acquisition order.
+ * at most 256 aggregate workers from before factory invocation through completed physical retirement. This snapshot
+ * exposes neither remaining aggregate capacity nor any inter-pool acquisition order.
  *
  * @param size current occupied pool slots, including workers that are starting or retiring
  * @param idle current idle worker count

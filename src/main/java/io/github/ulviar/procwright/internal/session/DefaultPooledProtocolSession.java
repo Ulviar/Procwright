@@ -26,13 +26,14 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
 
     private final WorkerPoolSettings<ProtocolSession<I, O>> options;
     private final WorkerPoolController<DefaultProtocolSession<I, O>> pool;
+    private final PooledRequestRunner<DefaultProtocolSession<I, O>> requestRunner;
 
     DefaultPooledProtocolSession(
             Supplier<ProtocolSession<I, O>> workerFactory, WorkerPoolSettings<ProtocolSession<I, O>> options) {
         this(
                 workerFactory,
                 options,
-                PoolRetirementDispatcher::execute,
+                PoolLifecycleDispatcher::execute,
                 (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
                         session, session.onExit(), session.physicalOutputCleanup(), admission));
     }
@@ -40,7 +41,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
     DefaultPooledProtocolSession(
             Supplier<ProtocolSession<I, O>> workerFactory,
             WorkerPoolSettings<ProtocolSession<I, O>> options,
-            WorkerPoolController.TerminalRetirementDispatcher terminalDispatcher) {
+            TerminalRetirementDispatcher terminalDispatcher) {
         this(
                 workerFactory,
                 options,
@@ -52,8 +53,8 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
     DefaultPooledProtocolSession(
             Supplier<ProtocolSession<I, O>> workerFactory,
             WorkerPoolSettings<ProtocolSession<I, O>> options,
-            WorkerPoolController.TerminalRetirementDispatcher terminalDispatcher,
-            WorkerPoolController.WorkerCloseAction<DefaultProtocolSession<I, O>> workerCloser) {
+            TerminalRetirementDispatcher terminalDispatcher,
+            WorkerRetirement.Action<DefaultProtocolSession<I, O>> workerCloser) {
         Objects.requireNonNull(workerFactory, "workerFactory");
         this.options = Objects.requireNonNull(options, "options");
         Objects.requireNonNull(terminalDispatcher, "terminalDispatcher");
@@ -65,8 +66,8 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
                 ProtocolPoolFailures.INSTANCE,
                 "pooled protocol-session worker",
                 "procwright-protocol-pool-replenish-",
-                System::nanoTime,
-                terminalDispatcher);
+                System::nanoTime);
+        requestRunner = new PooledRequestRunner<>(pool, this::acquire, this::runReset, this::mapFailure);
     }
 
     @Override
@@ -82,56 +83,8 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
     }
 
     private O requestObserved(I request, Duration timeout) {
-        WorkerPoolController<DefaultProtocolSession<I, O>>.RequestObservation observation = pool.observeRequest();
-        observation.pauseForAcquire();
-        WorkerPoolController.Worker<DefaultProtocolSession<I, O>> worker = null;
-        boolean reusable = false;
-        PooledWorkerRetireReason retireReason = PooledWorkerRetireReason.WORKER_FAILED;
-        try {
-            worker = acquire();
-            observation.resumeAfterAcquire();
-            O response = timeout == null
-                    ? worker.session().request(request)
-                    : worker.session().request(request, timeout);
-            worker.recordRequest();
-            if (pool.retirementReasonFor(worker) == null) {
-                try {
-                    runReset(worker.session());
-                } catch (RuntimeException resetFailure) {
-                    retireReason = PooledWorkerRetireReason.RESET_FAILED;
-                    observation.succeed();
-                    return response;
-                } catch (Error resetError) {
-                    retireReason = PooledWorkerRetireReason.RESET_FAILED;
-                    observation.succeed();
-                    throw resetError;
-                }
-            }
-            observation.succeed();
-            reusable = true;
-            return response;
-        } catch (ProtocolSessionException exception) {
-            retireReason = retireReasonFor(exception);
-            observation.fail();
-            throw exception;
-        } catch (PooledProtocolSessionException exception) {
-            retireReason = retireReasonFor(exception);
-            observation.fail();
-            throw exception;
-        } catch (RuntimeException exception) {
-            observation.fail();
-            throw new PooledProtocolSessionException(
-                    PooledProtocolSessionException.Reason.WORKER_FAILED,
-                    "Pooled protocol-session worker failed",
-                    exception);
-        } catch (Error error) {
-            observation.fail();
-            throw error;
-        } finally {
-            if (worker != null) {
-                pool.release(worker, reusable, retireReason);
-            }
-        }
+        return requestRunner.run(
+                session -> timeout == null ? session.request(request) : session.request(request, timeout));
     }
 
     @Override
@@ -145,7 +98,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         return pool.awaitMetrics(metrics -> condition.test(publicMetrics(metrics)), timeout);
     }
 
-    private static PooledProtocolSessionMetrics publicMetrics(WorkerPoolController.MetricsSnapshot metrics) {
+    private static PooledProtocolSessionMetrics publicMetrics(PoolMetrics.Snapshot metrics) {
         return new PooledProtocolSessionMetrics(
                 metrics.size(),
                 metrics.idle(),
@@ -169,16 +122,12 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         return PoolCloseSupport.asyncView(pool.closeAsync(), ProtocolPoolFailures.INSTANCE);
     }
 
-    CompletableFuture<Void> slotReleaseCompletion() {
-        return pool.slotReleaseCompletion();
-    }
-
     @Override
     public void close() {
-        PoolCloseSupport.await(pool.closeAsync(), options.closeTimeout(), ProtocolPoolFailures.INSTANCE);
+        PoolCloseSupport.await(pool::closeAsync, options.closeTimeout(), ProtocolPoolFailures.INSTANCE);
     }
 
-    private WorkerPoolController.Worker<DefaultProtocolSession<I, O>> acquire() {
+    private PoolWorker<DefaultProtocolSession<I, O>> acquire() {
         return pool.acquire(this::isHealthy);
     }
 
@@ -249,6 +198,21 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         };
     }
 
+    private PooledRequestRunner.Failure mapFailure(RuntimeException failure) {
+        if (failure instanceof ProtocolSessionException exception) {
+            return new PooledRequestRunner.Failure(retireReasonFor(exception), exception);
+        }
+        if (failure instanceof PooledProtocolSessionException exception) {
+            return new PooledRequestRunner.Failure(retireReasonFor(exception), exception);
+        }
+        return new PooledRequestRunner.Failure(
+                PooledWorkerRetireReason.WORKER_FAILED,
+                new PooledProtocolSessionException(
+                        PooledProtocolSessionException.Reason.WORKER_FAILED,
+                        "Pooled protocol-session worker failed",
+                        failure));
+    }
+
     @SuppressWarnings("unchecked")
     private static <I, O> DefaultProtocolSession<I, O> requireDefaultSession(ProtocolSession<I, O> session) {
         Objects.requireNonNull(session, "workerFactory returned null");
@@ -258,7 +222,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         throw new IllegalArgumentException("workerFactory must create a Procwright protocol session");
     }
 
-    private record ProtocolPoolOptions(WorkerPoolSettings<?> options) implements WorkerPoolController.PoolOptions {
+    private record ProtocolPoolOptions(WorkerPoolSettings<?> options) implements WorkerPoolPolicy.Options {
 
         private ProtocolPoolOptions {
             Objects.requireNonNull(options, "options");

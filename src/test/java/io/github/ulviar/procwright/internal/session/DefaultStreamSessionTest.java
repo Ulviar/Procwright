@@ -66,7 +66,6 @@ final class DefaultStreamSessionTest {
         AtomicBoolean cleanupWasComplete = new AtomicBoolean();
         CompletableFuture<Void> continuation = stream.onExit().thenRun(() -> {
             cleanupWasComplete.set(stream.physicalOutputCleanup().isDone()
-                    && stream.outputCleanupCompleted()
                     && dispatcher.activeCount() == 0
                     && dispatcher.pendingCount() == 0
                     && dispatcher.outstandingCount() == 0);

@@ -150,10 +150,6 @@ public final class DefaultStreamSession implements StreamSession {
         return session.physicalOutputCleanup();
     }
 
-    boolean outputCleanupCompleted() {
-        return outputPumps.outputCleanupCompleted();
-    }
-
     /**
      * Stops the underlying process through the configured shutdown policy. Calling this method more than once has no
      * effect.
@@ -458,19 +454,19 @@ public final class DefaultStreamSession implements StreamSession {
             return;
         }
         stopTimeoutWatcherBeforePublication();
-        outputPumps.publishAfterOutputCleanup(() -> exitPublication.publish(() -> {
-            session.awaitPhysicalOutputPublication();
-            StreamExit terminal = new StreamExit(
-                    exitCode,
-                    timedOut,
-                    closed,
-                    streamTranscript(),
-                    DurationSupport.elapsed(startedNanos, nanoTime.getAsLong()));
-            Throwable diagnosticFailure =
-                    emitCollecting(DiagnosticEventType.PROCESS_EXITED, exitAttributes(exitCode, timedOut), null);
-            exit.complete(terminal);
-            reportLate(diagnosticFailure);
-        }));
+        outputPumps.publishAfterOutputCleanup(
+                () -> session.afterPhysicalOutputCleanup(() -> exitPublication.publish(() -> {
+                    StreamExit terminal = new StreamExit(
+                            exitCode,
+                            timedOut,
+                            closed,
+                            streamTranscript(),
+                            DurationSupport.elapsed(startedNanos, nanoTime.getAsLong()));
+                    Throwable diagnosticFailure = emitCollecting(
+                            DiagnosticEventType.PROCESS_EXITED, exitAttributes(exitCode, timedOut), null);
+                    exit.complete(terminal);
+                    reportLate(diagnosticFailure);
+                })));
     }
 
     private void publishFailure(Throwable primary) {
@@ -478,10 +474,8 @@ public final class DefaultStreamSession implements StreamSession {
             return;
         }
         stopTimeoutWatcherBeforePublication();
-        outputPumps.publishAfterOutputCleanup(() -> exitPublication.publish(() -> {
-            session.awaitPhysicalOutputPublication();
-            exit.completeExceptionally(primary);
-        }));
+        outputPumps.publishAfterOutputCleanup(() -> session.afterPhysicalOutputCleanup(
+                () -> exitPublication.publish(() -> exit.completeExceptionally(primary))));
     }
 
     private TerminalSelection selectControlOutcome(TerminalOutcome candidate) {

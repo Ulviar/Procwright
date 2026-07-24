@@ -10,7 +10,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +25,7 @@ final class PoolCloseSupportTest {
         CompletableFuture<Void> cleanup = new CompletableFuture<>();
 
         PoolFailure timeout = assertThrows(
-                PoolFailure.class, () -> PoolCloseSupport.await(cleanup, Duration.ofNanos(1), Failures.INSTANCE));
+                PoolFailure.class, () -> PoolCloseSupport.await(() -> cleanup, Duration.ofNanos(1), Failures.INSTANCE));
         assertEquals(FailureKind.DRAIN_TIMEOUT, timeout.kind);
         assertFalse(cleanup.isDone());
 
@@ -29,7 +33,8 @@ final class PoolCloseSupportTest {
         try {
             Thread.currentThread().interrupt();
             interrupted = assertThrows(
-                    PoolFailure.class, () -> PoolCloseSupport.await(cleanup, Duration.ofSeconds(1), Failures.INSTANCE));
+                    PoolFailure.class,
+                    () -> PoolCloseSupport.await(() -> cleanup, Duration.ofSeconds(1), Failures.INSTANCE));
             assertTrue(Thread.currentThread().isInterrupted());
         } finally {
             Thread.interrupted();
@@ -47,7 +52,8 @@ final class PoolCloseSupportTest {
         CompletableFuture<Void> cleanup = CompletableFuture.failedFuture(first);
 
         PoolFailure failure = assertThrows(
-                PoolFailure.class, () -> PoolCloseSupport.await(cleanup, Duration.ofSeconds(1), Failures.INSTANCE));
+                PoolFailure.class,
+                () -> PoolCloseSupport.await(() -> cleanup, Duration.ofSeconds(1), Failures.INSTANCE));
 
         assertEquals(FailureKind.WORKER_FAILED, failure.kind);
         assertSame(first, failure.getCause());
@@ -60,9 +66,38 @@ final class PoolCloseSupportTest {
         CompletableFuture<Void> cleanup = CompletableFuture.failedFuture(fatal);
 
         AssertionError observed = assertThrows(
-                AssertionError.class, () -> PoolCloseSupport.await(cleanup, Duration.ofSeconds(1), Failures.INSTANCE));
+                AssertionError.class,
+                () -> PoolCloseSupport.await(() -> cleanup, Duration.ofSeconds(1), Failures.INSTANCE));
 
         assertSame(fatal, observed);
+    }
+
+    @Test
+    void closeDeadlineIncludesFutureLookup() throws Exception {
+        CountDownLatch lookupEntered = new CountDownLatch(1);
+        CountDownLatch releaseLookup = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<PoolFailure> result = executor.submit(() -> assertThrows(
+                    PoolFailure.class,
+                    () -> PoolCloseSupport.await(
+                            () -> {
+                                lookupEntered.countDown();
+                                awaitIgnoringInterrupt(releaseLookup);
+                                return CompletableFuture.completedFuture(null);
+                            },
+                            Duration.ofMillis(30),
+                            Failures.INSTANCE)));
+            assertTrue(lookupEntered.await(1, TimeUnit.SECONDS));
+            Thread.sleep(60);
+            releaseLookup.countDown();
+
+            assertEquals(FailureKind.DRAIN_TIMEOUT, result.get(1, TimeUnit.SECONDS).kind);
+        } finally {
+            releaseLookup.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
     }
 
     @Test
@@ -90,6 +125,21 @@ final class PoolCloseSupportTest {
         DRAIN_TIMEOUT,
         INTERRUPTED,
         WORKER_FAILED
+    }
+
+    private static void awaitIgnoringInterrupt(CountDownLatch latch) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @SuppressWarnings("serial")

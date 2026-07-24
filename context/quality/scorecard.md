@@ -20,7 +20,7 @@ Scorecard фиксирует текущее состояние source и нал�
 | Line session | Готово | Serialized requests, end-to-end deadline, independent limits/backlog и hostile-decoder protection. |
 | Protocol session | Готово | Factory per session/worker, adapter-owned framing, strict decoding, global response budget и typed failures. |
 | Streaming | Готово | Backpressure, bounded diagnostics, fixed closed-stdin invariant и stable listener/read/process reasons. |
-| Pooling | Готово | Nested `PoolDraft`, no public lease, bounded startup/hooks/retirement, replenishment и metrics. |
+| Pooling | Готово | Nested `PoolDraft`, no public lease, независимые limits 256 workers/terminal lifecycles, bounded startup/hooks/retirement, replenishment и metrics. |
 | Diagnostics | Готово | Scenario-level hooks, bounded async best-effort delivery, schema и `runId`. |
 | PTY | Ограничено платформой | System provider на поддерживаемых POSIX-системах; `REQUIRED` не fallback-ится; ConPTY отсутствует. |
 | Kotlin | Синхронизировано | Реализация, ABI baseline и внешний Kotlin consumer используют Java Draft, durations, coroutine ownership, cold `openFlow()` и factory DSL. |
@@ -28,7 +28,7 @@ Scorecard фиксирует текущее состояние source и нал�
 | Memory/concurrency | Готово на уровне contracts | Bounded capture/transcripts/queues/executors и stress proofs; абсолютные heap/throughput guarantees не даются. |
 | Public consumers | Синхронизировано | Java, Kotlin и integrations consumers используют текущий API; итоговый compilation proof требует запуска gate на release commit. |
 | API compatibility | Синхронизировано | Exact JVM signatures и Kotlin ABI baseline соответствуют принятому Draft API; совместимость доказывает только успешный gate на том же commit. |
-| Documentation | Синхронизировано | Context, public docs, snippets и canonical examples описывают текущий API; итоговый strict docs proof еще должен пройти на release commit. |
+| Documentation | Синхронизировано | Public docs, context owners, snippets и canonical examples описывают текущий API и pool lifecycle contract; итоговый strict docs proof еще должен пройти на release commit. |
 | Java/platform matrix | Проверяется CI | Java 17 target на Linux/macOS/Windows и JDK 17/21/25; source targets 21/25 отдельно на Linux. |
 | Publication | Proof-механизм готов, не выпущено | Три Maven publications и isolated normal/POM-only consumers проверяются без преждевременного выбора remote registry и signing. |
 

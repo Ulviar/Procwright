@@ -68,6 +68,24 @@ public final class BoundedTaskRunner {
         return run(limiter, threadPrefix, deadlineNanos, cancellation, lateFatalHandler, null, task);
     }
 
+    static <T> T run(
+            Limiter limiter,
+            String threadPrefix,
+            long deadlineNanos,
+            CancellationToken cancellation,
+            LateFatalHandler lateFatalHandler,
+            Task<T> task)
+            throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
+        return run(
+                limiter,
+                threadPrefix,
+                deadlineNanos,
+                Objects.requireNonNull(cancellation, "cancellation").owner,
+                lateFatalHandler,
+                null,
+                task);
+    }
+
     private static <T> T run(
             Limiter limiter,
             String threadPrefix,
@@ -784,6 +802,10 @@ public final class BoundedTaskRunner {
             return true;
         }
 
+        CancellationToken token() {
+            return new CancellationToken(this);
+        }
+
         CancellationRegistration register(Runnable listener) {
             Objects.requireNonNull(listener, "listener");
             boolean runImmediately;
@@ -815,6 +837,15 @@ public final class BoundedTaskRunner {
             synchronized (monitor) {
                 return listeners.size();
             }
+        }
+    }
+
+    static final class CancellationToken {
+
+        private final CancellationSignal owner;
+
+        private CancellationToken(CancellationSignal owner) {
+            this.owner = owner;
         }
     }
 

@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,42 +60,47 @@ final class ProcessIoResourcesTest {
     }
 
     @Test
-    void closeReservationReleaseFailureStillReleasesEveryPermitAndCleansTheProcess() throws Exception {
-        IllegalStateException primary = new IllegalStateException("publication reservation failed");
-        OutOfMemoryError releaseFailure = new OutOfMemoryError("first close permit release failed");
-        AtomicInteger permitReleases = new AtomicInteger();
+    void publicationCapacityFailureReleasesCloseReservationAndStopsProcessBeforeStreams() throws Exception {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
-        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(
-                3, BoundedLifecyclePublisher.StartWitness::start, java.util.ArrayDeque::new, (point, ordinal) -> {
-                    if (point == BoundedLifecyclePublisher.FailurePoint.BEFORE_PERMIT_DEQUE_ALLOCATION) {
-                        throw primary;
-                    }
-                });
+        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
+        BoundedLifecyclePublisher.Reservation occupied = publisher.reserve(1);
         TrackingProcess process = new TrackingProcess();
-        ProcessIoResources.ConstructionRollback rollback = new ProcessIoResources.ConstructionRollback() {
-            @Override
-            public void release(BoundedCloseDispatcher.Reservation reservation) {
-                reservation.release(permit -> {
-                    permit.release();
-                    if (permitReleases.incrementAndGet() == 1) {
-                        throw releaseFailure;
-                    }
-                });
-            }
-        };
 
-        IllegalStateException actual = assertThrows(
-                IllegalStateException.class,
-                () -> ProcessIoResources.acquire(process, dispatcher, publisher, ignored -> {}, point -> {}, rollback));
+        assertThrows(
+                RejectedExecutionException.class, () -> ProcessIoResources.acquire(process, dispatcher, publisher));
 
-        assertSame(primary, actual);
-        assertEquals(3, permitReleases.get());
         assertFalse(process.isAlive());
         assertEquals(0, process.stdinGets.get());
         assertEquals(0, process.stdoutGets.get());
         assertEquals(0, process.stderrGets.get());
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
-        assertSuppressedInOrder(primary, releaseFailure);
+        occupied.release();
+        assertTrue(eventually(() -> publisher.ownerCount() == 0));
+    }
+
+    @Test
+    void publicationCapacityFailureReleasesCloseReservationBeforeProcessCleanupCompletes() throws Exception {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
+        BoundedLifecyclePublisher.Reservation occupied = publisher.reserve(1);
+        BlockingCleanupProcess process = new BlockingCleanupProcess();
+        ExecutorService acquisition = Executors.newSingleThreadExecutor();
+        try {
+            Future<Throwable> failure = acquisition.submit(
+                    () -> captureFailure(() -> ProcessIoResources.acquire(process, dispatcher, publisher)));
+
+            assertTrue(process.cleanupEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+            assertFalse(failure.isDone());
+
+            process.releaseCleanup.countDown();
+            assertTrue(failure.get(1, TimeUnit.SECONDS) instanceof RejectedExecutionException);
+        } finally {
+            process.releaseCleanup.countDown();
+            occupied.release();
+            acquisition.shutdownNow();
+        }
+        assertTrue(eventually(() -> publisher.ownerCount() == 0));
     }
 
     @Test
@@ -106,13 +112,14 @@ final class ProcessIoResourcesTest {
                         : new IllegalStateException("getter " + failedOrdinal);
                 TrackingProcess process = new TrackingProcess(failedOrdinal, expected);
                 BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+                BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
 
-                Throwable actual =
-                        assertThrows(expected.getClass(), () -> ProcessIoResources.acquire(process, dispatcher));
+                Throwable actual = assertThrows(
+                        expected.getClass(), () -> ProcessIoResources.acquire(process, dispatcher, publisher));
 
                 assertSame(expected, actual);
                 assertFalse(process.isAlive());
-                assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+                assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
                 assertEquals(failedOrdinal >= 2 ? 1 : 0, process.stdin.closeCalls.get());
                 assertEquals(failedOrdinal >= 3 ? 1 : 0, process.stdout.closeCalls.get());
                 assertEquals(0, process.stderr.closeCalls.get());
@@ -124,109 +131,26 @@ final class ProcessIoResourcesTest {
     }
 
     @Test
-    void everyInjectedConstructionFailureRecoversAllCapacityAndClosesEveryObservedStream() throws Exception {
-        for (ProcessIoResources.ConstructionPoint failedPoint : ProcessIoResources.ConstructionPoint.values()) {
-            OutOfMemoryError expected = new OutOfMemoryError("injected at " + failedPoint);
-            TrackingProcess process = new TrackingProcess();
-            BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
-            BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
-
-            OutOfMemoryError actual = assertThrows(
-                    OutOfMemoryError.class,
-                    () -> ProcessIoResources.acquire(process, dispatcher, publisher, ignored -> {}, point -> {
-                        if (point == failedPoint) {
-                            throw expected;
-                        }
-                    }));
-
-            assertSame(expected, actual, failedPoint.toString());
-            assertFalse(process.isAlive(), failedPoint.toString());
-            assertTrue(
-                    eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0),
-                    failedPoint.toString());
-            assertEquals(process.stdinGets.get(), process.stdin.closeCalls.get(), failedPoint.toString());
-            assertEquals(process.stdoutGets.get(), process.stdout.closeCalls.get(), failedPoint.toString());
-            assertEquals(process.stderrGets.get(), process.stderr.closeCalls.get(), failedPoint.toString());
-            assertTrue(process.stdinGets.get() <= 1, failedPoint.toString());
-            assertTrue(process.stdoutGets.get() <= 1, failedPoint.toString());
-            assertTrue(process.stderrGets.get() <= 1, failedPoint.toString());
-        }
-    }
-
-    @Test
-    void rollbackContinuesAfterEveryReservationResourceAndCleanupFailure() throws Exception {
-        AssertionError primary = new AssertionError("construction failed");
-        IllegalStateException processCleanupFailure = new IllegalStateException("process cleanup failed");
-        OutOfMemoryError closeReservationFailure = new OutOfMemoryError("close reservation release failed");
-        IllegalArgumentException publicationReservationFailure =
-                new IllegalArgumentException("publication reservation release failed");
-        OutOfMemoryError resourceRollbackFailure = new OutOfMemoryError("resource rollback failed");
-        IllegalStateException rawStreamRollbackFailure = new IllegalStateException("raw stream rollback failed");
-        TrackingProcess process = new TrackingProcess();
+    void processCleanupFailureDoesNotPreventResourceRollback() throws Exception {
+        AssertionError acquisitionFailure = new AssertionError("stderr getter failed");
+        AssertionError cleanupFailure = new AssertionError("process handle failed");
+        TerminationFailureProcess process = new TerminationFailureProcess(acquisitionFailure, cleanupFailure);
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
-        AtomicInteger resourceRollbacks = new AtomicInteger();
-        ProcessIoResources.ConstructionRollback rollback = new ProcessIoResources.ConstructionRollback() {
-            @Override
-            public void cleanupProcess(Process target) {
-                ProcessIoResources.ConstructionRollback.super.cleanupProcess(target);
-                throw processCleanupFailure;
-            }
 
-            @Override
-            public void release(BoundedCloseDispatcher.Reservation reservation) {
-                ProcessIoResources.ConstructionRollback.super.release(reservation);
-                throw closeReservationFailure;
-            }
+        AssertionError actual =
+                assertThrows(AssertionError.class, () -> ProcessIoResources.acquire(process, dispatcher, publisher));
 
-            @Override
-            public void release(BoundedLifecyclePublisher.Reservation reservation) {
-                ProcessIoResources.ConstructionRollback.super.release(reservation);
-                throw publicationReservationFailure;
-            }
-
-            @Override
-            public void rollback(ProcessIoResources.Resource<?> resource, Throwable primaryFailure) {
-                ProcessIoResources.ConstructionRollback.super.rollback(resource, primaryFailure);
-                if (resourceRollbacks.incrementAndGet() == 1) {
-                    throw resourceRollbackFailure;
-                }
-            }
-
-            @Override
-            public void closeInline(BoundedCloseDispatcher.Permit permit, java.io.Closeable stream) throws IOException {
-                ProcessIoResources.ConstructionRollback.super.closeInline(permit, stream);
-                throw rawStreamRollbackFailure;
-            }
-        };
-
-        AssertionError actual = assertThrows(
-                AssertionError.class,
-                () -> ProcessIoResources.acquire(
-                        process,
-                        dispatcher,
-                        publisher,
-                        ignored -> {},
-                        point -> {
-                            if (point == ProcessIoResources.ConstructionPoint.AFTER_STDERR_STREAM_ACQUISITION) {
-                                throw primary;
-                            }
-                        },
-                        rollback));
-
-        assertSame(primary, actual);
-        assertFalse(process.isAlive());
+        assertSame(acquisitionFailure, actual);
+        assertEquals(
+                1,
+                java.util.Arrays.stream(actual.getSuppressed())
+                        .filter(failure -> failure == cleanupFailure)
+                        .count());
         assertEquals(1, process.stdin.closeCalls.get());
         assertEquals(1, process.stdout.closeCalls.get());
-        assertEquals(1, process.stderr.closeCalls.get());
+        assertEquals(0, process.stderr.closeCalls.get());
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
-        assertSuppressedInOrder(
-                primary,
-                processCleanupFailure,
-                closeReservationFailure,
-                publicationReservationFailure,
-                resourceRollbackFailure,
-                rawStreamRollbackFailure);
     }
 
     @Test
@@ -297,6 +221,13 @@ final class ProcessIoResourcesTest {
         assertSame(stdout.closeFailure, closeFailure.get());
         assertEquals(1, stdout.closeCalls.get());
         resources.closeAllAsync(ignored -> {});
+    }
+
+    @Test
+    void invalidPairArgumentsDoNotClaimResourcesOrConsumeCloseCapacity() throws Exception {
+        for (InvalidPairArgument invalidArgument : InvalidPairArgument.values()) {
+            assertInvalidPairLeavesResourcesUsable(invalidArgument);
+        }
     }
 
     @Test
@@ -419,6 +350,58 @@ final class ProcessIoResourcesTest {
             resources.closeAllAsync(ignored -> {});
             assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
         }
+    }
+
+    @Test
+    void reporterOwnerStartFailureCannotStrandMandatoryCloseSettlement() throws Exception {
+        IOException physicalFailure = new IOException("stdout close failed");
+        AssertionError failureCallbackFailure = new AssertionError("failure callback failed");
+        IllegalStateException completionCallbackFailure = new IllegalStateException("completion callback failed");
+        TrackingInputStream stdout = failingInput(physicalFailure);
+        TrackingProcess process = new TrackingProcess(stdout, new TrackingInputStream());
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        ProcessIoResources.CallbackFailureReporter failureReporter = reporterWhoseOwnerCannotStart();
+        AtomicReference<Throwable> uncaught = new AtomicReference<>();
+        CountDownLatch uncaughtReported = new CountDownLatch(1);
+        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3, task -> {
+            Thread owner = Threading.unstartedPlatformNonInheriting("procwright-test-close-publication-", task);
+            owner.setUncaughtExceptionHandler((ignored, failure) -> {
+                uncaught.compareAndSet(null, failure);
+                uncaughtReported.countDown();
+            });
+            return owner;
+        });
+        ProcessIoResources resources =
+                ProcessIoResources.acquire(process, dispatcher, publisher, ignored -> {}, failureReporter);
+
+        resources
+                .stdout()
+                .closeOwnedAsync(
+                        "procwright-test-owned-close-",
+                        failure -> {
+                            assertSame(physicalFailure, failure);
+                            throw failureCallbackFailure;
+                        },
+                        () -> {
+                            throw completionCallbackFailure;
+                        });
+        resources.stdin().closeInline();
+        resources.stderr().closeInline();
+
+        resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
+        assertSame(physicalFailure, resources.awaitClose(Duration.ofSeconds(1)));
+        assertTrue(uncaughtReported.await(1, TimeUnit.SECONDS));
+        assertSame(failureCallbackFailure, uncaught.get());
+        assertSame(physicalFailure, resources.stdout().closeResult());
+        assertEquals(java.util.List.of(failureCallbackFailure), java.util.List.of(physicalFailure.getSuppressed()));
+        assertEquals(2, failureCallbackFailure.getSuppressed().length);
+        assertSame(completionCallbackFailure, failureCallbackFailure.getSuppressed()[0]);
+        Throwable reporterStartFailure = failureCallbackFailure.getSuppressed()[1];
+        assertTrue(reporterStartFailure instanceof IllegalThreadStateException);
+        assertEquals(Thread.class.getName(), reporterStartFailure.getStackTrace()[0].getClassName());
+        assertEquals("start", reporterStartFailure.getStackTrace()[0].getMethodName());
+        assertEquals(1, stdout.closeCalls.get());
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
     }
 
     @Test
@@ -554,14 +537,6 @@ final class ProcessIoResourcesTest {
         }
     }
 
-    private static void assertSuppressedInOrder(Throwable primary, Throwable... expected) {
-        Throwable[] actual = primary.getSuppressed();
-        assertEquals(expected.length, actual.length);
-        for (int index = 0; index < expected.length; index++) {
-            assertSame(expected[index], actual[index], "suppressed failure " + index);
-        }
-    }
-
     private static TrackingInputStream failingInput(IOException failure) {
         return new TrackingInputStream() {
             @Override
@@ -570,6 +545,63 @@ final class ProcessIoResourcesTest {
                 throw failure;
             }
         };
+    }
+
+    private static ProcessIoResources.CallbackFailureReporter reporterWhoseOwnerCannotStart()
+            throws InterruptedException {
+        Thread exhaustedOwner =
+                Threading.unstartedPlatformNonInheriting("procwright-test-exhausted-reporter-owner-", () -> {});
+        exhaustedOwner.start();
+        exhaustedOwner.join(1_000);
+        assertFalse(exhaustedOwner.isAlive());
+        return (failureTarget, failure) -> exhaustedOwner.start();
+    }
+
+    private static void assertInvalidPairLeavesResourcesUsable(InvalidPairArgument invalidArgument) throws Exception {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(6);
+        TrackingProcess process = new TrackingProcess();
+        TrackingProcess foreignProcess = new TrackingProcess();
+        ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher, publisher);
+        ProcessIoResources foreign = ProcessIoResources.acquire(foreignProcess, dispatcher, publisher);
+        try {
+            assertThrows(
+                    invalidArgument.expectedType(),
+                    () -> invalidArgument.invoke(resources, foreign),
+                    invalidArgument.toString());
+            assertFalse(resources.stdout().closeStarted(), invalidArgument.toString());
+            assertFalse(resources.stderr().closeStarted(), invalidArgument.toString());
+            assertEquals(6, dispatcher.outstandingCount(), invalidArgument.toString());
+            assertEquals(6, publisher.ownerCount(), invalidArgument.toString());
+
+            closeOutputPair(resources);
+            resources.stdin().closeInline();
+            foreign.closeAllAsync(ignored -> {});
+
+            assertNull(resources.awaitClose(Duration.ofSeconds(1)), invalidArgument.toString());
+            assertNull(foreign.awaitClose(Duration.ofSeconds(1)), invalidArgument.toString());
+            assertEquals(1, process.stdin.closeCalls.get(), invalidArgument.toString());
+            assertEquals(1, process.stdout.closeCalls.get(), invalidArgument.toString());
+            assertEquals(1, process.stderr.closeCalls.get(), invalidArgument.toString());
+            assertTrue(
+                    eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0),
+                    invalidArgument.toString());
+        } finally {
+            captureFailure(() -> resources.closeAllAsync(ignored -> {}));
+            captureFailure(() -> foreign.closeAllAsync(ignored -> {}));
+        }
+    }
+
+    private static void closeOutputPair(ProcessIoResources resources) {
+        ProcessIoResources.closePairAsync(
+                resources.stdout(),
+                "procwright-test-stdout-close-",
+                ignored -> {},
+                () -> {},
+                resources.stderr(),
+                "procwright-test-stderr-close-",
+                ignored -> {},
+                () -> {});
     }
 
     private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
@@ -684,6 +716,34 @@ final class ProcessIoResourcesTest {
 
         @Override
         public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+    }
+
+    private static final class TerminationFailureProcess extends TrackingProcess {
+
+        private final AssertionError cleanupFailure;
+
+        private TerminationFailureProcess(AssertionError acquisitionFailure, AssertionError cleanupFailure) {
+            super(3, acquisitionFailure);
+            this.cleanupFailure = cleanupFailure;
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            throw cleanupFailure;
+        }
+    }
+
+    private static final class BlockingCleanupProcess extends TrackingProcess {
+
+        private final CountDownLatch cleanupEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseCleanup = new CountDownLatch(1);
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            cleanupEntered.countDown();
+            BlockingReadInputStream.awaitUninterruptibly(releaseCleanup);
             return Stream.empty();
         }
     }
@@ -894,6 +954,46 @@ final class ProcessIoResourcesTest {
             closeCalls.incrementAndGet();
             closed.countDown();
             throw failure;
+        }
+    }
+
+    private enum InvalidPairArgument {
+        NULL_FIRST_RESOURCE(NullPointerException.class),
+        NULL_SECOND_RESOURCE(NullPointerException.class),
+        SAME_RESOURCE(IllegalArgumentException.class),
+        FOREIGN_RESOURCE(IllegalArgumentException.class),
+        NULL_FIRST_PREFIX(NullPointerException.class),
+        NULL_FIRST_FAILURE_HANDLER(NullPointerException.class),
+        NULL_FIRST_COMPLETION_HANDLER(NullPointerException.class),
+        NULL_SECOND_PREFIX(NullPointerException.class),
+        NULL_SECOND_FAILURE_HANDLER(NullPointerException.class),
+        NULL_SECOND_COMPLETION_HANDLER(NullPointerException.class);
+
+        private final Class<? extends Throwable> expectedType;
+
+        InvalidPairArgument(Class<? extends Throwable> expectedType) {
+            this.expectedType = expectedType;
+        }
+
+        private Class<? extends Throwable> expectedType() {
+            return expectedType;
+        }
+
+        private void invoke(ProcessIoResources resources, ProcessIoResources foreign) {
+            ProcessIoResources.closePairAsync(
+                    this == NULL_FIRST_RESOURCE ? null : resources.stdout(),
+                    this == NULL_FIRST_PREFIX ? null : "first-",
+                    this == NULL_FIRST_FAILURE_HANDLER ? null : ignored -> {},
+                    this == NULL_FIRST_COMPLETION_HANDLER ? null : () -> {},
+                    switch (this) {
+                        case NULL_SECOND_RESOURCE -> null;
+                        case SAME_RESOURCE -> resources.stdout();
+                        case FOREIGN_RESOURCE -> foreign.stderr();
+                        default -> resources.stderr();
+                    },
+                    this == NULL_SECOND_PREFIX ? null : "second-",
+                    this == NULL_SECOND_FAILURE_HANDLER ? null : ignored -> {},
+                    this == NULL_SECOND_COMPLETION_HANDLER ? null : () -> {});
         }
     }
 }

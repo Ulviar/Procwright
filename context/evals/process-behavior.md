@@ -28,8 +28,8 @@
 - Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
 - Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.
 - Прерванное ожидание не теряет interrupt status. Доказано:
-  `OneShotExecutionIntegrationTest.callerInterruptDuringRunIsTypedFailureAndRestoresInterruptStatus` и
-  `LineSessionIntegrationTest.callerInterruptDuringRequestIsTypedFailureAndRestoresInterruptStatus`.
+  `CancellationAndCleanupIntegrationTest.callerInterruptDuringRunIsTypedFailureAndRestoresInterruptStatus` и
+  `LineSessionSerializationAndDeadlinesIntegrationTest.callerInterruptDuringRequestIsTypedFailureAndRestoresInterruptStatus`.
 
 ## Shell и argv
 
@@ -97,10 +97,16 @@
   между sessions/workers.
 - Kotlin tests проверяют public extension API на реальных командах.
 
-## Пул line-сессий
+## Пулы line/protocol sessions
 
 - `lineSession().pooled()` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
 - `warmupSize` заранее создает workers, а `maxSize` ограничивает общий live worker count.
+- Process-wide worker admission и accepted pool terminal lifecycles имеют независимые limits по 256.
+- Terminal slot резервируется во время `open()` до worker/adapter factory; отсутствие slot дает `STARTUP_FAILED` и не
+  запускает factory.
+- Accepted pool не ожидает terminal admission во время `closeAsync()`. Blocking synchronous continuation удерживает
+  только terminal slot своего pool, не задерживает close другого accepted pool и препятствует новым открытиям только при
+  занятых 256 slots.
 - Если создание pool падает после частичного warmup или при запуске replenishment, уже созданные workers закрываются.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
 - Acquire timeout отличается от request timeout и дает pool-level failure.
@@ -155,7 +161,7 @@
   in-flight raw read, `mark` и `reset`.
 - `close()` и idle timeout проходят через общий shutdown helper (`ProcessLifecycle.stop`); escalation branch этого
   helper (процесс игнорирует interrupt signal и принудительно убивается после interrupt grace) доказан тестом
-  `OneShotExecutionIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` (POSIX).
+  `CancellationAndCleanupIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` (POSIX).
 - Ctrl+C/interrupt поведение проверяется через PTY `TerminalSignal.INTERRUPT`.
 
 ## Построчный workflow
@@ -254,7 +260,7 @@
 - LICENSE присутствует в корне репозитория;
 - versioning policy, compatibility policy, dependency review и publication readiness актуальны;
 - session shutdown escalation hardening закрыт тестом
-  `OneShotExecutionIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
+  `CancellationAndCleanupIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
   shutdown helper `ProcessLifecycle.stop`;
 - Java 17-targeted build проходит scenario checks на Linux, macOS и Windows с JDK 17, а также на Linux с JDK 21/25;
   source targets 21/25 отдельно проходят scenario checks на соответствующих Linux/JDK.

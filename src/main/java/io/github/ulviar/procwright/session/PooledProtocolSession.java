@@ -9,20 +9,15 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Pool of reusable typed protocol-session workers.
  *
- * <p>The configured maximum is a per-pool bound from 1 through 256; it does not reserve process-wide capacity. Two
- * independent process-wide limits apply across all line and protocol pools:
+ * <p>The configured maximum is a per-pool bound from 1 through 256; it does not reserve process-wide capacity. Across
+ * all line and protocol pools, at most 256 workers may collectively hold admission while starting, live, or retiring.
+ * Admission is acquired before the worker factory and retained until physical retirement completes, including a
+ * non-cooperative close.
  *
- * <ul>
- *   <li>At most 256 workers may collectively hold admission while starting, live, or retiring. Admission is acquired
- *       before the worker factory and retained until physical retirement completes, including a non-cooperative close.
- *   <li>At most 256 pool-completion owners and their pools may be retained concurrently. This admission is acquired
- *       during pool opening, before completion-owner startup and warmup, and retained through terminal pool completion.
- * </ul>
- *
- * <p>Pool-owner or warmup saturation fails pool opening with
- * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED}; worker saturation during demand acquisition fails with
- * {@link PooledProtocolSessionException.Reason#ACQUIRE_TIMEOUT}. Capacity released by one pool has no specified recipient
- * or inter-pool ordering.
+ * <p>Worker saturation during warmup fails pool opening with
+ * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED}; saturation during demand acquisition fails with
+ * {@link PooledProtocolSessionException.Reason#ACQUIRE_TIMEOUT}. Capacity released by one pool has no specified
+ * recipient or inter-pool ordering.
  *
  * @param <I> request type
  * @param <O> response type
@@ -61,14 +56,10 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      * returned future completes exceptionally with reason
      * {@link PooledProtocolSessionException.Reason#WORKER_FAILED} when worker cleanup fails. Cancelling or completing
      * the returned future does not cancel or alter internal cleanup. Repeated calls return independent views of the same
-     * terminal cleanup. When internal terminal completion propagates to a defensive view that is still incomplete, a
-     * synchronous continuation triggered by that propagation executes on this pool's pre-admitted completion owner.
-     * Until it returns, it retains this pool's admission but cannot occupy another pool's completion owner. Completing
-     * or cancelling a defensive view from caller code, and synchronous continuations thereby triggered, run on that
-     * caller and never retain completion-owner admission. After drain has completed, {@code closeAsync()} returns an
-     * already completed defensive view; a synchronous continuation then attached to that view likewise runs on the
-     * attaching caller without retaining owner admission. No executor is otherwise selected or guaranteed by this
-     * contract.
+     * terminal cleanup. One of 256 process-wide terminal slots is reserved during {@code open()}, so an accepted pool
+     * does not wait for terminal admission here. A blocking synchronous continuation attached before completion retains
+     * only this pool's slot: it cannot delay another accepted pool's close, but new pool openings fail with
+     * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED} while all slots remain occupied.
      *
      * @return cancellation-isolated close completion view
      */
@@ -79,8 +70,8 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      * {@link io.github.ulviar.procwright.ProtocolSessionScenario.PoolDraft#withCloseTimeout(Duration)}.
      *
      * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. A drain
-     * timeout does not cancel cleanup; {@link #closeAsync()} can observe eventual completion. This method is safe for
-     * try-with-resources.
+     * timeout includes close initiation and future lookup. It does not cancel cleanup; {@link #closeAsync()} can observe
+     * eventual completion. This method is safe for try-with-resources.
      *
      * @throws PooledProtocolSessionException with reason
      *     {@link PooledProtocolSessionException.Reason#DRAIN_TIMEOUT} when the configured close timeout elapses

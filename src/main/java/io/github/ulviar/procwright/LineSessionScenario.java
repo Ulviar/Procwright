@@ -306,11 +306,14 @@ public final class LineSessionScenario {
      * <p>A pool's configured maximum is a per-pool bound and does not reserve process-wide capacity. Across all line and
      * protocol pools, at most 256 workers may collectively hold admission while starting, live, or retiring. Worker
      * admission is acquired before the worker factory is invoked and is retained until physical retirement completes;
-     * a non-cooperative retirement therefore continues to consume it. Independently, at most 256 pool-completion owners
-     * and their pools may be retained concurrently; that admission precedes completion-owner startup and warmup.
-     * Saturated pool opening or warmup fails with
+     * a non-cooperative retirement therefore continues to consume it. Saturated warmup fails with
      * {@link PooledLineSessionException.Reason#STARTUP_FAILED}; saturated demand acquisition fails with
      * {@link PooledLineSessionException.Reason#ACQUIRE_TIMEOUT}. Released capacity has no specified inter-pool ordering.
+     *
+     * <p>Opening also reserves one of 256 process-wide pool terminal-publication slots before any worker factory is
+     * invoked. The slot is retained until the pool's terminal future and its synchronous completion actions have
+     * physically returned. Saturation fails opening with {@link PooledLineSessionException.Reason#STARTUP_FAILED}
+     * without launching a worker.
      */
     public interface PoolDraft {
         /**
@@ -413,6 +416,8 @@ public final class LineSessionScenario {
          * Opens a new worker pool.
          *
          * @return newly opened worker pool
+         * @throws PooledLineSessionException with reason {@link PooledLineSessionException.Reason#STARTUP_FAILED} when
+         *     terminal publication cannot be reserved or synchronous warmup fails
          */
         PooledLineSession open();
     }

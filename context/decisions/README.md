@@ -20,3 +20,5 @@
 - [ADR-0019: Kotlin generated documentation](ADR-0019-kotlin-generated-docs-strategy.md)
 - [ADR-0020: Java release variants](ADR-0020-java-release-variants.md)
 - [ADR-0021: runtime decomposition](ADR-0021-runtime-decomposition.md)
+- [ADR-0023: cognitive pool architecture](ADR-0023-cognitive-pool-architecture.md)
+- [ADR-0024: cognitive session architecture](ADR-0024-cognitive-session-architecture.md)

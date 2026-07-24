@@ -109,19 +109,23 @@ The pool owns acquisition, release, and retirement; leases are not public. One w
 Concurrent callers may receive different workers, and caller affinity is not guaranteed.
 
 `withMaxSize(...)` accepts 1 through 256 workers and limits one pool only. Configured per-pool maxima do not reserve
-workers from other pools. Procwright also enforces two independent process-wide limits across line and protocol pools:
+workers from other pools. Procwright enforces two independent process-wide limits across line and protocol pools:
 
 - At most 256 workers may collectively be admitted, starting, live, or retiring. A worker acquires admission before its
   factory runs and retains it until physical retirement completes. A non-cooperative close therefore prevents that
   capacity from being reused by another pool.
-- At most 256 pool-completion owners and their pools may be retained concurrently. A pool acquires this separate
-  admission during `open()`, before completion-owner startup and warmup, and retains it through terminal completion,
-  including synchronous completion callbacks.
+- At most 256 pool terminal lifecycles may be accepted at once. A pool reserves its terminal slot during `open()`, before
+  any worker or adapter factory runs, and retains it until terminal completion and its synchronous continuations return.
 
-When pool-completion capacity or warmup worker capacity is unavailable through the configured acquire deadline,
-`open()` fails with `STARTUP_FAILED` before an unadmitted worker factory runs. Worker-capacity saturation during demand
-acquisition fails with `ACQUIRE_TIMEOUT`; background replenishment retries while the pool remains open. The API makes no
-fairness or inter-pool ordering guarantee when capacity becomes available.
+When warmup worker capacity is unavailable through the configured acquire deadline, `open()` fails with
+`STARTUP_FAILED` before an unadmitted worker factory runs. Worker-capacity saturation during demand acquisition fails
+with `ACQUIRE_TIMEOUT`; background replenishment retries while the pool remains open. The API makes no fairness or
+inter-pool ordering guarantee when capacity becomes available.
+
+If no terminal slot is available, `open()` fails with `STARTUP_FAILED` before a worker or adapter factory runs. An
+accepted pool has already reserved everything needed to publish its terminal result, so `closeAsync()` does not wait for
+terminal admission. A blocking synchronous continuation holds only that pool's terminal slot: it cannot delay close
+completion for another accepted pool, but new pool openings fail while all 256 slots remain occupied.
 
 Protocol pool startup may invoke its adapter factory concurrently. The factory must be thread-safe and return a fresh
 adapter for every worker. Keep mutable per-adapter state inside the factory call; externally captured mutable state remains
@@ -163,10 +167,12 @@ throws a typed cleanup failure. The default close timeout is exactly 15 seconds:
 the default 2-second interrupt grace and 5-second kill grace, with a 3-second scheduling and stream-cleanup reserve.
 Override it with `withCloseTimeout(...)`.
 
-A close timeout reports `DRAIN_TIMEOUT` without cancelling internal cleanup. Call `closeAsync()` when terminal cleanup
-must start without blocking, or after a timeout to observe eventual completion. Each call returns a cancellation-isolated
-future view; cancelling or completing that view cannot mutate cleanup. Worker-close failure reports `WORKER_FAILED`, and
-caller interruption reports `INTERRUPTED` after restoring the interrupt flag.
+A close timeout reports `DRAIN_TIMEOUT` without cancelling internal cleanup. Call `closeAsync()` when cleanup must start
+without waiting for worker drain, or after a timeout to observe eventual completion. Each call returns a
+cancellation-isolated future view; cancelling or completing that view cannot mutate cleanup. An accepted pool does not
+acquire terminal capacity during this call. Keep synchronous continuations attached before completion short because they
+retain that pool's terminal slot until they return. Worker-close failure reports `WORKER_FAILED`, and caller interruption
+reports `INTERRUPTED` after restoring the interrupt flag.
 
 The [close-timeout handling variant](../how-to/reuse-workers.md#observe-cleanup-after-a-close-timeout) declares the pool
 before `try (pool)` and registers a `closeAsync()` observer in `finally`. It therefore observes cleanup even when a

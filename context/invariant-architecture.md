@@ -72,13 +72,28 @@ Runtime получает только согласованный plan и не у
 
 После запуска владельцем инварианта становится конкретный runtime component:
 
-- process lifecycle — `ProcessLifecycle` и session state owner;
-- stdin close — единый bounded close path;
-- output ownership — `SessionOutputOwnership`;
-- line request serialization — `DefaultLineSession`;
+- session construction transaction — `SessionConstruction`;
+- session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, public cleanup
+  barrier — `SessionExitBarrier`;
+- process lifecycle — `ProcessLifecycle`, exact-once process-tree cleanup — `SessionProcessCleanup`;
+- stdin serialization/close, output ownership и distinct terminal/physical close callbacks — `SessionResources`,
+  output failure classification и physical settlement — `SessionOutputCleanup`;
+- арбитрация attach/report для cleanup failures после terminal outcome — `SessionLateFailures`;
+- выбор output consumer-а внутри resource owner — `SessionOutputOwnership`;
+- bounded process/provider traversal — `ProcessTreeScanner`; fresh owner каждой provider operation —
+  `ProcessProviderOperationOwner`, cancellation — `ProcessProviderOperationCancellation`, reporting settlement —
+  `ProcessProviderOperationSettlement`;
+- line/protocol request serialization — `SerializedRequestGate`; active request и terminal arbitration —
+  `LineSessionState` и `ProtocolSessionState`;
 - protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader` и `ProtocolResponseBudget`;
 - output backlog — bounded queue владельца сценария;
-- pool partition и transitions — `WorkerPoolController`;
+- pool partition — `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
+- startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
+- exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
+- pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`, terminal outcome и views —
+  `PoolDrain`;
+- pool terminal reservation и disposable publication owner — `PoolTerminalPublisher`;
+- bounded retirement/report/replenishment domains — `PoolLifecycleDispatcher`, late failures — `PoolFailurePublisher`;
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.
 
@@ -146,9 +161,11 @@ scenario flags.
 - stream listener использует lazy session-affine daemon owner: chunks одной session не создают новые потоки, owner не
   переходит другой session и закрывается после pump completion либо начала остановки; аварийный выход owner либо
   запускает replacement для уже принятой доставки, либо завершает admission ошибкой с точным возвратом разрешения;
-- process provider scanner является trusted internal boundary и переиспользует не более 32 non-inheriting daemon
-  workers; между operations восстанавливаются name, context class loader, uncaught handler, priority и interrupt status,
-  а произвольные `ThreadLocal` запрещены контрактом этой границы;
+- process provider boundary принимает не более 32 operations одновременно; каждый accepted invocation выполняется на
+  fresh disposable non-inheriting daemon owner-е, а permit удерживается до фактического возврата operation, включая
+  abandoned call после timeout или interruption;
+- provider owners не переиспользуются, поэтому arbitrary `ThreadLocal` и mutable thread state не переносятся между
+  operations;
 - admission ограничивает выполняющиеся и abandoned operations; callback queues не растут без границы;
 - late `RuntimeException` и `Error` readiness/worker hook после timeout или interruption отправляются ровно один раз
   через bounded failure reporter; ожидаемый `InterruptedException` от отмены отдельно не публикуется;
@@ -176,6 +193,11 @@ scenario flags.
 - pool использует существующий line/protocol runtime и не раскрывает lease;
 - каждый worker всегда принадлежит ровно одному состоянию: starting, idle, leased или retiring;
 - `maxSize` ограничивает live slots, включая starting/retiring;
+- process-wide limits на workers и accepted pool terminal lifecycles независимы и равны 256;
+- terminal slot резервируется во время `open()` до worker/adapter factory; accepted pool не ожидает terminal admission
+  во время `closeAsync()`;
+- blocking synchronous continuation удерживает terminal slot только своего pool и препятствует новым открытиям лишь при
+  насыщении всех 256 slots;
 - acquire timeout и request timeout различаются;
 - failed request/timeout/decoder/process exit retire worker;
 - reset/health hooks bounded и не выполняются одновременно с пользовательским request;

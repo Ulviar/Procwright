@@ -55,7 +55,7 @@ public final class PooledLineSessionException extends ProcwrightException {
         ACQUIRE_TIMEOUT,
         /** Pool is closed or closing. */
         CLOSED,
-        /** Worker startup failed. */
+        /** Pool construction or worker startup failed. */
         STARTUP_FAILED,
         /** Worker health hook did not finish before its deadline. */
         HOOK_TIMEOUT,
