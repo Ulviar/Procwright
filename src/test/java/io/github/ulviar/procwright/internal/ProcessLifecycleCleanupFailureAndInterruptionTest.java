@@ -10,12 +10,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 final class ProcessLifecycleCleanupFailureAndInterruptionTest
@@ -56,10 +59,22 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
     void rootLivenessFailureStillReachesForcefulDestroyFallback() throws Exception {
         LivenessRestrictedProcess process = new LivenessRestrictedProcess();
 
-        assertFalse(ProcessLifecycle.waitFor(process, Duration.ofNanos(1), new AtomicReference<>()));
+        assertFalse(ProcessLifecycle.waitFor(process, Duration.ofNanos(1), new LiveDescendantSnapshot()));
         ProcessLifecycle.forceStop(process, Duration.ofMillis(100));
 
         assertEquals(1, process.forceDestroyCalls());
+    }
+
+    @Test
+    void failingOrdinaryExitFallbackIsObservedOnceAndRetainsIdentity() {
+        IllegalStateException expected = new IllegalStateException("exit observation failed");
+        SingleFailingExitValueProcess process = new SingleFailingExitValueProcess(expected);
+
+        IllegalStateException actual = assertThrows(
+                IllegalStateException.class, () -> ProcessLifecycle.forceStop(process, Set.of(), Duration.ZERO));
+
+        assertSame(expected, actual);
+        assertEquals(1, process.exitValueCalls.get());
     }
 
     @Test
@@ -155,6 +170,70 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
             assertTrue(Thread.currentThread().isInterrupted());
         } finally {
             Thread.interrupted();
+        }
+    }
+
+    private static final class SingleFailingExitValueProcess extends Process {
+
+        private final RuntimeException exitFailure;
+        private final AtomicInteger livenessCalls = new AtomicInteger();
+        private final AtomicInteger exitValueCalls = new AtomicInteger();
+        private final ProcessHandle handle = new MutableProcessHandle(901);
+
+        private SingleFailingExitValueProcess(RuntimeException exitFailure) {
+            this.exitFailure = exitFailure;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public int exitValue() {
+            exitValueCalls.incrementAndGet();
+            throw exitFailure;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Process destroyForcibly() {
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            if (livenessCalls.incrementAndGet() <= 2) {
+                return true;
+            }
+            throw new SecurityException("liveness unavailable");
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            return handle;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
         }
     }
 }

@@ -11,7 +11,6 @@ import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import java.time.Duration;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
@@ -88,10 +87,10 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
         IllegalStateException enumerationFailure = new IllegalStateException("sysctl descendant lookup failed");
         SecurityRestrictedProcess completed = new SecurityRestrictedProcess(enumerationFailure);
         completed.complete();
-        AtomicReference<Set<ProcessHandle>> observed = new AtomicReference<>();
+        LiveDescendantSnapshot observed = new LiveDescendantSnapshot();
 
         assertTrue(ProcessLifecycle.waitFor(completed, Duration.ofSeconds(1), observed));
-        assertTrue(observed.get().isEmpty());
+        assertTrue(observed.current().isEmpty());
 
         SecurityRestrictedProcess graceful = new SecurityRestrictedProcess(enumerationFailure);
         ProcessLifecycle.stop(

@@ -22,6 +22,14 @@ wrappers, применяет readiness и передает diagnostics даль�
 public lifecycle exception остаются у kernel. После cleanup `OneShotResultAssembler` декодирует завершенные captures и
 строит success либо typed decode-failure `CommandResult`, сохраняя raw bytes в обоих случаях.
 
+Общий process runtime также разделен по наблюдаемым инвариантам. `ProcessLauncher` владеет launch обычного pipe process.
+`ProcessLiveness` консервативно определяет, доказан ли выход обычного процесса, а для guarded operations различает
+`LIVE`, `EXITED`, исчерпанный lifecycle budget `UNKNOWN` и недоступное OS/provider state `UNOBSERVABLE`. Два последних
+состояния не доказывают выход. `ProcessExitWaiter` владеет caller-thread polling и wait deadline, а
+`LiveDescendantSnapshot` накапливает bounded immutable snapshot живых либо временно недоступных для наблюдения
+descendants. `ProcessLifecycle` делегирует natural-exit wait и пока остается владельцем process-tree shutdown state
+machine; эти части не раскрываются в пользовательском API.
+
 `DefaultProtocolSession` остается владельцем lifecycle протокольной сессии, serialized request lock, transcript snapshot
 и process exit snapshot. Внутренние детали чтения и записи разделены на маленькие владельцы:
 
@@ -42,6 +50,9 @@ public lifecycle exception остаются у kernel. После cleanup `OneSh
 - One-shot I/O topology вычисляется один раз до launch, а первый terminal outcome после выбора не заменяется.
 - One-shot result decoding не зависит от process lifecycle и сохраняет исходные captured bytes в success и typed
   decode-failure results.
+- Provider operation timeout остается typed failure, а исчерпание внешнего lifecycle deadline становится `UNKNOWN`;
+  ни `UNKNOWN`, ни `UNOBSERVABLE` не считаются доказательством выхода процесса.
+- Наблюдавшиеся descendants переживают reparenting после выхода root и остаются доступны последующему cleanup.
 - У каждого protocol limit есть один runtime-владелец: request limits у writer, response limits у reader/budget,
   backlog limit у queue.
 - Failure taxonomy остается в публичных scenario-specific exceptions, а внутренние helpers только строят эти failures.
@@ -69,4 +80,6 @@ public lifecycle exception остаются у kernel. После cleanup `OneSh
 - `ProcwrightExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
 - `OneShotIoPlanTest`, `OneShotTerminationTest` и `OneShotResultAssemblerTest` проверяют one-shot topology, terminal
   arbitration и result assembly напрямую.
+- `ProcessLauncherTest`, `ProcessLivenessTest`, `ProcessExitWaiterTest` и `LiveDescendantSnapshotTest` проверяют
+  процессный launch, наблюдение, natural wait и snapshot без фиксации внутренностей shutdown-автомата.
 - Protocol/session integration tests проверяют behavior через публичные сценарии, а не через internal classes.

@@ -83,7 +83,7 @@ class ProcessLifecycleObservationAndDeadlineSupport extends ProcessLifecycleShar
         }
     }
 
-    static final class AdvancingPollClock implements ProcessLifecycle.PollClock {
+    static final class AdvancingPollClock implements ProcessExitWaiter.PollClock {
 
         private long nanos;
 

@@ -16,7 +16,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -33,7 +32,7 @@ public final class ProcessKernel {
     private final LongSupplier nanoTime;
 
     private ProcessKernel(Consumer<Process> postStartHook) {
-        this(postStartHook, ProcessLifecycle::start);
+        this(postStartHook, ProcessLauncher::start);
     }
 
     ProcessKernel(Consumer<Process> postStartHook, ProcessStarter processStarter) {
@@ -140,7 +139,7 @@ public final class ProcessKernel {
         Throwable primaryFailure = null;
         PendingCapture pendingCapture = null;
         boolean restoreInterrupt = false;
-        AtomicReference<Set<ProcessHandle>> liveDescendants = new AtomicReference<>();
+        LiveDescendantSnapshot liveDescendants = new LiveDescendantSnapshot();
         FailureCollector asynchronousCloseFailures = new FailureCollector();
         Consumer<Throwable> recordCloseFailure = asynchronousCloseFailures::record;
         try {
@@ -185,8 +184,7 @@ public final class ProcessKernel {
                 diagnostics.emit(
                         DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "timeout"));
                 resources.stdin().closeAsync("procwright-process-stdin-close-", recordCloseFailure);
-                exitCode = stopTimedOutWithoutStdinClose(
-                        process, knownDescendants(liveDescendants), plan.shutdownPolicy());
+                exitCode = stopTimedOutWithoutStdinClose(process, liveDescendants.current(), plan.shutdownPolicy());
             } else {
                 exitCode = OptionalInt.of(process.exitValue());
             }
@@ -226,7 +224,7 @@ public final class ProcessKernel {
                     DiagnosticEventType.SHUTDOWN_REQUESTED,
                     DiagnosticEmitter.attributes("reason", "failure"),
                     exception);
-            forceStopAfterFailureWithoutStreamClose(process, knownDescendants(liveDescendants), exception);
+            forceStopAfterFailureWithoutStreamClose(process, liveDescendants.current(), exception);
         } finally {
             try {
                 try {
@@ -341,7 +339,7 @@ public final class ProcessKernel {
     private static CommandExecutionException interruptedFailure(
             Process process,
             ExecutionPlan plan,
-            AtomicReference<Set<ProcessHandle>> liveDescendants,
+            LiveDescendantSnapshot liveDescendants,
             DiagnosticEmitter diagnostics,
             InterruptedException interruption) {
         CommandExecutionException failure =
@@ -352,7 +350,7 @@ public final class ProcessKernel {
                 DiagnosticEmitter.attributes("reason", "interrupted"),
                 failure);
         try {
-            ProcessLifecycle.stop(process, knownDescendants(liveDescendants), plan.shutdownPolicy());
+            ProcessLifecycle.stop(process, liveDescendants.current(), plan.shutdownPolicy());
         } catch (RuntimeException | Error shutdownFailure) {
             SuppressionSupport.attach(failure, shutdownFailure);
         }
@@ -388,11 +386,6 @@ public final class ProcessKernel {
         return "Timed out while draining command output: the process exited (code " + exitCode.getAsInt()
                 + ") but its output pipe is still open - a descendant process that inherited stdout or stderr"
                 + " may be holding it";
-    }
-
-    private static Set<ProcessHandle> knownDescendants(AtomicReference<Set<ProcessHandle>> liveDescendants) {
-        Set<ProcessHandle> snapshot = liveDescendants.get();
-        return snapshot == null ? Set.of() : snapshot;
     }
 
     private static void throwStdinFailure(Throwable failure) {

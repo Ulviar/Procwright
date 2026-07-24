@@ -19,7 +19,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleObservationAndDeadlineSupport {
@@ -60,8 +59,8 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofSeconds(5));
         BlockingLivenessProcess delegate = new BlockingLivenessProcess();
         try {
-            assertFalse(
-                    ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(25), new AtomicReference<>()));
+            assertFalse(ProcessLifecycle.waitFor(
+                    scanner.guard(delegate), Duration.ofMillis(25), new LiveDescendantSnapshot()));
             assertTrue(delegate.livenessEntered.await(1, TimeUnit.SECONDS));
         } finally {
             delegate.releaseLiveness.countDown();
@@ -75,8 +74,8 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         BlockingLivenessProcess delegate = new BlockingLivenessProcess();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<Boolean> wait = executor.submit(
-                    () -> ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ZERO, new AtomicReference<>()));
+            Future<Boolean> wait = executor.submit(() ->
+                    ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ZERO, new LiveDescendantSnapshot()));
             assertTrue(delegate.livenessEntered.await(1, TimeUnit.SECONDS));
 
             ExecutionException wrapper = assertThrows(ExecutionException.class, () -> wait.get(5, TimeUnit.SECONDS));
@@ -98,8 +97,8 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         SecurityLivenessBlockingExitProcess delegate = new SecurityLivenessBlockingExitProcess();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<Boolean> wait = executor.submit(
-                    () -> ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ZERO, new AtomicReference<>()));
+            Future<Boolean> wait = executor.submit(() ->
+                    ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ZERO, new LiveDescendantSnapshot()));
             assertTrue(delegate.exitValueEntered.await(1, TimeUnit.SECONDS));
 
             ExecutionException wrapper = assertThrows(ExecutionException.class, () -> wait.get(5, TimeUnit.SECONDS));
@@ -209,7 +208,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
 
     @Test
     void expiredDeadlineStillRecognizesAnAlreadyExitedProcess() throws Exception {
-        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
 
         assertTrue(ProcessLifecycle.waitFor(new CompletedProcess(), Duration.ofNanos(1), descendants));
     }
@@ -218,7 +217,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
     void guardedProcessCompletionUsesLivenessPollingWithoutInvokingProviderWaitFor() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
         PollingCompletionProcess delegate = new PollingCompletionProcess();
-        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
         AdvancingPollClock clock = new AdvancingPollClock();
 
         assertTrue(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofSeconds(1), descendants, clock));
@@ -231,7 +230,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
     void guardedProcessGetsAFinalLivenessProbeDuringTheLastPollInterval() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
         PollingCompletionProcess delegate = new PollingCompletionProcess(3);
-        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
         AdvancingPollClock clock = new AdvancingPollClock();
 
         assertTrue(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
@@ -244,7 +243,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
     void guardedProcessTimeoutCompletesWithoutInvokingProviderWaitFor() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
         PollingCompletionProcess delegate = new PollingCompletionProcess(Integer.MAX_VALUE);
-        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
         AdvancingPollClock clock = new AdvancingPollClock();
 
         assertFalse(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
@@ -270,31 +269,31 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         CommandExecutionException observed = assertThrows(
                 CommandExecutionException.class,
                 () -> ProcessLifecycle.waitFor(
-                        scanner.guard(delegate), Duration.ofMillis(250), new AtomicReference<>(), clock));
+                        scanner.guard(delegate), Duration.ofMillis(250), new LiveDescendantSnapshot(), clock));
 
         assertSame(providerFailure, observed);
     }
 
     @Test
     void descendantSnapshotAccumulatesHandlesAcrossPolls() throws Exception {
-        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>();
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
         ProcessHandle observedBeforeReparenting = ProcessHandle.current();
 
         assertTrue(ProcessLifecycle.waitFor(
                 new ReparentingProcess(observedBeforeReparenting), Duration.ofSeconds(1), descendants));
 
-        assertTrue(descendants.get().contains(observedBeforeReparenting));
+        assertTrue(descendants.current().contains(observedBeforeReparenting));
     }
 
     @Test
     void descendantSnapshotPrunesExitedHandles() throws Exception {
         ProcessHandle exited = new TestProcessHandle(42, false);
         ProcessHandle live = ProcessHandle.current();
-        AtomicReference<Set<ProcessHandle>> descendants = new AtomicReference<>(Set.of(exited));
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot(Set.of(exited));
 
         assertTrue(ProcessLifecycle.waitFor(new ReparentingProcess(live), Duration.ofSeconds(1), descendants));
 
-        assertFalse(descendants.get().contains(exited));
-        assertTrue(descendants.get().contains(live));
+        assertFalse(descendants.current().contains(exited));
+        assertTrue(descendants.current().contains(live));
     }
 }

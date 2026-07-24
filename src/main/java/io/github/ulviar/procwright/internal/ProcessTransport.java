@@ -36,7 +36,7 @@ final class PipeTransport implements ProcessTransport {
 
     @Override
     public Process start(SessionExecutionPlan plan) {
-        return ProcessLifecycle.start(plan.launchPlan());
+        return ProcessLauncher.start(plan.launchPlan());
     }
 }
 

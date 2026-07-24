@@ -3,60 +3,23 @@
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
-import io.github.ulviar.procwright.command.EnvironmentPolicy;
-import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 public final class ProcessLifecycle {
 
     private static final ProcessTreeScanner PROCESS_TREE_SCANNER = ProcessTreeScanner.shared();
     private static final DestroyFallbackDispatcher DEFAULT_DESTROY_FALLBACK = BoundedDestroyDispatcher::dispatch;
-    private static final long POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
-    private static final String PROCESS_LIVENESS_OPERATION = "procwright-provider-liveness-";
-    private static final String HANDLE_LIVENESS_OPERATION = "procwright-provider-handle-liveness-";
-    private static final String EXIT_VALUE_OPERATION = "procwright-provider-exit-";
-    private static final PollClock SYSTEM_POLL_CLOCK = new SystemPollClock();
 
     private ProcessLifecycle() {}
-
-    public static Process start(LaunchPlan plan) {
-        return start(plan, StdioConfig.pipes());
-    }
-
-    public static Process start(LaunchPlan plan, StdioConfig stdio) {
-        Objects.requireNonNull(stdio, "stdio");
-        ProcessBuilder builder = new ProcessBuilder(plan.command());
-        plan.workingDirectory().ifPresent(path -> builder.directory(path.toFile()));
-        if (plan.environmentPolicy() == EnvironmentPolicy.CLEAN) {
-            builder.environment().clear();
-        }
-        builder.environment().putAll(plan.environment());
-        builder.redirectErrorStream(plan.outputMode() == OutputMode.MERGED);
-        builder.redirectInput(stdio.stdin());
-        builder.redirectOutput(stdio.stdout());
-        builder.redirectError(stdio.stderr());
-
-        try {
-            return builder.start();
-        } catch (IOException exception) {
-            throw new CommandExecutionException(
-                    CommandExecutionException.Reason.LAUNCH_FAILED,
-                    "Could not start command: " + CommandEchoSupport.redactedSummary(plan),
-                    exception);
-        }
-    }
 
     /**
      * Waits for process completion while periodically snapshotting live descendants.
@@ -66,95 +29,24 @@ public final class ProcessLifecycle {
      * process was still alive.
      *
      * <p>A {@link Duration#ZERO} timeout disables the deadline: the wait continues until the process exits on its
-     * own. This is the single owner of the "zero means no timeout" semantics shared by run, idle, and stream
-     * timeouts.
+     * own. {@link ProcessExitWaiter} owns this wait-specific interpretation of a zero timeout.
      *
      * @param process watched process
      * @param timeout maximum wait, or {@link Duration#ZERO} to wait indefinitely
-     * @param descendantsSnapshot receives live descendants observed while the process was alive; exited handles are
+     * @param descendants receives live descendants observed while the process was alive; exited handles are
      *     pruned on later polls
      * @return whether the process exited within the timeout
      * @throws InterruptedException when the waiting thread is interrupted; the caller still owns process shutdown
      */
-    public static boolean waitFor(
-            Process process, Duration timeout, AtomicReference<Set<ProcessHandle>> descendantsSnapshot)
+    public static boolean waitFor(Process process, Duration timeout, LiveDescendantSnapshot descendants)
             throws InterruptedException {
-        return waitFor(process, timeout, descendantsSnapshot, SYSTEM_POLL_CLOCK);
+        return ProcessExitWaiter.waitFor(process, timeout, descendants);
     }
 
     static boolean waitFor(
-            Process process, Duration timeout, AtomicReference<Set<ProcessHandle>> descendantsSnapshot, PollClock clock)
+            Process process, Duration timeout, LiveDescendantSnapshot descendants, ProcessExitWaiter.PollClock clock)
             throws InterruptedException {
-        Objects.requireNonNull(process, "process");
-        Objects.requireNonNull(timeout, "timeout");
-        Objects.requireNonNull(descendantsSnapshot, "descendantsSnapshot");
-        Objects.requireNonNull(clock, "clock");
-        if (timeout.isNegative()) {
-            throw new IllegalArgumentException("timeout must not be negative");
-        }
-        descendantsSnapshot.compareAndSet(null, Set.of());
-        boolean unbounded = timeout.isZero();
-        boolean guarded = process instanceof GuardedProcess;
-        long deadlineNanos = unbounded ? 0 : DurationSupport.deadlineFrom(clock.nanoTime(), timeout);
-        while (true) {
-            long remainingNanos = unbounded ? POLL_NANOS : deadlineNanos - clock.nanoTime();
-            if (remainingNanos <= 0) {
-                return guarded ? false : hasExited(process);
-            }
-            if (guarded) {
-                GuardedProcess guardedProcess = (GuardedProcess) process;
-                LivenessObservationBudget budget = unbounded
-                        ? LivenessObservationBudget.providerLimited(guardedProcess.providerOperationTimeout())
-                        : LivenessObservationBudget.fromRemainingLifecycle(
-                                Duration.ofNanos(remainingNanos), guardedProcess.providerOperationTimeout());
-                LivenessObservation observation = observeExitState(guardedProcess, budget);
-                if (observation == LivenessObservation.EXITED) {
-                    return true;
-                }
-                if (observation == LivenessObservation.UNKNOWN) {
-                    return false;
-                }
-            } else if (hasExited(process)) {
-                return true;
-            }
-            remainingNanos = unbounded ? POLL_NANOS : deadlineNanos - clock.nanoTime();
-            if (remainingNanos <= 0) {
-                return false;
-            }
-            Duration scanBudget = unbounded ? PROCESS_TREE_SCANNER.scanTimeout() : Duration.ofNanos(remainingNanos);
-            Set<ProcessHandle> current = descendantsOf(process, scanBudget);
-            long mergeDeadline = unbounded ? DurationSupport.deadlineFromNow(scanBudget) : deadlineNanos;
-            descendantsSnapshot.set(mergeDescendants(descendantsSnapshot.get(), current, mergeDeadline));
-            remainingNanos = unbounded ? POLL_NANOS : deadlineNanos - clock.nanoTime();
-            if (remainingNanos <= 0) {
-                return false;
-            }
-            long waitNanos = Math.min(remainingNanos, POLL_NANOS);
-            if (guarded) {
-                long sleepNanos = waitNanos < POLL_NANOS ? Math.max(1, waitNanos / 2) : waitNanos;
-                clock.sleep(sleepNanos);
-            } else if (process.waitFor(waitNanos, TimeUnit.NANOSECONDS)) {
-                return true;
-            }
-        }
-    }
-
-    interface PollClock {
-        long nanoTime();
-
-        void sleep(long nanos) throws InterruptedException;
-    }
-
-    private static final class SystemPollClock implements PollClock {
-        @Override
-        public long nanoTime() {
-            return System.nanoTime();
-        }
-
-        @Override
-        public void sleep(long nanos) throws InterruptedException {
-            TimeUnit.NANOSECONDS.sleep(nanos);
-        }
+        return ProcessExitWaiter.waitFor(process, timeout, descendants, clock);
     }
 
     public static OptionalInt stop(Process process, ShutdownPolicy shutdownPolicy) {
@@ -300,89 +192,12 @@ public final class ProcessLifecycle {
         }
     }
 
-    private static Set<ProcessHandle> descendantsOf(Process process, Duration budget) {
-        return new LinkedHashSet<>(PROCESS_TREE_SCANNER.descendants(process, budget));
-    }
-
-    private static Set<ProcessHandle> mergeDescendants(
-            Set<ProcessHandle> observed, Set<ProcessHandle> current, long deadline) throws InterruptedException {
-        Set<ProcessHandle> merged = new LinkedHashSet<>();
-        if (observed != null) {
-            addLiveBounded(merged, observed, deadline);
-        }
-        addLiveBounded(merged, current, deadline);
-        return merged;
-    }
-
-    private static void addLiveBounded(Set<ProcessHandle> target, Iterable<ProcessHandle> candidates, long deadline)
-            throws InterruptedException {
-        for (ProcessHandle candidate : candidates) {
-            if (target.size() == PROCESS_TREE_SCANNER.descendantLimit()) {
-                return;
-            }
-            if (mayStillBeAlive(candidate, deadline)) {
-                target.add(candidate);
-            }
-        }
-    }
-
     private static void addBounded(Set<ProcessHandle> target, Iterable<ProcessHandle> candidates) {
         for (ProcessHandle candidate : candidates) {
             if (target.size() == PROCESS_TREE_SCANNER.descendantLimit()) {
                 return;
             }
             target.add(candidate);
-        }
-    }
-
-    private static boolean mayStillBeAlive(ProcessHandle handle, long deadline) throws InterruptedException {
-        try {
-            return handle instanceof GuardedProcessHandle guarded
-                    ? observeLiveness(guarded, deadline) != LivenessObservation.EXITED
-                    : handle.isAlive();
-        } catch (SecurityException | UnsupportedOperationException exception) {
-            // Retain handles whose liveness cannot be observed; cleanup still gets a chance to signal them later.
-            return true;
-        }
-    }
-
-    private static boolean hasExited(Process process) {
-        try {
-            return !process.isAlive();
-        } catch (SecurityException | UnsupportedOperationException livenessUnavailable) {
-            try {
-                process.exitValue();
-                return true;
-            } catch (IllegalThreadStateException stillRunning) {
-                return false;
-            } catch (SecurityException | UnsupportedOperationException exitUnavailable) {
-                return false;
-            }
-        }
-    }
-
-    private static LivenessObservation observeExitState(GuardedProcess process, LivenessObservationBudget budget)
-            throws InterruptedException {
-        try {
-            return observeLiveness(process, budget);
-        } catch (SecurityException | UnsupportedOperationException livenessUnavailable) {
-            Optional<Duration> remaining = budget.remainingOperationBudget(EXIT_VALUE_OPERATION);
-            if (remaining.isEmpty()) {
-                return LivenessObservation.UNKNOWN;
-            }
-            try {
-                process.exitValueWithin(remaining.orElseThrow());
-                return LivenessObservation.EXITED;
-            } catch (IllegalThreadStateException stillRunning) {
-                return LivenessObservation.LIVE;
-            } catch (SecurityException | UnsupportedOperationException exitUnavailable) {
-                return LivenessObservation.LIVE;
-            } catch (CommandExecutionException failure) {
-                if (ProcessTreeScanner.causedByOperationDeadline(failure) && budget.lifecycleLimited()) {
-                    return LivenessObservation.UNKNOWN;
-                }
-                throw failure;
-            }
         }
     }
 
@@ -401,13 +216,9 @@ public final class ProcessLifecycle {
 
     private static boolean mayStillBeAlive(ProcessHandle handle, CleanupFailures failures, long deadline) {
         try {
-            return handle instanceof GuardedProcessHandle guarded
-                    ? observeLiveness(guarded, deadline) != LivenessObservation.EXITED
-                    : handle.isAlive();
+            return ProcessLiveness.observe(handle, deadline) != ProcessLiveness.Observation.EXITED;
         } catch (InterruptedException interruption) {
             failures.interrupted(interruption);
-            return true;
-        } catch (SecurityException | UnsupportedOperationException exception) {
             return true;
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
@@ -417,13 +228,9 @@ public final class ProcessLifecycle {
 
     private static boolean mayStillBeAlive(Process process, CleanupFailures failures, long deadline) {
         try {
-            return process instanceof GuardedProcess guarded
-                    ? observeLiveness(guarded, deadline) != LivenessObservation.EXITED
-                    : process.isAlive();
+            return ProcessLiveness.observe(process, deadline) != ProcessLiveness.Observation.EXITED;
         } catch (InterruptedException interruption) {
             failures.interrupted(interruption);
-            return true;
-        } catch (SecurityException | UnsupportedOperationException exception) {
             return true;
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
@@ -474,19 +281,13 @@ public final class ProcessLifecycle {
     private static void destroy(ProcessHandle handle, boolean forceful, CleanupFailures failures, long deadline) {
         boolean alive = true;
         try {
-            if (handle instanceof GuardedProcessHandle guarded) {
-                LivenessObservation observation = observeLiveness(guarded, deadline);
-                if (observation == LivenessObservation.UNKNOWN) {
-                    return;
-                }
-                alive = observation == LivenessObservation.LIVE;
-            } else {
-                alive = handle.isAlive();
+            ProcessLiveness.Observation observation = ProcessLiveness.observe(handle, deadline);
+            if (observation == ProcessLiveness.Observation.UNKNOWN) {
+                return;
             }
+            alive = observation != ProcessLiveness.Observation.EXITED;
         } catch (InterruptedException interruption) {
             failures.interrupted(interruption);
-        } catch (UnsupportedOperationException | SecurityException ignored) {
-            // Liveness is only an optimization; an unobservable known handle still gets a shutdown attempt.
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
             if (forceful) {
@@ -529,20 +330,14 @@ public final class ProcessLifecycle {
             failures.interruptionBoundary();
             boolean alive = true;
             try {
-                if (handle instanceof GuardedProcessHandle guarded) {
-                    LivenessObservation observation = observeLiveness(guarded, deadline);
-                    if (observation == LivenessObservation.UNKNOWN) {
-                        return;
-                    }
-                    alive = observation == LivenessObservation.LIVE;
-                } else {
-                    alive = handle.isAlive();
+                ProcessLiveness.Observation observation = ProcessLiveness.observe(handle, deadline);
+                if (observation == ProcessLiveness.Observation.UNKNOWN) {
+                    return;
                 }
+                alive = observation != ProcessLiveness.Observation.EXITED;
             } catch (InterruptedException interruption) {
                 failures.interrupted(interruption);
                 useFallback = true;
-            } catch (UnsupportedOperationException | SecurityException ignored) {
-                // The handle still gets a signal attempt before the Process fallback.
             } catch (RuntimeException | Error failure) {
                 failures.record(failure);
             }
@@ -793,21 +588,17 @@ public final class ProcessLifecycle {
             }
             boolean alive = false;
             try {
-                if (handle instanceof GuardedProcessHandle guarded) {
-                    LivenessObservation observation = observeLiveness(guarded, deadline);
-                    if (observation == LivenessObservation.UNKNOWN) {
-                        return DescendantState.LIVE;
-                    }
-                    alive = observation == LivenessObservation.LIVE;
+                ProcessLiveness.Observation observation = ProcessLiveness.observe(handle, deadline);
+                if (observation == ProcessLiveness.Observation.UNKNOWN) {
+                    return DescendantState.LIVE;
+                }
+                if (observation == ProcessLiveness.Observation.UNOBSERVABLE) {
+                    observable = false;
                 } else {
-                    alive = handle.isAlive();
+                    alive = observation == ProcessLiveness.Observation.LIVE;
                 }
             } catch (InterruptedException interruption) {
                 failures.interrupted(interruption);
-                observable = false;
-            } catch (SecurityException | UnsupportedOperationException exception) {
-                // A known but unobservable handle was already signalled. It cannot provide a completion proof,
-                // but it must not prevent bounded cleanup of the observable process tree.
                 observable = false;
             } catch (RuntimeException | Error failure) {
                 failures.record(failure);
@@ -828,17 +619,27 @@ public final class ProcessLifecycle {
     }
 
     private static boolean hasExited(Process process, CleanupFailures failures, long deadline) {
-        try {
-            if (process instanceof GuardedProcess guarded) {
-                LivenessObservationBudget budget =
-                        LivenessObservationBudget.untilLifecycleDeadline(deadline, guarded.providerOperationTimeout());
-                return observeExitState(guarded, budget) == LivenessObservation.EXITED;
+        if (!(process instanceof GuardedProcess guarded)) {
+            ProcessLiveness.Observation observation;
+            try {
+                observation = ProcessLiveness.observe(process, deadline);
+            } catch (InterruptedException interruption) {
+                failures.interrupted(interruption);
+                return exitObserved(process, failures, deadline);
+            } catch (RuntimeException | Error failure) {
+                failures.record(failure);
+                return exitObserved(process, failures, deadline);
             }
-            return !process.isAlive();
+            return observation == ProcessLiveness.Observation.UNOBSERVABLE
+                    ? exitObserved(process, failures, deadline)
+                    : observation == ProcessLiveness.Observation.EXITED;
+        }
+        try {
+            LivenessObservationBudget budget =
+                    LivenessObservationBudget.untilLifecycleDeadline(deadline, guarded.providerOperationTimeout());
+            return ProcessLiveness.observeExit(guarded, budget) == ProcessLiveness.Observation.EXITED;
         } catch (InterruptedException interruption) {
             failures.interrupted(interruption);
-            return exitObserved(process, failures, deadline);
-        } catch (SecurityException | UnsupportedOperationException livenessUnavailable) {
             return exitObserved(process, failures, deadline);
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
@@ -848,78 +649,14 @@ public final class ProcessLifecycle {
 
     private static boolean exitObserved(Process process, CleanupFailures failures, long deadline) {
         try {
-            if (process instanceof GuardedProcess guarded) {
-                if (deadlineExpired(deadline)) {
-                    return false;
-                }
-                guarded.exitValueWithin(operationBudget(deadline));
-            } else {
-                process.exitValue();
-            }
-            return true;
+            return ProcessLiveness.exitObserved(process, deadline);
         } catch (InterruptedException interruption) {
             failures.interrupted(interruption);
-            return false;
-        } catch (IllegalThreadStateException stillRunning) {
-            return false;
-        } catch (SecurityException | UnsupportedOperationException exitUnavailable) {
             return false;
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
             return false;
         }
-    }
-
-    private static LivenessObservation observeLiveness(GuardedProcess process, long deadline)
-            throws InterruptedException {
-        return observeLiveness(
-                process,
-                LivenessObservationBudget.untilLifecycleDeadline(deadline, process.providerOperationTimeout()));
-    }
-
-    private static LivenessObservation observeLiveness(GuardedProcess process, LivenessObservationBudget budget)
-            throws InterruptedException {
-        Optional<Duration> remaining = budget.remainingOperationBudget(PROCESS_LIVENESS_OPERATION);
-        if (remaining.isEmpty()) {
-            return LivenessObservation.UNKNOWN;
-        }
-        try {
-            return process.isAliveWithin(remaining.orElseThrow())
-                    ? LivenessObservation.LIVE
-                    : LivenessObservation.EXITED;
-        } catch (CommandExecutionException failure) {
-            if (ProcessTreeScanner.causedByOperationDeadline(failure) && budget.lifecycleLimited()) {
-                return LivenessObservation.UNKNOWN;
-            }
-            throw failure;
-        }
-    }
-
-    private static LivenessObservation observeLiveness(GuardedProcessHandle handle, long deadline)
-            throws InterruptedException {
-        LivenessObservationBudget budget =
-                LivenessObservationBudget.untilLifecycleDeadline(deadline, handle.providerOperationTimeout());
-        Optional<Duration> remaining = budget.remainingOperationBudget(HANDLE_LIVENESS_OPERATION);
-        if (remaining.isEmpty()) {
-            return LivenessObservation.UNKNOWN;
-        }
-        try {
-            return handle.isAliveWithin(remaining.orElseThrow())
-                    ? LivenessObservation.LIVE
-                    : LivenessObservation.EXITED;
-        } catch (CommandExecutionException failure) {
-            if (ProcessTreeScanner.causedByOperationDeadline(failure) && budget.lifecycleLimited()) {
-                return LivenessObservation.UNKNOWN;
-            }
-            throw failure;
-        }
-    }
-
-    // UNKNOWN is an exhausted lifecycle observation, never proof that the process exited.
-    private enum LivenessObservation {
-        LIVE,
-        EXITED,
-        UNKNOWN
     }
 
     private static final class CleanupFailures {

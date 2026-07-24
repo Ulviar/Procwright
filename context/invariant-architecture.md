@@ -80,7 +80,10 @@ Runtime получает только согласованный plan и не у
 - session construction transaction — `SessionConstruction`;
 - session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, public cleanup
   barrier — `SessionExitBarrier`;
-- process lifecycle — `ProcessLifecycle`, exact-once process-tree cleanup — `SessionProcessCleanup`;
+- pipe process launch — `ProcessLauncher`; ordinary и provider-bounded liveness — `ProcessLiveness`;
+- ожидание natural exit — `ProcessExitWaiter`, накопление наблюдавшихся живых descendants —
+  `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessLifecycle`, exact-once session cleanup —
+  `SessionProcessCleanup`;
 - bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; execution owner policy —
   `BoundedTaskOwner`, lifecycle одного accepted вызова — `BoundedTaskExecution`;
 - stdin serialization/close, output ownership и distinct terminal/physical close callbacks — `SessionResources`,

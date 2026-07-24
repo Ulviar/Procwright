@@ -3,13 +3,13 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
+import io.github.ulviar.procwright.internal.LiveDescendantSnapshot;
 import io.github.ulviar.procwright.internal.ProcessLifecycle;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 
 /** Owns descendant observation and the exactly-once process-tree cleanup result for one session. */
 final class SessionProcessCleanup {
@@ -18,7 +18,7 @@ final class SessionProcessCleanup {
 
     private final Process process;
     private final ShutdownPolicy shutdownPolicy;
-    private final AtomicReference<Set<ProcessHandle>> liveDescendants = new AtomicReference<>();
+    private final LiveDescendantSnapshot liveDescendants = new LiveDescendantSnapshot();
     private boolean completed;
     private OptionalInt exitCode = OptionalInt.empty();
     private volatile OptionalInt exitCodeSnapshot = OptionalInt.empty();
@@ -82,7 +82,6 @@ final class SessionProcessCleanup {
     }
 
     private Set<ProcessHandle> knownDescendants() {
-        Set<ProcessHandle> snapshot = liveDescendants.get();
-        return snapshot == null ? Set.of() : snapshot;
+        return liveDescendants.current();
     }
 }

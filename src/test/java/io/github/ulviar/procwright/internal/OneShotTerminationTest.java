@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -78,7 +77,7 @@ final class OneShotTerminationTest extends ProcessKernelProcessFixtureSupport {
     }
 
     private static OneShotTermination termination(Process process, Duration timeout) {
-        return new OneShotTermination(process, timeout, new AtomicReference<>(Set.of()));
+        return new OneShotTermination(process, timeout, new LiveDescendantSnapshot());
     }
 
     private static TerminalProcess exitedProcess() {

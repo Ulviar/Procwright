@@ -4,7 +4,6 @@ package io.github.ulviar.procwright.internal;
 
 import java.time.Duration;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -16,10 +15,10 @@ final class OneShotTermination {
 
     private final Process process;
     private final Duration timeout;
-    private final AtomicReference<Set<ProcessHandle>> liveDescendants;
+    private final LiveDescendantSnapshot liveDescendants;
     private final AtomicReference<Outcome> outcome = new AtomicReference<>();
 
-    OneShotTermination(Process process, Duration timeout, AtomicReference<Set<ProcessHandle>> liveDescendants) {
+    OneShotTermination(Process process, Duration timeout, LiveDescendantSnapshot liveDescendants) {
         this.process = Objects.requireNonNull(process, "process");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
         this.liveDescendants = Objects.requireNonNull(liveDescendants, "liveDescendants");
