@@ -55,7 +55,7 @@ final class LineRequestEncoder {
         Objects.requireNonNull(interrupted, "interrupted");
         try {
             return BoundedTaskRunner.run(
-                    BoundedTaskRunner.TEXT_ENCODINGS,
+                    BoundedTaskLimits.TEXT_ENCODINGS,
                     "procwright-line-encoder-",
                     deadlineNanos,
                     () -> encode(line, options, tooLarge, () -> ensureBeforeDeadline(deadlineNanos, timeout)));

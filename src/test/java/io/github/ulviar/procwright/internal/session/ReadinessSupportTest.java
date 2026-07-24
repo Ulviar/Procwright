@@ -202,8 +202,8 @@ final class ReadinessSupportTest {
             assertTrue(probeStarted.await(1, TimeUnit.SECONDS));
             releaseProbe.countDown();
             assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertTrue(eventually(() -> BoundedTaskRunner.READINESS_PROBES.availablePermits()
-                    == BoundedTaskRunner.READINESS_PROBES.capacity()));
+            assertTrue(eventually(() -> BoundedTaskLimits.READINESS_PROBES.availablePermits()
+                    == BoundedTaskLimits.READINESS_PROBES.capacity()));
             Thread.sleep(50);
             assertEquals(1, matchingReports.get());
         } finally {
@@ -254,8 +254,8 @@ final class ReadinessSupportTest {
 
             releaseProbe.countDown();
             assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertTrue(eventually(() -> BoundedTaskRunner.READINESS_PROBES.availablePermits()
-                    == BoundedTaskRunner.READINESS_PROBES.capacity()));
+            assertTrue(eventually(() -> BoundedTaskLimits.READINESS_PROBES.availablePermits()
+                    == BoundedTaskLimits.READINESS_PROBES.capacity()));
             Thread.sleep(50);
             assertEquals(1, matchingReports.get());
         } finally {

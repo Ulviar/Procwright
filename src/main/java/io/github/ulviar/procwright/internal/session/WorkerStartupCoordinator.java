@@ -36,7 +36,7 @@ final class WorkerStartupCoordinator<S> {
         Objects.requireNonNull(purpose, "purpose");
 
         PoolWorker<S> worker = reservation.worker();
-        BoundedTaskRunner.Permit permit = acquireResources(worker, deadlineNanos, purpose);
+        BoundedTaskPermit permit = acquireResources(worker, deadlineNanos, purpose);
         WorkerStartup<S> owner = launch(reservation, permit, deadlineNanos, purpose);
         WorkerStartup.CreatedWorker<S> createdWorker = await(owner, worker, deadlineNanos, purpose);
         return new Completion<>(createdWorker, owner.terminalDecision());
@@ -54,7 +54,7 @@ final class WorkerStartupCoordinator<S> {
         return new IllegalStateException("successful worker startup has incompatible terminal decision: " + decision);
     }
 
-    private BoundedTaskRunner.Permit acquireResources(
+    private BoundedTaskPermit acquireResources(
             PoolWorker<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
         PoolLifecycleDispatcher.Admission admission = null;
         try {
@@ -65,7 +65,7 @@ final class WorkerStartupCoordinator<S> {
                 throw failures.closed("Pool is closed");
             }
             admission = null;
-            return BoundedTaskRunner.WORKER_STARTUPS.acquire(deadlineNanos);
+            return BoundedTaskLimits.WORKER_STARTUPS.acquire(deadlineNanos);
         } catch (TimeoutException failure) {
             close(admission);
             throw preLaunchTimeout(reservation, purpose, failure);
@@ -81,7 +81,7 @@ final class WorkerStartupCoordinator<S> {
 
     private WorkerStartup<S> launch(
             Reservation<S> reservation,
-            BoundedTaskRunner.Permit permit,
+            BoundedTaskPermit permit,
             long deadlineNanos,
             PoolWorker.StartupPurpose purpose) {
         boolean transferred = false;

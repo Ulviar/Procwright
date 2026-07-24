@@ -23,15 +23,33 @@ import org.junit.jupiter.api.Test;
 final class BoundedCallbackIsolationTest {
 
     @Test
+    void catalogKeepsEveryBoundedOperationPartitionDistinctAndStable() {
+        List<BoundedTaskLimiter> partitions = List.of(
+                BoundedTaskLimits.STREAM_LISTENERS,
+                BoundedTaskLimits.READINESS_PROBES,
+                BoundedTaskLimits.WORKER_HOOKS,
+                BoundedTaskLimits.PROTOCOL_CALLBACKS,
+                BoundedTaskLimits.TEXT_ENCODINGS,
+                BoundedTaskLimits.BLOCKING_WRITES,
+                BoundedTaskLimits.WORKER_STARTUPS,
+                BoundedTaskLimits.REGEX_MATCHES);
+
+        assertEquals(partitions.size(), new HashSet<>(partitions).size());
+        assertEquals(
+                List.of(16, 16, 16, 64, 32, 32, 16, 8),
+                partitions.stream().map(BoundedTaskLimiter::capacity).toList());
+    }
+
+    @Test
     void eachCallbackFeatureRetainsIndependentProcessWideCapacity() throws Exception {
-        List<BoundedTaskRunner.Limiter> partitions = List.of(
-                BoundedTaskRunner.STREAM_LISTENERS, BoundedTaskRunner.READINESS_PROBES, BoundedTaskRunner.WORKER_HOOKS);
+        List<BoundedTaskLimiter> partitions = List.of(
+                BoundedTaskLimits.STREAM_LISTENERS, BoundedTaskLimits.READINESS_PROBES, BoundedTaskLimits.WORKER_HOOKS);
         assertNotSame(partitions.get(0), partitions.get(1));
         assertNotSame(partitions.get(0), partitions.get(2));
         assertNotSame(partitions.get(1), partitions.get(2));
 
         for (int saturatedIndex = 0; saturatedIndex < partitions.size(); saturatedIndex++) {
-            BoundedTaskRunner.Limiter saturated = partitions.get(saturatedIndex);
+            BoundedTaskLimiter saturated = partitions.get(saturatedIndex);
             CountDownLatch release = new CountDownLatch(1);
             try {
                 saturate(saturated, release);
@@ -55,7 +73,7 @@ final class BoundedCallbackIsolationTest {
         InheritableThreadLocal<String> inherited = new InheritableThreadLocal<>();
         inherited.set("caller-state");
         try {
-            assertFreshLane(BoundedTaskRunner.READINESS_PROBES.capacity() + 1, contamination, inherited, () -> {
+            assertFreshLane(BoundedTaskLimits.READINESS_PROBES.capacity() + 1, contamination, inherited, () -> {
                 AtomicReference<Thread> callbackThread = new AtomicReference<>();
                 ReadinessSupport.check(
                         "target",
@@ -65,7 +83,7 @@ final class BoundedCallbackIsolationTest {
                 return callbackThread.get();
             });
             assertFreshLane(
-                    BoundedTaskRunner.WORKER_HOOKS.capacity() + 1,
+                    BoundedTaskLimits.WORKER_HOOKS.capacity() + 1,
                     contamination,
                     inherited,
                     () -> WorkerHookSupport.run(
@@ -77,11 +95,11 @@ final class BoundedCallbackIsolationTest {
                             failure -> new IllegalStateException("worker hook failed", failure)),
                     "worker hook");
             assertFreshLane(
-                    BoundedTaskRunner.PROTOCOL_CALLBACKS.capacity() + 1,
+                    BoundedTaskLimits.PROTOCOL_CALLBACKS.capacity() + 1,
                     contamination,
                     inherited,
                     () -> BoundedTaskRunner.run(
-                            BoundedTaskRunner.PROTOCOL_CALLBACKS,
+                            BoundedTaskLimits.PROTOCOL_CALLBACKS,
                             "procwright-clean-protocol-callback-test-",
                             deadline(Duration.ofSeconds(1)),
                             () -> assertCleanCallbackThread(contamination, inherited)),
@@ -129,7 +147,7 @@ final class BoundedCallbackIsolationTest {
             assertEquals(
                     "available",
                     BoundedTaskRunner.run(
-                            BoundedTaskRunner.STREAM_LISTENERS,
+                            BoundedTaskLimits.STREAM_LISTENERS,
                             "procwright-isolated-listener-test-",
                             deadline(Duration.ofSeconds(1)),
                             () -> "available"));
@@ -152,7 +170,7 @@ final class BoundedCallbackIsolationTest {
                         failure -> new IllegalStateException("worker hook failed", failure)));
     }
 
-    private static void saturate(BoundedTaskRunner.Limiter limiter, CountDownLatch release) throws Exception {
+    private static void saturate(BoundedTaskLimiter limiter, CountDownLatch release) throws Exception {
         int capacity = limiter.capacity();
         CountDownLatch started = new CountDownLatch(capacity);
         ExecutorService callers = Executors.newFixedThreadPool(capacity);

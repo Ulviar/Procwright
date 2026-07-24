@@ -88,8 +88,8 @@ final class PoolLifecycleDispatcherTest {
 
     @Test
     void ownerCanSynchronouslyDispatchIntoItsOwnDomain() throws Exception {
-        PoolLifecycleDispatcher dispatcher = new PoolLifecycleDispatcher(
-                new BoundedTaskRunner.Limiter(1), Threading::start, "test-reentrant-dispatch-", 1);
+        PoolLifecycleDispatcher dispatcher =
+                new PoolLifecycleDispatcher(new BoundedTaskLimiter(1), Threading::start, "test-reentrant-dispatch-", 1);
         AtomicInteger runs = new AtomicInteger();
 
         PoolLifecycleDispatcher.Ownership outer = dispatcher.dispatch(() -> {
@@ -107,7 +107,7 @@ final class PoolLifecycleDispatcherTest {
     @Test
     void retirementBatchDoesNotNeedAnAdmissionHeldByTheRetiringWorker() throws Exception {
         PoolLifecycleDispatcher dispatcher = new PoolLifecycleDispatcher(
-                new BoundedTaskRunner.Limiter(1), Threading::start, "test-admission-free-batch-", 1);
+                new BoundedTaskLimiter(1), Threading::start, "test-admission-free-batch-", 1);
         PoolLifecycleDispatcher.Admission workerAdmission = dispatcher.tryAdmit();
         assertTrue(workerAdmission != null);
         CountDownLatch completed = new CountDownLatch(1);
@@ -202,7 +202,7 @@ final class PoolLifecycleDispatcherTest {
     void admittedNonCooperativeTasksBoundQueueAndBackpressureArbitraryAttempts() throws Exception {
         AtomicInteger ownerStarts = new AtomicInteger();
         PoolLifecycleDispatcher dispatcher = new PoolLifecycleDispatcher(
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 (prefix, task) -> {
                     ownerStarts.incrementAndGet();
                     return Threading.start(prefix, task);
@@ -247,7 +247,7 @@ final class PoolLifecycleDispatcherTest {
 
     private static PoolLifecycleDispatcher dispatcher(int parallelism) {
         return new PoolLifecycleDispatcher(
-                new BoundedTaskRunner.Limiter(parallelism), Threading::start, "test-terminal-retirement-");
+                new BoundedTaskLimiter(parallelism), Threading::start, "test-terminal-retirement-");
     }
 
     private static void assertStarterFailure(Throwable expected) throws Exception {
@@ -268,7 +268,7 @@ final class PoolLifecycleDispatcherTest {
 
         Throwable observed = assertThrows(
                 expected.getClass(),
-                () -> new PoolLifecycleDispatcher(new BoundedTaskRunner.Limiter(2), starter, "test-launch-"));
+                () -> new PoolLifecycleDispatcher(new BoundedTaskLimiter(2), starter, "test-launch-"));
 
         assertSame(expected, observed);
         assertTrue(firstOwnerExited.await(1, TimeUnit.SECONDS));

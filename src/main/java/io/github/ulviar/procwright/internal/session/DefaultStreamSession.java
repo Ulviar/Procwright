@@ -265,7 +265,7 @@ public final class DefaultStreamSession implements StreamSession {
             }
             try {
                 BoundedTaskRunner.runReportingLateFailure(
-                        BoundedTaskRunner.STREAM_LISTENERS,
+                        BoundedTaskLimits.STREAM_LISTENERS,
                         "procwright-stream-listener-",
                         Long.MAX_VALUE,
                         listenerCancellation,

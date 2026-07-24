@@ -32,6 +32,11 @@ owner вынуждает при локальном изменении держа
   числе после caller timeout или interruption;
 - `ProcessProviderOperationCancellation` доставляет interrupt до или после binding owner-а, а
   `ProcessProviderOperationSettlement` удерживает reporting producer до завершения caller и owner;
+- `BoundedTaskLimits` задает независимые process-wide admission partitions, `BoundedTaskLimiter` и
+  `BoundedTaskPermit` владеют capacity, `BoundedTaskOwner` явно выбирает fresh или session-affine execution owner, а
+  `BoundedTaskExecution` целиком владеет start gate, abandonment, interrupt и late-failure settlement одного вызова;
+  отменяемая и неотменяемая операции передаются ему как явная `BoundedTaskCancellation`, а retry safety line write
+  хранит только переход `waiting -> rejected/admitted` без неиспользуемых промежуточных фаз;
 - `SessionResources` владеет logical/physical stdin close, сериализацией writes, стабильными ссылками на process streams,
   exclusive output ownership и распределением ответственности за close; factory возвращает полностью связанного
   владельца без промежуточного взаимного bind;
@@ -79,6 +84,8 @@ terminal arbitration. EOF без активного request закрывает �
 - canonical terminal failure фиксируется до cleanup и доступен конкурентным failure paths; принявший его cleanup
   завершается до internal terminal publication;
 - asynchronous physical stdout/stderr close failure не заменяет natural/explicit success;
+- failure запуска best-effort close notification не выходит в mandatory fallback close loop и не задерживает уже
+  принятое следующее физическое закрытие;
 - physical close failure line/protocol helper не отправляется как бесхозная late failure, пока активный request еще
   может выбрать canonical terminal failure;
 - process tree останавливается не более одного раза; успешный exit-code snapshot переиспользуется, а canonical failure

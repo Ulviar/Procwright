@@ -44,7 +44,7 @@ abstract class ExpectMatchingTestSupport extends ExpectTestSupport {
 
     static DefaultExpect expect(
             ControllableProcess process,
-            BoundedTaskRunner.Limiter limiter,
+            BoundedTaskLimiter limiter,
             ExpectRegexMatcher.Evaluator evaluator,
             ExpectSettings settings,
             PumpStarter pumpStarter) {

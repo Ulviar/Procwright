@@ -48,7 +48,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
     }
 
     private static void assertAbandonedDecoderFailureIsIsolated(Throwable lateFailure) throws Exception {
-        int initialCapacity = BoundedTaskRunner.PROTOCOL_CALLBACKS.availablePermits();
+        int initialCapacity = BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits();
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
         CountDownLatch handlerEntered = new CountDownLatch(1);
@@ -83,11 +83,11 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
             LineSessionException timeout =
                     assertInstanceOf(LineSessionException.class, request.get(2, TimeUnit.SECONDS));
             assertEquals(LineSessionException.Reason.TIMEOUT, timeout.reason());
-            assertEquals(initialCapacity - 1, BoundedTaskRunner.PROTOCOL_CALLBACKS.availablePermits());
+            assertEquals(initialCapacity - 1, BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits());
 
             releaseDecoder.countDown();
             assertTrue(handlerEntered.await(1, TimeUnit.SECONDS));
-            assertTrue(eventually(() -> BoundedTaskRunner.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
+            assertTrue(eventually(() -> BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
             assertEquals(1, handlerCalls.get());
             Thread.sleep(25);
             assertEquals(1, handlerCalls.get());
@@ -99,7 +99,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
             assertTrue(caller.awaitTermination(1, TimeUnit.SECONDS));
             Thread.setDefaultUncaughtExceptionHandler(previous);
         }
-        assertTrue(eventually(() -> BoundedTaskRunner.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
+        assertTrue(eventually(() -> BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
     }
 
     private enum CallbackExit {

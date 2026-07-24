@@ -122,7 +122,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
 
     @Test
     void acquireTimeoutBoundsWorkerStartupAndRecordsFailedWait() throws Exception {
-        int permitsBefore = BoundedTaskRunner.WORKER_STARTUPS.availablePermits();
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch allowStartupToFinish = new CountDownLatch(1);
         AtomicReference<Thread> startupThread = new AtomicReference<>();
@@ -176,7 +176,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
             pool.closeAsync();
             pool.closeAsync().get(1, TimeUnit.SECONDS);
             joinThread(startupThread, "timed-out startup");
-            assertEquals(permitsBefore, BoundedTaskRunner.WORKER_STARTUPS.availablePermits());
+            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 

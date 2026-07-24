@@ -229,7 +229,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
 
     @Test
     void writeAdmissionTimeoutLeavesSessionOpenAndCannotWriteLate() throws Exception {
-        BoundedTaskRunner.Limiter limiter = BoundedTaskRunner.BLOCKING_WRITES;
+        BoundedTaskLimiter limiter = BoundedTaskLimits.BLOCKING_WRITES;
         int capacity = limiter.availablePermits();
         assertEquals(32, capacity, "another test leaked a production line-write permit");
         CountDownLatch callbacksStarted = new CountDownLatch(capacity);
@@ -301,10 +301,10 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
 
     @Test
     void callerInterruptWhileWriteAdmissionIsSaturatedIsRetrySafeAndRestoresState() throws Exception {
-        BoundedTaskRunner.Limiter limiter = BoundedTaskRunner.BLOCKING_WRITES;
+        BoundedTaskLimiter limiter = BoundedTaskLimits.BLOCKING_WRITES;
         int capacity = limiter.availablePermits();
         assertEquals(32, capacity, "another test leaked a production line-write permit");
-        List<BoundedTaskRunner.Permit> reservations = new ArrayList<>(capacity);
+        List<BoundedTaskPermit> reservations = new ArrayList<>(capacity);
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
@@ -349,7 +349,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
             assertFalse(lineSession.onExit().isDone());
             assertEquals(0, limiter.availablePermits());
 
-            reservations.forEach(BoundedTaskRunner.Permit::close);
+            reservations.forEach(BoundedTaskPermit::close);
             BoundedTaskRunner.run(
                     limiter, "procwright-interrupted-line-barrier-", deadline(Duration.ofSeconds(5)), () -> null);
             assertEquals(0, stdin.writeCalls(), "interrupted request wrote after admission capacity was restored");
@@ -362,7 +362,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
         } finally {
             caller.interrupt();
             caller.join(TimeUnit.SECONDS.toMillis(5));
-            reservations.forEach(BoundedTaskRunner.Permit::close);
+            reservations.forEach(BoundedTaskPermit::close);
             try {
                 lineSession.close();
             } finally {
@@ -375,7 +375,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
 
     @Test
     void threadStartRejectionIsTypedRetrySafeAndLeavesLineSessionReusable() throws Exception {
-        BoundedTaskRunner.Limiter limiter = BoundedTaskRunner.BLOCKING_WRITES;
+        BoundedTaskLimiter limiter = BoundedTaskLimits.BLOCKING_WRITES;
         int capacity = limiter.availablePermits();
         assertEquals(32, capacity, "another test leaked a production line-write permit");
         SecurityException rejection = new SecurityException("line writer start denied");
@@ -441,7 +441,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
 
     @Test
     void callerInterruptAfterControlledPartialWriteClosesSessionAndPreservesTypedFailure() throws Exception {
-        BoundedTaskRunner.Limiter limiter = BoundedTaskRunner.BLOCKING_WRITES;
+        BoundedTaskLimiter limiter = BoundedTaskLimits.BLOCKING_WRITES;
         int baselineCapacity = limiter.availablePermits();
         assertEquals(32, baselineCapacity, "another test leaked a production line-write permit");
         BlockingAfterFirstByteOutputStream stdin = new BlockingAfterFirstByteOutputStream();

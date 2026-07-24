@@ -22,7 +22,7 @@ final class ExpectRegexMatcherTest {
 
     @Test
     void limiterAdmissionPrecedesOutputSnapshotAndEvaluation() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch occupied = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);

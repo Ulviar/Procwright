@@ -195,7 +195,7 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
                 ExpectSettings.defaults(),
                 ZeroReadBackoff.exponential(),
                 starter,
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 ExpectRegexMatcher::evaluate,
                 (thread, error) -> {
                     reports.incrementAndGet();
@@ -280,7 +280,7 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
                 ExpectSettings.defaults(),
                 ZeroReadBackoff.exponential(),
                 starter,
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 ExpectRegexMatcher::evaluate,
                 (thread, error) -> {
                     reports.incrementAndGet();

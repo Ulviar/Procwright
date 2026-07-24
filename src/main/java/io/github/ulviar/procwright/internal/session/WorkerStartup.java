@@ -39,7 +39,7 @@ final class WorkerStartup<S> {
         this.lateCompletion = Objects.requireNonNull(lateCompletion, "lateCompletion");
     }
 
-    void start(BoundedTaskRunner.Permit permit) {
+    void start(BoundedTaskPermit permit) {
         Objects.requireNonNull(permit, "permit");
         try {
             startedAtNanos = System.nanoTime();
@@ -125,7 +125,7 @@ final class WorkerStartup<S> {
         return terminal.get();
     }
 
-    private void run(BoundedTaskRunner.Permit permit) {
+    private void run(BoundedTaskPermit permit) {
         S session = null;
         Throwable failure = null;
         BoundedFailureReporter.FailureTarget failureTarget = null;

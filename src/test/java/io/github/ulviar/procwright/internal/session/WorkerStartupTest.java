@@ -187,8 +187,8 @@ final class WorkerStartupTest {
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
     }
 
-    private static BoundedTaskRunner.Permit permit() {
-        BoundedTaskRunner.Permit permit = new BoundedTaskRunner.Limiter(1).tryAcquire();
+    private static BoundedTaskPermit permit() {
+        BoundedTaskPermit permit = new BoundedTaskLimiter(1).tryAcquire();
         if (permit == null) {
             throw new AssertionError("test permit was not available");
         }

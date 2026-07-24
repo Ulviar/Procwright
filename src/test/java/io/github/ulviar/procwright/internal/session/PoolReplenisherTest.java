@@ -99,7 +99,7 @@ final class PoolReplenisherTest {
     @Test
     void stopRecheckDoesNotWaitForItsOwnSaturatedDispatcherDomain() throws Exception {
         PoolLifecycleDispatcher dispatcher = new PoolLifecycleDispatcher(
-                new BoundedTaskRunner.Limiter(1), Threading::start, "test-replenishment-recheck-", 1);
+                new BoundedTaskLimiter(1), Threading::start, "test-replenishment-recheck-", 1);
         AtomicBoolean needed = new AtomicBoolean(true);
         AtomicInteger steps = new AtomicInteger();
         PoolReplenisher replenisher = replenisher(

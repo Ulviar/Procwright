@@ -47,7 +47,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
     }
 
     private static void assertAbandonedProtocolFailureIsIsolated(Throwable lateFailure) throws Exception {
-        int initialCapacity = BoundedTaskRunner.PROTOCOL_CALLBACKS.availablePermits();
+        int initialCapacity = BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits();
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
         CountDownLatch handlerEntered = new CountDownLatch(1);
@@ -92,7 +92,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             ProtocolSessionException timeout =
                     assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
             assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
-            assertEquals(initialCapacity - 1, BoundedTaskRunner.PROTOCOL_CALLBACKS.availablePermits());
+            assertEquals(initialCapacity - 1, BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits());
 
             releaseDecoder.countDown();
             assertTrue(handlerEntered.await(1, TimeUnit.SECONDS));
@@ -114,7 +114,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
 
     private static boolean eventuallyProtocolCapacity(int expected) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        while (BoundedTaskRunner.PROTOCOL_CALLBACKS.availablePermits() != expected) {
+        while (BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() != expected) {
             if (deadline - System.nanoTime() <= 0) {
                 return false;
             }
@@ -546,7 +546,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
     private static final class SaturatingProtocolCallbackRunner
             implements DefaultProtocolSession.ProtocolCallbackRunner {
 
-        private final BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        private final BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         private final AtomicInteger invocations = new AtomicInteger();
         private final CountDownLatch firstCallbackStarted;
 

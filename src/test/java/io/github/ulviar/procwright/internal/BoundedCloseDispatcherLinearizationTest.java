@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
@@ -90,6 +91,46 @@ final class BoundedCloseDispatcherLinearizationTest {
         assertEquals(0, dispatcher.outstandingCount());
         reservation.release(ignored -> releaseAttempts.incrementAndGet());
         assertEquals(3, releaseAttempts.get());
+    }
+
+    @Test
+    void notificationStartFailureCannotStopFallbackCleanupProgress() throws Exception {
+        CloseNotificationPublisher rejectedNotifications = new CloseNotificationPublisher() {
+            @Override
+            public void execute(Thread sourceThread, Runnable callback) {
+                throw new RejectedExecutionException("notification owner rejected");
+            }
+
+            @Override
+            public void report(Thread sourceThread, Throwable failure) {
+                throw new AssertionError("report must not be needed");
+            }
+        };
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
+                1,
+                1,
+                2,
+                (name, task) -> {
+                    throw new RejectedExecutionException("close owner rejected");
+                },
+                rejectedNotifications);
+        BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(2);
+        CountDownLatch firstSettled = new CountDownLatch(1);
+        CountDownLatch secondSettled = new CountDownLatch(1);
+
+        assertThrows(
+                RejectedExecutionException.class,
+                () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                        () -> {}, "first-fallback-", ignored -> firstSettled.countDown(), ignored -> {}, () -> {})));
+        assertTrue(firstSettled.await(1, TimeUnit.SECONDS));
+
+        assertThrows(
+                RejectedExecutionException.class,
+                () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                        () -> {}, "second-fallback-", ignored -> secondSettled.countDown(), ignored -> {}, () -> {})));
+
+        assertTrue(secondSettled.await(1, TimeUnit.SECONDS));
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
 
     private static boolean eventually(BooleanSupplier condition) throws InterruptedException {

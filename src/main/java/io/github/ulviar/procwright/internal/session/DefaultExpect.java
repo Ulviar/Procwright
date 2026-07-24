@@ -38,7 +38,7 @@ public final class DefaultExpect implements Expect {
                 options,
                 zeroReadBackoff,
                 pumpStarter,
-                BoundedTaskRunner.REGEX_MATCHES,
+                BoundedTaskLimits.REGEX_MATCHES,
                 ExpectRegexMatcher::evaluate);
     }
 
@@ -47,7 +47,7 @@ public final class DefaultExpect implements Expect {
             ExpectSettings options,
             ZeroReadBackoff zeroReadBackoff,
             PumpStarter pumpStarter,
-            BoundedTaskRunner.Limiter regexLimiter,
+            BoundedTaskLimiter regexLimiter,
             ExpectRegexMatcher.Evaluator regexEvaluator) {
         this(session, options, zeroReadBackoff, pumpStarter, regexLimiter, regexEvaluator, Threading::reportUncaught);
     }
@@ -57,7 +57,7 @@ public final class DefaultExpect implements Expect {
             ExpectSettings options,
             ZeroReadBackoff zeroReadBackoff,
             PumpStarter pumpStarter,
-            BoundedTaskRunner.Limiter regexLimiter,
+            BoundedTaskLimiter regexLimiter,
             ExpectRegexMatcher.Evaluator regexEvaluator,
             ExpectLateFatalFailureReporter lateFatalFailureReporter) {
         this.session = Objects.requireNonNull(session, "session");

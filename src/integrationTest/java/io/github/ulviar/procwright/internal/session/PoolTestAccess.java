@@ -18,7 +18,7 @@ public final class PoolTestAccess {
     private PoolTestAccess() {}
 
     public static int availableWorkerHookPermits() {
-        return BoundedTaskRunner.WORKER_HOOKS.availablePermits();
+        return BoundedTaskLimits.WORKER_HOOKS.availablePermits();
     }
 
     public static boolean awaitLineMetrics(

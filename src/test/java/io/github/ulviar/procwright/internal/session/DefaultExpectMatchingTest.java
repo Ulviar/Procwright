@@ -38,7 +38,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
         FeedInputStream stderr = new FeedInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         DefaultSession rawSession = session(process);
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
         DefaultExpect expect = new DefaultExpect(
                 rawSession,
@@ -100,7 +100,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
                 ExpectSettings.defaults(),
                 ZeroReadBackoff.exponential(),
                 PumpStarter.threading(),
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 (pattern, text, searchStart) -> {
                     evaluated.countDown();
                     return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
@@ -133,7 +133,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
 
     @Test
     void saturatedRegexLimiterTimesOutRecoverablyWithoutStartingTheMatcher() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch occupied = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(5);
@@ -205,7 +205,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
     @Test
     void timeoutArbitrationPrefersClosedState() throws Exception {
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         ControllableProcess process = new ControllableProcess(new FeedInputStream(), new FeedInputStream());
         DefaultExpect expect = expect(process, limiter, evaluator, ExpectSettings.defaults(), PumpStarter.threading());
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -233,7 +233,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
     @Test
     void timeoutArbitrationPreservesOutputFailureAndItsExactCause() throws Exception {
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         IllegalStateException outputFailure = new IllegalStateException("output failed");
         GatedFailureInputStream stdout = new GatedFailureInputStream(outputFailure);
         FeedInputStream stderr = new FeedInputStream();
@@ -265,7 +265,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
     @Test
     void timeoutArbitrationPrefersEofToTimeout() throws Exception {
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         GatedEofInputStream stdout = new GatedEofInputStream();
         PumpCompletionTracker pumpStarter = new PumpCompletionTracker();
         ControllableProcess process = new ControllableProcess(stdout, new FeedInputStream());
@@ -300,7 +300,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
         AssertionError evaluatorError = new AssertionError("late regex evaluator failure");
         GatedFailureInputStream stdout = new GatedFailureInputStream(outputFailure);
         BlockingErrorRegexEvaluator evaluator = new BlockingErrorRegexEvaluator(evaluatorError);
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         AtomicInteger lateReports = new AtomicInteger();
         AtomicInteger uncaughtReports = new AtomicInteger();
         Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
@@ -353,7 +353,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
                 ExpectSettings.defaults(),
                 ZeroReadBackoff.exponential(),
                 PumpStarter.threading(),
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 evaluator,
                 (thread, error) -> reports.incrementAndGet());
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -383,7 +383,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
         PumpCompletionTracker pumps = new PumpCompletionTracker();
         DefaultExpect expect = expect(
                 new ControllableProcess(stdout, new FeedInputStream()),
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 ExpectRegexMatcher::evaluate,
                 ExpectSettings.defaults(),
                 pumps);
@@ -436,7 +436,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
                 ExpectSettings.defaults(),
                 ZeroReadBackoff.exponential(),
                 PumpStarter.threading(),
-                new BoundedTaskRunner.Limiter(2),
+                new BoundedTaskLimiter(2),
                 (pattern, text, searchStart) -> {
                     int invocation = evaluations.incrementAndGet();
                     if (invocation <= 2) {
@@ -479,7 +479,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
                 ExpectSettings.defaults(),
                 ZeroReadBackoff.exponential(),
                 PumpStarter.threading(),
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 (pattern, text, searchStart) -> {
                     reference.get().close();
                     return new ExpectRegexMatcher.Evaluation(0, 0, "", List.of());
@@ -500,7 +500,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
                 ExpectSettings.defaults(),
                 ZeroReadBackoff.exponential(),
                 PumpStarter.threading(),
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 (pattern, text, searchStart) -> {
                     throw evaluatorError;
                 });
@@ -529,7 +529,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
                 ExpectSettings.defaults().withTranscriptLimit(256).withMatchBufferLimit(24),
                 ZeroReadBackoff.exponential(),
                 PumpStarter.threading(),
-                new BoundedTaskRunner.Limiter(1),
+                new BoundedTaskLimiter(1),
                 (pattern, text, searchStart) -> {
                     matching.countDown();
                     awaitUninterruptibly(release);

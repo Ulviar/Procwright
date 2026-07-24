@@ -32,9 +32,9 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void isolatedLimiterEnforcesConfiguredCapacityAndRestoresEveryReservation() {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(2);
-        BoundedTaskRunner.Permit first = limiter.tryAcquire();
-        BoundedTaskRunner.Permit second = limiter.tryAcquire();
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(2);
+        BoundedTaskPermit first = limiter.tryAcquire();
+        BoundedTaskPermit second = limiter.tryAcquire();
 
         assertNotNull(first);
         assertNotNull(second);
@@ -42,7 +42,7 @@ final class BoundedTaskRunnerTest {
         try {
             first.close();
             assertEquals(1, limiter.availablePermits());
-            try (BoundedTaskRunner.Permit replacement = limiter.tryAcquire()) {
+            try (BoundedTaskPermit replacement = limiter.tryAcquire()) {
                 assertNotNull(replacement);
                 assertEquals(0, limiter.availablePermits());
             }
@@ -57,7 +57,7 @@ final class BoundedTaskRunnerTest {
     @Test
     void arbitraryCallbacksUseFreshNonInheritingDaemonThreads() throws Exception {
         int taskCount = 64;
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         ThreadLocal<String> contamination = new ThreadLocal<>();
         InheritableThreadLocal<String> inherited = new InheritableThreadLocal<>();
         inherited.set("caller-state");
@@ -86,7 +86,7 @@ final class BoundedTaskRunnerTest {
     void freshOwnerRecoversAfterThreadFactoryRejectionWithoutLeakingAdmission() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
         SecurityException rejection = new SecurityException("owner start denied");
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
 
         ExecutionException failure = assertThrows(
@@ -118,7 +118,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void timeoutInterruptsRunningTask() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch waitForInterrupt = new CountDownLatch(1);
         CountDownLatch taskStarted = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
@@ -155,7 +155,7 @@ final class BoundedTaskRunnerTest {
         }
 
         assertTrue(interrupted.await(1, TimeUnit.SECONDS));
-        try (BoundedTaskRunner.Permit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
+        try (BoundedTaskPermit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
             assertNotNull(permit);
             assertEquals(0, limiter.availablePermits());
         }
@@ -164,7 +164,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void nonCooperativeTimedOutTaskRetainsCapacityUntilItActuallyStops() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         int baselineCapacity = limiter.availablePermits();
         long operationDeadline = TimeUnit.SECONDS.toNanos(30);
         CountDownLatch started = new CountDownLatch(1);
@@ -229,7 +229,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void lateErrorAfterTimeoutIsReportedToTheUncaughtHandler() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch reported = new CountDownLatch(1);
@@ -281,7 +281,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void cancellationWakesCallerAndRetainsPermitUntilNonCooperativeTaskStops() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -302,7 +302,7 @@ final class BoundedTaskRunnerTest {
             assertEquals(0, limiter.availablePermits());
 
             release.countDown();
-            try (BoundedTaskRunner.Permit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
+            try (BoundedTaskPermit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
                 assertNotNull(permit);
                 assertEquals(0, limiter.availablePermits());
             }
@@ -316,7 +316,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void callerInterruptionSelectsAbandonmentBeforeInterruptingActiveTask() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch taskStarted = new CountDownLatch(1);
         CountDownLatch blockTask = new CountDownLatch(1);
         CountDownLatch lateFailureHandled = new CountDownLatch(1);
@@ -369,7 +369,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void cancellationRoutesLateErrorToTheTerminalAwareHandlerExactlyOnce() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -423,7 +423,7 @@ final class BoundedTaskRunnerTest {
             assertEquals(
                     1, permitsDuringHandler.get(), "late publication must run only after callback capacity returns");
             assertEquals(0, uncaughtCalls.get());
-            try (BoundedTaskRunner.Permit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
+            try (BoundedTaskPermit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
                 assertNotNull(permit);
                 assertEquals(0, limiter.availablePermits());
             }
@@ -439,7 +439,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void cancellationCanRouteLateRuntimeFailureWithoutRetainingTheCaller() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -472,7 +472,7 @@ final class BoundedTaskRunnerTest {
             release.countDown();
             assertTrue(handled.await(1, TimeUnit.SECONDS));
             assertSame(lateFailure, observed.get());
-            try (BoundedTaskRunner.Permit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
+            try (BoundedTaskPermit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
                 assertNotNull(permit);
                 assertEquals(0, limiter.availablePermits());
             }
@@ -486,8 +486,8 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void cancellationWhileWaitingForCapacityDoesNotStartTask() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
-        BoundedTaskRunner.Permit occupied = limiter.acquire(deadline(Duration.ofSeconds(1)));
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
+        BoundedTaskPermit occupied = limiter.acquire(deadline(Duration.ofSeconds(1)));
         BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
         AtomicBoolean started = new AtomicBoolean();
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -516,7 +516,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void completedTasksDoNotAccumulateCancellationListeners() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
 
         for (int index = 0; index < 100; index++) {
@@ -537,7 +537,7 @@ final class BoundedTaskRunnerTest {
     void threadStartFailuresAfterWrapperStartCannotReleaseALateTaskOrPermitTwice() throws Exception {
         for (Throwable rejection : List.of(
                 new SecurityException("thread start denied"), new AssertionError("fatal thread start failure"))) {
-            BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+            BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
             BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
             AtomicBoolean taskStarted = new AtomicBoolean();
             AtomicReference<Thread> rejectedThread = new AtomicReference<>();
@@ -563,7 +563,6 @@ final class BoundedTaskRunnerTest {
                         return thread;
                     },
                     () -> {
-                        handoff.markSideEffectStarted();
                         taskStarted.set(true);
                         return null;
                     }));
@@ -585,7 +584,7 @@ final class BoundedTaskRunnerTest {
 
     @Test
     void fatalThreadCreationFailureCannotLeakPermitOrHandoffOwnership() {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
         AssertionError injected = new AssertionError("thread creation failed");
         AtomicBoolean taskStarted = new AtomicBoolean();
@@ -620,8 +619,8 @@ final class BoundedTaskRunnerTest {
 
     private static void assertAdmissionDeadlineDecision(boolean deadlineElapsed) throws Exception {
         long operationDeadline = TimeUnit.SECONDS.toNanos(30);
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
-        BoundedTaskRunner.Permit occupied = limiter.acquire(deadline(Duration.ofSeconds(1)));
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
+        BoundedTaskPermit occupied = limiter.acquire(deadline(Duration.ofSeconds(1)));
         BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
         ControlledNanoClock clock = new ControlledNanoClock();
         AtomicBoolean taskStarted = new AtomicBoolean();
@@ -639,7 +638,6 @@ final class BoundedTaskRunnerTest {
                     },
                     clock,
                     () -> {
-                        handoff.markSideEffectStarted();
                         taskStarted.set(true);
                         return null;
                     })));
@@ -657,7 +655,7 @@ final class BoundedTaskRunnerTest {
                 assertFalse(taskStarted.get(), "an expired pre-start deadline released a late task");
             } else {
                 assertNull(observed);
-                assertEquals(BoundedTaskRunner.TaskPhase.SIDE_EFFECT_STARTED, handoff.phase());
+                assertEquals(BoundedTaskRunner.TaskPhase.ADMITTED, handoff.phase());
                 assertFalse(handoff.retrySafe());
                 assertTrue(taskStarted.get());
             }

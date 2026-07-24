@@ -76,6 +76,8 @@ Runtime получает только согласованный plan и не у
 - session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, public cleanup
   barrier — `SessionExitBarrier`;
 - process lifecycle — `ProcessLifecycle`, exact-once process-tree cleanup — `SessionProcessCleanup`;
+- bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; execution owner policy —
+  `BoundedTaskOwner`, lifecycle одного accepted вызова — `BoundedTaskExecution`;
 - stdin serialization/close, output ownership и distinct terminal/physical close callbacks — `SessionResources`,
   output failure classification и physical settlement — `SessionOutputCleanup`;
 - арбитрация attach/report для cleanup failures после terminal outcome — `SessionLateFailures`;
@@ -167,6 +169,8 @@ scenario flags.
 - provider owners не переиспользуются, поэтому arbitrary `ThreadLocal` и mutable thread state не переносятся между
   operations;
 - admission ограничивает выполняющиеся и abandoned operations; callback queues не растут без границы;
+- nullable комбинации execution owners не входят в bounded-task state machine: каждый accepted вызов заранее получает
+  ровно одного fresh или session-affine owner-а, явную cancellation policy и явный tracked/untracked handoff;
 - late `RuntimeException` и `Error` readiness/worker hook после timeout или interruption отправляются ровно один раз
   через bounded failure reporter; ожидаемый `InterruptedException` от отмены отдельно не публикуется;
 - late `RuntimeException` и `Error` line/protocol callback публикуются через bounded failure reporter только после
@@ -175,6 +179,8 @@ scenario flags.
 - diagnostics сохраняют порядок для одного destination, но отдают dispatcher после bounded batch и продолжают с
   конца общей FIFO-очереди, поэтому непрерывный producer не удерживает dispatcher slots бесконечно;
 - interrupt синхронного caller-а восстанавливает interrupt status и не обходит cleanup;
+- best-effort failure/completion notification выполняется только после mandatory physical close settlement; отказ
+  запуска notification owner-а не может остановить fallback close owner или удержать следующее принятое закрытие;
 - coroutine cancellation закрывает/retire только session или worker с недостоверным protocol state; ожидание общего
   exit future не получает ownership над процессом.
 

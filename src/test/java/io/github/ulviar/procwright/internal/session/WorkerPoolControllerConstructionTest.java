@@ -27,7 +27,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
 
     @Test
     void fatalReplenishmentErrorAfterCommitClosesPoolWithoutExternalActivity() throws Exception {
-        int permitsBefore = BoundedTaskRunner.WORKER_STARTUPS.availablePermits();
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         AssertionError fatalError = new AssertionError("background worker startup failed");
         CountDownLatch factoryEntered = new CountDownLatch(1);
         CountDownLatch releaseFactory = new CountDownLatch(1);
@@ -69,7 +69,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
             assertPartition(pool, 0, 0, 0, 0, 0);
             PoolFailure closed = assertThrows(PoolFailure.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
             assertEquals(FailureKind.CLOSED, closed.kind);
-            assertEquals(permitsBefore, BoundedTaskRunner.WORKER_STARTUPS.availablePermits());
+            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         } finally {
             releaseFactory.countDown();
             pool.closeAsync();
@@ -152,7 +152,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
 
     @Test
     void failedConstructionRetainsTerminalCleanupUntilLateWorkerClosesExactlyOnce() throws Exception {
-        int permitsBefore = BoundedTaskRunner.WORKER_STARTUPS.availablePermits();
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch releaseStartup = new CountDownLatch(1);
         CountDownLatch startupFinished = new CountDownLatch(1);
@@ -198,7 +198,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
             PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
             constructorExecutor.shutdownNow();
             assertTrue(constructorExecutor.awaitTermination(1, TimeUnit.SECONDS));
-            assertEquals(permitsBefore, BoundedTaskRunner.WORKER_STARTUPS.availablePermits());
+            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 
@@ -235,7 +235,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
         CountDownLatch lateStartupEntered = new CountDownLatch(1);
         CountDownLatch releaseLateStartup = new CountDownLatch(1);
         AtomicReference<Thread> lateStartupThread = new AtomicReference<>();
-        int permitsBefore = BoundedTaskRunner.WORKER_STARTUPS.availablePermits();
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         AtomicInteger starts = new AtomicInteger();
         AtomicInteger reports = new AtomicInteger();
         CountDownLatch reportPublished = new CountDownLatch(1);
@@ -278,7 +278,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
         } finally {
             releaseLateStartup.countDown();
             joinThread(lateStartupThread, "late warmup startup");
-            assertEquals(permitsBefore, BoundedTaskRunner.WORKER_STARTUPS.availablePermits());
+            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 
@@ -286,7 +286,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
     void warmupTimeoutUsesStartupFailureTaxonomy() throws Exception {
         CountDownLatch release = new CountDownLatch(1);
         AtomicReference<Thread> startupThread = new AtomicReference<>();
-        int permitsBefore = BoundedTaskRunner.WORKER_STARTUPS.availablePermits();
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         try {
             PoolFailure failure = assertThrows(
                     PoolFailure.class,
@@ -303,7 +303,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
         } finally {
             release.countDown();
             joinThread(startupThread, "warmup startup");
-            assertEquals(permitsBefore, BoundedTaskRunner.WORKER_STARTUPS.availablePermits());
+            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 

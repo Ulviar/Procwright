@@ -43,12 +43,12 @@ final class PoolLifecycleDispatcher {
     private boolean running = true;
     private int outstanding;
 
-    PoolLifecycleDispatcher(BoundedTaskRunner.Limiter limiter, TaskStarter starter, String threadPrefix) {
+    PoolLifecycleDispatcher(BoundedTaskLimiter limiter, TaskStarter starter, String threadPrefix) {
         this(limiter, starter, threadPrefix, defaultAdmissionCapacity(limiter));
     }
 
     PoolLifecycleDispatcher(
-            BoundedTaskRunner.Limiter limiter, TaskStarter starter, String threadPrefix, int admissionCapacity) {
+            BoundedTaskLimiter limiter, TaskStarter starter, String threadPrefix, int admissionCapacity) {
         Objects.requireNonNull(limiter, "limiter");
         Objects.requireNonNull(starter, "starter");
         Objects.requireNonNull(threadPrefix, "threadPrefix");
@@ -251,7 +251,7 @@ final class PoolLifecycleDispatcher {
 
     private static PoolLifecycleDispatcher shared(String threadPrefix, int admissionCapacity) {
         return new PoolLifecycleDispatcher(
-                new BoundedTaskRunner.Limiter(SHARED_PARALLELISM), Threading::start, threadPrefix, admissionCapacity);
+                new BoundedTaskLimiter(SHARED_PARALLELISM), Threading::start, threadPrefix, admissionCapacity);
     }
 
     private static final class Retirements {
@@ -272,7 +272,7 @@ final class PoolLifecycleDispatcher {
                 shared("procwright-pool-replenishment-", SHARED_TASK_ADMISSION_CAPACITY);
     }
 
-    private static int defaultAdmissionCapacity(BoundedTaskRunner.Limiter limiter) {
+    private static int defaultAdmissionCapacity(BoundedTaskLimiter limiter) {
         return Math.max(16, Math.multiplyExact(limiter.availablePermits(), 8));
     }
 

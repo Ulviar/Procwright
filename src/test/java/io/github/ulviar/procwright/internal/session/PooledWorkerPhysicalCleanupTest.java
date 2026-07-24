@@ -649,7 +649,7 @@ final class PooledWorkerPhysicalCleanupTest {
     }
 
     private static PoolLifecycleDispatcher saturatedNestedDispatcher(String threadPrefix) {
-        return new PoolLifecycleDispatcher(new BoundedTaskRunner.Limiter(1), Threading::start, threadPrefix);
+        return new PoolLifecycleDispatcher(new BoundedTaskLimiter(1), Threading::start, threadPrefix);
     }
 
     private static void assertNoDispatcherLeak(BoundedCloseDispatcher dispatcher) {

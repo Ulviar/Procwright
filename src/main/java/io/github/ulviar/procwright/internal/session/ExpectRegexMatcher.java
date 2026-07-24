@@ -18,10 +18,10 @@ import java.util.regex.Pattern;
 final class ExpectRegexMatcher {
 
     private final ExpectSessionState state;
-    private final BoundedTaskRunner.Limiter limiter;
+    private final BoundedTaskLimiter limiter;
     private final Evaluator evaluator;
 
-    ExpectRegexMatcher(ExpectSessionState state, BoundedTaskRunner.Limiter limiter, Evaluator evaluator) {
+    ExpectRegexMatcher(ExpectSessionState state, BoundedTaskLimiter limiter, Evaluator evaluator) {
         this.state = Objects.requireNonNull(state, "state");
         this.limiter = Objects.requireNonNull(limiter, "limiter");
         this.evaluator = Objects.requireNonNull(evaluator, "evaluator");

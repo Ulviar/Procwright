@@ -34,7 +34,7 @@ final class WorkerHookSupportTest {
     void nonCooperativeHookReturnsAtDeadlineAndRetainsCapacityUntilCompletion() throws InterruptedException {
         CountDownLatch hookStarted = new CountDownLatch(1);
         CountDownLatch releaseHook = new CountDownLatch(1);
-        int permitsBefore = BoundedTaskRunner.WORKER_HOOKS.availablePermits();
+        int permitsBefore = BoundedTaskLimits.WORKER_HOOKS.availablePermits();
         long started = System.nanoTime();
         try {
             IllegalStateException exception = assertThrows(
@@ -55,11 +55,11 @@ final class WorkerHookSupportTest {
             assertEquals("timeout", exception.getMessage());
             assertEquals(0, hookStarted.getCount());
             assertTrue(elapsed.compareTo(Duration.ofMillis(400)) < 0, () -> "hook timeout took " + elapsed);
-            assertEquals(permitsBefore - 1, BoundedTaskRunner.WORKER_HOOKS.availablePermits());
+            assertEquals(permitsBefore - 1, BoundedTaskLimits.WORKER_HOOKS.availablePermits());
         } finally {
             releaseHook.countDown();
         }
-        assertTrue(eventuallyTrue(() -> BoundedTaskRunner.WORKER_HOOKS.availablePermits() == permitsBefore));
+        assertTrue(eventuallyTrue(() -> BoundedTaskLimits.WORKER_HOOKS.availablePermits() == permitsBefore));
     }
 
     @Test
@@ -161,7 +161,7 @@ final class WorkerHookSupportTest {
             releaseHook.countDown();
             assertTrue(reported.await(1, TimeUnit.SECONDS));
             assertTrue(eventuallyTrue(() ->
-                    BoundedTaskRunner.WORKER_HOOKS.availablePermits() == BoundedTaskRunner.WORKER_HOOKS.capacity()));
+                    BoundedTaskLimits.WORKER_HOOKS.availablePermits() == BoundedTaskLimits.WORKER_HOOKS.capacity()));
             Thread.sleep(50);
             assertEquals(1, matchingReports.get());
         } finally {
@@ -215,7 +215,7 @@ final class WorkerHookSupportTest {
             releaseHook.countDown();
             assertTrue(reported.await(1, TimeUnit.SECONDS));
             assertTrue(eventuallyTrue(() ->
-                    BoundedTaskRunner.WORKER_HOOKS.availablePermits() == BoundedTaskRunner.WORKER_HOOKS.capacity()));
+                    BoundedTaskLimits.WORKER_HOOKS.availablePermits() == BoundedTaskLimits.WORKER_HOOKS.capacity()));
             Thread.sleep(50);
             assertEquals(1, matchingReports.get());
         } finally {

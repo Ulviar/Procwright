@@ -722,7 +722,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                 throws TimeoutException, InterruptedException, ExecutionException,
                         BoundedTaskRunner.TaskCancelledException {
             return BoundedTaskRunner.runReportingLateFailure(
-                    BoundedTaskRunner.PROTOCOL_CALLBACKS,
+                    BoundedTaskLimits.PROTOCOL_CALLBACKS,
                     threadPrefix,
                     deadlineNanos,
                     cancellation,

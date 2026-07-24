@@ -37,7 +37,7 @@ public final class BoundedCloseDispatcher {
     private final int pendingCapacity;
     private final int maxOutstandingCapacity;
     private final ThreadStarter threadStarter;
-    private final BoundedFailureReporter failureReporter;
+    private final CloseNotificationPublisher notifications;
     private final Object lock = new Object();
     private final ArrayDeque<CloseExecution> pending;
     private final ArrayDeque<CloseExecution> fallbackPending;
@@ -60,6 +60,20 @@ public final class BoundedCloseDispatcher {
             int maxOutstandingCapacity,
             ThreadStarter threadStarter,
             BoundedFailureReporter failureReporter) {
+        this(
+                activeCapacity,
+                pendingCapacity,
+                maxOutstandingCapacity,
+                threadStarter,
+                CloseNotificationPublisher.using(failureReporter));
+    }
+
+    BoundedCloseDispatcher(
+            int activeCapacity,
+            int pendingCapacity,
+            int maxOutstandingCapacity,
+            ThreadStarter threadStarter,
+            CloseNotificationPublisher notifications) {
         if (activeCapacity <= 0) {
             throw new IllegalArgumentException("activeCapacity must be positive");
         }
@@ -79,7 +93,7 @@ public final class BoundedCloseDispatcher {
         this.pendingCapacity = pendingCapacity;
         this.maxOutstandingCapacity = maxOutstandingCapacity;
         this.threadStarter = Objects.requireNonNull(threadStarter, "threadStarter");
-        this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
+        this.notifications = Objects.requireNonNull(notifications, "notifications");
         pending = new ArrayDeque<>(pendingCapacity);
         fallbackPending = new ArrayDeque<>(maxOutstandingCapacity);
     }
@@ -341,19 +355,27 @@ public final class BoundedCloseDispatcher {
 
     private void publishFailure(CloseRequest request, Throwable failure, Thread sourceThread) {
         if (failure != null) {
-            failureReporter.execute(sourceThread, () -> {
-                try {
-                    request.failureHandler().accept(failure);
-                } catch (Throwable callbackFailure) {
-                    SuppressionSupport.attach(failure, callbackFailure);
-                    failureReporter.report(sourceThread, failure);
-                }
-            });
+            try {
+                notifications.execute(sourceThread, () -> {
+                    try {
+                        request.failureHandler().accept(failure);
+                    } catch (Throwable callbackFailure) {
+                        SuppressionSupport.attach(failure, callbackFailure);
+                        notifications.report(sourceThread, failure);
+                    }
+                });
+            } catch (Throwable notificationFailure) {
+                SuppressionSupport.attach(failure, notificationFailure);
+            }
         }
     }
 
     private void publishCompletion(CloseRequest request, Thread sourceThread) {
-        failureReporter.execute(sourceThread, request.completionHandler());
+        try {
+            notifications.execute(sourceThread, request.completionHandler());
+        } catch (Throwable ignored) {
+            // Physical close and mandatory settlement are already complete.
+        }
     }
 
     public int activeCount() {

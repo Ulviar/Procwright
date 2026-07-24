@@ -26,7 +26,7 @@ final class StreamListenerTaskOwnerTest {
 
     @Test
     void abnormalIdleOwnerExitReplacesAndCompletesAnAlreadyAcceptedDelivery() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch firstIdleWait = new CountDownLatch(1);
         AtomicInteger waits = new AtomicInteger();
         IdleOwnerFailure idleOwnerFailure = new IdleOwnerFailure();
@@ -70,7 +70,7 @@ final class StreamListenerTaskOwnerTest {
 
     @Test
     void failedReplacementSettlesAcceptedDeliveryAndReleasesItsGlobalPermit() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch firstIdleWait = new CountDownLatch(1);
         AtomicInteger waits = new AtomicInteger();
         AtomicInteger threadCreations = new AtomicInteger();
@@ -119,7 +119,7 @@ final class StreamListenerTaskOwnerTest {
     @Test
     void closeAndSubmitRaceAlwaysSettlesAcceptedAdmissionExactlyOnce() throws Exception {
         for (int run = 0; run < 200; run++) {
-            BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+            BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
             StreamListenerTaskOwner owner = new StreamListenerTaskOwner();
             FailureCapture failures = new FailureCapture();
             CountDownLatch start = new CountDownLatch(1);
@@ -167,7 +167,7 @@ final class StreamListenerTaskOwnerTest {
 
     @Test
     void thousandsOfChunksReuseOnlyTheirSessionOwnerAndNeverCrossSessionState() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         FailureCapture failures = new FailureCapture();
         ThreadLocal<String> callbackState = new ThreadLocal<>();
         InheritableThreadLocal<String> inherited = new InheritableThreadLocal<>();
@@ -214,7 +214,7 @@ final class StreamListenerTaskOwnerTest {
 
     @Test
     void cancelledNonCooperativeListenerRetainsGlobalAdmissionUntilItActuallyReturns() throws Exception {
-        BoundedTaskRunner.Limiter limiter = new BoundedTaskRunner.Limiter(1);
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
         StreamListenerTaskOwner owner = new StreamListenerTaskOwner();
         FailureCapture failures = new FailureCapture();
@@ -286,7 +286,7 @@ final class StreamListenerTaskOwnerTest {
 
     private static <T> T invoke(
             StreamListenerTaskOwner owner,
-            BoundedTaskRunner.Limiter limiter,
+            BoundedTaskLimiter limiter,
             FailureCapture failures,
             BoundedTaskRunner.Task<T> task)
             throws Exception {

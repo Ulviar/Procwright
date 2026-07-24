@@ -413,7 +413,7 @@ public final class DefaultLineSession implements LineSession {
             RequestFailureTracker<LineSessionException> requestFailures) {
         try {
             return BoundedTaskRunner.runReportingLateFailure(
-                    BoundedTaskRunner.PROTOCOL_CALLBACKS,
+                    BoundedTaskLimits.PROTOCOL_CALLBACKS,
                     "procwright-line-decoder-",
                     deadlineNanos,
                     callbackCancellation,
@@ -483,9 +483,8 @@ public final class DefaultLineSession implements LineSession {
         BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
         try {
             writeTaskRunner.run(
-                    BoundedTaskRunner.BLOCKING_WRITES, "procwright-line-stdin-", deadlineNanos, handoff, () -> {
+                    BoundedTaskLimits.BLOCKING_WRITES, "procwright-line-stdin-", deadlineNanos, handoff, () -> {
                         java.io.OutputStream stdin = session.stdin();
-                        handoff.markSideEffectStarted();
                         stdin.write(encodedLine);
                         stdin.flush();
                         return null;
@@ -681,7 +680,7 @@ public final class DefaultLineSession implements LineSession {
     interface WriteTaskRunner {
 
         void run(
-                BoundedTaskRunner.Limiter limiter,
+                BoundedTaskLimiter limiter,
                 String threadPrefix,
                 long deadlineNanos,
                 BoundedTaskRunner.TaskHandoff handoff,

@@ -88,7 +88,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
     @Test
     void launchClaimFailureRestoresGlobalPermitAndLeavesReservationForCallerRollback() {
-        int permitsBefore = BoundedTaskRunner.WORKER_STARTUPS.availablePermits();
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
         IllegalStateException claimFailure = new IllegalStateException("claim failed");
         StartupState state = new StartupState();
@@ -111,7 +111,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
         assertSame(claimFailure, observed);
         assertEquals(0, factoryCalls.get());
-        assertEquals(permitsBefore, BoundedTaskRunner.WORKER_STARTUPS.availablePermits());
+        assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         assertSame(worker, reservation.releaseForFailure());
         assertEquals(0, admissions.availablePermits());
         worker.releaseRetirementAdmission();
