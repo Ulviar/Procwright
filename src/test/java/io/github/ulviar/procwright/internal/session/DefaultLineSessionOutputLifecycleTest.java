@@ -393,21 +393,26 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
         DefaultSession rawSession = session(process);
         try (DefaultLineSession lineSession =
                 new DefaultLineSession(rawSession, options(charset), ZeroReadBackoff.exponential())) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
             try {
+                Future<LineResponse> request = executor.submit(() -> lineSession.requestEncoded(
+                        "request\n".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
                 assertTrue(charset.awaitBeforeMalformed());
+                charset.releaseMalformed();
+
+                ExecutionException requestFailure =
+                        assertThrows(ExecutionException.class, () -> request.get(1, TimeUnit.SECONDS));
+                LineSessionException failure = assertInstanceOf(LineSessionException.class, requestFailure.getCause());
+
+                assertEquals(LineSessionException.Reason.DECODE_ERROR, failure.reason());
+                assertFalse(failure.transcript().text().contains("ok"));
+                lineSession.onExit().get(1, TimeUnit.SECONDS);
+                assertFalse(process.isAlive());
             } finally {
                 charset.releaseMalformed();
+                executor.shutdownNow();
+                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
             }
-
-            LineSessionException failure = assertThrows(
-                    LineSessionException.class,
-                    () -> lineSession.requestEncoded(
-                            "request\n".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
-
-            assertEquals(LineSessionException.Reason.DECODE_ERROR, failure.reason());
-            assertFalse(failure.transcript().text().contains("ok"));
-            lineSession.onExit().get(1, TimeUnit.SECONDS);
-            assertFalse(process.isAlive());
         }
     }
 
