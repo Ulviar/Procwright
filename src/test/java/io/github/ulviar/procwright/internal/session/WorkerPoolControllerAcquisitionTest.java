@@ -8,6 +8,7 @@ import static io.github.ulviar.procwright.internal.session.WorkerPoolController.
 import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.PROCESS_EXITED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -115,6 +116,97 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
             assertEquals(FailureKind.ACQUIRE_TIMEOUT, timeout.kind);
             assertTrue(pool.metrics().retireReasons().isEmpty());
             assertPartition(pool, 1, 1, 0, 0, 0);
+        } finally {
+            pool.closeAsync();
+        }
+    }
+
+    @Test
+    void interruptedCapacityWaitRestoresInterruptAndLeavesTheExistingLeaseUntouched() throws Exception {
+        WorkerPoolController<TestWorker> pool = inlineController(
+                () -> new TestWorker(1),
+                worker -> {},
+                new Options(1, 1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false));
+        PoolWorker<TestWorker> leased = pool.acquire((worker, deadline) -> HEALTHY);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<Boolean> interrupted = new AtomicReference<>();
+        Thread waiting = new Thread(() -> {
+            try {
+                pool.acquire((worker, deadline) -> HEALTHY);
+            } catch (Throwable observed) {
+                failure.set(observed);
+            } finally {
+                interrupted.set(Thread.currentThread().isInterrupted());
+            }
+        });
+        try {
+            waiting.start();
+            assertTrue(awaitState(waiting, Thread.State.TIMED_WAITING, Duration.ofSeconds(1)));
+
+            waiting.interrupt();
+            waiting.join(TimeUnit.SECONDS.toMillis(1));
+
+            assertFalse(waiting.isAlive());
+            PoolFailure observed = (PoolFailure) failure.get();
+            assertEquals(FailureKind.INTERRUPTED, observed.kind);
+            assertTrue(observed.getCause() instanceof InterruptedException);
+            assertEquals(Boolean.TRUE, interrupted.get());
+            assertPartition(pool, 1, 0, 1, 0, 0);
+        } finally {
+            waiting.interrupt();
+            waiting.join(TimeUnit.SECONDS.toMillis(1));
+            pool.release(leased, true, null);
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void healthCheckFailureRetiresTheLeaseAndPreservesFailureIdentity() throws Exception {
+        AssertionError healthFailure = new AssertionError("health check failed");
+        AtomicInteger physicalCloses = new AtomicInteger();
+        WorkerPoolController<TestWorker> pool = inlineController(
+                () -> new TestWorker(1),
+                worker -> physicalCloses.incrementAndGet(),
+                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+        try {
+            AssertionError observed = assertThrows(
+                    AssertionError.class,
+                    () -> pool.acquire((worker, deadline) -> {
+                        throw healthFailure;
+                    }));
+
+            assertSame(healthFailure, observed);
+            assertTrue(pool.awaitMetrics(metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
+            assertEquals(1, physicalCloses.get());
+            assertEquals(1L, pool.metrics().retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
+            assertPartition(pool, 0, 0, 0, 0, 0);
+        } finally {
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void healthRetriesShareOneAbsoluteAcquireDeadline() {
+        AtomicInteger created = new AtomicInteger();
+        AtomicReference<Long> firstDeadline = new AtomicReference<>();
+        AtomicReference<Long> secondDeadline = new AtomicReference<>();
+        WorkerPoolController<TestWorker> pool = inlineController(
+                () -> new TestWorker(created.incrementAndGet()),
+                worker -> {},
+                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+        try {
+            PoolWorker<TestWorker> worker = pool.acquire((candidate, deadline) -> {
+                if (candidate.id() == 1) {
+                    firstDeadline.set(deadline);
+                    return HEALTH_FAILED;
+                }
+                secondDeadline.set(deadline);
+                return HEALTHY;
+            });
+
+            assertEquals(2, worker.session().id());
+            assertEquals(firstDeadline.get(), secondDeadline.get());
+            pool.release(worker, true, null);
         } finally {
             pool.closeAsync();
         }
@@ -255,5 +347,14 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
             acquireExecutor.shutdownNow();
             assertTrue(acquireExecutor.awaitTermination(1, TimeUnit.SECONDS));
         }
+    }
+
+    private static boolean awaitState(Thread thread, Thread.State expected, Duration timeout)
+            throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        while (thread.getState() != expected && System.nanoTime() < deadlineNanos) {
+            Thread.sleep(1);
+        }
+        return thread.getState() == expected;
     }
 }

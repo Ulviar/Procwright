@@ -102,7 +102,8 @@ Runtime получает только согласованный plan и не у
 - pool partition — `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
 - startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
-- pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`, terminal outcome и views —
+- pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
+- construction/closing/failure/drain decision — `PoolTermination`, terminal outcome и cancellation-isolated views —
   `PoolDrain`;
 - pool terminal reservation и disposable publication owner — `PoolTerminalPublisher`;
 - bounded retirement/report/replenishment domains — `PoolLifecycleDispatcher`, late failures — `PoolFailurePublisher`;

@@ -29,17 +29,14 @@ final class WorkerPoolController<S> {
     private final NanoClock metricsClock;
     private final RetirementAdmissionProvider retirementAdmissions;
     private final PoolPartition<PoolWorker<S>> partition;
-    private final ConstructionLedger construction = new ConstructionLedger();
     private final PoolMetrics cumulativeMetrics = new PoolMetrics();
     private final Object lock = new Object();
-    private final PoolDrain drain;
+    private final PoolTermination termination;
     private final PoolReplenisher replenisher;
     private final WorkerRetirementCoordinator<S> retirements;
     private final WorkerStartupCoordinator<S> startups;
 
-    private boolean closing;
     private long stateRevision;
-    private final WorkerCloseFailureAccumulator drainFailures = new WorkerCloseFailureAccumulator();
 
     WorkerPoolController(
             Supplier<S> workerFactory,
@@ -112,7 +109,8 @@ final class WorkerPoolController<S> {
                 failurePublisher::publish);
         startups = new WorkerStartupCoordinator<>(failures, workerLabel, retirementAdmissions, new StartupPoolState());
         try {
-            drain = new PoolDrain(configuredDependencies.terminalPublications().reserve());
+            termination = new PoolTermination(
+                    configuredDependencies.terminalPublications().reserve());
         } catch (RuntimeException failure) {
             throw Objects.requireNonNull(
                     failures.startupFailed("Could not reserve pool terminal publication capacity", failure),
@@ -122,20 +120,16 @@ final class WorkerPoolController<S> {
         try {
             warmup();
             ensureReplenishmentOwner();
-            boolean failedDuringConstruction;
-            Throwable constructionFailure;
+            PoolTermination.ConstructionResult constructionResult;
             synchronized (lock) {
-                failedDuringConstruction = closing;
-                constructionFailure = drainFailures.failure();
-                if (!failedDuringConstruction) {
-                    commitReports = construction.commit();
-                }
+                constructionResult = termination.finishConstruction();
             }
-            if (failedDuringConstruction) {
-                if (constructionFailure instanceof Error error) {
+            commitReports = constructionResult.reports();
+            if (!constructionResult.successful()) {
+                if (constructionResult.failure() instanceof Error error) {
                     throw error;
                 }
-                throw failures.retirementFailed("Pool failed during construction", constructionFailure);
+                throw failures.retirementFailed("Pool failed during construction", constructionResult.failure());
             }
         } catch (RuntimeException | Error failure) {
             cleanupFailedConstruction(failure);
@@ -148,47 +142,43 @@ final class WorkerPoolController<S> {
         Objects.requireNonNull(healthCheck, "healthCheck");
         long startedAtNanos = metricsClock.nanoTime();
         long deadlineNanos = DurationSupport.deadlineFromNow(policy.acquireTimeout());
-        LeaseHandoff handoff = new LeaseHandoff();
-        WorkerStartupCoordinator.Reservation<S> startupReservation = startups.newReservation();
         boolean acquireWaitAttempted = false;
         try {
             while (true) {
-                AcquireSelection<S> selection = takeOrReserveWorker(deadlineNanos, handoff, startupReservation);
-                PoolWorker<S> worker = selection.worker();
-                if (selection.startup()) {
-                    worker = openReservedWorker(
-                            startupReservation, deadlineNanos, PoolWorker.StartupPurpose.DEMAND, handoff);
-                }
-                ensureReplenishmentOwner();
-
-                if (deadlineNanos - System.nanoTime() <= 0) {
-                    throw acquireTimeoutAfterReturning(handoff);
-                }
-                HealthOutcome healthOutcome;
+                LeaseHandoff handoff = takeOrStartLease(deadlineNanos);
                 try {
-                    healthOutcome = Objects.requireNonNull(
-                            healthCheck.test(worker.session(), deadlineNanos), "healthCheck returned null");
-                } catch (RuntimeException | Error failure) {
-                    handoff.fail(failure, PooledWorkerRetireReason.HEALTH_FAILED);
-                    throw failure;
-                }
-                switch (healthOutcome) {
-                    case HEALTHY -> {
-                        if (deadlineNanos - System.nanoTime() <= 0) {
-                            throw acquireTimeoutAfterReturning(handoff);
-                        }
-                        acquireWaitAttempted = true;
-                        recordAcquireWait(startedAtNanos);
-                        return handoff.complete();
+                    ensureReplenishmentOwner();
+                    if (deadlineNanos - System.nanoTime() <= 0) {
+                        throw acquireTimeoutAfterReturning(handoff);
                     }
-                    case ACQUIRE_TIMEOUT -> throw acquireTimeoutAfterReturning(handoff);
-                    case HEALTH_FAILED -> handoff.retire(PooledWorkerRetireReason.HEALTH_FAILED);
-                    case PROCESS_EXITED -> handoff.retire(PooledWorkerRetireReason.PROCESS_EXITED);
+                    HealthOutcome healthOutcome;
+                    try {
+                        healthOutcome = Objects.requireNonNull(
+                                healthCheck.test(handoff.worker().session(), deadlineNanos),
+                                "healthCheck returned null");
+                    } catch (RuntimeException | Error failure) {
+                        handoff.fail(failure, PooledWorkerRetireReason.HEALTH_FAILED);
+                        throw failure;
+                    }
+                    switch (healthOutcome) {
+                        case HEALTHY -> {
+                            if (deadlineNanos - System.nanoTime() <= 0) {
+                                throw acquireTimeoutAfterReturning(handoff);
+                            }
+                            acquireWaitAttempted = true;
+                            recordAcquireWait(startedAtNanos);
+                            return handoff.complete();
+                        }
+                        case ACQUIRE_TIMEOUT -> throw acquireTimeoutAfterReturning(handoff);
+                        case HEALTH_FAILED -> handoff.retire(PooledWorkerRetireReason.HEALTH_FAILED);
+                        case PROCESS_EXITED -> handoff.retire(PooledWorkerRetireReason.PROCESS_EXITED);
+                    }
+                } catch (RuntimeException | Error failure) {
+                    handoff.fail(failure);
+                    throw failure;
                 }
             }
         } catch (RuntimeException | Error failure) {
-            failStartupReservation(startupReservation, failure);
-            handoff.fail(failure);
             if (!acquireWaitAttempted) {
                 try {
                     recordAcquireWait(startedAtNanos);
@@ -207,7 +197,7 @@ final class WorkerPoolController<S> {
             synchronized (lock) {
                 requireState(worker, PoolPartition.State.LEASED);
                 PooledWorkerRetireReason reason = reusable ? retireReasonForPolicy(worker) : failureReason;
-                if (closing && reason == null) {
+                if (termination.closing() && reason == null) {
                     reason = PooledWorkerRetireReason.CLOSED;
                 }
                 if (reason == null) {
@@ -228,7 +218,7 @@ final class WorkerPoolController<S> {
         Objects.requireNonNull(worker, "worker");
         synchronized (lock) {
             requireState(worker, PoolPartition.State.LEASED);
-            return closing ? PooledWorkerRetireReason.CLOSED : retireReasonForPolicy(worker);
+            return termination.closing() ? PooledWorkerRetireReason.CLOSED : retireReasonForPolicy(worker);
         }
     }
 
@@ -284,7 +274,7 @@ final class WorkerPoolController<S> {
 
     CompletableFuture<Void> closeAsync() {
         WorkerRetirementCoordinator.Batch<S> retirementBatch = retirements.newBatch();
-        DrainPublication publication;
+        PoolTermination.Publication publication;
         try {
             synchronized (lock) {
                 enterClosingLocked(null, retirementBatch);
@@ -294,15 +284,15 @@ final class WorkerPoolController<S> {
             retirementBatch.dispatch();
         }
         publish(publication);
-        return drain.view();
+        return termination.view();
     }
 
     private void warmup() {
         for (int index = 0; index < policy.warmupSize(); index++) {
             LeaseHandoff handoff = new LeaseHandoff();
-            WorkerStartupCoordinator.Reservation<S> startupReservation = startups.newReservation();
+            WorkerStartupCoordinator.Reservation<S> startupReservation = null;
             try {
-                reserveSlot(startupReservation);
+                startupReservation = reserveSlot();
                 openReservedWorker(
                         startupReservation,
                         DurationSupport.deadlineFromNow(policy.acquireTimeout()),
@@ -310,7 +300,9 @@ final class WorkerPoolController<S> {
                         handoff);
                 handoff.transferToPoolLifecycle();
             } catch (RuntimeException | Error failure) {
-                failStartupReservation(startupReservation, failure);
+                if (startupReservation != null) {
+                    failStartupReservation(startupReservation, failure);
+                }
                 handoff.fail(failure);
                 throw failure;
             }
@@ -322,7 +314,7 @@ final class WorkerPoolController<S> {
         WorkerRetirementCoordinator.Batch<S> retirementBatch = retirements.newBatch();
         try {
             synchronized (lock) {
-                completedFailures = construction.fail();
+                completedFailures = termination.failConstruction();
                 enterClosingLocked(null, retirementBatch);
             }
         } finally {
@@ -342,7 +334,7 @@ final class WorkerPoolController<S> {
             if (remainingNanos <= 0) {
                 throw new TimeoutException("pool construction cleanup deadline elapsed");
             }
-            drain.view().get(remainingNanos, TimeUnit.NANOSECONDS);
+            termination.view().get(remainingNanos, TimeUnit.NANOSECONDS);
         } catch (TimeoutException failure) {
             cleanupFailures.add(failure);
         } catch (InterruptedException failure) {
@@ -364,33 +356,32 @@ final class WorkerPoolController<S> {
         }
     }
 
-    private AcquireSelection<S> takeOrReserveWorker(
-            long deadlineNanos, LeaseHandoff handoff, WorkerStartupCoordinator.Reservation<S> startupReservation) {
+    private LeaseHandoff takeOrStartLease(long deadlineNanos) {
         while (true) {
+            LeaseHandoff handoff = null;
+            WorkerStartupCoordinator.Reservation<S> startupReservation = null;
             boolean retirementQueued = false;
-            PoolWorker<S> selected = null;
-            boolean startup = false;
             AcquireWaitFailure waitFailure = null;
             InterruptedException waitInterruption = null;
             WorkerRetirementCoordinator.Batch<S> retirementBatch = retirements.newBatch();
             try {
-                synchronized (lock) {
-                    if (closing) {
-                        waitFailure = AcquireWaitFailure.CLOSED;
-                    } else {
-                        PoolWorker<S> worker = partition.leaseIdle();
-                        if (worker != null) {
+                try {
+                    synchronized (lock) {
+                        if (termination.closing()) {
+                            waitFailure = AcquireWaitFailure.CLOSED;
+                        } else if (partition.idleCount() > 0) {
+                            handoff = new LeaseHandoff();
+                            PoolWorker<S> worker = Objects.requireNonNull(partition.leaseIdle(), "idle worker");
+                            ownLeased(worker, handoff);
                             PooledWorkerRetireReason reason = retireReasonForPolicy(worker);
-                            if (reason == null) {
-                                ownLeased(worker, handoff);
-                                selected = worker;
-                            } else {
+                            if (reason != null) {
                                 markRetiring(worker, reason, retirementBatch);
+                                handoff.rollback(worker);
+                                handoff = null;
                                 retirementQueued = true;
                             }
                         } else if (partition.size() < policy.maxSize()) {
-                            selected = reserveSlotLocked(startupReservation);
-                            startup = true;
+                            startupReservation = reserveSlotLocked();
                         } else {
                             long remainingNanos = deadlineNanos - System.nanoTime();
                             if (remainingNanos <= 0) {
@@ -406,39 +397,52 @@ final class WorkerPoolController<S> {
                             }
                         }
                     }
+                } finally {
+                    retirementBatch.dispatch();
                 }
-            } finally {
-                retirementBatch.dispatch();
-            }
-            if (waitFailure != null) {
-                throw switch (waitFailure) {
-                    case CLOSED -> failures.closed("Pool is closed");
-                    case TIMED_OUT -> failures.acquireTimeout("Timed out waiting for " + workerLabel);
-                    case INTERRUPTED ->
-                        failures.acquireInterrupted(
-                                "Interrupted while waiting for " + workerLabel,
-                                Objects.requireNonNull(waitInterruption, "waitInterruption"));
-                };
-            }
-            if (retirementQueued) {
-                continue;
-            }
-            if (selected != null) {
-                return new AcquireSelection<>(selected, startup);
+                if (waitFailure != null) {
+                    throw switch (waitFailure) {
+                        case CLOSED -> failures.closed("Pool is closed");
+                        case TIMED_OUT -> failures.acquireTimeout("Timed out waiting for " + workerLabel);
+                        case INTERRUPTED ->
+                            failures.acquireInterrupted(
+                                    "Interrupted while waiting for " + workerLabel,
+                                    Objects.requireNonNull(waitInterruption, "waitInterruption"));
+                    };
+                }
+                if (retirementQueued) {
+                    continue;
+                }
+                if (startupReservation == null && handoff == null) {
+                    continue;
+                }
+                if (startupReservation != null) {
+                    handoff = new LeaseHandoff();
+                    openReservedWorker(startupReservation, deadlineNanos, PoolWorker.StartupPurpose.DEMAND, handoff);
+                }
+                return Objects.requireNonNull(handoff, "lease handoff");
+            } catch (RuntimeException | Error failure) {
+                if (startupReservation != null) {
+                    failStartupReservation(startupReservation, failure);
+                }
+                if (handoff != null) {
+                    handoff.fail(failure);
+                }
+                throw failure;
             }
         }
     }
 
-    private PoolWorker<S> reserveSlot(WorkerStartupCoordinator.Reservation<S> startupReservation) {
-        PoolWorker<S> reservation = null;
+    private WorkerStartupCoordinator.Reservation<S> reserveSlot() {
+        WorkerStartupCoordinator.Reservation<S> reservation = null;
         boolean poolClosed;
         synchronized (lock) {
-            poolClosed = closing;
+            poolClosed = termination.closing();
             if (!poolClosed && partition.size() >= policy.maxSize()) {
                 throw new IllegalStateException("pool capacity exhausted while reserving startup slot");
             }
             if (!poolClosed) {
-                reservation = reserveSlotLocked(startupReservation);
+                reservation = reserveSlotLocked();
             }
         }
         if (poolClosed) {
@@ -447,12 +451,12 @@ final class WorkerPoolController<S> {
         return Objects.requireNonNull(reservation, "reservation");
     }
 
-    private PoolWorker<S> reserveSlotLocked(WorkerStartupCoordinator.Reservation<S> startupReservation) {
+    private WorkerStartupCoordinator.Reservation<S> reserveSlotLocked() {
         PoolWorker<S> worker = newStartingWorker();
-        startupReservation.register(worker);
+        WorkerStartupCoordinator.Reservation<S> reservation = startups.newReservation(worker);
         partition.addStarting(worker);
         stateChangedLocked();
-        return worker;
+        return reservation;
     }
 
     private PoolWorker<S> newStartingWorker() {
@@ -547,7 +551,7 @@ final class WorkerPoolController<S> {
             synchronized (lock) {
                 requireState(worker, PoolPartition.State.LEASED);
                 PooledWorkerRetireReason effectiveReason =
-                        closedTakesPrecedence && closing ? PooledWorkerRetireReason.CLOSED : reason;
+                        closedTakesPrecedence && termination.closing() ? PooledWorkerRetireReason.CLOSED : reason;
                 markRetiring(worker, effectiveReason, retirementBatch);
                 stateChangedLocked();
             }
@@ -570,7 +574,7 @@ final class WorkerPoolController<S> {
                     return;
                 }
                 PooledWorkerRetireReason effectiveReason =
-                        closedTakesPrecedence && closing ? PooledWorkerRetireReason.CLOSED : reason;
+                        closedTakesPrecedence && termination.closing() ? PooledWorkerRetireReason.CLOSED : reason;
                 switch (Objects.requireNonNull(partition.stateOf(worker), "worker state")) {
                     case LEASED -> markRetiring(worker, effectiveReason, retirementBatch);
                     case IDLE -> {
@@ -615,7 +619,7 @@ final class WorkerPoolController<S> {
     private void completeUnexpectedRetirementFailure(PoolWorker<S> worker, Throwable failure) {
         FailureReport failureReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
         WorkerRetirementCoordinator.Batch<S> retirementBatch = retirements.newBatch();
-        DrainPublication publication;
+        PoolTermination.Publication publication;
         try {
             synchronized (lock) {
                 enterClosingLocked(failure, retirementBatch);
@@ -639,7 +643,7 @@ final class WorkerPoolController<S> {
     private FailureReport processRetirement(PoolWorker<S> worker, WorkerRetirement.Outcome outcome) {
         Throwable closeFailure = outcome.failure();
         FailureReport lateReport = null;
-        DrainPublication publication;
+        PoolTermination.Publication publication;
         WorkerRetirementCoordinator.Batch<S> retirementBatch = retirements.newBatch();
         try {
             synchronized (lock) {
@@ -651,10 +655,9 @@ final class WorkerPoolController<S> {
                 cumulativeMetrics.workerRetired(worker.retireReason(), closeFailure != null);
                 if (closeFailure != null) {
                     enterClosingLocked(closeFailure, retirementBatch);
-                    if (construction.constructing() && worker.claimFailureReport()) {
-                        construction.record(PoolFailurePublisher.capture(Thread.currentThread(), closeFailure));
-                    } else if (construction.failed() && worker.claimFailureReport()) {
-                        lateReport = PoolFailurePublisher.capture(Thread.currentThread(), closeFailure);
+                    if (worker.claimFailureReport()) {
+                        lateReport = termination.routeWorkerCloseFailure(
+                                PoolFailurePublisher.capture(Thread.currentThread(), closeFailure));
                     }
                 }
                 publication = drainPublication();
@@ -674,19 +677,19 @@ final class WorkerPoolController<S> {
 
     private boolean replenishmentNeeded() {
         synchronized (lock) {
-            return !closing && needsReplenishment();
+            return !termination.closing() && needsReplenishment();
         }
     }
 
     private PoolReplenisher.Step replenishOne() {
-        WorkerStartupCoordinator.Reservation<S> startupReservation = startups.newReservation();
+        WorkerStartupCoordinator.Reservation<S> startupReservation = null;
         LeaseHandoff handoff = new LeaseHandoff();
         try {
             synchronized (lock) {
-                if (closing || !needsReplenishment()) {
+                if (termination.closing() || !needsReplenishment()) {
                     return PoolReplenisher.Step.STOP;
                 }
-                reserveSlotLocked(startupReservation);
+                startupReservation = reserveSlotLocked();
             }
             openReservedWorker(
                     startupReservation,
@@ -696,11 +699,15 @@ final class WorkerPoolController<S> {
             handoff.transferToPoolLifecycle();
             return PoolReplenisher.Step.SUCCESS;
         } catch (RuntimeException failure) {
-            failStartupReservation(startupReservation, failure);
+            if (startupReservation != null) {
+                failStartupReservation(startupReservation, failure);
+            }
             handoff.fail(failure);
             return PoolReplenisher.Step.RETRY;
         } catch (Error failure) {
-            failStartupReservation(startupReservation, failure);
+            if (startupReservation != null) {
+                failStartupReservation(startupReservation, failure);
+            }
             handoff.fail(failure);
             throw failure;
         }
@@ -737,7 +744,7 @@ final class WorkerPoolController<S> {
         }
         long deadline = DurationSupport.deadlineFromNow(backoff);
         synchronized (lock) {
-            while (!closing) {
+            while (!termination.closing()) {
                 long remaining = deadline - System.nanoTime();
                 if (remaining <= 0) {
                     return true;
@@ -754,11 +761,13 @@ final class WorkerPoolController<S> {
     }
 
     private void failReplenishmentOwner(Throwable failure) {
+        FailureReport lateReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
         WorkerRetirementCoordinator.Batch<S> retirementBatch = retirements.newBatch();
-        DrainPublication publication = null;
+        PoolTermination.Publication publication = null;
+        PoolTermination.FailureDisposition failureDisposition = PoolTermination.FailureDisposition.NONE;
         try {
             synchronized (lock) {
-                enterClosingLocked(failure, retirementBatch);
+                failureDisposition = enterClosingLocked(failure, retirementBatch);
                 publication = drainPublication();
             }
         } catch (RuntimeException | Error cleanupFailure) {
@@ -771,6 +780,9 @@ final class WorkerPoolController<S> {
             }
         }
         publish(publication);
+        if (failureDisposition == PoolTermination.FailureDisposition.LATE) {
+            failurePublisher.publish(lateReport);
+        }
         try {
             publishDrainIfReady();
         } catch (RuntimeException | Error cleanupFailure) {
@@ -797,7 +809,7 @@ final class WorkerPoolController<S> {
     private void reportOrRecordLateError(BoundedFailureReporter.FailureTarget failureTarget, Throwable failure) {
         FailureReport report;
         synchronized (lock) {
-            report = construction.route(new FailureReport(failureTarget, failure));
+            report = termination.routeLateFailure(new FailureReport(failureTarget, failure));
         }
         failurePublisher.publish(report);
     }
@@ -810,46 +822,31 @@ final class WorkerPoolController<S> {
     }
 
     private void publishDrainIfReady() {
-        DrainPublication publication;
+        PoolTermination.Publication publication;
         synchronized (lock) {
             publication = drainPublication();
         }
         publish(publication);
     }
 
-    private DrainPublication drainPublication() {
-        if (!closing) {
-            return null;
-        }
-        if (partition.size() != 0) {
-            return null;
-        }
-        if (!drain.tryClaim()) {
-            return null;
-        }
-        return new DrainPublication(drainFailures.failure());
+    private PoolTermination.Publication drainPublication() {
+        return termination.claimDrainIfReady(partition.size());
     }
 
-    private void publish(DrainPublication publication) {
+    private void publish(PoolTermination.Publication publication) {
         if (publication != null) {
-            drain.publish(publication.failure());
+            termination.publish(publication);
         }
     }
 
-    private void recordDrainFailure(Throwable failure) {
-        drainFailures.add(failure);
-    }
-
-    private void enterClosingLocked(Throwable failure, WorkerRetirementCoordinator.Batch<S> retirementBatch) {
+    private PoolTermination.FailureDisposition enterClosingLocked(
+            Throwable failure, WorkerRetirementCoordinator.Batch<S> retirementBatch) {
         for (PoolWorker<S> worker : partition.startingWorkers()) {
             if (partition.is(worker, PoolPartition.State.STARTING)) {
                 worker.startup().signalClosed();
             }
         }
-        closing = true;
-        if (failure != null) {
-            recordDrainFailure(failure);
-        }
+        PoolTermination.FailureDisposition failureDisposition = termination.beginClosing(failure);
         for (PoolWorker<S> worker : partition.idleWorkers()) {
             markRetiring(worker, PooledWorkerRetireReason.CLOSED, retirementBatch);
         }
@@ -860,6 +857,7 @@ final class WorkerPoolController<S> {
             }
         }
         stateChangedLocked();
+        return failureDisposition;
     }
 
     private void transitionToLeased(PoolWorker<S> worker, LeaseHandoff handoff) {
@@ -868,7 +866,6 @@ final class WorkerPoolController<S> {
         }
         try {
             partition.startingToLeased(worker);
-            stateChangedLocked();
         } catch (RuntimeException | Error failure) {
             handoff.rollback(worker);
             throw failure;
@@ -985,7 +982,7 @@ final class WorkerPoolController<S> {
                 PoolLifecycleDispatcher.Admission admission,
                 PoolWorker.StartupPurpose purpose) {
             synchronized (lock) {
-                if (!partition.contains(reservation) || closing) {
+                if (!partition.contains(reservation) || termination.closing()) {
                     return false;
                 }
                 requireState(reservation, PoolPartition.State.STARTING);
@@ -998,7 +995,7 @@ final class WorkerPoolController<S> {
         @Override
         public WorkerStartupCoordinator.StartupClaim claimLaunch(PoolWorker<S> reservation, long deadlineNanos) {
             synchronized (lock) {
-                if (!partition.contains(reservation) || closing) {
+                if (!partition.contains(reservation) || termination.closing()) {
                     reservation.startup().signalClosed();
                     return WorkerStartupCoordinator.StartupClaim.CLOSED;
                 }
@@ -1025,22 +1022,33 @@ final class WorkerPoolController<S> {
         }
 
         @Override
-        public boolean factoryFailed(PoolWorker<S> reservation) {
+        public boolean factoryFailed(PoolWorker<S> reservation, Throwable failure) {
             boolean closedStartup;
-            synchronized (lock) {
-                closedStartup = switch (reservation.startup().terminalDecision()) {
-                    case CLOSED -> true;
-                    case FACTORY_COMPLETED -> false;
-                    case TIMED_OUT, INTERRUPTED, UNDECIDED ->
-                        throw new IllegalStateException("worker factory failure has no completion decision");
-                };
-                if (removeSlot(reservation)) {
-                    cumulativeMetrics.startupFailed();
-                    reservation.releaseRetirementAdmission();
-                    stateChangedLocked();
+            WorkerRetirementCoordinator.Batch<S> retirementBatch = retirements.newBatch();
+            PoolTermination.Publication publication;
+            try {
+                synchronized (lock) {
+                    closedStartup = switch (reservation.startup().terminalDecision()) {
+                        case CLOSED -> true;
+                        case FACTORY_COMPLETED -> false;
+                        case TIMED_OUT, INTERRUPTED, UNDECIDED ->
+                            throw new IllegalStateException("worker factory failure has no completion decision");
+                    };
+                    if (failure instanceof Error
+                            && reservation.startupPurpose() == PoolWorker.StartupPurpose.REPLENISHMENT) {
+                        enterClosingLocked(failure, retirementBatch);
+                    }
+                    if (removeSlot(reservation)) {
+                        cumulativeMetrics.startupFailed();
+                        reservation.releaseRetirementAdmission();
+                        stateChangedLocked();
+                    }
+                    publication = drainPublication();
                 }
+            } finally {
+                retirementBatch.dispatch();
             }
-            publishDrainIfReady();
+            publish(publication);
             ensureReplenishmentOwner();
             return closedStartup;
         }
@@ -1064,8 +1072,12 @@ final class WorkerPoolController<S> {
             }
         }
 
+        private PoolWorker<S> worker() {
+            return Objects.requireNonNull(worker, "lease handoff has no worker");
+        }
+
         private PoolWorker<S> complete() {
-            PoolWorker<S> completedWorker = Objects.requireNonNull(worker, "lease handoff has no worker");
+            PoolWorker<S> completedWorker = worker();
             worker = null;
             return completedWorker;
         }
@@ -1081,8 +1093,9 @@ final class WorkerPoolController<S> {
             try {
                 synchronized (lock) {
                     requireState(transferredWorker, PoolPartition.State.LEASED);
-                    PooledWorkerRetireReason reason =
-                            closing ? PooledWorkerRetireReason.CLOSED : retireReasonForPolicy(transferredWorker);
+                    PooledWorkerRetireReason reason = termination.closing()
+                            ? PooledWorkerRetireReason.CLOSED
+                            : retireReasonForPolicy(transferredWorker);
                     if (reason != null) {
                         markRetiring(transferredWorker, reason, retirementBatch);
                     } else {
@@ -1119,13 +1132,4 @@ final class WorkerPoolController<S> {
         TIMED_OUT,
         INTERRUPTED
     }
-
-    private record AcquireSelection<S>(PoolWorker<S> worker, boolean startup) {
-
-        private AcquireSelection {
-            Objects.requireNonNull(worker, "worker");
-        }
-    }
-
-    private record DrainPublication(Throwable failure) {}
 }

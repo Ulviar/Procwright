@@ -21,14 +21,16 @@ Pool runtime перестраивается вокруг следующих вл
   принадлежность коллекции является состоянием worker-а;
 - `WorkerStartup` выбирает ровно один terminal outcome между factory completion, timeout, close и interruption;
 - `WorkerStartupCoordinator` владеет typed reservation, последовательностью admission, launch, wait, abandon и failure
-  mapping, а `StartupPoolState` оставляет под pool monitor только атомарные переходы partition;
+  mapping. Reservation создаётся уже связанной с одним worker-ом и однократно передаёт ownership startup attempt;
+  `StartupPoolState` оставляет под pool monitor только атомарные переходы partition;
 - `WorkerRetirement` инициирует close ровно один раз и нормализует любой close outcome;
 - `WorkerRetirementCoordinator` владеет post-monitor batch: сначала инициирует все closes, затем наблюдает outcomes и
   публикует late failures;
 - `PoolReplenisher` поддерживает не более одного активного цикла `minIdle` и владеет backoff;
 - `WorkerPoolPolicy` владеет immutable options, reuse policy и расчетом `minIdle`;
 - `PooledRequestRunner` владеет observation, preparation и request lease и гарантирует один release или retirement;
-- `PoolDrain` владеет единственным terminal outcome и cancellation-isolated views;
+- `PoolTermination` владеет решением construction, состоянием closing, приоритетом terminal failures и claim/publish
+  единственного drain outcome; вложенный `PoolDrain` сохраняет cancellation-isolated views;
 - `PoolTerminalPublisher` до запуска worker/adapter factory резервирует один из 256 process-wide terminal slots,
   предоставляет pool отдельного disposable non-inheriting owner-а и освобождает slot только после возврата synchronous
   continuations terminal future;
@@ -51,6 +53,8 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - startup terminal winner выбирается ровно один раз, а поздний успешный startup обязательно retire-ится;
 - retirement удерживает capacity до полного physical cleanup;
 - lease завершается ровно один раз;
+- одна acquire attempt либо возвращает заполненный lease, либо сама завершает startup reservation и временный lease;
+  retries используют один исходный absolute deadline;
 - close запрещает новые acquisitions, но не отнимает уже переданный lease;
 - retirement batch не требует дополнительного worker admission;
 - startup reservation до launch и startup attempt после launch не имеют совместного ownership;
@@ -58,6 +62,9 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - terminal slot резервируется во время `open()` до worker/adapter factory; отсутствие slot дает typed `STARTUP_FAILED`;
 - accepted pool не получает terminal admission во время `closeAsync()`; его disposable owner публикует outcome после
   освобождения worker slots и admissions;
+- closing во время construction является явным неуспешным результатом даже без attached cause;
+- fatal background startup входит в terminal outcome до освобождения последнего startup slot; новая failure после drain
+  claim публикуется ровно один раз как bounded late failure, а не меняет уже выбранный outcome;
 - блокирующая synchronous continuation удерживает только terminal slot своего pool: она не задерживает closes других
   accepted pools, но при занятых 256 slots не позволяет открыть новый pool;
 - ни один внешний callback и ни одно завершение public future не выполняются под pool monitor;
@@ -71,8 +78,9 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 
 ## Проверка
 
-State owners проверяются прямыми unit tests. `PoolTerminalPublisherTest` проверяет изоляцию owners и удержание terminal
-slot synchronous continuation, а `WorkerPoolControllerLifecycleTest` — отказ до factory и восстановление capacity.
+State owners проверяются прямыми unit tests. `PoolTerminationTest` проверяет construction/closing/drain как один
+инвариант, `PoolTerminalPublisherTest` — изоляцию owners и удержание terminal slot synchronous continuation, а
+`WorkerPoolControllerLifecycleTest` — отказ до factory и восстановление capacity.
 Orchestration collaborators дополнительно доказываются через controller и pooled-wrapper contracts; line и protocol
 integration tests проверяют пользовательские сценарии. `publicationReadinessCheck` включает unit, integration, bounded
 stress, API/ABI, документацию, publication structure и consumer examples.

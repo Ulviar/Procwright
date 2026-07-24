@@ -27,8 +27,8 @@ final class WorkerStartupCoordinator<S> {
         this.poolState = Objects.requireNonNull(poolState, "poolState");
     }
 
-    Reservation<S> newReservation() {
-        return new Reservation<>();
+    Reservation<S> newReservation(PoolWorker<S> worker) {
+        return new Reservation<>(worker);
     }
 
     Completion<S> start(Reservation<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
@@ -141,7 +141,7 @@ final class WorkerStartupCoordinator<S> {
             throw failures.acquireInterrupted("Interrupted while starting " + workerLabel, failure);
         } catch (ExecutionException failure) {
             Throwable cause = failure.getCause();
-            boolean closed = poolState.factoryFailed(reservation);
+            boolean closed = poolState.factoryFailed(reservation, cause);
             if (cause instanceof Error error) {
                 throw error;
             }
@@ -214,7 +214,7 @@ final class WorkerStartupCoordinator<S> {
 
         void launchFailed(PoolWorker<S> reservation);
 
-        boolean factoryFailed(PoolWorker<S> reservation);
+        boolean factoryFailed(PoolWorker<S> reservation, Throwable failure);
     }
 
     enum StartupClaim {
@@ -227,11 +227,8 @@ final class WorkerStartupCoordinator<S> {
 
         private PoolWorker<S> worker;
 
-        void register(PoolWorker<S> value) {
-            if (worker != null) {
-                throw new IllegalStateException("startup reservation already owns a slot");
-            }
-            worker = Objects.requireNonNull(value, "worker");
+        private Reservation(PoolWorker<S> worker) {
+            this.worker = Objects.requireNonNull(worker, "worker");
         }
 
         PoolWorker<S> worker() {

@@ -309,7 +309,7 @@ class CoroutineExtensionsTest {
                 stack.any { frame ->
                     frame.className ==
                         "io.github.ulviar.procwright.internal.session.WorkerPoolController" &&
-                        frame.methodName == "takeOrReserveWorker"
+                        frame.methodName == "takeOrStartLease"
                 }
         }
 
