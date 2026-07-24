@@ -59,7 +59,7 @@ public final class DefaultExpect implements Expect {
             PumpStarter pumpStarter,
             BoundedTaskLimiter regexLimiter,
             ExpectRegexMatcher.Evaluator regexEvaluator,
-            ExpectLateFatalFailureReporter lateFatalFailureReporter) {
+            BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
         state = new ExpectSessionState(

@@ -73,7 +73,7 @@ final class ExpectSessionStateTest {
         assertEquals(ExpectException.Reason.EOF, terminal.reason());
     }
 
-    private static ExpectSessionState state(ExpectLateFatalFailureReporter reporter) {
+    private static ExpectSessionState state(BoundedTaskRunner.LateFatalHandler reporter) {
         return new ExpectSessionState(256, 256, reporter);
     }
 }

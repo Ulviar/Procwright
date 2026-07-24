@@ -7,13 +7,14 @@ import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
+import java.util.function.BiConsumer;
 
 /** Owns bounded publication and fallback routing of late pool lifecycle failures. */
 final class PoolFailurePublisher {
 
-    private final WorkerPoolController.LateFailureReporter reporter;
+    private final BiConsumer<Thread, Throwable> reporter;
 
-    PoolFailurePublisher(WorkerPoolController.LateFailureReporter reporter) {
+    PoolFailurePublisher(BiConsumer<Thread, Throwable> reporter) {
         this.reporter = Objects.requireNonNull(reporter, "reporter");
     }
 
@@ -43,7 +44,7 @@ final class PoolFailurePublisher {
         try {
             BoundedFailureReporter.withFailureTarget(
                     report.failureTarget(),
-                    () -> reporter.report(BoundedFailureReporter.notificationSourceThread(), report.failure()));
+                    () -> reporter.accept(BoundedFailureReporter.notificationSourceThread(), report.failure()));
         } catch (RuntimeException | Error reportingFailure) {
             BoundedFailureReporter.shared().report(report.failureTarget(), reportingFailure);
         }

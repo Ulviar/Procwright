@@ -118,9 +118,9 @@ abstract class WorkerPoolControllerTestSupport {
             java.util.function.Consumer<TestWorker> closer,
             Options options,
             java.util.function.Consumer<Runnable> replenishmentStarter,
-            WorkerPoolController.LateFailureReporter lateFailureReporter,
-            WorkerPoolController.NanoClock clock,
-            WorkerPoolController.BackoffWaiter backoffWaiter) {
+            java.util.function.BiConsumer<Thread, Throwable> lateFailureReporter,
+            java.util.function.LongSupplier clock,
+            PoolReplenisher.Waiter backoffWaiter) {
         return new WorkerPoolController<>(
                 factory,
                 closeAction(closer),

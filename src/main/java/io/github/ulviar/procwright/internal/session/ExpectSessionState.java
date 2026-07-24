@@ -23,7 +23,7 @@ final class ExpectSessionState {
 
     private final BoundedTranscriptBuffer transcript;
     private final BoundedMatchBuffer output;
-    private final ExpectLateFatalFailureReporter lateFatalFailureReporter;
+    private final BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter;
     private final BoundedTaskRunner.CancellationSignal terminalCancellation =
             new BoundedTaskRunner.CancellationSignal();
     private final BoundedTaskRunner.CancellationToken terminalCancellationToken = terminalCancellation.token();
@@ -38,7 +38,7 @@ final class ExpectSessionState {
     private Throwable outputFailure;
 
     ExpectSessionState(
-            int transcriptLimit, int matchBufferLimit, ExpectLateFatalFailureReporter lateFatalFailureReporter) {
+            int transcriptLimit, int matchBufferLimit, BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter) {
         this(
                 new BoundedTranscriptBuffer(transcriptLimit),
                 new BoundedMatchBuffer(matchBufferLimit),
@@ -48,7 +48,7 @@ final class ExpectSessionState {
     ExpectSessionState(
             BoundedTranscriptBuffer transcript,
             BoundedMatchBuffer output,
-            ExpectLateFatalFailureReporter lateFatalFailureReporter) {
+            BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter) {
         this.transcript = Objects.requireNonNull(transcript, "transcript");
         this.output = Objects.requireNonNull(output, "output");
         this.lateFatalFailureReporter = Objects.requireNonNull(lateFatalFailureReporter, "lateFatalFailureReporter");
@@ -243,12 +243,12 @@ final class ExpectSessionState {
         if (suppressionTarget != null) {
             SuppressionSupport.attach(suppressionTarget, failure);
         } else {
-            lateFatalFailureReporter.report(evaluatorThread, failure);
+            lateFatalFailureReporter.handle(evaluatorThread, failure);
         }
     }
 
     void reportLateFatal(Thread failureThread, Error failure) {
-        lateFatalFailureReporter.report(failureThread, failure);
+        lateFatalFailureReporter.handle(failureThread, failure);
     }
 
     ExpectException failure(String message, Throwable cause) {
@@ -363,11 +363,11 @@ final class ExpectSessionState {
             return new RegexFailureResolution(selectedFailure, null, null, reportThread, reportedError);
         }
 
-        private void apply(ExpectLateFatalFailureReporter reporter) {
+        private void apply(BoundedTaskRunner.LateFatalHandler reporter) {
             if (suppressionTarget != null) {
                 SuppressionSupport.attach(suppressionTarget, losingFailure);
             } else {
-                reporter.report(reportThread, reportedError);
+                reporter.handle(reportThread, reportedError);
             }
         }
     }

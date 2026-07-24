@@ -13,7 +13,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -32,7 +34,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     private final String workerLabel;
     private final String threadPrefix;
     private final PoolFailurePublisher failurePublisher;
-    private final NanoClock metricsClock;
+    private final LongSupplier metricsClock;
     private final RetirementAdmissionProvider retirementAdmissions;
     private final WorkerPoolState<S> state;
     private final PoolReplenisher replenisher;
@@ -53,7 +55,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 failures,
                 workerLabel,
                 threadPrefix,
-                Dependencies.defaults(threadPrefix, System::nanoTime));
+                Dependencies.defaults(System::nanoTime));
     }
 
     WorkerPoolController(
@@ -63,7 +65,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             FailureFactory failures,
             String workerLabel,
             String threadPrefix,
-            NanoClock metricsClock) {
+            LongSupplier metricsClock) {
         this(
                 workerFactory,
                 workerCloser,
@@ -71,7 +73,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 failures,
                 workerLabel,
                 threadPrefix,
-                Dependencies.defaults(threadPrefix, metricsClock));
+                Dependencies.defaults(metricsClock));
     }
 
     WorkerPoolController(
@@ -109,7 +111,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             state = new WorkerPoolState<>(policy, new PoolTermination(terminalPublisher), this::newStartupReservation);
             PoolReplenisher.Waiter configuredWaiter = configuredDependencies.backoffWaiter() == null
                     ? state::awaitBackoff
-                    : configuredDependencies.backoffWaiter()::await;
+                    : configuredDependencies.backoffWaiter();
             replenisher = new PoolReplenisher(
                     policy.replenishmentEnabled(),
                     configuredDependencies.replenishmentStarter(),
@@ -148,7 +150,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     WorkerPoolState.Lease<S> acquire(HealthCheck<S> healthCheck) {
         Objects.requireNonNull(healthCheck, "healthCheck");
-        long startedAtNanos = metricsClock.nanoTime();
+        long startedAtNanos = metricsClock.getAsLong();
         long deadlineNanos = DurationSupport.deadlineFromNow(policy.acquireTimeout());
         boolean acquireWaitRecorded = false;
         try {
@@ -216,7 +218,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     RequestObservation observeRequest() {
-        return new RequestObservation(metricsClock::nanoTime, state::recordRequest);
+        return new RequestObservation(metricsClock, state::recordRequest);
     }
 
     PoolMetrics.Snapshot metrics() {
@@ -519,7 +521,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     private void recordAcquireWait(long startedAtNanos) {
-        long elapsedNanos = Math.max(0, metricsClock.nanoTime() - startedAtNanos);
+        long elapsedNanos = Math.max(0, metricsClock.getAsLong() - startedAtNanos);
         state.recordAcquireWait(elapsedNanos);
     }
 
@@ -585,29 +587,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         HealthOutcome test(S session, long acquireDeadlineNanos);
     }
 
-    @FunctionalInterface
-    interface LateFailureReporter {
-
-        void report(Thread thread, Throwable failure);
-    }
-
-    @FunctionalInterface
-    interface NanoClock {
-
-        long nanoTime();
-    }
-
-    @FunctionalInterface
-    interface BackoffWaiter {
-
-        boolean await(Duration backoff);
-    }
-
     record Dependencies(
             Consumer<Runnable> replenishmentStarter,
-            LateFailureReporter lateFailureReporter,
-            NanoClock metricsClock,
-            BackoffWaiter backoffWaiter,
+            BiConsumer<Thread, Throwable> lateFailureReporter,
+            LongSupplier metricsClock,
+            PoolReplenisher.Waiter backoffWaiter,
             PoolTerminalPublisher.Capacity terminalPublications,
             RetirementAdmissionProvider retirementAdmissions) {
 
@@ -619,8 +603,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             Objects.requireNonNull(retirementAdmissions, "retirementAdmissions");
         }
 
-        static Dependencies defaults(String threadPrefix, NanoClock metricsClock) {
-            Objects.requireNonNull(threadPrefix, "threadPrefix");
+        static Dependencies defaults(LongSupplier metricsClock) {
             return new Dependencies(
                     PoolLifecycleDispatcher::replenish,
                     PoolFailurePublisher::reportBounded,

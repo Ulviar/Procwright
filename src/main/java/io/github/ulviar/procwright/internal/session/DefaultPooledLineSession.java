@@ -16,6 +16,7 @@ import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -43,7 +44,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             Supplier<LineSession> workerFactory,
             LineSessionSettings lineOptions,
             WorkerPoolSettings<LineSession> options,
-            WorkerPoolController.NanoClock metricsClock) {
+            LongSupplier metricsClock) {
         this(
                 workerFactory,
                 lineOptions,
@@ -58,7 +59,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             Supplier<LineSession> workerFactory,
             LineSessionSettings lineOptions,
             WorkerPoolSettings<LineSession> options,
-            WorkerPoolController.NanoClock metricsClock,
+            LongSupplier metricsClock,
             TerminalRetirementDispatcher terminalDispatcher) {
         this(
                 workerFactory,
@@ -74,7 +75,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             Supplier<LineSession> workerFactory,
             LineSessionSettings lineOptions,
             WorkerPoolSettings<LineSession> options,
-            WorkerPoolController.NanoClock metricsClock,
+            LongSupplier metricsClock,
             TerminalRetirementDispatcher terminalDispatcher,
             WorkerRetirement.Action<DefaultLineSession> workerCloser) {
         Objects.requireNonNull(workerFactory, "workerFactory");
