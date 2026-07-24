@@ -11,7 +11,6 @@ import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.internal.Threading;
-import io.github.ulviar.procwright.session.SessionExit;
 import io.github.ulviar.procwright.session.StreamChunk;
 import io.github.ulviar.procwright.session.StreamException;
 import io.github.ulviar.procwright.session.StreamExit;
@@ -31,7 +30,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
@@ -59,12 +57,8 @@ public final class DefaultStreamSession implements StreamSession {
     private final long startedNanos;
     private final CompletableFuture<StreamExit> exit = new CompletableFuture<>();
     private final BoundedLifecyclePublisher.Permit exitPublication;
-    private final AtomicInteger pumpsRemaining = new AtomicInteger(2);
-    private final AtomicReference<NestedSessionTerminal> nestedSessionTerminal = new AtomicReference<>();
-    private final TerminalArbiter terminalArbiter = new TerminalArbiter();
-    private final AtomicBoolean stopping = new AtomicBoolean();
+    private final StreamSessionState state = new StreamSessionState(2);
     private final AtomicBoolean truncationEmitted = new AtomicBoolean();
-    private final AtomicBoolean terminalPublished = new AtomicBoolean();
     private final ReentrantLock deliveryLock = new ReentrantLock();
     private final BoundedTaskRunner.CancellationSignal listenerCancellation =
             new BoundedTaskRunner.CancellationSignal();
@@ -156,8 +150,7 @@ public final class DefaultStreamSession implements StreamSession {
      */
     @Override
     public void close() {
-        TerminalSelection selection = selectControlOutcome(new ClosedOutcome());
-        if (selection.installed()) {
+        if (selectControlOutcome(StreamSessionState.Control.CLOSED)) {
             Throwable failure = null;
             if (!session.exitCompleted()) {
                 failure = emitCollecting(
@@ -196,25 +189,25 @@ public final class DefaultStreamSession implements StreamSession {
                     (chars, count) -> recordLate(lateFailure, publishDecoded(source, chars, count));
             byte[] buffer = new byte[1024];
             int consecutiveZeroReads = 0;
-            while (!stopping.get()) {
+            while (!state.stopping()) {
                 int count = stream.read(buffer);
                 if (count < 0) {
                     break;
                 }
                 if (count == 0) {
                     consecutiveZeroReads = Math.min(consecutiveZeroReads + 1, ZERO_READ_BACKOFF_STEPS);
-                    if (!zeroReadBackoff.pause(consecutiveZeroReads, stopping::get)) {
+                    if (!zeroReadBackoff.pause(consecutiveZeroReads, state::stopping)) {
                         return;
                     }
                     continue;
                 }
                 consecutiveZeroReads = 0;
-                if (stopping.get()) {
+                if (state.stopping()) {
                     return;
                 }
                 activeDecoder.decode(buffer, count, sink);
             }
-            if (!stopping.get()) {
+            if (!state.stopping()) {
                 activeDecoder.end(sink);
             }
         } catch (IOException exception) {
@@ -230,7 +223,7 @@ public final class DefaultStreamSession implements StreamSession {
         } catch (Error error) {
             recordLate(lateFailure, failFatal(error));
         } finally {
-            if (pumpsRemaining.decrementAndGet() == 0) {
+            if (state.outputPumpCompleted()) {
                 listenerOwner.close();
                 maybeComplete();
             }
@@ -239,7 +232,7 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private Throwable publishDecoded(StreamSource source, char[] chars, int count) {
-        if (stopping.get()) {
+        if (state.stopping()) {
             return null;
         }
         String text = new String(chars, 0, count);
@@ -260,7 +253,7 @@ public final class DefaultStreamSession implements StreamSession {
     private Throwable deliver(StreamChunk chunk) {
         deliveryLock.lock();
         try {
-            if (stopping.get() || terminalArbiter.outcome() != null) {
+            if (state.stopping() || state.hasOutcome()) {
                 return null;
             }
             try {
@@ -312,10 +305,10 @@ public final class DefaultStreamSession implements StreamSession {
     private void startExitWatcher() {
         session.observeExit((value, throwable) -> {
             if (throwable == null) {
-                nestedSessionTerminal.set(new NestedSessionSuccess(value));
+                state.nestedSucceeded(value);
             } else {
                 Throwable processFailure = unwrapCompletionFailure(throwable);
-                nestedSessionTerminal.set(new NestedSessionFailure(processFailure));
+                state.nestedFailed(processFailure);
                 if (processFailure instanceof Error error) {
                     reportLate(failFatal(error));
                 } else {
@@ -352,14 +345,13 @@ public final class DefaultStreamSession implements StreamSession {
             timeoutWatcherStopped.complete(null);
             throw startFailure;
         }
-        if (terminalArbiter.outcome() != null) {
+        if (state.hasOutcome()) {
             stopTimeoutWatcher();
         }
     }
 
     void expireTimeout() {
-        TerminalSelection selection = selectControlOutcome(new TimedOutOutcome());
-        if (!selection.installed()) {
+        if (!selectControlOutcome(StreamSessionState.Control.TIMED_OUT)) {
             return;
         }
         Throwable failure = emitCollecting(DiagnosticEventType.TIMEOUT_REACHED, java.util.Map.of(), null);
@@ -372,7 +364,7 @@ public final class DefaultStreamSession implements StreamSession {
 
     private Throwable recordFailure(StreamException.Reason reason, String message, Throwable cause) {
         StreamException exception = new StreamException(reason, message, streamTranscript(), cause);
-        TerminalSelection selection = selectFailure(exception);
+        StreamSessionState.FailureSelection selection = selectFailure(exception);
         if (selection.installed() && reason == StreamException.Reason.LISTENER_FAILED) {
             emitPreserving(DiagnosticEventType.LISTENER_FAILED, exception);
         }
@@ -381,42 +373,26 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private Throwable failFatal(Error error) {
-        TerminalSelection claim = terminalArbiter.claim(new FatalFailure(error));
-        TerminalOutcome outcome = claim.outcome();
-        TerminalSelection selection;
-        if (claim.installed()) {
-            beginStopping();
-            selection = new TerminalSelection(outcome, true, null);
-        } else if (outcome instanceof FailureOutcome failureOutcome) {
-            SuppressionSupport.attach(failureOutcome.primary(), error);
-            selection = new TerminalSelection(outcome, false, null);
-        } else {
-            selection = new TerminalSelection(outcome, false, error);
-        }
+        StreamSessionState.FailureSelection selection = selectFailure(error);
         activate(selection);
         return selection.lateFailure();
     }
 
-    private TerminalSelection selectFailure(StreamException candidate) {
-        TerminalSelection claim = terminalArbiter.claim(new TypedFailure(candidate));
-        TerminalOutcome outcome = claim.outcome();
-        if (claim.installed()) {
+    private StreamSessionState.FailureSelection selectFailure(Throwable candidate) {
+        StreamSessionState.FailureSelection selection = state.selectFailure(candidate);
+        selection.attachSuppressedFailure();
+        if (selection.installed()) {
             beginStopping();
-            return new TerminalSelection(outcome, true, null);
         }
-        if (outcome instanceof FailureOutcome failureOutcome) {
-            SuppressionSupport.attach(failureOutcome.primary(), candidate);
-            return new TerminalSelection(outcome, false, null);
-        }
-        return new TerminalSelection(outcome, false, candidate);
+        return selection;
     }
 
-    private void activate(TerminalSelection selection) {
+    private void activate(StreamSessionState.FailureSelection selection) {
         if (!selection.installed()) {
             maybeComplete();
             return;
         }
-        Throwable primary = ((FailureOutcome) selection.outcome()).primary();
+        Throwable primary = selection.primary();
         emitPreserving(DiagnosticEventType.PROCESS_FAILED, DiagnosticEmitter.failureAttributes(primary), primary);
         emitPreserving(
                 DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "failure"), primary);
@@ -425,70 +401,50 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private void maybeComplete() {
-        TerminalOutcome outcome = terminalArbiter.outcome();
-        if (outcome instanceof FailureOutcome failureOutcome && pumpsRemaining.get() == 0) {
-            publishFailure(failureOutcome.primary());
+        StreamSessionState.Completion completion = state.claimCompletion();
+        if (completion == null) {
             return;
         }
-
-        NestedSessionTerminal nestedTerminal = nestedSessionTerminal.get();
-        if (nestedTerminal == null || pumpsRemaining.get() != 0) {
+        beginStopping();
+        if (completion instanceof StreamSessionState.FailedCompletion failed) {
+            publishFailure(failed.primary());
             return;
         }
-
-        if (outcome == null) {
-            if (nestedTerminal instanceof NestedSessionFailure) {
-                return;
-            }
-            TerminalSelection normal = selectControlOutcome(new NormalOutcome());
-            outcome = normal.outcome();
-        }
-        if (outcome instanceof FailureOutcome failureOutcome) {
-            publishFailure(failureOutcome.primary());
-            return;
-        }
-        OptionalInt exitCode = nestedTerminal.exitCode();
-        boolean timedOut = outcome instanceof TimedOutOutcome || nestedTerminal.timedOut();
-        boolean closed = outcome instanceof ClosedOutcome;
-        if (!terminalPublished.compareAndSet(false, true)) {
-            return;
-        }
+        StreamSessionState.SuccessfulCompletion successful = (StreamSessionState.SuccessfulCompletion) completion;
         stopTimeoutWatcherBeforePublication();
         outputPumps.publishAfterOutputCleanup(
                 () -> session.afterPhysicalOutputCleanup(() -> exitPublication.publish(() -> {
                     StreamExit terminal = new StreamExit(
-                            exitCode,
-                            timedOut,
-                            closed,
+                            successful.exitCode(),
+                            successful.timedOut(),
+                            successful.closed(),
                             streamTranscript(),
                             DurationSupport.elapsed(startedNanos, nanoTime.getAsLong()));
                     Throwable diagnosticFailure = emitCollecting(
-                            DiagnosticEventType.PROCESS_EXITED, exitAttributes(exitCode, timedOut), null);
+                            DiagnosticEventType.PROCESS_EXITED,
+                            exitAttributes(successful.exitCode(), successful.timedOut()),
+                            null);
                     exit.complete(terminal);
                     reportLate(diagnosticFailure);
                 })));
     }
 
     private void publishFailure(Throwable primary) {
-        if (!terminalPublished.compareAndSet(false, true)) {
-            return;
-        }
         stopTimeoutWatcherBeforePublication();
         outputPumps.publishAfterOutputCleanup(() -> session.afterPhysicalOutputCleanup(
                 () -> exitPublication.publish(() -> exit.completeExceptionally(primary))));
     }
 
-    private TerminalSelection selectControlOutcome(TerminalOutcome candidate) {
-        TerminalSelection selection = terminalArbiter.claim(candidate);
-        if (selection.installed()) {
+    private boolean selectControlOutcome(StreamSessionState.Control candidate) {
+        boolean selected = state.selectControl(candidate);
+        if (selected) {
             beginStopping();
         }
-        return selection;
+        return selected;
     }
 
     private boolean isControlledStop() {
-        TerminalOutcome outcome = terminalArbiter.outcome();
-        return outcome instanceof ClosedOutcome || outcome instanceof TimedOutOutcome;
+        return state.controlledStop();
     }
 
     private void stopTimeoutWatcher() {
@@ -555,7 +511,7 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private void beginStopping() {
-        stopping.set(true);
+        state.stop();
         listenerCancellation.cancel();
         listenerOwner.close();
     }
@@ -614,87 +570,5 @@ public final class DefaultStreamSession implements StreamSession {
     private StreamTranscript streamTranscript() {
         BoundedTranscriptBuffer.Snapshot snapshot = diagnostics.snapshot();
         return new StreamTranscript(snapshot.text(), snapshot.truncated());
-    }
-
-    private sealed interface TerminalOutcome permits NormalOutcome, TimedOutOutcome, ClosedOutcome, FailureOutcome {}
-
-    private sealed interface FailureOutcome extends TerminalOutcome permits TypedFailure, FatalFailure {
-
-        Throwable primary();
-    }
-
-    private record NormalOutcome() implements TerminalOutcome {}
-
-    private record TimedOutOutcome() implements TerminalOutcome {}
-
-    private record ClosedOutcome() implements TerminalOutcome {}
-
-    private record TypedFailure(StreamException primary) implements FailureOutcome {}
-
-    private record FatalFailure(Error primary) implements FailureOutcome {}
-
-    private record TerminalSelection(TerminalOutcome outcome, boolean installed, Throwable lateFailure) {}
-
-    private sealed interface NestedSessionTerminal permits NestedSessionSuccess, NestedSessionFailure {
-
-        OptionalInt exitCode();
-
-        boolean timedOut();
-    }
-
-    private record NestedSessionSuccess(SessionExit exit) implements NestedSessionTerminal {
-
-        private NestedSessionSuccess {
-            Objects.requireNonNull(exit, "exit");
-        }
-
-        @Override
-        public OptionalInt exitCode() {
-            return exit.exitCode();
-        }
-
-        @Override
-        public boolean timedOut() {
-            return exit.timedOut();
-        }
-    }
-
-    private record NestedSessionFailure(Throwable failure) implements NestedSessionTerminal {
-
-        private NestedSessionFailure {
-            Objects.requireNonNull(failure, "failure");
-        }
-
-        @Override
-        public OptionalInt exitCode() {
-            return OptionalInt.empty();
-        }
-
-        @Override
-        public boolean timedOut() {
-            return false;
-        }
-    }
-
-    private static final class TerminalArbiter {
-
-        private final AtomicReference<TerminalOutcome> outcome = new AtomicReference<>();
-
-        private TerminalSelection claim(TerminalOutcome candidate) {
-            Objects.requireNonNull(candidate, "candidate");
-            while (true) {
-                TerminalOutcome existing = outcome.get();
-                if (existing != null) {
-                    return new TerminalSelection(existing, false, null);
-                }
-                if (outcome.compareAndSet(null, candidate)) {
-                    return new TerminalSelection(candidate, true, null);
-                }
-            }
-        }
-
-        private TerminalOutcome outcome() {
-            return outcome.get();
-        }
     }
 }

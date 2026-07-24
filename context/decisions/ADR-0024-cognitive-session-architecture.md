@@ -56,6 +56,8 @@ owner вынуждает при локальном изменении держа
 - `DefaultExpect` остается пользовательским facade: `ExpectSessionState` сериализует output buffer, match cursor,
   transcript и first-terminal-wins, `ExpectOutputTransport` владеет pumps, decoding и physical cleanup, а
   `ExpectRegexMatcher` изолирует bounded regex execution от session state.
+- `DefaultStreamSession` координирует output pumps, listener и diagnostics, а `StreamSessionState` одним monitor
+  сериализует terminal outcome, nested raw-session terminal, завершение pumps и exact-once claim публикации.
 
 Distinct callbacks отделяют terminal stdin/inline-output failure от фонового physical stdout/stderr close failure.
 Оркестратор регистрирует terminal failure до process/resource cleanup и только после cleanup разрешает publication.
@@ -103,6 +105,9 @@ terminal arbitration. EOF без активного request закрывает �
   физических close, когда прикреплять к будущей request failure нечего.
 - expect output, cursor и terminal outcome изменяются только через `ExpectSessionState`; transport не выбирает match
   result, а bounded regex evaluator не владеет lifecycle и не выполняется под state lock.
+- stream terminal outcome не распределен между независимыми atomics: первый control/failure winner, проигравшие
+  failures, nested raw-session terminal и готовность обоих output pumps согласует только `StreamSessionState`;
+  failure completion ждет pumps, но не требует nested exit после запуска cleanup.
 
 ## Следствия
 
@@ -112,6 +117,7 @@ terminal arbitration. EOF без активного request закрывает �
 - `DefaultLineSession` не содержит внутреннюю реализацию pump threads и terminal state machine;
 - `DefaultProtocolSession` не содержит конкурирующие представления active request и terminal state;
 - `DefaultExpect` не содержит pump loop, terminal arbitration или bounded-task protocol;
+- `DefaultStreamSession` не содержит собственное семейство terminal outcome типов и publication races;
 - дополнительные session-level сценарии используют эти же владельцы и не создают второй process runtime.
 
 Новые классы остаются package-private. Public API и observable lifecycle contract не меняются.

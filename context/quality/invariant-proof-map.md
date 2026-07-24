@@ -64,7 +64,7 @@
 | Непрочитанный хвост chunk сохраняется между request-scoped readers и правильно учитывается в backlog. | `ProtocolOutputQueue`. | `ProtocolOutputQueueTest`, `ProtocolResponseReaderByteReadTest`, `ProtocolResponseReaderDecoderStateTest`. |
 | Первый terminal session failure сохраняет stable reason для последующих requests. | Terminal-failure state line/protocol runtime. | timeout/backlog/process-exit follow-up request tests. |
 | Expect matching bounded; actions редактируются по умолчанию, match result остается живым output; output, cursor и first-terminal-wins имеют одного state owner. | `ExpectSettings`, `ExpectTranscriptValues`, `DefaultExpect`, `ExpectSessionState`, `ExpectOutputTransport`, `ExpectRegexMatcher`, `ExpectMatch`. | `ExpectMatchTest`, `DefaultExpectMatchingTest`, `DefaultExpectOutputLifecycleTest`, `ExpectSessionStateTest`, `ExpectRegexMatcherTest`, `ExpectIntegrationTest`. |
-| Streaming применяет backpressure, не хранит весь output и различает listener/read/process failures. | `StreamSettings`, `DefaultStreamSession`, `StreamRuntime`, `StreamException.Reason`. | `StreamScenarioIntegrationTest`, `StreamRuntimeStartupTest`, `StreamRuntimeOutputPumpTest`, `StreamRuntimeTerminalLifecycleTest`, stress tests. |
+| Streaming применяет backpressure, не хранит весь output и различает listener/read/process failures. Terminal outcome, nested raw-session terminal, завершение pumps и claim публикации имеют одного владельца. | `StreamSettings`, `DefaultStreamSession`, `StreamSessionState`, `StreamRuntime`, `StreamException.Reason`. | `StreamSessionStateTest`, `StreamScenarioIntegrationTest`, `StreamRuntimeStartupTest`, `StreamRuntimeOutputPumpTest`, `StreamRuntimeTerminalLifecycleTest`, stress tests. |
 
 ## Pool
 

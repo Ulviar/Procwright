@@ -97,6 +97,8 @@ Runtime получает только согласованный plan и не у
   `ProcessProviderOperationSettlement`;
 - line/protocol request serialization — `SerializedRequestGate`; active request и terminal arbitration —
   `LineSessionState` и `ProtocolSessionState`;
+- stream terminal outcome, nested raw-session terminal, output-pump barrier и exact-once publication claim —
+  `StreamSessionState`;
 - protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader`, complete text fields —
   `ProtocolTextFieldDecoder`, global response limits — `ProtocolResponseBudget`;
 - output backlog — bounded queue владельца сценария;
