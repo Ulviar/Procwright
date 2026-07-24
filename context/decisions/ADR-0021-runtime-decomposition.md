@@ -41,7 +41,9 @@ suppressed в порядке наблюдения. Эти части не рас
 
 - `ProtocolRequestWriter` владеет stdin writes, request deadline и request byte/char limits.
 - `ProtocolOutputQueue` владеет bounded очередью между output pump и protocol reader.
-- `ProtocolResponseReader` владеет deadline-aware чтением, framing helpers, text decoding и per-read limits.
+- `ProtocolResponseReader` владеет deadline-aware чтением, framing helpers и continuous text reads.
+- `ProtocolTextFieldDecoder` владеет независимым декодированием byte-length-delimited text fields, decoder progress,
+  replacement policy и per-field character limit.
 - `ProtocolResponseBudget` владеет global response byte/char limits на один request.
 - `ProtocolRuntimeFailures` является внутренней границей создания failures с transcript/process snapshot владельца
   сессии.

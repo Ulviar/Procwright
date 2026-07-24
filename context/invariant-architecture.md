@@ -97,7 +97,8 @@ Runtime получает только согласованный plan и не у
   `ProcessProviderOperationSettlement`;
 - line/protocol request serialization — `SerializedRequestGate`; active request и terminal arbitration —
   `LineSessionState` и `ProtocolSessionState`;
-- protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader` и `ProtocolResponseBudget`;
+- protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader`, complete text fields —
+  `ProtocolTextFieldDecoder`, global response limits — `ProtocolResponseBudget`;
 - output backlog — bounded queue владельца сценария;
 - единый monitor, составные pool transitions и связанные с partition поля worker — `WorkerPoolState`; partition —
   `PoolPartition`, immutable policy — `WorkerPoolPolicy`;

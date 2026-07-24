@@ -2,18 +2,13 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.session.ProtocolReader;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import java.io.ByteArrayOutputStream;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderMalfunctionError;
-import java.nio.charset.CoderResult;
-import java.nio.charset.CodingErrorAction;
 import java.util.Objects;
 
 /**
@@ -21,17 +16,15 @@ import java.util.Objects;
  */
 final class ProtocolResponseReader implements ProtocolReader {
 
-    private static final int FIELD_INPUT_BUFFER_SIZE = 8192;
-    private static final int FIELD_OUTPUT_BUFFER_SIZE = 8192;
-
     private final ProtocolOutputQueue output;
-    private final ProtocolSessionSettings options;
     private final long deadlineNanos;
     private final ProtocolResponseBudget budget;
     private final ProtocolRuntimeFailures failures;
     private final ProtocolTextDecoderState textDecoder;
+    private final CharsetPolicy charsetPolicy;
     private final RequestCapabilityScope capabilityScope;
     private final ProtocolOutputQueue.ReadWindow continuousTextTransaction = new ProtocolOutputQueue.ReadWindow();
+    private ProtocolTextFieldDecoder textFields;
     private boolean readStarted;
     private ProtocolOutputEvent claimedTerminal;
 
@@ -44,12 +37,13 @@ final class ProtocolResponseReader implements ProtocolReader {
             ProtocolRuntimeFailures failures,
             RequestCapabilityScope capabilityScope) {
         this.output = Objects.requireNonNull(output, "output");
-        this.options = Objects.requireNonNull(options, "options");
+        ProtocolSessionSettings configuredOptions = Objects.requireNonNull(options, "options");
         this.deadlineNanos = deadlineNanos;
         this.budget = Objects.requireNonNull(budget, "budget");
         this.textDecoder = Objects.requireNonNull(textDecoder, "textDecoder");
         this.failures = Objects.requireNonNull(failures, "failures");
         this.capabilityScope = Objects.requireNonNull(capabilityScope, "capabilityScope");
+        charsetPolicy = configuredOptions.charsetPolicy();
     }
 
     @Override
@@ -108,7 +102,7 @@ final class ProtocolResponseReader implements ProtocolReader {
         ensureContinuousDecoderBoundary();
         budget.ensureCharacterBudgetOpen();
         budget.ensureBytesAvailable(byteLength);
-        return decodeCompleteTextField(byteLength, maxChars);
+        return textFields().decode(byteLength, maxChars);
     }
 
     @Override
@@ -536,227 +530,11 @@ final class ProtocolResponseReader implements ProtocolReader {
         }
     }
 
-    private String decodeCompleteTextField(int byteLength, int characterLimit) {
-        CharsetDecoder decoder = newCompleteTextFieldDecoder();
-        ByteBuffer input = ByteBuffer.allocate(Math.min(byteLength, FIELD_INPUT_BUFFER_SIZE));
-        int initialEffectiveLimit = Math.min(characterLimit, budget.remainingChars());
-        CharBuffer output = CharBuffer.allocate(fieldOutputCapacity(initialEffectiveLimit));
-        BoundedFieldText text = new BoundedFieldText(
-                characterLimit, initialFieldCharacterCapacity(decoder, byteLength, initialEffectiveLimit));
-        int unreadBytes = byteLength;
-        try {
-            while (true) {
-                if (unreadBytes > 0) {
-                    if (!input.hasRemaining()) {
-                        input = growFieldInput(input, byteLength);
-                    }
-                    int requested = Math.min(
-                            Math.min(input.remaining(), unreadBytes), firstExcessLimit(effectiveRemainingChars(text)));
-                    int count = readAvailableBytes(input.array(), input.position(), requested);
-                    input.position(input.position() + count);
-                    unreadBytes -= count;
-                }
-
-                boolean endOfInput = unreadBytes == 0;
-                input.flip();
-                decodeCompleteFieldInput(decoder, input, output, endOfInput, text);
-
-                if (endOfInput) {
-                    if (input.hasRemaining()) {
-                        throw new IncrementalTextDecoder.DecoderStateException(
-                                "Decoder retained input after the complete text field ended");
-                    }
-                    break;
-                }
-                input.compact();
-            }
-            flushCompleteTextField(decoder, output, text);
-        } catch (TextFieldTooLargeException exception) {
-            throw failures.failure(
-                    ProtocolSessionException.Reason.RESPONSE_TOO_LARGE,
-                    "Protocol response text exceeds maxChars",
-                    null);
-        } catch (CharacterCodingException exception) {
-            throw failures.failure(
-                    ProtocolSessionException.Reason.DECODE_ERROR,
-                    "Could not decode complete protocol response field",
-                    exception);
+    private ProtocolTextFieldDecoder textFields() {
+        if (textFields == null) {
+            textFields = new ProtocolTextFieldDecoder(charsetPolicy, budget, failures, this::readAvailableBytes);
         }
-        return text.text();
-    }
-
-    private CharsetDecoder newCompleteTextFieldDecoder() {
-        try {
-            return options.charsetPolicy()
-                    .charset()
-                    .newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT);
-        } catch (RuntimeException | CoderMalfunctionError exception) {
-            throw failures.failure(
-                    ProtocolSessionException.Reason.DECODE_ERROR,
-                    "Could not initialize complete protocol response field decoder",
-                    exception);
-        }
-    }
-
-    private void decodeCompleteFieldInput(
-            CharsetDecoder decoder, ByteBuffer input, CharBuffer output, boolean endOfInput, BoundedFieldText text)
-            throws CharacterCodingException {
-        while (true) {
-            int remainingChars = effectiveRemainingChars(text);
-            prepareFieldOutput(output, remainingChars);
-            int previousInputPosition = input.position();
-            int previousOutputPosition = output.position();
-            CoderResult result = decodeFieldInput(decoder, input, output, endOfInput);
-            boolean inputAdvanced = IncrementalTextDecoder.inputAdvanced(previousInputPosition, input.position());
-            int outputCount = output.position() - previousOutputPosition;
-            rejectFieldBudgetLimitedOverflow(result, inputAdvanced, outputCount, output, remainingChars);
-            ensureDecoderProgress(result, inputAdvanced, outputCount);
-            appendFieldOutput(output, text);
-            if (result.isOverflow()) {
-                continue;
-            }
-            if (result.isError()) {
-                replaceFieldError(decoder, result, input, text);
-                continue;
-            }
-            return;
-        }
-    }
-
-    private static CoderResult decodeFieldInput(
-            CharsetDecoder decoder, ByteBuffer input, CharBuffer output, boolean endOfInput)
-            throws IncrementalTextDecoder.DecoderStateException {
-        try {
-            return decoder.decode(input, output, endOfInput);
-        } catch (RuntimeException | CoderMalfunctionError exception) {
-            throw IncrementalTextDecoder.decoderFailure("decode", exception);
-        }
-    }
-
-    private void flushCompleteTextField(CharsetDecoder decoder, CharBuffer output, BoundedFieldText text)
-            throws CharacterCodingException {
-        while (true) {
-            int remainingChars = effectiveRemainingChars(text);
-            prepareFieldOutput(output, remainingChars);
-            int previousOutputPosition = output.position();
-            CoderResult result;
-            try {
-                result = decoder.flush(output);
-            } catch (RuntimeException | CoderMalfunctionError exception) {
-                throw IncrementalTextDecoder.decoderFailure("flush", exception);
-            }
-            int outputCount = output.position() - previousOutputPosition;
-            rejectFieldBudgetLimitedOverflow(result, false, outputCount, output, remainingChars);
-            ensureDecoderProgress(result, false, outputCount);
-            appendFieldOutput(output, text);
-            if (result.isError()) {
-                result.throwException();
-            }
-            if (!result.isOverflow()) {
-                return;
-            }
-        }
-    }
-
-    private void replaceFieldError(CharsetDecoder decoder, CoderResult result, ByteBuffer input, BoundedFieldText text)
-            throws CharacterCodingException {
-        CodingErrorAction action = result.isMalformed()
-                ? options.charsetPolicy().malformedInputAction()
-                : options.charsetPolicy().unmappableCharacterAction();
-        if (action == CodingErrorAction.REPORT) {
-            result.throwException();
-        }
-        int replacementEndPosition = replacementEndPosition(result, input);
-        String replacement = decoder.replacement();
-        int count = Math.min(replacement.length(), firstExcessLimit(effectiveRemainingChars(text)));
-        budget.addChars(count);
-        text.append(replacement, count);
-        input.position(replacementEndPosition);
-    }
-
-    private void appendFieldOutput(CharBuffer output, BoundedFieldText text) throws TextFieldTooLargeException {
-        output.flip();
-        int count = output.remaining();
-        if (count > 0) {
-            budget.addChars(count);
-            text.append(output);
-        }
-        output.clear();
-    }
-
-    private int effectiveRemainingChars(BoundedFieldText text) {
-        return Math.min(text.remaining(), budget.remainingChars());
-    }
-
-    private static void prepareFieldOutput(CharBuffer output, int remainingChars) {
-        output.clear();
-        output.limit(Math.min(output.capacity(), firstExcessLimit(remainingChars)));
-    }
-
-    private void rejectFieldBudgetLimitedOverflow(
-            CoderResult result, boolean inputAdvanced, int outputCount, CharBuffer output, int remainingChars)
-            throws TextFieldTooLargeException {
-        int firstExcess = firstExcessLimit(remainingChars);
-        if (result.isOverflow() && !inputAdvanced && outputCount == 0 && firstExcess <= output.capacity()) {
-            budget.addChars(firstExcess);
-            throw new TextFieldTooLargeException();
-        }
-    }
-
-    private static int replacementEndPosition(CoderResult result, ByteBuffer input)
-            throws IncrementalTextDecoder.DecoderStateException {
-        int errorLength = result.length();
-        int remaining = input.remaining();
-        long endPosition = (long) input.position() + errorLength;
-        if (errorLength <= 0
-                || errorLength > remaining
-                || endPosition <= input.position()
-                || endPosition > input.limit()) {
-            throw new IncrementalTextDecoder.DecoderStateException("Decoder reported error length " + errorLength
-                    + " with only " + remaining + " input bytes remaining");
-        }
-        return (int) endPosition;
-    }
-
-    private static void ensureDecoderProgress(CoderResult result, boolean inputAdvanced, int outputCount)
-            throws IncrementalTextDecoder.DecoderStateException {
-        if (result.isOverflow() && !inputAdvanced && outputCount == 0) {
-            throw new IncrementalTextDecoder.DecoderStateException(
-                    "Decoder reported overflow without consuming input or producing output");
-        }
-    }
-
-    private static ByteBuffer growFieldInput(ByteBuffer input, int byteLength)
-            throws IncrementalTextDecoder.DecoderStateException {
-        if (input.capacity() >= byteLength) {
-            throw new IncrementalTextDecoder.DecoderStateException(
-                    "Decoder retained all declared field bytes without consuming input");
-        }
-        int growth = Math.max(1, input.capacity());
-        int grownCapacity = input.capacity() > byteLength - growth ? byteLength : input.capacity() + growth;
-        input.flip();
-        ByteBuffer grown = ByteBuffer.allocate(grownCapacity);
-        grown.put(input);
-        return grown;
-    }
-
-    private static int fieldOutputCapacity(int characterLimit) {
-        return Math.min(FIELD_OUTPUT_BUFFER_SIZE, firstExcessLimit(characterLimit));
-    }
-
-    private static int firstExcessLimit(int remainingChars) {
-        return remainingChars == Integer.MAX_VALUE ? Integer.MAX_VALUE : remainingChars + 1;
-    }
-
-    private static int initialFieldCharacterCapacity(CharsetDecoder decoder, int byteLength, int characterLimit) {
-        int initialLimit = Math.min(FIELD_OUTPUT_BUFFER_SIZE, characterLimit);
-        double expected = Math.ceil(byteLength * (double) decoder.maxCharsPerByte());
-        if (!Double.isFinite(expected) || expected >= initialLimit) {
-            return initialLimit;
-        }
-        return (int) expected;
+        return textFields;
     }
 
     static int pendingByteLimit(ProtocolSessionSettings options) {
@@ -776,58 +554,7 @@ final class ProtocolResponseReader implements ProtocolReader {
         return left > Integer.MAX_VALUE - right ? Integer.MAX_VALUE : left + right;
     }
 
-    private static final class TextFieldTooLargeException extends CharacterCodingException {
-
-        private static final long serialVersionUID = 1L;
-    }
-
-    private static final class BoundedFieldText {
-
-        private static final char[] EMPTY = new char[0];
-
-        private final int limit;
-        private char[] chars;
-        private int length;
-
-        private BoundedFieldText(int limit, int initialCapacity) {
-            this.limit = limit;
-            chars = initialCapacity == 0 ? EMPTY : new char[initialCapacity];
-        }
-
-        private void append(CharBuffer output) throws TextFieldTooLargeException {
-            int count = output.remaining();
-            if (count > limit - length) {
-                throw new TextFieldTooLargeException();
-            }
-            ensureCapacity(length + count);
-            output.get(chars, length, count);
-            length += count;
-        }
-
-        private void append(String value, int count) throws TextFieldTooLargeException {
-            if (count > limit - length) {
-                throw new TextFieldTooLargeException();
-            }
-            ensureCapacity(length + count);
-            value.getChars(0, count, chars, length);
-            length += count;
-        }
-
-        private int remaining() {
-            return limit - length;
-        }
-
-        private void ensureCapacity(int required) {
-            if (required <= chars.length) {
-                return;
-            }
-            int doubled = chars.length > limit - chars.length ? limit : chars.length * 2;
-            int capacity = Math.min(limit, Math.max(required, Math.max(1, doubled)));
-            chars = java.util.Arrays.copyOf(chars, capacity);
-        }
-
-        private String text() {
-            return new String(chars, 0, length);
-        }
+    private static int firstExcessLimit(int remainingChars) {
+        return remainingChars == Integer.MAX_VALUE ? Integer.MAX_VALUE : remainingChars + 1;
     }
 }
