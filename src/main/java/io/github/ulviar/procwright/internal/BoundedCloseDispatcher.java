@@ -5,12 +5,8 @@ package io.github.ulviar.procwright.internal;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -29,7 +25,6 @@ public final class BoundedCloseDispatcher {
     public static final int SHARED_PENDING_CAPACITY = 128;
     public static final int SHARED_MAX_OUTSTANDING_CAPACITY = SHARED_ACTIVE_CAPACITY + SHARED_PENDING_CAPACITY;
 
-    private static final PermitReleaser RELEASE_PERMIT = Permit::release;
     private static final BoundedCloseDispatcher SHARED = new BoundedCloseDispatcher(
             SHARED_ACTIVE_CAPACITY, SHARED_PENDING_CAPACITY, SHARED_MAX_OUTSTANDING_CAPACITY);
 
@@ -157,13 +152,10 @@ public final class BoundedCloseDispatcher {
                 throw new IllegalArgumentException("Close permit must belong to this dispatcher");
             }
             requireAdmissionCapacityLocked(1);
-            if (!permit.consumed.compareAndSet(false, true)) {
-                throw new IllegalStateException("Stream close permit has already been consumed");
-            }
+            permit.claim("Stream close permit has already been consumed");
             launch = admitLocked(execution);
         }
-        startExecution(launch);
-        return DispatchOutcome.accepted(execution.startFailure());
+        return DispatchOutcome.accepted(startExecution(launch));
     }
 
     private DispatchOutcome dispatchReservedPair(
@@ -174,25 +166,25 @@ public final class BoundedCloseDispatcher {
         Objects.requireNonNull(second, "second");
         CloseExecution firstExecution = new CloseExecution(first);
         CloseExecution secondExecution = new CloseExecution(second);
-        List<CloseExecution> launches = new ArrayList<>(2);
+        CloseExecution firstLaunch;
+        CloseExecution secondLaunch;
         synchronized (lock) {
             if (firstPermit.owner != this || secondPermit.owner != this) {
                 throw new IllegalArgumentException("Both close permits must belong to this dispatcher");
             }
             requireAdmissionCapacityLocked(2);
-            if (!firstPermit.consumed.compareAndSet(false, true)) {
-                throw new IllegalStateException("First stream close permit has already been consumed");
+            firstPermit.claim("First stream close permit has already been consumed");
+            try {
+                secondPermit.claim("Second stream close permit has already been consumed");
+            } catch (RuntimeException | Error failure) {
+                firstPermit.restore();
+                throw failure;
             }
-            if (!secondPermit.consumed.compareAndSet(false, true)) {
-                firstPermit.consumed.set(false);
-                throw new IllegalStateException("Second stream close permit has already been consumed");
-            }
-            addLaunch(launches, admitLocked(firstExecution));
-            addLaunch(launches, admitLocked(secondExecution));
+            firstLaunch = admitLocked(firstExecution);
+            secondLaunch = admitLocked(secondExecution);
         }
-        launches.forEach(this::startExecution);
-        Throwable failure = firstExecution.startFailure();
-        failure = SuppressionSupport.combine(failure, secondExecution.startFailure());
+        Throwable failure = startExecution(firstLaunch);
+        failure = SuppressionSupport.combine(failure, startExecution(secondLaunch));
         return DispatchOutcome.accepted(failure);
     }
 
@@ -215,12 +207,6 @@ public final class BoundedCloseDispatcher {
         return null;
     }
 
-    private static void addLaunch(List<CloseExecution> launches, CloseExecution execution) {
-        if (execution != null) {
-            launches.add(execution);
-        }
-    }
-
     private void releaseReserved(int permits) {
         if (permits == 0) {
             return;
@@ -234,22 +220,20 @@ public final class BoundedCloseDispatcher {
         }
     }
 
-    private void startExecution(CloseExecution execution) {
+    private Throwable startExecution(CloseExecution execution) {
         if (execution == null) {
-            return;
+            return null;
         }
         WorkerStartGate startGate = new WorkerStartGate(execution, Thread.currentThread());
         try {
-            Thread owner = Objects.requireNonNull(
-                    threadStarter.start(execution.request().threadPrefix(), startGate::run),
-                    "close thread starter returned null");
-            startGate.accept(owner);
+            threadStarter.start(execution.request().threadPrefix(), startGate::run);
+            startGate.accept();
+            return null;
         } catch (RuntimeException | Error startFailure) {
             startGate.reject();
             execution.recordStartFailure(startFailure);
-            if (!handoffAfterStartFailure(execution)) {
-                publishFailure(execution.request(), startFailure, Thread.currentThread());
-            }
+            handoffAfterStartFailure(execution);
+            return startFailure;
         }
     }
 
@@ -275,15 +259,11 @@ public final class BoundedCloseDispatcher {
         }
     }
 
-    private boolean handoffAfterStartFailure(CloseExecution execution) {
-        if (!execution.claimAfterStartFailure()) {
-            return false;
-        }
+    private void handoffAfterStartFailure(CloseExecution execution) {
         synchronized (lock) {
             fallbackPending.addLast(execution);
             lock.notifyAll();
         }
-        return true;
     }
 
     private void runFallbackOwner() {
@@ -399,37 +379,27 @@ public final class BoundedCloseDispatcher {
     @FunctionalInterface
     public interface ThreadStarter {
 
-        /** Starts {@code task} asynchronously and returns the thread that owns that exact invocation. */
-        Thread start(String threadPrefix, Runnable task);
-    }
-
-    @FunctionalInterface
-    interface PermitReleaser {
-
-        void release(Permit permit);
+        /** Starts {@code task} asynchronously before returning. */
+        void start(String threadPrefix, Runnable task);
     }
 
     public static final class Reservation {
 
         private final BoundedCloseDispatcher owner;
-        private final ArrayDeque<Permit> permits;
+        private int remainingPermits;
 
         private Reservation(BoundedCloseDispatcher owner, int permitCount) {
             this.owner = owner;
-            permits = new ArrayDeque<>(permitCount);
-            for (int index = 0; index < permitCount; index++) {
-                permits.addLast(new Permit(owner));
-            }
+            remainingPermits = permitCount;
         }
 
-        public Permit takePermit() {
-            synchronized (this) {
-                Permit permit = permits.pollFirst();
-                if (permit == null) {
-                    throw new IllegalStateException("Stream close reservation has no unused permits");
-                }
-                return permit;
+        public synchronized Permit takePermit() {
+            if (remainingPermits == 0) {
+                throw new IllegalStateException("Stream close reservation has no unused permits");
             }
+            Permit permit = new Permit(owner);
+            remainingPermits--;
+            return permit;
         }
 
         public void dispatch(CloseRequest request) {
@@ -451,20 +421,17 @@ public final class BoundedCloseDispatcher {
 
         public void dispatch(CloseRequest first, CloseRequest second) {
             Objects.requireNonNull(first, "first");
-            Permit firstPermit;
-            Permit secondPermit = null;
+            Permit firstPermit = new Permit(owner);
+            Permit secondPermit = second == null ? null : new Permit(owner);
             synchronized (this) {
-                firstPermit = permits.pollFirst();
-                if (firstPermit == null) {
+                int requiredPermits = secondPermit == null ? 1 : 2;
+                if (remainingPermits == 0) {
                     throw new IllegalStateException("Stream close reservation has no unused permits");
                 }
-                if (second != null) {
-                    secondPermit = permits.pollFirst();
-                    if (secondPermit == null) {
-                        permits.addFirst(firstPermit);
-                        throw new IllegalStateException("Stream close reservation has too few unused permits");
-                    }
+                if (remainingPermits < requiredPermits) {
+                    throw new IllegalStateException("Stream close reservation has too few unused permits");
                 }
+                remainingPermits -= requiredPermits;
             }
             if (secondPermit == null) {
                 firstPermit.dispatch(first);
@@ -474,32 +441,19 @@ public final class BoundedCloseDispatcher {
         }
 
         public void release() {
-            release(RELEASE_PERMIT);
-        }
-
-        void release(PermitReleaser permitReleaser) {
-            Objects.requireNonNull(permitReleaser, "permitReleaser");
-            Throwable firstFailure = null;
+            int released;
             synchronized (this) {
-                Permit permit;
-                while ((permit = permits.pollFirst()) != null) {
-                    try {
-                        permitReleaser.release(permit);
-                    } catch (RuntimeException | Error releaseFailure) {
-                        if (firstFailure == null) {
-                            firstFailure = releaseFailure;
-                        }
-                    }
-                }
+                released = remainingPermits;
+                remainingPermits = 0;
             }
-            rethrowReleaseFailure(firstFailure);
+            owner.releaseReserved(released);
         }
     }
 
     public static final class Permit {
 
         private final BoundedCloseDispatcher owner;
-        private final AtomicBoolean consumed = new AtomicBoolean();
+        private boolean consumed;
 
         private Permit(BoundedCloseDispatcher owner) {
             this.owner = owner;
@@ -520,9 +474,7 @@ public final class BoundedCloseDispatcher {
 
         public void closeInline(Closeable closeable) throws IOException {
             Objects.requireNonNull(closeable, "closeable");
-            if (!consumed.compareAndSet(false, true)) {
-                throw new IllegalStateException("Stream close permit has already been consumed");
-            }
+            claim("Stream close permit has already been consumed");
             try {
                 closeable.close();
             } finally {
@@ -531,27 +483,39 @@ public final class BoundedCloseDispatcher {
         }
 
         public void release() {
-            if (consumed.compareAndSet(false, true)) {
+            if (claimIfAvailable()) {
                 owner.releaseReserved(1);
             }
         }
-    }
 
-    private static void rethrowReleaseFailure(Throwable failure) {
-        if (failure instanceof RuntimeException runtimeFailure) {
-            throw runtimeFailure;
+        private synchronized void claim(String consumedMessage) {
+            if (!claimIfAvailable()) {
+                throw new IllegalStateException(consumedMessage);
+            }
         }
-        if (failure instanceof Error error) {
-            throw error;
+
+        private synchronized boolean claimIfAvailable() {
+            if (consumed) {
+                return false;
+            }
+            consumed = true;
+            return true;
+        }
+
+        private synchronized void restore() {
+            if (!consumed) {
+                throw new IllegalStateException("Stream close permit is not consumed");
+            }
+            consumed = false;
         }
     }
 
     /**
      * Separates pre-admission exceptions from failures to start an already accepted physical close.
      *
-     * <p>Returning this value means that one of the verified worker, the FIFO queue, or the prestarted fallback owner
-     * owns the physical close. A recorded starter failure may still be rethrown to preserve the synchronous API, but it
-     * must not be interpreted as a transfer of cleanup responsibility back to the caller.
+     * <p>Returning this value means that a started worker, the FIFO queue, or the prestarted fallback owner owns the
+     * physical close. A recorded starter failure may still be rethrown to preserve the synchronous API, but it must not
+     * be interpreted as a transfer of cleanup responsibility back to the caller.
      */
     static final class DispatchOutcome {
 
@@ -594,8 +558,7 @@ public final class BoundedCloseDispatcher {
     private final class CloseExecution {
 
         private final CloseRequest request;
-        private final AtomicBoolean claimed = new AtomicBoolean();
-        private final AtomicReference<Throwable> startFailure = new AtomicReference<>();
+        private Throwable startFailure;
 
         private CloseExecution(CloseRequest request) {
             this.request = request;
@@ -606,28 +569,18 @@ public final class BoundedCloseDispatcher {
         }
 
         private void recordStartFailure(Throwable failure) {
-            if (!startFailure.compareAndSet(null, failure)) {
+            if (startFailure != null) {
                 throw new IllegalStateException("Close execution already has a starter failure");
             }
-        }
-
-        private Throwable startFailure() {
-            return startFailure.get();
+            startFailure = Objects.requireNonNull(failure, "failure");
         }
 
         private void run() {
-            if (!claimed.compareAndSet(false, true)) {
-                return;
-            }
             completeExecution(this, attemptPhysicalClose(request.closeable()));
         }
 
-        private boolean claimAfterStartFailure() {
-            return claimed.compareAndSet(false, true);
-        }
-
         private void runClaimedAfterStartFailure() {
-            Throwable failure = startFailure.get();
+            Throwable failure = startFailure;
             if (failure == null) {
                 throw new IllegalStateException("Fallback close execution has no starter failure");
             }
@@ -643,20 +596,17 @@ public final class BoundedCloseDispatcher {
         private boolean decided;
         private boolean accepted;
         private boolean inlineInvocation;
-        private Thread acceptedOwner;
 
         private WorkerStartGate(CloseExecution execution, Thread dispatchThread) {
             this.execution = execution;
             this.dispatchThread = dispatchThread;
         }
 
-        private void accept(Thread owner) {
+        private void accept() {
             synchronized (this) {
-                if (inlineInvocation || owner == dispatchThread || !owner.isAlive()) {
-                    throw new RejectedExecutionException(
-                            "Close thread starter must start the task asynchronously on the returned live thread");
+                if (inlineInvocation) {
+                    throw new RejectedExecutionException("Close thread starter must start the task asynchronously");
                 }
-                acceptedOwner = owner;
                 accepted = true;
                 decided = true;
                 notifyAll();
@@ -696,13 +646,6 @@ public final class BoundedCloseDispatcher {
                     }
                     return;
                 }
-                if (worker != acceptedOwner) {
-                    if (restoreInterrupt) {
-                        worker.interrupt();
-                    }
-                    rejectMismatchedOwner(worker);
-                    return;
-                }
             }
             try {
                 execution.run();
@@ -710,15 +653,6 @@ public final class BoundedCloseDispatcher {
                 if (restoreInterrupt) {
                     worker.interrupt();
                 }
-            }
-        }
-
-        private void rejectMismatchedOwner(Thread actualOwner) {
-            RejectedExecutionException ownershipFailure = new RejectedExecutionException(
-                    "Close task ran on " + actualOwner.getName() + " instead of the thread returned by its starter");
-            execution.recordStartFailure(ownershipFailure);
-            if (!handoffAfterStartFailure(execution)) {
-                publishFailure(execution.request(), ownershipFailure, actualOwner);
             }
         }
     }

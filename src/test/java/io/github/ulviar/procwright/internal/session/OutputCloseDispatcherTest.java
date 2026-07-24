@@ -49,7 +49,6 @@ final class BoundedCloseDispatcherTest {
             Thread owner = Threading.unstarted(name, task);
             closeOwners.add(owner);
             owner.start();
-            return owner;
         };
         BoundedCloseDispatcher dispatcher =
                 new BoundedCloseDispatcher(2, closeCount - 2, closeCount, starter, reporter);
@@ -261,7 +260,6 @@ final class BoundedCloseDispatcherTest {
                     Thread worker = new Thread(task, name + ordinal);
                     worker.setDaemon(true);
                     worker.start();
-                    return worker;
                 },
                 reporter);
         ExecutorService firstCaller = Executors.newSingleThreadExecutor();
@@ -325,7 +323,6 @@ final class BoundedCloseDispatcherTest {
             thread.setDaemon(true);
             closeThread.set(thread);
             thread.start();
-            return thread;
         });
         CountDownLatch closed = new CountDownLatch(1);
 
@@ -372,7 +369,6 @@ final class BoundedCloseDispatcherTest {
                     Thread thread = new Thread(task, name + startAttempts.get());
                     thread.setDaemon(true);
                     thread.start();
-                    return thread;
                 },
                 reporter);
         AtomicInteger failedCloseCalls = new AtomicInteger();
@@ -678,7 +674,6 @@ final class BoundedCloseDispatcherTest {
                 2,
                 (name, task) -> {
                     task.run();
-                    return Thread.currentThread();
                 },
                 reporter);
         BoundedCloseDispatcher.Reservation pair = dispatcher.reserve(2);
@@ -700,128 +695,6 @@ final class BoundedCloseDispatcherTest {
     }
 
     @Test
-    void liveReturnedOwnerMismatchFallsBackExactlyOnceAndReportsOneOwnershipFailure() throws Exception {
-        CountDownLatch releaseActualOwner = new CountDownLatch(1);
-        CountDownLatch releaseReturnedOwner = new CountDownLatch(1);
-        CountDownLatch closed = new CountDownLatch(1);
-        CountDownLatch settled = new CountDownLatch(1);
-        CountDownLatch failureReported = new CountDownLatch(1);
-        AtomicInteger physicalCloses = new AtomicInteger();
-        AtomicInteger failureReports = new AtomicInteger();
-        AtomicReference<Throwable> reported = new AtomicReference<>();
-        AtomicReference<Thread> closeThread = new AtomicReference<>();
-        Thread dispatchThread = Thread.currentThread();
-        BoundedFailureReporter reporter = new BoundedFailureReporter(1, 3);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
-                1,
-                1,
-                2,
-                (name, task) -> {
-                    Thread actualOwner = new Thread(
-                            () -> {
-                                awaitUninterruptibly(releaseActualOwner);
-                                task.run();
-                            },
-                            name + "actual");
-                    Thread returnedOwner =
-                            new Thread(() -> awaitUninterruptibly(releaseReturnedOwner), name + "returned");
-                    actualOwner.setDaemon(true);
-                    returnedOwner.setDaemon(true);
-                    actualOwner.start();
-                    returnedOwner.start();
-                    return returnedOwner;
-                },
-                reporter);
-        try {
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            () -> {
-                                physicalCloses.incrementAndGet();
-                                closeThread.set(Thread.currentThread());
-                                closed.countDown();
-                            },
-                            "procwright-live-owner-mismatch-",
-                            failure -> {
-                                failureReports.incrementAndGet();
-                                reported.set(failure);
-                                failureReported.countDown();
-                            },
-                            settled::countDown);
-
-            releaseActualOwner.countDown();
-            assertTrue(closed.await(1, TimeUnit.SECONDS));
-            assertTrue(failureReported.await(1, TimeUnit.SECONDS));
-            assertTrue(settled.await(1, TimeUnit.SECONDS));
-        } finally {
-            releaseActualOwner.countDown();
-            releaseReturnedOwner.countDown();
-        }
-
-        assertTrue(reported.get() instanceof java.util.concurrent.RejectedExecutionException);
-        assertTrue(reported.get().getMessage().contains("instead of the thread returned"));
-        assertEquals(1, failureReports.get());
-        assertEquals(1, physicalCloses.get());
-        assertFalse(closeThread.get() == dispatchThread);
-        assertEquals(0, dispatcher.activeCount());
-        assertEquals(0, dispatcher.pendingCount());
-        assertEquals(0, dispatcher.outstandingCount());
-    }
-
-    @Test
-    void deadReturnedOwnerFallsBackExactlyOnceAndReportsOneOwnershipFailure() throws Exception {
-        CountDownLatch closed = new CountDownLatch(1);
-        CountDownLatch settled = new CountDownLatch(1);
-        CountDownLatch failureReported = new CountDownLatch(1);
-        AtomicInteger physicalCloses = new AtomicInteger();
-        AtomicInteger failureReports = new AtomicInteger();
-        AtomicReference<Throwable> reported = new AtomicReference<>();
-        AtomicReference<Thread> closeThread = new AtomicReference<>();
-        Thread dispatchThread = Thread.currentThread();
-        BoundedFailureReporter reporter = new BoundedFailureReporter(1, 3);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
-                1,
-                1,
-                2,
-                (name, task) -> {
-                    Thread actualOwner = new Thread(task, name + "actual");
-                    actualOwner.setDaemon(true);
-                    actualOwner.start();
-                    return new Thread(() -> {}, name + "dead-returned");
-                },
-                reporter);
-
-        java.util.concurrent.RejectedExecutionException dispatchFailure =
-                assertThrows(java.util.concurrent.RejectedExecutionException.class, () -> dispatcher
-                        .reserve(1)
-                        .dispatch(
-                                () -> {
-                                    physicalCloses.incrementAndGet();
-                                    closeThread.set(Thread.currentThread());
-                                    closed.countDown();
-                                },
-                                "procwright-dead-owner-mismatch-",
-                                failure -> {
-                                    failureReports.incrementAndGet();
-                                    reported.set(failure);
-                                    failureReported.countDown();
-                                },
-                                settled::countDown));
-
-        assertTrue(dispatchFailure.getMessage().contains("returned live thread"));
-        assertTrue(closed.await(1, TimeUnit.SECONDS));
-        assertTrue(failureReported.await(1, TimeUnit.SECONDS));
-        assertTrue(settled.await(1, TimeUnit.SECONDS));
-        assertSame(dispatchFailure, reported.get());
-        assertEquals(1, failureReports.get());
-        assertEquals(1, physicalCloses.get());
-        assertFalse(closeThread.get() == dispatchThread);
-        assertEquals(0, dispatcher.activeCount());
-        assertEquals(0, dispatcher.pendingCount());
-        assertEquals(0, dispatcher.outstandingCount());
-    }
-
-    @Test
     void callbackFailureIsSuppressedOnTheOriginalCloseFailureAndReportedOnce() throws Exception {
         IOException closeFailure = new IOException("close failed");
         IllegalStateException callbackFailure = new IllegalStateException("callback failed");
@@ -837,7 +710,6 @@ final class BoundedCloseDispatcherTest {
                 uncaughtReported.countDown();
             });
             thread.start();
-            return thread;
         });
         dispatcher
                 .reserve(1)
@@ -876,7 +748,6 @@ final class BoundedCloseDispatcherTest {
                         starterBlocked.countDown();
                         awaitWithin(releaseStarter, "close worker did not publish while its starter was blocked");
                     }
-                    return thread;
                 });
 
         Throwable firstFailure = failureKind.create("first close failed");

@@ -142,7 +142,7 @@ final class StreamRuntimeStartupTest extends StreamRuntimeStartupTestSupport {
                 awaitUninterruptibly(stderr.readStarted);
                 throw constructionFailure;
             }
-            return Threading.start(name, task);
+            Threading.start(name, task);
         });
         DefaultSession rawSession = DefaultSession.openTransactionally(
                 process,

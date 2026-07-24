@@ -218,7 +218,7 @@ final class DefaultSessionOutputCleanupTest {
             if (name.contains("stdout")) {
                 throw startFailure;
             }
-            return io.github.ulviar.procwright.internal.Threading.start(name, task);
+            io.github.ulviar.procwright.internal.Threading.start(name, task);
         });
         DefaultSession session = openSession(process, dispatcher);
         try {
@@ -359,7 +359,6 @@ final class DefaultSessionOutputCleanupTest {
                 reported.countDown();
             });
             worker.start();
-            return worker;
         });
         DefaultSession session = DefaultSession.openTransactionally(
                 process,

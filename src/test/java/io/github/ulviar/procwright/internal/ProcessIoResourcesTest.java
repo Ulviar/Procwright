@@ -242,7 +242,7 @@ final class ProcessIoResourcesTest {
                     if (starts.incrementAndGet() == expectedFailedOrdinal) {
                         throwFailure(expected);
                     }
-                    return Threading.start(name, task);
+                    Threading.start(name, task);
                 });
                 TrackingProcess process = new TrackingProcess();
                 ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
@@ -278,7 +278,7 @@ final class ProcessIoResourcesTest {
             if (starts.getAndIncrement() == 0) {
                 throw startFailure;
             }
-            return Threading.start(name, task);
+            Threading.start(name, task);
         });
         ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
         ExecutorService waiter = Executors.newSingleThreadExecutor();

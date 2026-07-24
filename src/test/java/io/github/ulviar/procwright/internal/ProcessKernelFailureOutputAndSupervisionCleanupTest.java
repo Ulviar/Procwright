@@ -322,7 +322,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
             if (name.contains("stdin")) {
                 throw startFailure;
             }
-            return Threading.start(name, task);
+            Threading.start(name, task);
         });
         ProcessKernel kernel =
                 new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(2));

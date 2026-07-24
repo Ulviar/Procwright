@@ -156,7 +156,6 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler((ignored, failure) -> failureReportCount.incrementAndGet());
             thread.start();
-            return thread;
         });
         DefaultSession rawSession = session(process, closeDispatcher);
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "deferred-report");

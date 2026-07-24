@@ -86,7 +86,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             if (name.contains("stdout-close")) {
                 throw startFailure;
             }
-            return io.github.ulviar.procwright.internal.Threading.start(name, task);
+            io.github.ulviar.procwright.internal.Threading.start(name, task);
         });
         DefaultLineSession lineSession =
                 new DefaultLineSession(session(process, dispatcher), LineSessionSettings.defaults());

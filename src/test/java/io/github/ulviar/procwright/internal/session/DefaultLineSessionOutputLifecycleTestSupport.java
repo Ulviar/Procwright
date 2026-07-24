@@ -25,7 +25,7 @@ abstract class DefaultLineSessionOutputLifecycleTestSupport extends DefaultLineS
             if (name.contains("stdout-close") || name.contains("stderr-close")) {
                 throw new IllegalStateException("output close starter failed: " + name);
             }
-            return io.github.ulviar.procwright.internal.Threading.start(name, task);
+            io.github.ulviar.procwright.internal.Threading.start(name, task);
         });
     }
 

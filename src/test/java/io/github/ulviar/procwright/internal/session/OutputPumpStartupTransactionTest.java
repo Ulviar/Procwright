@@ -285,7 +285,6 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler((ignored, failure) -> uncaughtReports.incrementAndGet());
             thread.start();
-            return thread;
         });
         DefaultSession rawSession = session(process, closeDispatcher);
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "exact-session");
@@ -385,7 +384,6 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
                 reportsCompleted.countDown();
             });
             thread.start();
-            return thread;
         });
         DefaultSession rawSession = session(process, closeDispatcher);
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "reentrant");

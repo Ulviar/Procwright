@@ -12,6 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +51,7 @@ final class BoundedCloseDispatcherLinearizationTest {
     }
 
     @Test
-    void nullReservationDispatchDoesNotConsumeItsPermitOrStrandFallbackOwnership() throws Exception {
+    void nullReservationDispatchDoesNotConsumeItsPermit() throws Exception {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2);
         BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(1);
 
@@ -68,29 +69,43 @@ final class BoundedCloseDispatcherLinearizationTest {
     }
 
     @Test
-    void reservationReleaseContinuesAfterEveryPermitFailureAndPreservesTheFirst() {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
-        BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(3);
-        AssertionError[] failures = {
-            new AssertionError("first permit release"),
-            new AssertionError("second permit release"),
-            new AssertionError("third permit release")
-        };
-        AtomicInteger releaseAttempts = new AtomicInteger();
+    void queuedStarterFailureIsReportedAfterTheOriginalDispatchReturns() throws Exception {
+        IllegalStateException startFailure = new IllegalStateException("queued close starter failed");
+        AtomicInteger starts = new AtomicInteger();
+        CountDownLatch firstCloseEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstClose = new CountDownLatch(1);
+        CountDownLatch secondClosed = new CountDownLatch(1);
+        CountDownLatch failureReported = new CountDownLatch(1);
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
+            if (starts.getAndIncrement() == 1) {
+                throw startFailure;
+            }
+            Threading.start(name, task);
+        });
+        BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(2);
 
-        AssertionError actual = assertThrows(
-                AssertionError.class,
-                () -> reservation.release(permit -> {
-                    int ordinal = releaseAttempts.getAndIncrement();
-                    permit.release();
-                    throw failures[ordinal];
+        reservation.dispatch(
+                BoundedCloseDispatcher.closeRequest(
+                        () -> {
+                            firstCloseEntered.countDown();
+                            awaitUninterruptibly(releaseFirstClose);
+                        },
+                        "procwright-active-close-",
+                        ignored -> {}),
+                BoundedCloseDispatcher.closeRequest(secondClosed::countDown, "procwright-queued-close-", failure -> {
+                    reported.set(failure);
+                    failureReported.countDown();
                 }));
+        assertTrue(firstCloseEntered.await(1, TimeUnit.SECONDS));
+        assertEquals(1, starts.get(), "the queued close must not start during the original dispatch");
 
-        assertSame(failures[0], actual);
-        assertEquals(3, releaseAttempts.get());
-        assertEquals(0, dispatcher.outstandingCount());
-        reservation.release(ignored -> releaseAttempts.incrementAndGet());
-        assertEquals(3, releaseAttempts.get());
+        releaseFirstClose.countDown();
+
+        assertTrue(secondClosed.await(1, TimeUnit.SECONDS));
+        assertTrue(failureReported.await(1, TimeUnit.SECONDS));
+        assertSame(startFailure, reported.get());
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
 
     @Test
