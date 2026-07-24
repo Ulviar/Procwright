@@ -87,8 +87,11 @@ Runtime получает только согласованный plan и не у
   `ShutdownFailureLedger`; facade — `ProcessLifecycle`, exact-once session cleanup — `SessionProcessCleanup`;
 - bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; execution owner policy —
   `BoundedTaskOwner`, lifecycle одного accepted вызова — `BoundedTaskExecution`;
-- stdin serialization/close, output ownership и distinct terminal/physical close callbacks — `SessionResources`,
-  output failure classification и physical settlement — `SessionOutputCleanup`;
+- транзакционное приобретение process streams и permits — `ProcessIoAcquisition`, exact-once physical close и
+  локальная close failure одного stream — `ProcessStreamResource`, bundle-level close и rollback —
+  `ProcessIoResources`;
+- stdin serialization и logical close, output ownership и session-level close callbacks — `SessionResources`, output
+  failure classification и physical settlement — `SessionOutputCleanup`;
 - арбитрация attach/report для cleanup failures после terminal outcome — `SessionLateFailures`;
 - выбор output consumer-а внутри resource owner — `SessionOutputOwnership`;
 - bounded immutable cleanup snapshot — `KnownDescendants`; bounded process/provider traversal — `ProcessTreeScanner`;

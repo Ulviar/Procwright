@@ -285,7 +285,7 @@ public final class ProcessKernel {
     }
 
     private static OneShotIoTaskOwner.OwnedFuture<Void> startStdinWriter(
-            ProcessIoResources.Resource<OutputStream> output,
+            ProcessStreamResource<OutputStream> output,
             OneShotIoPlan.StdinOperation stdin,
             ExecutorService executor,
             OneShotIoTaskOwner.Reservation ioTasks,
@@ -305,7 +305,7 @@ public final class ProcessKernel {
     }
 
     private static void writeStdin(
-            ProcessIoResources.Resource<OutputStream> output,
+            ProcessStreamResource<OutputStream> output,
             OneShotIoPlan.StdinOperation stdin,
             Consumer<? super Throwable> closeFailureHandler) {
         Throwable primaryFailure = null;

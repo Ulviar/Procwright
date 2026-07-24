@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.ProcessIoResources;
+import io.github.ulviar.procwright.internal.ProcessStreamResource;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,12 +12,12 @@ import java.util.Objects;
 /** Owns the single physical close attempt for one process output stream. */
 final class CloseOnceInputStream extends FilterInputStream {
 
-    private final ProcessIoResources.Resource<InputStream> resource;
+    private final ProcessStreamResource<InputStream> resource;
     private final OutputCloseReservation reservation;
     private final OutputCloseReservation.Stream stream;
 
     CloseOnceInputStream(
-            ProcessIoResources.Resource<InputStream> resource,
+            ProcessStreamResource<InputStream> resource,
             OutputCloseReservation reservation,
             OutputCloseReservation.Stream stream) {
         super(Objects.requireNonNull(resource, "resource").stream());

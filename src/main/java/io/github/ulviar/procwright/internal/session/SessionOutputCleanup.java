@@ -3,7 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.ProcessIoResources;
+import io.github.ulviar.procwright.internal.ProcessStreamResource;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.io.InputStream;
 import java.util.Objects;
@@ -19,7 +19,7 @@ final class SessionOutputCleanup {
     private boolean bound;
     private boolean settled;
 
-    void bind(ProcessIoResources.Resource<InputStream> stdout, ProcessIoResources.Resource<InputStream> stderr) {
+    void bind(ProcessStreamResource<InputStream> stdout, ProcessStreamResource<InputStream> stderr) {
         Objects.requireNonNull(stdout, "stdout");
         Objects.requireNonNull(stderr, "stderr");
         synchronized (lock) {

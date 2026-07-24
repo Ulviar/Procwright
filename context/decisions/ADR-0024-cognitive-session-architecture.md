@@ -37,15 +37,17 @@ owner вынуждает при локальном изменении держа
   `BoundedTaskExecution` целиком владеет start gate, abandonment, interrupt и late-failure settlement одного вызова;
   отменяемая и неотменяемая операции передаются ему как явная `BoundedTaskCancellation`, а retry safety line write
   хранит только переход `waiting -> rejected/admitted` без неиспользуемых промежуточных фаз;
-- `SessionResources` владеет logical/physical stdin close, сериализацией writes, стабильными ссылками на process streams,
-  exclusive output ownership и распределением ответственности за close; factory возвращает полностью связанного
-  владельца без промежуточного взаимного bind;
+- `SessionResources` владеет logical stdin close, сериализацией writes, exclusive output ownership и распределением
+  session-level close callbacks; factory возвращает полностью связанного владельца без промежуточного взаимного bind;
 - `SessionOutputCleanup` после физического закрытия обоих output streams отдельно завершает terminal-failure
   settlement и наблюдаемый physical-cleanup future;
 - `SessionLateFailures` удерживает physical/late cleanup failures до завершения terminal arbitration, после чего
   один раз прикрепляет их к canonical failure либо отправляет через bounded reporter.
-- `ProcessIoResources` транзакционно приобретает стабильные ссылки на process streams и permits; rollback выражен
-  только реальными операциями остановки процесса, закрытия полученных streams и возврата capacity;
+- `ProcessIoAcquisition` транзакционно приобретает стабильные ссылки на process streams и permits; при отказе сначала
+  выполняет все обязательные rollback-операции, и только затем дополняет primary failure;
+- `ProcessStreamResource` владеет exact-once close одного stream, его permits и локальным close failure; общий для трех
+  ресурсов lock отвечает только за атомарный single/pair claim;
+- `ProcessIoResources` группирует три ресурса и координирует bundle-level close и rollback;
 - `OutputPumpCoordinator` владеет однократным транзакционным запуском пары helper pumps, `OutputPumpCleanup` —
   порядком process cleanup, pump completion, physical close и helper barrier, а `OutputCloseFailures` —
   identity-deduplication и выбором attach/report.
@@ -67,7 +69,7 @@ Physical output failure входит в physical-cleanup outcome, но не уч
 владельцы не выбирают сценарный terminal outcome друг за друга.
 
 `SessionConstruction` tests инжектируют сбой на реальных асинхронных границах: запуск watcher-а и последний шаг перед
-commit. Нижележащая транзакция приобретения process streams принадлежит `ProcessIoResources` и проверяется отдельно;
+commit. Нижележащая транзакция приобретения process streams принадлежит `ProcessIoAcquisition` и проверяется отдельно;
 ее внутренняя форма этим ADR не фиксируется.
 
 Line и protocol session явно откладывают классификацию physical close failures, пока активный request не завершил
@@ -120,4 +122,6 @@ terminal arbitration. EOF без активного request закрывает �
 - `DefaultStreamSession` не содержит собственное семейство terminal outcome типов и publication races;
 - дополнительные session-level сценарии используют эти же владельцы и не создают второй process runtime.
 
-Новые классы остаются package-private. Public API и observable lifecycle contract не меняются.
+Новые классы остаются в неэкспортируемых internal-пакетах и не входят в поддерживаемый public API.
+`ProcessStreamResource` имеет `public` visibility только для доступа из подпакета `internal.session`. Observable
+lifecycle contract не меняется.
