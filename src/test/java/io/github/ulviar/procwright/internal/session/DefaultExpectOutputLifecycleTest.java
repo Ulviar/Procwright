@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.ExpectMatch;
@@ -166,6 +167,71 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
         rawSession.onExit().get(1, TimeUnit.SECONDS);
         assertEquals(1, stdout.closeCalls());
         assertEquals(1, stderr.closeCalls());
+    }
+
+    @Test
+    void laterFatalOutputFailureCannotDelayPumpOrSessionCleanup() throws Exception {
+        AssertionError primary = new AssertionError("primary stdout failure");
+        BlockingCauseError secondary = new BlockingCauseError();
+        ControlledPumpFailureInputStream stdout =
+                new ControlledPumpFailureInputStream(primary, new AssertionError("stdout close failed"));
+        ControlledPumpFailureInputStream stderr =
+                new ControlledPumpFailureInputStream(secondary, new AssertionError("stderr close failed"));
+        ControllableProcess process = new ControllableProcess(stdout, stderr);
+        DefaultSession rawSession = session(process);
+        CountDownLatch reporterEntered = new CountDownLatch(1);
+        CountDownLatch releaseReporter = new CountDownLatch(1);
+        AtomicInteger reports = new AtomicInteger();
+        AtomicReference<Error> reportedError = new AtomicReference<>();
+        DefaultExpect expect = new DefaultExpect(
+                rawSession,
+                ExpectSettings.defaults(),
+                ZeroReadBackoff.exponential(),
+                PumpStarter.threading(),
+                new BoundedTaskLimiter(1),
+                ExpectRegexMatcher::evaluate,
+                (thread, error) -> {
+                    reports.incrementAndGet();
+                    reportedError.set(error);
+                    reporterEntered.countDown();
+                    awaitUninterruptibly(releaseReporter);
+                });
+        try {
+            assertTrue(stdout.awaitReadEntered());
+            assertTrue(stderr.awaitReadEntered());
+
+            stdout.releaseReadFailure();
+            assertTrue(process.awaitDestroyed());
+            stderr.releaseReadFailure();
+            stdout.releaseCloseFailure();
+            stderr.releaseCloseFailure();
+
+            assertTrue(reporterEntered.await(1, TimeUnit.SECONDS));
+            rawSession.onExit().get(1, TimeUnit.SECONDS);
+            stdout.readThread().join(TimeUnit.SECONDS.toMillis(1));
+            stderr.readThread().join(TimeUnit.SECONDS.toMillis(1));
+            assertFalse(stdout.readThread().isAlive());
+            assertFalse(stderr.readThread().isAlive());
+            assertTrue(stdout.awaitCloseWorkerStopped());
+            assertTrue(stderr.awaitCloseWorkerStopped());
+            assertEquals(1, reports.get());
+            assertSame(secondary, reportedError.get());
+            assertEquals(1, secondary.causeAccessed.getCount());
+            ExpectException terminal = assertThrows(ExpectException.class, () -> expect.expectText("never"));
+            assertEquals(ExpectException.Reason.FAILURE, terminal.reason());
+            assertSame(primary, terminal.getCause());
+            releaseReporter.countDown();
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+        } finally {
+            releaseReporter.countDown();
+            secondary.releaseCause.countDown();
+            stdout.releaseReadFailure();
+            stderr.releaseReadFailure();
+            stdout.releaseCloseFailure();
+            stderr.releaseCloseFailure();
+            expect.close();
+            rawSession.close();
+        }
     }
 
     @Test
@@ -392,6 +458,35 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
                 backoff.release();
                 expect.close();
             }
+        }
+    }
+
+    @SuppressWarnings("serial")
+    private static final class BlockingCauseError extends AssertionError {
+
+        private final CountDownLatch causeAccessed = new CountDownLatch(1);
+        private final CountDownLatch releaseCause = new CountDownLatch(1);
+
+        private BlockingCauseError() {
+            super("secondary stderr failure", null);
+        }
+
+        @Override
+        public synchronized Throwable getCause() {
+            causeAccessed.countDown();
+            boolean interrupted = false;
+            while (true) {
+                try {
+                    releaseCause.await();
+                    break;
+                } catch (InterruptedException exception) {
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return null;
         }
     }
 }

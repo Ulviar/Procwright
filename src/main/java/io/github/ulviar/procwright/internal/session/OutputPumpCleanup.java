@@ -2,8 +2,8 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
-import io.github.ulviar.procwright.internal.Threading;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -262,8 +262,16 @@ final class OutputPumpCleanup {
             try {
                 publication.run();
             } catch (Throwable failure) {
-                Threading.reportUncaught(Thread.currentThread(), failure);
+                reportPublicationFailure(failure);
             }
+        }
+    }
+
+    private static void reportPublicationFailure(Throwable failure) {
+        try {
+            BoundedFailureReporter.shared().report(Thread.currentThread(), failure);
+        } catch (Throwable ignored) {
+            // Best-effort reporting must not replace mandatory output cleanup.
         }
     }
 

@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.session.ExpectException;
@@ -154,12 +155,10 @@ final class ExpectSessionState {
                 outputFailure = failure;
                 stopping.set(true);
                 selected = claimTerminalLocked(new Terminal(TerminalKind.FAILURE, failure));
-            } else {
-                SuppressionSupport.attach(outputFailure, failure);
             }
             if (failure instanceof Error error
                     && terminal != null
-                    && terminal.kind() != TerminalKind.FAILURE
+                    && (first ? terminal.kind() != TerminalKind.FAILURE : error != outputFailure)
                     && scheduledFatalOutputFailures.add(error)) {
                 fatalToPublish = error;
             }
@@ -248,7 +247,8 @@ final class ExpectSessionState {
     }
 
     void reportLateFatal(Thread failureThread, Error failure) {
-        lateFatalFailureReporter.handle(failureThread, failure);
+        BoundedFailureReporter.shared()
+                .execute(failureThread, () -> lateFatalFailureReporter.handle(failureThread, failure));
     }
 
     ExpectException failure(String message, Throwable cause) {

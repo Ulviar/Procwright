@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -71,6 +72,32 @@ final class ExpectSessionStateTest {
         ExpectException terminal = org.junit.jupiter.api.Assertions.assertThrows(
                 ExpectException.class, () -> state.throwIfTerminal("not found"));
         assertEquals(ExpectException.Reason.EOF, terminal.reason());
+    }
+
+    @Test
+    void laterFatalOutputFailureIsReportedInsteadOfDecoratingThePrimary() {
+        ExpectSessionState state = state((thread, error) -> {});
+        IllegalStateException primary = new IllegalStateException("primary");
+        AssertionError secondary = new AssertionError("secondary");
+        state.recordOutputFailure(primary);
+
+        ExpectSessionState.OutputFailureDecision decision = state.recordOutputFailure(secondary);
+
+        assertFalse(decision.first());
+        assertSame(secondary, decision.fatalToPublish());
+        assertEquals(0, primary.getSuppressed().length);
+    }
+
+    @Test
+    void repeatedCanonicalErrorIsNotPublishedAsALateFailure() {
+        ExpectSessionState state = state((thread, error) -> {});
+        AssertionError canonical = new AssertionError("canonical");
+
+        state.recordOutputFailure(canonical);
+        ExpectSessionState.OutputFailureDecision repeated = state.recordOutputFailure(canonical);
+
+        assertFalse(repeated.first());
+        assertNull(repeated.fatalToPublish());
     }
 
     private static ExpectSessionState state(BoundedTaskRunner.LateFatalHandler reporter) {
