@@ -59,10 +59,10 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         this.options = Objects.requireNonNull(options, "options");
         Objects.requireNonNull(terminalDispatcher, "terminalDispatcher");
         Objects.requireNonNull(workerCloser, "workerCloser");
-        this.pool = new WorkerPoolController<>(
+        this.pool = WorkerPoolController.fromSettings(
                 () -> requireDefaultSession(workerFactory.get()),
                 workerCloser,
-                new ProtocolPoolOptions(options),
+                options,
                 ProtocolPoolFailures.INSTANCE,
                 "pooled protocol-session worker",
                 "procwright-protocol-pool-replenish-",
@@ -220,53 +220,6 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
             return (DefaultProtocolSession<I, O>) defaultSession;
         }
         throw new IllegalArgumentException("workerFactory must create a Procwright protocol session");
-    }
-
-    private record ProtocolPoolOptions(WorkerPoolSettings<?> options) implements WorkerPoolPolicy.Options {
-
-        private ProtocolPoolOptions {
-            Objects.requireNonNull(options, "options");
-        }
-
-        @Override
-        public int maxSize() {
-            return options.maxSize();
-        }
-
-        @Override
-        public int warmupSize() {
-            return options.warmupSize();
-        }
-
-        @Override
-        public int minIdle() {
-            return options.minIdle();
-        }
-
-        @Override
-        public Duration acquireTimeout() {
-            return options.acquireTimeout();
-        }
-
-        @Override
-        public Duration closeTimeout() {
-            return options.closeTimeout();
-        }
-
-        @Override
-        public int maxRequestsPerWorker() {
-            return options.maxRequestsPerWorker();
-        }
-
-        @Override
-        public Duration maxWorkerAge() {
-            return options.maxWorkerAge();
-        }
-
-        @Override
-        public boolean backgroundReplenishment() {
-            return options.backgroundReplenishment();
-        }
     }
 
     private enum ProtocolPoolFailures implements WorkerPoolController.FailureFactory, PoolCloseSupport.FailureFactory {

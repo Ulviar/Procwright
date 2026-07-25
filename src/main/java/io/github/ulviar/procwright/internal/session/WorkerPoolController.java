@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.FailureAggregation;
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.List;
@@ -75,6 +76,24 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 Dependencies.defaults(metricsClock));
     }
 
+    static <S> WorkerPoolController<S> fromSettings(
+            Supplier<S> workerFactory,
+            WorkerRetirement.Action<S> workerCloser,
+            WorkerPoolSettings<?> settings,
+            FailureFactory failures,
+            String workerLabel,
+            String threadPrefix,
+            LongSupplier metricsClock) {
+        return new WorkerPoolController<>(
+                workerFactory,
+                workerCloser,
+                new WorkerPoolPolicy(settings),
+                failures,
+                workerLabel,
+                threadPrefix,
+                Dependencies.defaults(metricsClock));
+    }
+
     WorkerPoolController(
             Supplier<S> workerFactory,
             WorkerRetirement.Action<S> workerCloser,
@@ -83,10 +102,28 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             String workerLabel,
             String threadPrefix,
             Dependencies dependencies) {
+        this(
+                workerFactory,
+                workerCloser,
+                new WorkerPoolPolicy(options),
+                failures,
+                workerLabel,
+                threadPrefix,
+                dependencies);
+    }
+
+    private WorkerPoolController(
+            Supplier<S> workerFactory,
+            WorkerRetirement.Action<S> workerCloser,
+            WorkerPoolPolicy policy,
+            FailureFactory failures,
+            String workerLabel,
+            String threadPrefix,
+            Dependencies dependencies) {
         Dependencies configuredDependencies = Objects.requireNonNull(dependencies, "dependencies");
         this.workerFactory = Objects.requireNonNull(workerFactory, "workerFactory");
         this.workerCloser = Objects.requireNonNull(workerCloser, "workerCloser");
-        policy = new WorkerPoolPolicy(options);
+        this.policy = Objects.requireNonNull(policy, "policy");
         this.failures = Objects.requireNonNull(failures, "failures");
         this.workerLabel = Objects.requireNonNull(workerLabel, "workerLabel");
         this.threadPrefix = Objects.requireNonNull(threadPrefix, "threadPrefix");

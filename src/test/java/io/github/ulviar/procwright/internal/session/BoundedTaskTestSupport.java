@@ -41,7 +41,7 @@ final class BoundedTaskTestSupport {
             LongSupplier nanoTime,
             BoundedTaskRunner.Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException {
-        BoundedTaskOwner owner = (prefix, taskName, boundedTask, rejection) -> {
+        BoundedTaskRunner.TaskStarter taskStarter = (prefix, boundedTask, rejection) -> {
             Thread thread =
                     Objects.requireNonNull(threadFactory.unstarted(prefix, boundedTask), "threadFactory returned null");
             thread.setDaemon(true);
@@ -56,7 +56,7 @@ final class BoundedTaskTestSupport {
                     BoundedTaskRunner::reportLateFailure,
                     failure -> {},
                     handoff,
-                    owner,
+                    taskStarter,
                     nanoTime,
                     task));
         } catch (BoundedTaskRunner.TaskCancelledException impossible) {

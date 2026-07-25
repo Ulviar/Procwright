@@ -85,8 +85,9 @@ Runtime получает только согласованный plan и не у
   `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessTreeShutdown`, bounded tree state —
   `ShutdownTreeState`, signals и JDK fallback — `ProcessShutdownSignals`, failure/interruption policy —
   `ShutdownFailureLedger`; facade — `ProcessLifecycle`, exact-once session cleanup — `SessionProcessCleanup`;
-- bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; execution owner policy —
-  `BoundedTaskOwner`, lifecycle одного accepted вызова — `BoundedTaskExecution`;
+- bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; запуск fresh или
+  session-affine execution owner-а задает `BoundedTaskRunner.TaskStarter`, lifecycle одного accepted вызова —
+  `BoundedTaskExecution`;
 - транзакционное приобретение process streams и permits — `ProcessIoAcquisition`, exact-once physical close и
   локальная close failure одного stream — `ProcessStreamResource`, bundle-level close и rollback —
   `ProcessIoResources`;

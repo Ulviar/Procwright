@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.DurationSupport;
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.Objects;
@@ -19,8 +20,8 @@ final class WorkerPoolPolicy {
     private final Duration maxWorkerAge;
     private final boolean backgroundReplenishment;
 
-    WorkerPoolPolicy(Options options) {
-        Options configured = Objects.requireNonNull(options, "options");
+    WorkerPoolPolicy(WorkerPoolSettings<?> settings) {
+        WorkerPoolSettings<?> configured = Objects.requireNonNull(settings, "settings");
         maxSize = configured.maxSize();
         warmupSize = configured.warmupSize();
         minIdle = configured.minIdle();
@@ -29,6 +30,23 @@ final class WorkerPoolPolicy {
         maxRequestsPerWorker = configured.maxRequestsPerWorker();
         maxWorkerAge = configured.maxWorkerAge();
         backgroundReplenishment = configured.backgroundReplenishment();
+        validateReplenishment();
+    }
+
+    WorkerPoolPolicy(Options options) {
+        Options configured = Objects.requireNonNull(options, "options");
+        maxSize = configured.maxSize();
+        warmupSize = configured.warmupSize();
+        minIdle = configured.minIdle();
+        acquireTimeout = Objects.requireNonNull(configured.acquireTimeout(), "acquireTimeout");
+        closeTimeout = Objects.requireNonNull(configured.closeTimeout(), "closeTimeout");
+        maxRequestsPerWorker = configured.maxRequestsPerWorker();
+        maxWorkerAge = Objects.requireNonNull(configured.maxWorkerAge(), "maxWorkerAge");
+        backgroundReplenishment = configured.backgroundReplenishment();
+        validateReplenishment();
+    }
+
+    private void validateReplenishment() {
         if (minIdle > 0 && !backgroundReplenishment) {
             throw new IllegalArgumentException("minIdle requires backgroundReplenishment");
         }

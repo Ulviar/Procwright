@@ -83,10 +83,10 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         this.options = Objects.requireNonNull(options, "options");
         Objects.requireNonNull(terminalDispatcher, "terminalDispatcher");
         Objects.requireNonNull(workerCloser, "workerCloser");
-        this.pool = new WorkerPoolController<>(
+        this.pool = WorkerPoolController.fromSettings(
                 () -> requireDefaultSession(workerFactory.get()),
                 workerCloser,
-                new LinePoolOptions(options),
+                options,
                 LinePoolFailures.INSTANCE,
                 "pooled line-session worker",
                 "procwright-line-pool-replenish-",
@@ -280,53 +280,6 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             return defaultSession;
         }
         throw new IllegalArgumentException("workerFactory must create a Procwright line session");
-    }
-
-    private record LinePoolOptions(WorkerPoolSettings<LineSession> options) implements WorkerPoolPolicy.Options {
-
-        private LinePoolOptions {
-            Objects.requireNonNull(options, "options");
-        }
-
-        @Override
-        public int maxSize() {
-            return options.maxSize();
-        }
-
-        @Override
-        public int warmupSize() {
-            return options.warmupSize();
-        }
-
-        @Override
-        public int minIdle() {
-            return options.minIdle();
-        }
-
-        @Override
-        public Duration acquireTimeout() {
-            return options.acquireTimeout();
-        }
-
-        @Override
-        public Duration closeTimeout() {
-            return options.closeTimeout();
-        }
-
-        @Override
-        public int maxRequestsPerWorker() {
-            return options.maxRequestsPerWorker();
-        }
-
-        @Override
-        public Duration maxWorkerAge() {
-            return options.maxWorkerAge();
-        }
-
-        @Override
-        public boolean backgroundReplenishment() {
-            return options.backgroundReplenishment();
-        }
     }
 
     private record EncodedRequest(byte[] bytes, Duration remainingTimeout) {

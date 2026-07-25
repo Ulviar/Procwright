@@ -34,8 +34,8 @@ owner вынуждает при локальном изменении держа
 - `ProcessProviderOperationCancellation` доставляет interrupt до или после binding owner-а, а
   `ProcessProviderOperationSettlement` удерживает reporting producer до завершения caller и owner;
 - `BoundedTaskLimits` задает независимые process-wide admission partitions, `BoundedTaskLimiter` и
-  `BoundedTaskPermit` владеют capacity, `BoundedTaskOwner` явно выбирает fresh или session-affine execution owner, а
-  `BoundedTaskHandoff` одним monitor владеет claim callback, admission и наблюдаемой retry-safe фазой;
+  `BoundedTaskPermit` владеют capacity, `BoundedTaskRunner.TaskStarter` запускает fresh или session-affine execution
+  owner, а `BoundedTaskHandoff` одним monitor владеет claim callback, admission и наблюдаемой retry-safe фазой;
   `BoundedTaskExecution` владеет abandonment, interrupt и late-failure settlement одного принятого вызова. Отменяемая и
   неотменяемая операции передаются ему как явная `BoundedTaskCancellation`;
 - `SessionResources` владеет logical stdin close, сериализацией writes, exclusive output ownership и распределением

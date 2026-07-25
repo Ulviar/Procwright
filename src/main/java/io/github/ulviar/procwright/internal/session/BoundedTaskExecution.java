@@ -111,8 +111,7 @@ final class BoundedTaskExecution {
             Runnable boundedTask,
             BoundedTaskRunner.TaskRejection taskRejection,
             ActiveTask activeTask) {
-        request.owner()
-                .start(request.threadPrefix(), activeTask.taskName(request.threadPrefix()), boundedTask, taskRejection);
+        request.taskStarter().start(request.threadPrefix(), boundedTask, taskRejection);
     }
 
     private static <T> T awaitOutcome(
@@ -173,7 +172,7 @@ final class BoundedTaskExecution {
             BoundedTaskRunner.LateFailureHandler lateFailureHandler,
             BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
             BoundedTaskHandoff handoff,
-            BoundedTaskOwner owner,
+            BoundedTaskRunner.TaskStarter taskStarter,
             LongSupplier nanoTime,
             BoundedTaskRunner.Task<T> task) {
 
@@ -184,7 +183,7 @@ final class BoundedTaskExecution {
             Objects.requireNonNull(lateFailureHandler, "lateFailureHandler");
             Objects.requireNonNull(abandonmentHandler, "abandonmentHandler");
             Objects.requireNonNull(handoff, "handoff");
-            Objects.requireNonNull(owner, "owner");
+            Objects.requireNonNull(taskStarter, "taskStarter");
             Objects.requireNonNull(nanoTime, "nanoTime");
             Objects.requireNonNull(task, "task");
         }

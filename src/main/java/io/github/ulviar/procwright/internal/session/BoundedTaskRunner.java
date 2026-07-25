@@ -3,11 +3,13 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
+import io.github.ulviar.procwright.internal.Threading;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -22,6 +24,10 @@ import java.util.function.LongSupplier;
 public final class BoundedTaskRunner {
 
     private static final TaskAbandonmentHandler NO_OP_ABANDONMENT = failure -> {};
+    private static final AtomicLong TASK_SEQUENCE = new AtomicLong();
+    private static final TaskStarter FRESH_TASK_STARTER = (threadPrefix, task, rejection) ->
+            Threading.unstartedPlatformNonInheriting(threadPrefix + TASK_SEQUENCE.getAndIncrement(), task)
+                    .start();
 
     private BoundedTaskRunner() {}
 
@@ -36,7 +42,7 @@ public final class BoundedTaskRunner {
                     BoundedTaskRunner::reportLateFailure,
                     NO_OP_ABANDONMENT,
                     BoundedTaskHandoff.untracked(),
-                    BoundedTaskOwner.fresh(),
+                    FRESH_TASK_STARTER,
                     System::nanoTime,
                     task);
         } catch (TaskCancelledException impossible) {
@@ -59,7 +65,7 @@ public final class BoundedTaskRunner {
                 BoundedTaskRunner::reportLateFailure,
                 NO_OP_ABANDONMENT,
                 BoundedTaskHandoff.untracked(),
-                BoundedTaskOwner.fresh(),
+                FRESH_TASK_STARTER,
                 System::nanoTime,
                 task);
     }
@@ -85,7 +91,7 @@ public final class BoundedTaskRunner {
                 },
                 NO_OP_ABANDONMENT,
                 BoundedTaskHandoff.untracked(),
-                BoundedTaskOwner.fresh(),
+                FRESH_TASK_STARTER,
                 System::nanoTime,
                 task);
     }
@@ -114,8 +120,7 @@ public final class BoundedTaskRunner {
             BoundedTaskHandoff handoff,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException {
-        return runTracked(
-                limiter, threadPrefix, deadlineNanos, handoff, BoundedTaskOwner.fresh(), System::nanoTime, task);
+        return runTracked(limiter, threadPrefix, deadlineNanos, handoff, FRESH_TASK_STARTER, System::nanoTime, task);
     }
 
     static <T> T runReportingLateFailure(
@@ -147,7 +152,7 @@ public final class BoundedTaskRunner {
                 lateFailureHandler,
                 abandonmentHandler,
                 BoundedTaskHandoff.untracked(),
-                BoundedTaskOwner.fresh(),
+                FRESH_TASK_STARTER,
                 System::nanoTime,
                 task);
     }
@@ -169,7 +174,7 @@ public final class BoundedTaskRunner {
                 lateFailureHandler,
                 NO_OP_ABANDONMENT,
                 BoundedTaskHandoff.untracked(),
-                BoundedTaskOwner.delegated(taskStarter),
+                taskStarter,
                 System::nanoTime,
                 task);
     }
@@ -179,7 +184,7 @@ public final class BoundedTaskRunner {
             String threadPrefix,
             long deadlineNanos,
             BoundedTaskHandoff handoff,
-            BoundedTaskOwner owner,
+            TaskStarter taskStarter,
             LongSupplier nanoTime,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException {
@@ -193,7 +198,7 @@ public final class BoundedTaskRunner {
                     BoundedTaskRunner::reportLateFailure,
                     NO_OP_ABANDONMENT,
                     handoff,
-                    owner,
+                    taskStarter,
                     nanoTime,
                     task);
         } catch (TaskCancelledException impossible) {
@@ -209,7 +214,7 @@ public final class BoundedTaskRunner {
             LateFailureHandler lateFailureHandler,
             TaskAbandonmentHandler abandonmentHandler,
             BoundedTaskHandoff handoff,
-            BoundedTaskOwner owner,
+            TaskStarter taskStarter,
             LongSupplier nanoTime,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
@@ -221,7 +226,7 @@ public final class BoundedTaskRunner {
                 lateFailureHandler,
                 abandonmentHandler,
                 handoff,
-                owner,
+                taskStarter,
                 nanoTime,
                 task));
     }

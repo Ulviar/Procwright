@@ -66,6 +66,8 @@ final class StreamListenerTaskOwnerTest {
         assertEquals(2, createdOwners.size());
         assertSame(firstOwner, createdOwners.get(0));
         assertSame(replacement, createdOwners.get(1));
+        assertTrue(firstOwner.getName().startsWith("procwright-stream-affinity-test-owner-"));
+        assertTrue(replacement.getName().startsWith("procwright-stream-affinity-test-owner-"));
         failures.assertOnlyUncaught(firstOwner, idleOwnerFailure);
     }
 

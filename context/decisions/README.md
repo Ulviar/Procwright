@@ -22,3 +22,4 @@
 - [ADR-0021: runtime decomposition](ADR-0021-runtime-decomposition.md)
 - [ADR-0023: cognitive pool architecture](ADR-0023-cognitive-pool-architecture.md)
 - [ADR-0024: cognitive session architecture](ADR-0024-cognitive-session-architecture.md)
+- [ADR-0025: runtime guarantee budget](ADR-0025-runtime-guarantee-budget.md)
