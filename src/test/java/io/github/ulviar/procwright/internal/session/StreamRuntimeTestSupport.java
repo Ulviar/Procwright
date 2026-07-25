@@ -39,7 +39,7 @@ import java.util.stream.Stream;
 abstract class StreamRuntimeTestSupport {
 
     protected static DefaultSession session(Process process) {
-        return new DefaultSession(
+        return SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),

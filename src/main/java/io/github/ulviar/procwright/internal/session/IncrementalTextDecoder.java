@@ -332,11 +332,6 @@ final class IncrementalTextDecoder {
             }
         }
 
-        void appendTo(StringBuilder target) {
-            Objects.requireNonNull(target, "target");
-            target.append(chars, 0, length);
-        }
-
         int length() {
             return length;
         }

@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatch;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -438,7 +439,8 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
         CountDownLatch pendingClosesFinished = new CountDownLatch(2);
         CountDownLatch acceptedClosesSettled = new CountDownLatch(3);
         BoundedCloseDispatcher.Reservation occupiedCapacity = closeDispatcher.reserve(3);
-        occupiedCapacity.dispatch(
+        dispatch(
+                occupiedCapacity,
                 () -> {
                     occupyingCloseStarted.countDown();
                     awaitUninterruptibly(releaseOccupyingClose);
@@ -447,12 +449,14 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
                 failure -> {},
                 acceptedClosesSettled::countDown);
         assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
-        occupiedCapacity.dispatch(
+        dispatch(
+                occupiedCapacity,
                 pendingClosesFinished::countDown,
                 "procwright-pending-output-close-",
                 failure -> {},
                 acceptedClosesSettled::countDown);
-        occupiedCapacity.dispatch(
+        dispatch(
+                occupiedCapacity,
                 pendingClosesFinished::countDown,
                 "procwright-pending-output-close-",
                 failure -> {},

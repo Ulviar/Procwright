@@ -5,13 +5,11 @@ package io.github.ulviar.procwright.internal.session;
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.CommandInput;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
-import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.Expect;
@@ -55,29 +53,6 @@ public final class DefaultSession implements Session {
     private final SessionExitBarrier exitBarrier;
     private final SessionProcessCleanup processCleanup;
     private final AtomicLong lastActivityNanos;
-
-    public DefaultSession(Process process, Duration idleTimeout, ShutdownPolicy shutdownPolicy, Charset charset) {
-        this(process, idleTimeout, shutdownPolicy, charset, defaultDiagnostics(process));
-    }
-
-    public DefaultSession(
-            Process process,
-            Duration idleTimeout,
-            ShutdownPolicy shutdownPolicy,
-            Charset charset,
-            DiagnosticEmitter diagnostics) {
-        this(
-                process,
-                idleTimeout,
-                shutdownPolicy,
-                charset,
-                diagnostics,
-                BoundedCloseDispatcher.shared(),
-                BoundedLifecyclePublisher.shared(),
-                EXIT_PUBLICATIONS,
-                () -> {},
-                WatcherStarter.threading());
-    }
 
     static DefaultSession openTransactionally(
             Process process,
@@ -166,15 +141,6 @@ public final class DefaultSession implements Session {
             construction.commit();
         } catch (RuntimeException | Error failure) {
             throw SessionConstruction.unchecked(construction.rollback(failure));
-        }
-    }
-
-    private static DiagnosticEmitter defaultDiagnostics(Process process) {
-        Objects.requireNonNull(process, "process");
-        try {
-            return DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session", CommandEcho.empty());
-        } catch (RuntimeException | Error failure) {
-            throw SessionConstruction.unchecked(SessionConstruction.rollbackUnowned(process, failure));
         }
     }
 

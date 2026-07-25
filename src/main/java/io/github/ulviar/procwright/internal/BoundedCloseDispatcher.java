@@ -108,19 +108,6 @@ public final class BoundedCloseDispatcher {
         return new Reservation(this, permits);
     }
 
-    public static CloseRequest closeRequest(
-            Closeable closeable, String threadPrefix, Consumer<? super Throwable> failureHandler) {
-        return closeRequest(closeable, threadPrefix, failureHandler, () -> {});
-    }
-
-    public static CloseRequest closeRequest(
-            Closeable closeable,
-            String threadPrefix,
-            Consumer<? super Throwable> failureHandler,
-            Runnable completionHandler) {
-        return new CloseRequest(closeable, threadPrefix, ignored -> {}, failureHandler, completionHandler);
-    }
-
     static CloseRequest ownedCloseRequest(
             Closeable closeable,
             String threadPrefix,
@@ -390,44 +377,6 @@ public final class BoundedCloseDispatcher {
             return permit;
         }
 
-        public void dispatch(CloseRequest request) {
-            Objects.requireNonNull(request, "request");
-            takePermit().dispatch(request);
-        }
-
-        public void dispatch(Closeable closeable, String threadPrefix, Consumer<? super Throwable> failureHandler) {
-            dispatch(closeRequest(closeable, threadPrefix, failureHandler));
-        }
-
-        public void dispatch(
-                Closeable closeable,
-                String threadPrefix,
-                Consumer<? super Throwable> failureHandler,
-                Runnable completionHandler) {
-            dispatch(closeRequest(closeable, threadPrefix, failureHandler, completionHandler));
-        }
-
-        public void dispatch(CloseRequest first, CloseRequest second) {
-            Objects.requireNonNull(first, "first");
-            Permit firstPermit = new Permit(owner);
-            Permit secondPermit = second == null ? null : new Permit(owner);
-            synchronized (this) {
-                int requiredPermits = secondPermit == null ? 1 : 2;
-                if (remainingPermits == 0) {
-                    throw new IllegalStateException("Stream close reservation has no unused permits");
-                }
-                if (remainingPermits < requiredPermits) {
-                    throw new IllegalStateException("Stream close reservation has too few unused permits");
-                }
-                remainingPermits -= requiredPermits;
-            }
-            if (secondPermit == null) {
-                firstPermit.dispatch(first);
-            } else {
-                firstPermit.dispatchPair(first, secondPermit, second);
-            }
-        }
-
         public void release() {
             int released;
             synchronized (this) {
@@ -445,14 +394,6 @@ public final class BoundedCloseDispatcher {
 
         private Permit(BoundedCloseDispatcher owner) {
             this.owner = owner;
-        }
-
-        public void dispatch(CloseRequest request) {
-            dispatchOutcome(request).rethrowStartFailure();
-        }
-
-        public void dispatchPair(CloseRequest first, Permit secondPermit, CloseRequest second) {
-            owner.dispatchReservedPair(this, first, secondPermit, second).rethrowStartFailure();
         }
 
         DispatchOutcome dispatchPairOutcome(CloseRequest first, Permit secondPermit, CloseRequest second) {

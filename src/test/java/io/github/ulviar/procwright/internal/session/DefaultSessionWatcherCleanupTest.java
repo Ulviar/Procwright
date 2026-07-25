@@ -36,7 +36,7 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
         primary.initCause(cycle);
         cycle.initCause(primary);
         FailingDescendantProcess process = new FailingDescendantProcess(primary);
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -63,7 +63,7 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
     void closeErrorCompletesExitFutureAndPreservesPrimaryError() throws Exception {
         AssertionError closeError = new AssertionError("descendant close failed");
         FailingDescendantProcess process = new FailingDescendantProcess(closeError);
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -84,7 +84,7 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
         AssertionError closeError = new AssertionError("descendant close failed");
         BlockingCloseOutputStream stdin = new BlockingCloseOutputStream();
         FailingDescendantProcess process = new FailingDescendantProcess(closeError, stdin);
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -118,7 +118,7 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
         WatcherFailureProcess process = new WatcherFailureProcess();
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         CountDownLatch shutdownFailurePublished = new CountDownLatch(1);
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ofMillis(100), Duration.ofMillis(100)),
@@ -153,7 +153,7 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
         ExecutionException exitFailure;
         try (var monitor = hold(process.watcherFailure())) {
             monitor.verifyHeld();
-            DefaultSession session = new DefaultSession(
+            DefaultSession session = SessionTestFixtures.open(
                     process,
                     Duration.ZERO,
                     ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -171,7 +171,7 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
     @Test
     void watcherCleanupClosesEveryStreamWhenThePrimaryFailureRepeats() throws Exception {
         RepeatedWatcherFailureProcess process = new RepeatedWatcherFailureProcess();
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ofMillis(100), Duration.ofMillis(100)),

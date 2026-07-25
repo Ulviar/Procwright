@@ -26,13 +26,6 @@ public final class SessionRuntime {
 
     private SessionRuntime() {}
 
-    public static DefaultSession open(SessionExecutionPlan plan) {
-        return open(
-                plan,
-                DiagnosticEmitter.of(
-                        DiagnosticsSettings.disabled(), "session", () -> CommandEchoSupport.from(plan.launchPlan())));
-    }
-
     public static DefaultSession open(SessionExecutionPlan plan, DiagnosticEmitter diagnostics) {
         return open(plan, diagnostics, diagnostics);
     }

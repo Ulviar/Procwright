@@ -35,7 +35,7 @@ final class DefaultSessionConstructionTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new DefaultSession(
+                () -> SessionTestFixtures.open(
                         process,
                         Duration.ofNanos(-1),
                         ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),

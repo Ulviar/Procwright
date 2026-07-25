@@ -41,14 +41,14 @@ final class ProtocolOutputQueueTest {
         AtomicReference<Throwable> observed = new AtomicReference<>();
         Thread reader = new Thread(() -> {
             try {
-                queue.peek(
+                ProtocolOutputQueue.PeekResult result = queue.peekResult(
                         new byte[1],
                         0,
                         1,
                         new ProtocolOutputQueue.ReadWindow(),
                         System.nanoTime() + Duration.ofSeconds(2).toNanos(),
-                        RECORDING_FAILURES,
-                        event -> event);
+                        RECORDING_FAILURES);
+                throw result.terminalEvent().terminalFailure(RECORDING_FAILURES);
             } catch (Throwable failure) {
                 observed.set(failure);
             }
@@ -90,12 +90,13 @@ final class ProtocolOutputQueueTest {
         queue.eof();
         AtomicReference<Throwable> firstRead = new AtomicReference<>();
         AtomicReference<Throwable> replacement = new AtomicReference<>();
-        Thread reader = new Thread(() -> firstRead.set(captureFailure(() ->
-                queue.readUnsignedByte(System.nanoTime() + Duration.ofSeconds(2).toNanos(), RECORDING_FAILURES))));
+        Thread reader =
+                new Thread(() -> firstRead.set(captureFailure(() -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, System.nanoTime() + Duration.ofSeconds(2).toNanos(), RECORDING_FAILURES))));
         Thread replacingReader = new Thread(() -> {
             queue.failAndClear(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, replacementCause);
-            replacement.set(captureFailure(() -> queue.readUnsignedByte(
-                    System.nanoTime() + Duration.ofSeconds(2).toNanos(), RECORDING_FAILURES)));
+            replacement.set(captureFailure(() -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                    queue, System.nanoTime() + Duration.ofSeconds(2).toNanos(), RECORDING_FAILURES)));
             replacementRead.countDown();
         });
         reader.start();
@@ -153,7 +154,8 @@ final class ProtocolOutputQueueTest {
         queue.eof();
 
         ProtocolSessionException eof = assertThrows(
-                ProtocolSessionException.class, () -> queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+                ProtocolSessionException.class,
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
 
         assertEquals(ProtocolSessionException.Reason.EOF, eof.reason());
         assertEquals(0, snapshots.get());
@@ -177,7 +179,8 @@ final class ProtocolOutputQueueTest {
         queue.eof();
 
         ProtocolSessionException eof = assertThrows(
-                ProtocolSessionException.class, () -> queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+                ProtocolSessionException.class,
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
 
         assertEquals(ProtocolSessionException.Reason.EOF, eof.reason());
     }
@@ -190,12 +193,13 @@ final class ProtocolOutputQueueTest {
         ProtocolOutputQueue.ReadWindow window = new ProtocolOutputQueue.ReadWindow();
         long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
 
-        int available = queue.peek(target, 0, target.length, window, deadline, RECORDING_FAILURES, event -> event);
+        int available = queue.peekResult(target, 0, target.length, window, deadline, RECORDING_FAILURES)
+                .count();
         assertEquals(4, available);
         queue.commit(window, 2, ignored -> {}, RECORDING_FAILURES, event -> event);
 
         assertEquals(2, queue.pendingBytes());
-        assertEquals('b', queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+        assertEquals('b', ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
     }
 
     @Test
@@ -206,7 +210,10 @@ final class ProtocolOutputQueueTest {
         ProtocolOutputQueue.ReadWindow window = new ProtocolOutputQueue.ReadWindow();
         long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
         AssertionError fatal = new AssertionError("fatal output failure");
-        queue.peek(target, 0, target.length, window, deadline, RECORDING_FAILURES, event -> event);
+        assertEquals(
+                2,
+                queue.peekResult(target, 0, target.length, window, deadline, RECORDING_FAILURES)
+                        .count());
 
         queue.failAndClear(ProtocolSessionException.Reason.DECODE_ERROR, fatal);
         ProtocolSessionException failure = assertThrows(
@@ -229,7 +236,7 @@ final class ProtocolOutputQueueTest {
         long deadline = Duration.ofDays(1).toNanos();
         Thread reader = new Thread(() -> {
             try {
-                queue.readUnsignedByte(deadline, RECORDING_FAILURES);
+                ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES);
             } catch (ProtocolSessionException exception) {
                 observed.set(exception);
                 interrupted.set(Thread.currentThread().isInterrupted());
@@ -258,7 +265,7 @@ final class ProtocolOutputQueueTest {
         long deadline = Duration.ofDays(1).toNanos();
         Thread reader = new Thread(() -> {
             try {
-                queue.readUnsignedByte(deadline, RECORDING_FAILURES);
+                ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES);
             } catch (ProtocolSessionException exception) {
                 observed.set(exception);
                 interrupted.set(Thread.currentThread().isInterrupted());
@@ -287,7 +294,8 @@ final class ProtocolOutputQueueTest {
                 16, ProtocolOutputQueue.OverflowPolicy.STRICT, nanoTime::read, waits::incrementAndGet);
 
         ProtocolSessionException observed = assertThrows(
-                ProtocolSessionException.class, () -> queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+                ProtocolSessionException.class,
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
 
         assertEquals(ProtocolSessionException.Reason.TIMEOUT, observed.reason());
         assertNull(observed.getCause());
@@ -304,7 +312,8 @@ final class ProtocolOutputQueueTest {
         Thread reader = new Thread(() -> {
             Thread.currentThread().interrupt();
             try {
-                queue.read(new byte[4], 0, 4, Duration.ofDays(1).toNanos(), RECORDING_FAILURES);
+                ProtocolOutputQueueTestAccess.read(
+                        queue, new byte[4], 0, 4, Duration.ofDays(1).toNanos(), RECORDING_FAILURES);
             } catch (ProtocolSessionException exception) {
                 observed.set(exception);
                 interrupted.set(Thread.currentThread().isInterrupted());
@@ -331,7 +340,7 @@ final class ProtocolOutputQueueTest {
         long deadline = Duration.ofDays(1).toNanos();
         Thread reader = new Thread(() -> {
             try {
-                queue.read(new byte[4], 0, 4, deadline, RECORDING_FAILURES);
+                ProtocolOutputQueueTestAccess.read(queue, new byte[4], 0, 4, deadline, RECORDING_FAILURES);
             } catch (ProtocolSessionException exception) {
                 observed.set(exception);
                 interrupted.set(Thread.currentThread().isInterrupted());
@@ -360,8 +369,8 @@ final class ProtocolOutputQueueTest {
 
         ProtocolSessionException exception = assertThrows(
                 ProtocolSessionException.class,
-                () -> queue.readUnsignedByte(
-                        System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
 
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
         assertEquals(overflow, exception.getCause());
@@ -374,14 +383,16 @@ final class ProtocolOutputQueueTest {
         byte[] consumed = new byte[2];
 
         assertEquals(true, queue.offer(new byte[] {1, 2, 3, 4}));
-        assertEquals(2, queue.read(consumed, 0, consumed.length, deadline, RECORDING_FAILURES));
+        assertEquals(
+                2,
+                ProtocolOutputQueueTestAccess.read(queue, consumed, 0, consumed.length, deadline, RECORDING_FAILURES));
         assertEquals(true, queue.offer(new byte[] {5, 6}));
         assertEquals(false, queue.offer(new byte[] {7}));
 
-        assertEquals(3, queue.readUnsignedByte(deadline, RECORDING_FAILURES));
-        assertEquals(4, queue.readUnsignedByte(deadline, RECORDING_FAILURES));
-        assertEquals(5, queue.readUnsignedByte(deadline, RECORDING_FAILURES));
-        assertEquals(6, queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+        assertEquals(3, ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
+        assertEquals(4, ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
+        assertEquals(5, ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
+        assertEquals(6, ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
     }
 
     @Test
@@ -392,7 +403,7 @@ final class ProtocolOutputQueueTest {
         assertEquals(true, queue.offer(new byte[0]));
         assertEquals(true, queue.offer(new byte[] {42}));
 
-        assertEquals(42, queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+        assertEquals(42, ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
     }
 
     @Test
@@ -410,9 +421,11 @@ final class ProtocolOutputQueueTest {
         queue.eof();
 
         ProtocolSessionException first = assertThrows(
-                ProtocolSessionException.class, () -> queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+                ProtocolSessionException.class,
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
         ProtocolSessionException second = assertThrows(
-                ProtocolSessionException.class, () -> queue.readUnsignedByte(deadline, RECORDING_FAILURES));
+                ProtocolSessionException.class,
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
 
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, first.reason());
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, second.reason());
@@ -430,8 +443,8 @@ final class ProtocolOutputQueueTest {
         for (int attempt = 0; attempt < 10_000; attempt++) {
             ProtocolSessionException observed = assertThrows(
                     ProtocolSessionException.class,
-                    () -> queue.readUnsignedByte(
-                            System.nanoTime() + Duration.ofSeconds(1).toNanos(), failures));
+                    () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                            queue, System.nanoTime() + Duration.ofSeconds(1).toNanos(), failures));
             if (first == null) {
                 first = observed;
             } else {
@@ -489,8 +502,8 @@ final class ProtocolOutputQueueTest {
 
         ProtocolSessionException exception = assertThrows(
                 ProtocolSessionException.class,
-                () -> queue.readUnsignedByte(
-                        System.nanoTime() + Duration.ofSeconds(2).toNanos(), failures));
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, System.nanoTime() + Duration.ofSeconds(2).toNanos(), failures));
 
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
         Thread observer = observerThread.get();
@@ -559,8 +572,8 @@ final class ProtocolOutputQueueTest {
 
         ProtocolSessionException exception = assertThrows(
                 ProtocolSessionException.class,
-                () -> queue.readUnsignedByte(
-                        System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
         assertEquals(ProtocolSessionException.Reason.CLOSED, exception.reason());
     }
 
@@ -574,8 +587,8 @@ final class ProtocolOutputQueueTest {
 
         ProtocolSessionException exception = assertThrows(
                 ProtocolSessionException.class,
-                () -> queue.readUnsignedByte(
-                        System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
         assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
         assertSame(fatal, exception.getCause());
     }
@@ -613,8 +626,8 @@ final class ProtocolOutputQueueTest {
 
         ProtocolSessionException eof = assertThrows(
                 ProtocolSessionException.class,
-                () -> queue.readUnsignedByte(
-                        System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
+                () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
 
         assertEquals(ProtocolSessionException.Reason.EOF, eof.reason());
         assertNull(eof.getCause());

@@ -95,7 +95,7 @@ final class DefaultSessionExitPublicationTest extends DefaultSessionLifecycleTes
     @Test
     void failingInternalObserverCannotRunAHostileHandlerOnTheTerminalPublisher() throws Exception {
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -135,22 +135,24 @@ final class DefaultSessionExitPublicationTest extends DefaultSessionLifecycleTes
     void saturatedFailureReportingCannotDelayTerminalCleanup() throws Exception {
         BoundedFailureReporter reporter = BoundedFailureReporter.shared();
         assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-        CountDownLatch activeReports = new CountDownLatch(reporter.workerCapacity());
+        CountDownLatch activeReports = new CountDownLatch(BoundedFailureReporter.SHARED_WORKER_CAPACITY);
         CountDownLatch releaseReports = new CountDownLatch(1);
-        for (int index = 0; index < reporter.workerCapacity(); index++) {
-            assertTrue(reporter.execute(() -> {
+        for (int index = 0; index < BoundedFailureReporter.SHARED_WORKER_CAPACITY; index++) {
+            assertTrue(reporter.execute(Thread.currentThread(), () -> {
                 activeReports.countDown();
                 awaitIgnoringInterrupts(releaseReports);
             }));
         }
         assertTrue(activeReports.await(1, TimeUnit.SECONDS));
-        for (int index = 0; index < reporter.queueCapacity(); index++) {
-            assertTrue(reporter.execute(() -> {}));
+        for (int index = 0; index < BoundedFailureReporter.SHARED_QUEUE_CAPACITY; index++) {
+            assertTrue(reporter.execute(Thread.currentThread(), () -> {}));
         }
-        assertFalse(reporter.execute(() -> {}), "the reporter must be saturated before terminal publication");
+        assertFalse(
+                reporter.execute(Thread.currentThread(), () -> {}),
+                "the reporter must be saturated before terminal publication");
 
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -181,7 +183,7 @@ final class DefaultSessionExitPublicationTest extends DefaultSessionLifecycleTes
     @Test
     void publicExitFutureRemainsADefensiveCopy() throws Exception {
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),

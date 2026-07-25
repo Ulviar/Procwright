@@ -78,7 +78,7 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
     void falseGracefulHandleResultDoesNotCloseOutputThroughProcessFallback() {
         FalseGracefulResultProcess process = new FalseGracefulResultProcess();
 
-        ProcessLifecycle.stop(
+        ProcessTreeShutdown.stop(
                 process,
                 KnownDescendants.empty(),
                 ShutdownPolicy.interruptThenKill(Duration.ofMillis(100), Duration.ofMillis(100)),

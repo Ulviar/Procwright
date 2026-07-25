@@ -73,7 +73,7 @@ final class DefaultSessionStdinCloseArbitrationTest extends DefaultSessionStdinC
             reported.countDown();
         });
         try {
-            DefaultSession session = new DefaultSession(
+            DefaultSession session = SessionTestFixtures.open(
                     process,
                     Duration.ZERO,
                     ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -124,7 +124,7 @@ final class DefaultSessionStdinCloseArbitrationTest extends DefaultSessionStdinC
                 }),
                 "session-test",
                 CommandEcho.empty());
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ofSeconds(1), Duration.ofSeconds(1)),
@@ -194,7 +194,7 @@ final class DefaultSessionStdinCloseArbitrationTest extends DefaultSessionStdinC
             reported.countDown();
         });
         try {
-            DefaultSession session = new DefaultSession(
+            DefaultSession session = SessionTestFixtures.open(
                     process,
                     Duration.ZERO,
                     ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
@@ -233,7 +233,7 @@ final class DefaultSessionStdinCloseArbitrationTest extends DefaultSessionStdinC
     void closeStdinDoesNotWaitForRawCloseContendedByAnActiveWrite() throws Exception {
         WriteContendedCloseOutputStream stdin = new WriteContendedCloseOutputStream();
         ControllableProcess process = new ControllableProcess(stdin);
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),

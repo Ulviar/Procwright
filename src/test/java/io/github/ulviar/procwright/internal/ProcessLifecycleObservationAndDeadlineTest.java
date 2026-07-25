@@ -253,7 +253,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
         AdvancingPollClock clock = new AdvancingPollClock();
 
-        assertTrue(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofSeconds(1), descendants, clock));
+        assertTrue(ProcessExitWaiter.waitFor(scanner.guard(delegate), Duration.ofSeconds(1), descendants, clock));
 
         assertEquals(2, delegate.livenessCalls());
         assertEquals(0, delegate.timedWaitCalls());
@@ -266,7 +266,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
         AdvancingPollClock clock = new AdvancingPollClock();
 
-        assertTrue(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
+        assertTrue(ProcessExitWaiter.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
 
         assertEquals(4, delegate.livenessCalls());
         assertEquals(0, delegate.timedWaitCalls());
@@ -279,7 +279,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
         AdvancingPollClock clock = new AdvancingPollClock();
 
-        assertFalse(ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
+        assertFalse(ProcessExitWaiter.waitFor(scanner.guard(delegate), Duration.ofMillis(250), descendants, clock));
 
         assertTrue(clock.nanoTime() <= Duration.ofMillis(250).toNanos());
         assertEquals(0, delegate.timedWaitCalls());
@@ -301,7 +301,7 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
 
         CommandExecutionException observed = assertThrows(
                 CommandExecutionException.class,
-                () -> ProcessLifecycle.waitFor(
+                () -> ProcessExitWaiter.waitFor(
                         scanner.guard(delegate), Duration.ofMillis(250), new LiveDescendantSnapshot(), clock));
 
         assertSame(providerFailure, observed);

@@ -27,8 +27,6 @@ public final class BoundedFailureReporter {
             new BoundedFailureReporter(SHARED_WORKER_CAPACITY, SHARED_QUEUE_CAPACITY);
     private static final ThreadLocal<NotificationTarget> NOTIFICATION_TARGET = new ThreadLocal<>();
 
-    private final int workerCapacity;
-    private final int queueCapacity;
     private final BoundedIsolatedTaskDispatcher dispatcher;
     private final Object settlementMonitor = new Object();
     private long unsettledProducers;
@@ -41,8 +39,6 @@ public final class BoundedFailureReporter {
         if (queueCapacity <= 0) {
             throw new IllegalArgumentException("queueCapacity must be positive");
         }
-        this.workerCapacity = workerCapacity;
-        this.queueCapacity = queueCapacity;
         dispatcher = new BoundedIsolatedTaskDispatcher(workerCapacity, queueCapacity);
     }
 
@@ -85,11 +81,6 @@ public final class BoundedFailureReporter {
         Objects.requireNonNull(failure, "failure");
         NotificationTarget target = failureTarget.target;
         return execute(target, () -> target.report(failure));
-    }
-
-    /** Submits one best-effort external callback without blocking the caller. */
-    public boolean execute(Runnable callback) {
-        return execute(Thread.currentThread(), callback);
     }
 
     public boolean execute(Thread sourceThread, Runnable callback) {
@@ -200,14 +191,6 @@ public final class BoundedFailureReporter {
 
     public int queuedCount() {
         return dispatcher.queuedCount();
-    }
-
-    public int workerCapacity() {
-        return workerCapacity;
-    }
-
-    public int queueCapacity() {
-        return queueCapacity;
     }
 
     final class ProducerRegistration {

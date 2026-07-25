@@ -45,7 +45,8 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
             assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, exception.reason());
             assertEquals(
                     'X',
-                    fixture.queue().readUnsignedByte(DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
+                    ProtocolOutputQueueTestAccess.readUnsignedByte(
+                            fixture.queue(), DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
         }
     }
 
@@ -95,7 +96,8 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
         assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, exception.reason());
         assertEquals(
                 'X',
-                fixture.queue().readUnsignedByte(DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
+                ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        fixture.queue(), DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
     }
 
     @Test

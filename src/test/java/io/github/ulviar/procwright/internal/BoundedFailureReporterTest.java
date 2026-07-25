@@ -51,17 +51,15 @@ final class BoundedFailureReporterTest {
         CountDownLatch releaseFirst = new CountDownLatch(1);
         CountDownLatch secondCompleted = new CountDownLatch(1);
         try {
-            assertTrue(reporter.execute(() -> {
+            assertTrue(reporter.execute(Thread.currentThread(), () -> {
                 firstEntered.countDown();
                 awaitUninterruptibly(releaseFirst);
             }));
             assertTrue(firstEntered.await(1, TimeUnit.SECONDS));
-            assertTrue(reporter.execute(secondCompleted::countDown));
-            assertFalse(reporter.execute(() -> {}));
+            assertTrue(reporter.execute(Thread.currentThread(), secondCompleted::countDown));
+            assertFalse(reporter.execute(Thread.currentThread(), () -> {}));
             assertEquals(1, reporter.activeCount());
             assertEquals(1, reporter.queuedCount());
-            assertEquals(1, reporter.workerCapacity());
-            assertEquals(1, reporter.queueCapacity());
         } finally {
             releaseFirst.countDown();
         }
@@ -114,7 +112,7 @@ final class BoundedFailureReporterTest {
         CountDownLatch releaseFirst = new CountDownLatch(1);
         CountDownLatch secondCompleted = new CountDownLatch(1);
         try {
-            assertTrue(reporter.execute(() -> {
+            assertTrue(reporter.execute(Thread.currentThread(), () -> {
                 assertNull(contamination.get());
                 assertNull(inherited.get());
                 contamination.set("must-die-with-thread");
@@ -125,7 +123,7 @@ final class BoundedFailureReporterTest {
                 awaitUninterruptibly(releaseFirst);
             }));
             assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
-            assertTrue(reporter.execute(() -> {
+            assertTrue(reporter.execute(Thread.currentThread(), () -> {
                 assertNull(contamination.get(), "failure callback state crossed task ownership");
                 assertNull(inherited.get(), "failure callback inherited submitting-thread state");
                 assertSame(expectedLoader, Thread.currentThread().getContextClassLoader());

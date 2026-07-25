@@ -143,7 +143,10 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         assertArrayEquals(new byte[] {9, 9}, target);
-        assertEquals(1, queue.readUnsignedByte(DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
+        assertEquals(
+                1,
+                ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
     }
 
     @Test
@@ -157,7 +160,10 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, reader::readByte);
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-        assertEquals(2, queue.readUnsignedByte(DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
+        assertEquals(
+                2,
+                ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
     }
 
     @Test

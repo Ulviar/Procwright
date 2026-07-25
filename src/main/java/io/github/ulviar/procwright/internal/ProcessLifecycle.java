@@ -33,26 +33,12 @@ public final class ProcessLifecycle {
         return ProcessExitWaiter.waitFor(process, timeout, descendants);
     }
 
-    static boolean waitFor(
-            Process process, Duration timeout, LiveDescendantSnapshot descendants, ProcessExitWaiter.PollClock clock)
-            throws InterruptedException {
-        return ProcessExitWaiter.waitFor(process, timeout, descendants, clock);
-    }
-
     public static OptionalInt stop(Process process, ShutdownPolicy shutdownPolicy) {
         return ProcessTreeShutdown.stop(process, shutdownPolicy);
     }
 
     public static OptionalInt stop(Process process, KnownDescendants knownDescendants, ShutdownPolicy shutdownPolicy) {
         return ProcessTreeShutdown.stop(process, knownDescendants, shutdownPolicy);
-    }
-
-    static OptionalInt stop(
-            Process process,
-            KnownDescendants knownDescendants,
-            ShutdownPolicy shutdownPolicy,
-            DestroyFallbackDispatcher destroyFallback) {
-        return ProcessTreeShutdown.stop(process, knownDescendants, shutdownPolicy, destroyFallback);
     }
 
     public static void forceStop(Process process, Duration timeout) {
@@ -72,13 +58,5 @@ public final class ProcessLifecycle {
      */
     public static void forceStop(Process process, KnownDescendants knownDescendants, Duration timeout) {
         ProcessTreeShutdown.forceStop(process, knownDescendants, timeout);
-    }
-
-    static void forceStop(
-            Process process,
-            KnownDescendants knownDescendants,
-            Duration timeout,
-            DestroyFallbackDispatcher destroyFallback) {
-        ProcessTreeShutdown.forceStop(process, knownDescendants, timeout, destroyFallback);
     }
 }

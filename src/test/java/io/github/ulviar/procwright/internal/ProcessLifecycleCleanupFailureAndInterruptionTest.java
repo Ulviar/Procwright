@@ -197,7 +197,7 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
         try {
             CommandExecutionException thrown = assertThrows(
                     CommandExecutionException.class,
-                    () -> ProcessLifecycle.stop(
+                    () -> ProcessTreeShutdown.stop(
                             process,
                             knownDescendants(process.descendant()),
                             ShutdownPolicy.interruptThenKill(Duration.ofSeconds(1), Duration.ofSeconds(1)),

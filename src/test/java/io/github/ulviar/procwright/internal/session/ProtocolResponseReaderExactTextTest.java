@@ -354,7 +354,10 @@ final class ProtocolResponseReaderExactTextTest extends ProtocolResponseReaderTe
                 assertThrows(ProtocolSessionException.class, () -> reader.readTextExactly(8, 8));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-        assertEquals('a', queue.readUnsignedByte(DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
+        assertEquals(
+                'a',
+                ProtocolOutputQueueTestAccess.readUnsignedByte(
+                        queue, DurationSupport.deadlineFromNow(Duration.ofSeconds(2)), FAILURES));
     }
 
     @Test

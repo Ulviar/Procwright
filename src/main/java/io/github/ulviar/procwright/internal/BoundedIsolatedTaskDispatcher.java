@@ -137,14 +137,6 @@ final class BoundedIsolatedTaskDispatcher {
         return pending.size();
     }
 
-    int workerCapacity() {
-        return workerCapacity;
-    }
-
-    int queueCapacity() {
-        return queueCapacity;
-    }
-
     @FunctionalInterface
     interface RequeueingTask {
 

@@ -85,7 +85,7 @@ final class StreamRuntimeStartupTest extends StreamRuntimeStartupTestSupport {
     @Test
     void constructionErrorStopsTheAlreadyOpenedSession() {
         ControllableProcess process = new ControllableProcess();
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),

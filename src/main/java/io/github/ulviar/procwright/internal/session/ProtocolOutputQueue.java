@@ -57,15 +57,6 @@ final class ProtocolOutputQueue {
             OverflowPolicy overflowPolicy,
             LongSupplier nanoTime,
             Runnable beforeWait,
-            Runnable beforeTimeoutFailure) {
-        this(byteLimit, overflowPolicy, nanoTime, beforeWait, beforeTimeoutFailure, OptionalInt::empty, null);
-    }
-
-    ProtocolOutputQueue(
-            int byteLimit,
-            OverflowPolicy overflowPolicy,
-            LongSupplier nanoTime,
-            Runnable beforeWait,
             Runnable beforeTimeoutFailure,
             Runnable readTransactionObserver) {
         this(
@@ -206,21 +197,6 @@ final class ProtocolOutputQueue {
                 : terminalEvent;
     }
 
-    int peek(
-            byte[] buffer,
-            int offset,
-            int length,
-            ReadWindow window,
-            long deadlineNanos,
-            ProtocolRuntimeFailures failures,
-            UnaryOperator<ProtocolOutputEvent> terminalObserver) {
-        PeekResult result = peekResult(buffer, offset, length, window, deadlineNanos, failures);
-        if (result.terminalEvent() != null) {
-            throwTerminal(result.terminalEvent(), failures, terminalObserver);
-        }
-        return result.count();
-    }
-
     PeekResult peekResult(
             byte[] buffer,
             int offset,
@@ -297,20 +273,6 @@ final class ProtocolOutputQueue {
         throwChangedHead(changedHead, failures, terminalObserver);
     }
 
-    int read(byte[] buffer, int offset, int length, long deadlineNanos, ProtocolRuntimeFailures failures) {
-        return read(buffer, offset, length, deadlineNanos, failures, ignored -> {}, event -> event);
-    }
-
-    int read(
-            byte[] buffer,
-            int offset,
-            int length,
-            long deadlineNanos,
-            ProtocolRuntimeFailures failures,
-            IntConsumer beforeMutation) {
-        return read(buffer, offset, length, deadlineNanos, failures, beforeMutation, event -> event);
-    }
-
     int read(
             byte[] buffer,
             int offset,
@@ -359,14 +321,6 @@ final class ProtocolOutputQueue {
         }
         throwChangedHead(changedHead, failures, terminalObserver);
         throw new AssertionError("unreachable");
-    }
-
-    int readUnsignedByte(long deadlineNanos, ProtocolRuntimeFailures failures) {
-        return readUnsignedByte(deadlineNanos, failures, ignored -> {}, event -> event);
-    }
-
-    int readUnsignedByte(long deadlineNanos, ProtocolRuntimeFailures failures, IntConsumer beforeMutation) {
-        return readUnsignedByte(deadlineNanos, failures, beforeMutation, event -> event);
     }
 
     int readUnsignedByte(

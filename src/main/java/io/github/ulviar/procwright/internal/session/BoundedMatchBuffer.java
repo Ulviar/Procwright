@@ -39,10 +39,6 @@ final class BoundedMatchBuffer {
         this.workProbe = Objects.requireNonNull(workProbe, "workProbe");
     }
 
-    static WorkProbe noWorkProbe() {
-        return NO_WORK_PROBE;
-    }
-
     void append(String chunk) {
         Objects.requireNonNull(chunk, "chunk");
         int incoming = chunk.length();

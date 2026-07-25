@@ -48,7 +48,7 @@ abstract class DefaultSessionStdinCloseArbitrationTestSupport extends DefaultSes
                 }),
                 "session-test",
                 CommandEcho.empty());
-        DefaultSession session = new DefaultSession(
+        DefaultSession session = SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),

@@ -2,6 +2,9 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatch;
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatchPair;
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.request;
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -28,8 +31,11 @@ final class BoundedCloseDispatcherLinearizationTest {
         CountDownLatch releaseSettlement = new CountDownLatch(1);
         CountDownLatch secondClosed = new CountDownLatch(1);
         BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(2);
+        BoundedCloseDispatcher.Permit firstPermit = reservation.takePermit();
+        BoundedCloseDispatcher.Permit secondPermit = reservation.takePermit();
 
-        reservation.dispatch(
+        dispatchPair(
+                firstPermit,
                 BoundedCloseDispatcher.ownedCloseRequest(
                         () -> {},
                         "procwright-blocking-settlement-",
@@ -39,8 +45,8 @@ final class BoundedCloseDispatcherLinearizationTest {
                         },
                         ignored -> {},
                         () -> {}),
-                BoundedCloseDispatcher.closeRequest(
-                        secondClosed::countDown, "procwright-close-after-settlement-", ignored -> {}));
+                secondPermit,
+                request(secondClosed::countDown, "procwright-close-after-settlement-", ignored -> {}));
         try {
             assertTrue(settlementEntered.await(1, TimeUnit.SECONDS));
             assertTrue(
@@ -59,14 +65,14 @@ final class BoundedCloseDispatcherLinearizationTest {
         BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(1);
 
         assertThrows(
-                NullPointerException.class, () -> reservation.dispatch((BoundedCloseDispatcher.CloseRequest) null));
+                NullPointerException.class, () -> dispatch(reservation, (BoundedCloseDispatcher.CloseRequest) null));
         assertEquals(1, dispatcher.outstandingCount());
 
         reservation.release();
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
 
         CountDownLatch recoveredClose = new CountDownLatch(1);
-        dispatcher.reserve(1).dispatch(recoveredClose::countDown, "procwright-close-after-null-", ignored -> {});
+        dispatch(dispatcher.reserve(1), recoveredClose::countDown, "procwright-close-after-null-", ignored -> {});
         assertTrue(recoveredClose.await(1, TimeUnit.SECONDS));
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
@@ -87,16 +93,20 @@ final class BoundedCloseDispatcherLinearizationTest {
             Threading.start(name, task);
         });
         BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(2);
+        BoundedCloseDispatcher.Permit firstPermit = reservation.takePermit();
+        BoundedCloseDispatcher.Permit secondPermit = reservation.takePermit();
 
-        reservation.dispatch(
-                BoundedCloseDispatcher.closeRequest(
+        dispatchPair(
+                firstPermit,
+                request(
                         () -> {
                             firstCloseEntered.countDown();
                             awaitUninterruptibly(releaseFirstClose);
                         },
                         "procwright-active-close-",
                         ignored -> {}),
-                BoundedCloseDispatcher.closeRequest(secondClosed::countDown, "procwright-queued-close-", failure -> {
+                secondPermit,
+                request(secondClosed::countDown, "procwright-queued-close-", failure -> {
                     reported.set(failure);
                     failureReported.countDown();
                 }));
@@ -137,14 +147,26 @@ final class BoundedCloseDispatcherLinearizationTest {
 
         assertThrows(
                 RejectedExecutionException.class,
-                () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
-                        () -> {}, "first-fallback-", ignored -> firstSettled.countDown(), ignored -> {}, () -> {})));
+                () -> dispatch(
+                        reservation,
+                        BoundedCloseDispatcher.ownedCloseRequest(
+                                () -> {},
+                                "first-fallback-",
+                                ignored -> firstSettled.countDown(),
+                                ignored -> {},
+                                () -> {})));
         assertTrue(firstSettled.await(1, TimeUnit.SECONDS));
 
         assertThrows(
                 RejectedExecutionException.class,
-                () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
-                        () -> {}, "second-fallback-", ignored -> secondSettled.countDown(), ignored -> {}, () -> {})));
+                () -> dispatch(
+                        reservation,
+                        BoundedCloseDispatcher.ownedCloseRequest(
+                                () -> {},
+                                "second-fallback-",
+                                ignored -> secondSettled.countDown(),
+                                ignored -> {},
+                                () -> {})));
 
         assertTrue(secondSettled.await(1, TimeUnit.SECONDS));
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
@@ -179,38 +201,42 @@ final class BoundedCloseDispatcherLinearizationTest {
                     firstStart,
                     assertThrows(
                             IllegalStateException.class,
-                            () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
-                                    () -> {
-                                        firstCloses.incrementAndGet();
-                                        throw firstClose;
-                                    },
-                                    "first-blocked-failure-",
-                                    failure -> {
-                                        firstSettlements.incrementAndGet();
-                                        firstResult.set(failure);
-                                        firstSettled.countDown();
-                                    },
-                                    ignored -> {},
-                                    () -> {}))));
+                            () -> dispatch(
+                                    reservation,
+                                    BoundedCloseDispatcher.ownedCloseRequest(
+                                            () -> {
+                                                firstCloses.incrementAndGet();
+                                                throw firstClose;
+                                            },
+                                            "first-blocked-failure-",
+                                            failure -> {
+                                                firstSettlements.incrementAndGet();
+                                                firstResult.set(failure);
+                                                firstSettled.countDown();
+                                            },
+                                            ignored -> {},
+                                            () -> {}))));
             assertTrue(firstSettled.await(1, TimeUnit.SECONDS));
 
             assertSame(
                     secondStart,
                     assertThrows(
                             IllegalArgumentException.class,
-                            () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
-                                    () -> {
-                                        secondCloses.incrementAndGet();
-                                        throw secondClose;
-                                    },
-                                    "second-independent-failure-",
-                                    failure -> {
-                                        secondSettlements.incrementAndGet();
-                                        secondResult.set(failure);
-                                        secondSettled.countDown();
-                                    },
-                                    ignored -> {},
-                                    () -> {}))));
+                            () -> dispatch(
+                                    reservation,
+                                    BoundedCloseDispatcher.ownedCloseRequest(
+                                            () -> {
+                                                secondCloses.incrementAndGet();
+                                                throw secondClose;
+                                            },
+                                            "second-independent-failure-",
+                                            failure -> {
+                                                secondSettlements.incrementAndGet();
+                                                secondResult.set(failure);
+                                                secondSettled.countDown();
+                                            },
+                                            ignored -> {},
+                                            () -> {}))));
             assertTrue(secondSettled.await(1, TimeUnit.SECONDS));
         }
 
@@ -250,9 +276,9 @@ final class BoundedCloseDispatcherLinearizationTest {
         };
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, Threading::start, notifications);
 
-        dispatcher
-                .reserve(1)
-                .dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+        dispatch(
+                dispatcher.reserve(1),
+                BoundedCloseDispatcher.ownedCloseRequest(
                         () -> {
                             throw physicalFailure;
                         },

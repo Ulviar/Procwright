@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-package io.github.ulviar.procwright.internal.session;
+package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatch;
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatchPair;
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.request;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -9,9 +12,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
-import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.Threading;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -55,19 +55,18 @@ final class BoundedCloseDispatcherTest {
             for (int ordinal = 0; ordinal < closeCount; ordinal++) {
                 AssertionError failure = new AssertionError("close " + ordinal);
                 failures.add(failure);
-                dispatcher
-                        .reserve(1)
-                        .dispatch(
-                                () -> {
-                                    allClosed.countDown();
-                                    throw failure;
-                                },
-                                "procwright-bounded-report-close-",
-                                observed -> {
-                                    firstObserved.compareAndSet(null, observed);
-                                    firstHandlerEntered.countDown();
-                                    awaitUninterruptibly(releaseHandlers);
-                                });
+                dispatch(
+                        dispatcher.reserve(1),
+                        () -> {
+                            allClosed.countDown();
+                            throw failure;
+                        },
+                        "procwright-bounded-report-close-",
+                        observed -> {
+                            firstObserved.compareAndSet(null, observed);
+                            firstHandlerEntered.countDown();
+                            awaitUninterruptibly(releaseHandlers);
+                        });
             }
 
             assertTrue(firstHandlerEntered.await(1, TimeUnit.SECONDS));
@@ -79,8 +78,8 @@ final class BoundedCloseDispatcherTest {
             }
             assertEquals(0, dispatcher.outstandingCount());
             assertTrue(failures.stream().anyMatch(failure -> failure == firstObserved.get()));
-            assertTrue(reporter.activeCount() <= reporter.workerCapacity());
-            assertTrue(reporter.queuedCount() <= reporter.queueCapacity());
+            assertTrue(reporter.activeCount() <= 1);
+            assertTrue(reporter.queuedCount() <= 2);
         } finally {
             releaseHandlers.countDown();
         }
@@ -102,34 +101,32 @@ final class BoundedCloseDispatcherTest {
         List<String> closeOrder = Collections.synchronizedList(new ArrayList<>());
 
         try {
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            new BlockingFailingCloseInputStream(
-                                    "stdout",
-                                    stdoutFailure,
-                                    stdoutCloseCalls,
-                                    closeOrder,
-                                    stdoutCloseStarted,
-                                    releaseStdoutClose),
-                            "procwright-queued-stdout-close-",
-                            failure -> {
-                                observedStdoutFailure.set(failure);
-                                stdoutCallbackEntered.countDown();
-                                try {
-                                    awaitUninterruptibly(releaseStdoutCallback);
-                                } finally {
-                                    stdoutCallbackFinished.countDown();
-                                }
-                            });
+            dispatch(
+                    dispatcher.reserve(1),
+                    new BlockingFailingCloseInputStream(
+                            "stdout",
+                            stdoutFailure,
+                            stdoutCloseCalls,
+                            closeOrder,
+                            stdoutCloseStarted,
+                            releaseStdoutClose),
+                    "procwright-queued-stdout-close-",
+                    failure -> {
+                        observedStdoutFailure.set(failure);
+                        stdoutCallbackEntered.countDown();
+                        try {
+                            awaitUninterruptibly(releaseStdoutCallback);
+                        } finally {
+                            stdoutCallbackFinished.countDown();
+                        }
+                    });
             assertTrue(stdoutCloseStarted.await(1, TimeUnit.SECONDS));
 
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            new RecordingCloseInputStream("stderr", stderrCloseCalls, closeOrder, stderrClosed),
-                            "procwright-queued-stderr-close-",
-                            failure -> {});
+            dispatch(
+                    dispatcher.reserve(1),
+                    new RecordingCloseInputStream("stderr", stderrCloseCalls, closeOrder, stderrClosed),
+                    "procwright-queued-stderr-close-",
+                    failure -> {});
             assertEquals(0, stderrCloseCalls.get(), "stderr must remain pending while stdout owns the only permit");
 
             releaseStdoutClose.countDown();
@@ -160,9 +157,11 @@ final class BoundedCloseDispatcherTest {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
 
         try {
-            dispatcher
-                    .reserve(1)
-                    .dispatch(new FailingCloseInputStream(closeFailure), "procwright-first-output-close-", failure -> {
+            dispatch(
+                    dispatcher.reserve(1),
+                    new FailingCloseInputStream(closeFailure),
+                    "procwright-first-output-close-",
+                    failure -> {
                         observedFailure.set(failure);
                         activeObservedByCallback.set(dispatcher.activeCount());
                         callbackEntered.countDown();
@@ -173,10 +172,11 @@ final class BoundedCloseDispatcherTest {
             assertSame(closeFailure, observedFailure.get());
             assertEquals(0, activeObservedByCallback.get(), "failure reporting must not retain close capacity");
 
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            new CloseSignalInputStream(secondClose), "procwright-second-output-close-", failure -> {});
+            dispatch(
+                    dispatcher.reserve(1),
+                    new CloseSignalInputStream(secondClose),
+                    "procwright-second-output-close-",
+                    failure -> {});
             assertTrue(
                     secondClose.await(1, TimeUnit.SECONDS), "the next physical close must not wait for the callback");
         } finally {
@@ -212,9 +212,12 @@ final class BoundedCloseDispatcherTest {
                     acceptedClosed,
                     ordinal == 0 ? firstStarted : null,
                     ordinal == 0 ? releaseFirst : null);
-            dispatcher
-                    .reserve(1)
-                    .dispatch(request, "procwright-bounded-close-", failure -> {}, acceptedSettled::countDown);
+            dispatch(
+                    dispatcher.reserve(1),
+                    request,
+                    "procwright-bounded-close-",
+                    failure -> {},
+                    acceptedSettled::countDown);
             if (ordinal == 0) {
                 assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
             }
@@ -261,38 +264,35 @@ final class BoundedCloseDispatcherTest {
                 },
                 reporter);
         ExecutorService firstCaller = Executors.newSingleThreadExecutor();
-        Future<?> firstDispatch = firstCaller.submit(() -> dispatcher
-                .reserve(1)
-                .dispatch(
-                        allClosed::countDown,
-                        "procwright-blocked-first-starter-",
-                        ignored -> {},
-                        allSettled::countDown));
+        Future<?> firstDispatch = firstCaller.submit(() -> dispatch(
+                dispatcher.reserve(1),
+                allClosed::countDown,
+                "procwright-blocked-first-starter-",
+                ignored -> {},
+                allSettled::countDown));
         try {
             assertTrue(firstStarterEntered.await(1, TimeUnit.SECONDS));
 
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            () -> {
-                                secondCloseEntered.countDown();
-                                awaitUninterruptibly(releaseSecondClose);
-                                allClosed.countDown();
-                            },
-                            "procwright-second-active-close-",
-                            ignored -> {},
-                            allSettled::countDown);
+            dispatch(
+                    dispatcher.reserve(1),
+                    () -> {
+                        secondCloseEntered.countDown();
+                        awaitUninterruptibly(releaseSecondClose);
+                        allClosed.countDown();
+                    },
+                    "procwright-second-active-close-",
+                    ignored -> {},
+                    allSettled::countDown);
             assertTrue(
                     secondCloseEntered.await(1, TimeUnit.SECONDS),
                     "the second active slot must remain usable while the first starter blocks");
 
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            allClosed::countDown,
-                            "procwright-only-pending-close-",
-                            ignored -> {},
-                            allSettled::countDown);
+            dispatch(
+                    dispatcher.reserve(1),
+                    allClosed::countDown,
+                    "procwright-only-pending-close-",
+                    ignored -> {},
+                    allSettled::countDown);
 
             assertEquals(2, dispatcher.activeCount());
             assertEquals(1, dispatcher.pendingCount());
@@ -328,7 +328,7 @@ final class BoundedCloseDispatcherTest {
 
         assertEquals(2, dispatcher.outstandingCount());
         assertThrows(java.util.concurrent.RejectedExecutionException.class, () -> dispatcher.reserve(1));
-        pair.dispatch(new CloseSignalInputStream(closed), "procwright-partial-reservation-", failure -> {});
+        dispatch(pair, new CloseSignalInputStream(closed), "procwright-partial-reservation-", failure -> {});
         pair.release();
         pair.release();
         assertTrue(closed.await(1, TimeUnit.SECONDS));
@@ -336,7 +336,7 @@ final class BoundedCloseDispatcherTest {
         assertFalse(closeThread.get().isAlive());
         assertThrows(
                 IllegalStateException.class,
-                () -> pair.dispatch(() -> {}, "procwright-double-dispatch-", failure -> {}));
+                () -> dispatch(pair, () -> {}, "procwright-double-dispatch-", failure -> {}));
         assertEquals(0, dispatcher.outstandingCount());
     }
 
@@ -372,42 +372,39 @@ final class BoundedCloseDispatcherTest {
         AtomicInteger failureReports = new AtomicInteger();
         AtomicReference<Throwable> reported = new AtomicReference<>();
         ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<?> failedDispatch = executor.submit(() -> dispatcher
-                .reserve(1)
-                .dispatch(
-                        () -> {
-                            failedCloseCalls.incrementAndGet();
-                            closeOrder.add(0);
-                            failedCloseCompleted.countDown();
-                        },
-                        "procwright-start-failure-",
-                        failure -> {
-                            failureReports.incrementAndGet();
-                            reported.set(failure);
-                            failureCallbackEntered.countDown();
-                            awaitUninterruptibly(releaseFailureCallback);
-                        }));
+        Future<?> failedDispatch = executor.submit(() -> dispatch(
+                dispatcher.reserve(1),
+                () -> {
+                    failedCloseCalls.incrementAndGet();
+                    closeOrder.add(0);
+                    failedCloseCompleted.countDown();
+                },
+                "procwright-start-failure-",
+                failure -> {
+                    failureReports.incrementAndGet();
+                    reported.set(failure);
+                    failureCallbackEntered.countDown();
+                    awaitUninterruptibly(releaseFailureCallback);
+                }));
         try {
             assertTrue(firstStartEntered.await(1, TimeUnit.SECONDS));
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            () -> {
-                                closeOrder.add(1);
-                                secondClosed.countDown();
-                            },
-                            "procwright-after-start-failure-",
-                            failure -> {});
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            () -> {
-                                closeOrder.add(2);
-                                thirdClosed.countDown();
-                            },
-                            "procwright-third-close-",
-                            failure -> {},
-                            thirdSettled::countDown);
+            dispatch(
+                    dispatcher.reserve(1),
+                    () -> {
+                        closeOrder.add(1);
+                        secondClosed.countDown();
+                    },
+                    "procwright-after-start-failure-",
+                    failure -> {});
+            dispatch(
+                    dispatcher.reserve(1),
+                    () -> {
+                        closeOrder.add(2);
+                        thirdClosed.countDown();
+                    },
+                    "procwright-third-close-",
+                    failure -> {},
+                    thirdSettled::countDown);
             assertEquals(2, dispatcher.pendingCount(), "accepted work must wait behind the FIFO head");
 
             releaseFirstStart.countDown();
@@ -449,20 +446,19 @@ final class BoundedCloseDispatcherTest {
         ExecutorService caller = Executors.newSingleThreadExecutor();
         Future<?> dispatch = caller.submit(() -> {
             dispatchThread.set(Thread.currentThread());
-            dispatcher
-                    .reserve(1)
-                    .dispatch(
-                            () -> {
-                                closeCalls.incrementAndGet();
-                                closeThread.set(Thread.currentThread());
-                                closeEntered.countDown();
-                                awaitUninterruptibly(releaseClose);
-                            },
-                            "procwright-rejected-blocking-close-",
-                            failure -> {
-                                reported.set(failure);
-                                failureReported.countDown();
-                            });
+            dispatch(
+                    dispatcher.reserve(1),
+                    () -> {
+                        closeCalls.incrementAndGet();
+                        closeThread.set(Thread.currentThread());
+                        closeEntered.countDown();
+                        awaitUninterruptibly(releaseClose);
+                    },
+                    "procwright-rejected-blocking-close-",
+                    failure -> {
+                        reported.set(failure);
+                        failureReported.countDown();
+                    });
         });
         try {
             ExecutionException dispatchFailure =
@@ -497,9 +493,11 @@ final class BoundedCloseDispatcherTest {
             AtomicReference<Throwable> observed = new AtomicReference<>();
             CountDownLatch reported = new CountDownLatch(1);
 
-            dispatcher
-                    .reserve(1)
-                    .dispatch(() -> throwCloseFailure(expected), "procwright-failing-output-close-", failure -> {
+            dispatch(
+                    dispatcher.reserve(1),
+                    () -> throwCloseFailure(expected),
+                    "procwright-failing-output-close-",
+                    failure -> {
                         reports.incrementAndGet();
                         observed.set(failure);
                         reported.countDown();
@@ -523,17 +521,18 @@ final class BoundedCloseDispatcherTest {
         CountDownLatch reentrantSettled = new CountDownLatch(1);
         CountDownLatch callbackFinished = new CountDownLatch(1);
 
-        dispatcher
-                .reserve(1)
-                .dispatch(new FailingCloseInputStream(closeFailure), "procwright-reentrant-failure-", failure -> {
+        dispatch(
+                dispatcher.reserve(1),
+                new FailingCloseInputStream(closeFailure),
+                "procwright-reentrant-failure-",
+                failure -> {
                     assertSame(closeFailure, failure);
-                    dispatcher
-                            .reserve(1)
-                            .dispatch(
-                                    new CloseSignalInputStream(reentrantClose),
-                                    "procwright-reentrant-close-",
-                                    ignored -> {},
-                                    reentrantSettled::countDown);
+                    dispatch(
+                            dispatcher.reserve(1),
+                            new CloseSignalInputStream(reentrantClose),
+                            "procwright-reentrant-close-",
+                            ignored -> {},
+                            reentrantSettled::countDown);
                     callbackFinished.countDown();
                 });
 
@@ -569,9 +568,11 @@ final class BoundedCloseDispatcherTest {
             });
             thread.start();
         });
-        dispatcher
-                .reserve(1)
-                .dispatch(new FailingCloseInputStream(closeFailure), "procwright-failed-close-", failure -> {
+        dispatch(
+                dispatcher.reserve(1),
+                new FailingCloseInputStream(closeFailure),
+                "procwright-failed-close-",
+                failure -> {
                     callbackCalls.incrementAndGet();
                     callbackReturned.countDown();
                     throw callbackFailure;
@@ -621,6 +622,8 @@ final class BoundedCloseDispatcherTest {
         CountDownLatch callbacksCompleted = new CountDownLatch(2);
         CountDownLatch reentrantCloseCompleted = new CountDownLatch(1);
         BoundedCloseDispatcher.Reservation pair = dispatcher.reserve(2);
+        BoundedCloseDispatcher.Permit firstPermit = pair.takePermit();
+        BoundedCloseDispatcher.Permit secondPermit = pair.takePermit();
         BoundedCloseDispatcher.Reservation saturation = dispatcher.reserve(totalCapacity - 2);
         ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -630,15 +633,14 @@ final class BoundedCloseDispatcherTest {
             try {
                 observedFailures.add(failure);
                 if (reentered.compareAndSet(false, true)) {
-                    dispatcher
-                            .reserve(1)
-                            .dispatch(
-                                    () -> {
-                                        reentrantCloses.incrementAndGet();
-                                        reentrantCloseCompleted.countDown();
-                                    },
-                                    "procwright-reentrant-saturated-close-",
-                                    ignored -> {});
+                    dispatch(
+                            dispatcher.reserve(1),
+                            () -> {
+                                reentrantCloses.incrementAndGet();
+                                reentrantCloseCompleted.countDown();
+                            },
+                            "procwright-reentrant-saturated-close-",
+                            ignored -> {});
                 }
             } catch (Throwable failureDuringCallback) {
                 callbackFailure.compareAndSet(null, failureDuringCallback);
@@ -647,15 +649,17 @@ final class BoundedCloseDispatcherTest {
             }
         };
 
-        Future<?> dispatch = executor.submit(() -> pair.dispatch(
-                BoundedCloseDispatcher.closeRequest(
+        Future<?> dispatch = executor.submit(() -> dispatchPair(
+                firstPermit,
+                request(
                         () -> {
                             firstCloses.incrementAndGet();
                             throwCloseFailure(firstFailure);
                         },
                         "procwright-blocking-first-close-",
                         failureHandler),
-                BoundedCloseDispatcher.closeRequest(
+                secondPermit,
+                request(
                         () -> {
                             secondCloses.incrementAndGet();
                             throwCloseFailure(secondFailure);
