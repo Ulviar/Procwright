@@ -9,15 +9,9 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Pool of reusable typed protocol-session workers.
  *
- * <p>The configured maximum is a per-pool bound from 1 through 256; it does not reserve process-wide capacity. Across
- * all line and protocol pools, at most 256 workers may collectively hold admission while starting, live, or retiring.
- * Admission is acquired before the worker factory and retained until physical retirement completes, including a
- * non-cooperative close.
- *
- * <p>Worker saturation during warmup fails pool opening with
- * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED}; saturation during demand acquisition fails with
- * {@link PooledProtocolSessionException.Reason#ACQUIRE_TIMEOUT}. Capacity released by one pool has no specified
- * recipient or inter-pool ordering.
+ * <p>The configured maximum belongs to this pool, accepts values from 1 through 256, and defaults to 1. Starting, idle,
+ * leased, and retiring workers all occupy this pool's slots. Separate pools and directly opened sessions do not share a
+ * worker quota; applications control their aggregate process count through the pools and sessions they create.
  *
  * @param <I> request type
  * @param <O> response type

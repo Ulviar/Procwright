@@ -8,22 +8,16 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
-/** Owns worker-permit acquisition, launch, wait, abandonment, and failure mapping for one worker startup. */
+/** Owns bounded launch, wait, abandonment, and failure mapping for one worker startup. */
 final class WorkerStartupCoordinator<S> {
 
     private final WorkerPoolController.FailureFactory failures;
     private final String workerLabel;
-    private final WorkerPoolController.WorkerPermitProvider permits;
     private final PoolState<S> poolState;
 
-    WorkerStartupCoordinator(
-            WorkerPoolController.FailureFactory failures,
-            String workerLabel,
-            WorkerPoolController.WorkerPermitProvider permits,
-            PoolState<S> poolState) {
+    WorkerStartupCoordinator(WorkerPoolController.FailureFactory failures, String workerLabel, PoolState<S> poolState) {
         this.failures = Objects.requireNonNull(failures, "failures");
         this.workerLabel = Objects.requireNonNull(workerLabel, "workerLabel");
-        this.permits = Objects.requireNonNull(permits, "permits");
         this.poolState = Objects.requireNonNull(poolState, "poolState");
     }
 
@@ -31,7 +25,7 @@ final class WorkerStartupCoordinator<S> {
         Objects.requireNonNull(reservation, "reservation");
         PoolWorker.StartupPurpose purpose = reservation.purpose();
 
-        BoundedTaskPermit startupPermit = acquireResources(reservation, deadlineNanos, purpose);
+        BoundedTaskPermit startupPermit = acquireStartupPermit(reservation, deadlineNanos, purpose);
         WorkerStartup<S> owner = launch(reservation, startupPermit, deadlineNanos, purpose);
         WorkerStartup.CreatedWorker<S> createdWorker = await(owner, reservation, deadlineNanos, purpose);
         return new Completion<>(createdWorker, owner.terminalDecision());
@@ -49,28 +43,15 @@ final class WorkerStartupCoordinator<S> {
         return new IllegalStateException("successful worker startup has incompatible terminal decision: " + decision);
     }
 
-    private BoundedTaskPermit acquireResources(
+    private BoundedTaskPermit acquireStartupPermit(
             Reservation<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
-        BoundedTaskPermit workerPermit = null;
         try {
-            workerPermit = permits.acquire(deadlineNanos);
-            if (!poolState.attachPermit(reservation, workerPermit)) {
-                workerPermit.close();
-                workerPermit = null;
-                throw failures.closed("Pool is closed");
-            }
-            workerPermit = null;
             return BoundedTaskLimits.WORKER_STARTUPS.acquire(deadlineNanos);
         } catch (TimeoutException failure) {
-            close(workerPermit);
             throw preLaunchTimeout(reservation.worker(), purpose, failure);
         } catch (InterruptedException failure) {
-            close(workerPermit);
             Thread.currentThread().interrupt();
             throw preLaunchInterruption(reservation.worker(), purpose, failure);
-        } catch (RuntimeException | Error failure) {
-            close(workerPermit);
-            throw failure;
         }
     }
 
@@ -196,12 +177,6 @@ final class WorkerStartupCoordinator<S> {
         };
     }
 
-    private static void close(BoundedTaskPermit permit) {
-        if (permit != null) {
-            permit.close();
-        }
-    }
-
     private static void rethrow(Throwable failure) {
         if (failure instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;
@@ -213,8 +188,6 @@ final class WorkerStartupCoordinator<S> {
     }
 
     interface PoolState<S> {
-
-        boolean attachPermit(Reservation<S> reservation, BoundedTaskPermit permit);
 
         /** A {@link StartupClaim#RUN} result atomically transfers reservation ownership to the startup attempt. */
         StartupClaim claimLaunch(Reservation<S> reservation, long deadlineNanos);

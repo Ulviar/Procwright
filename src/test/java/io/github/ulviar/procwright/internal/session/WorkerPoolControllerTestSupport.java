@@ -37,50 +37,12 @@ abstract class WorkerPoolControllerTestSupport {
         assertEquals(1, matches);
     }
 
-    static void awaitAvailablePermits(BoundedTaskLimiter permits, int expected) throws InterruptedException {
-        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        while (permits.availablePermits() != expected && System.nanoTime() < deadlineNanos) {
-            Thread.sleep(1);
-        }
-        assertEquals(expected, permits.availablePermits());
-    }
-
-    static WorkerPoolController.WorkerPermitProvider immediatePermits(BoundedTaskLimiter permits) {
-        return deadlineNanos -> {
-            BoundedTaskPermit permit = permits.tryAcquire();
-            if (permit == null) {
-                throw new java.util.concurrent.TimeoutException("test lifecycle capacity exhausted");
-            }
-            return permit;
-        };
-    }
-
     static WorkerPoolController<TestWorker> controller(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
             WorkerPoolSettings<?> settings) {
         return WorkerPoolController.fromSettings(
                 factory, closeAction(closer), settings, Failures.INSTANCE, "test worker", "test-", System::nanoTime);
-    }
-
-    static WorkerPoolController<TestWorker> controllerWithPermits(
-            java.util.function.Supplier<TestWorker> factory,
-            java.util.function.Consumer<TestWorker> closer,
-            WorkerPoolSettings<?> settings,
-            BoundedTaskLimiter workerPermits) {
-        return WorkerPoolController.fromSettings(
-                factory,
-                closeAction(closer),
-                settings,
-                Failures.INSTANCE,
-                "separate-permit worker",
-                "test-separate-permit-",
-                new WorkerPoolController.Dependencies(
-                        Runnable::run,
-                        (thread, failure) -> {},
-                        System::nanoTime,
-                        null,
-                        immediatePermits(workerPermits)));
     }
 
     static WorkerPoolController<TestWorker> inlineController(
@@ -112,12 +74,7 @@ abstract class WorkerPoolControllerTestSupport {
                 Failures.INSTANCE,
                 "test worker",
                 "test-",
-                new WorkerPoolController.Dependencies(
-                        replenishmentStarter,
-                        lateFailureReporter,
-                        clock,
-                        backoffWaiter,
-                        BoundedTaskLimits.POOL_WORKERS::acquire));
+                new WorkerPoolController.Dependencies(replenishmentStarter, lateFailureReporter, clock, backoffWaiter));
     }
 
     static WorkerPoolController<TestWorker> controller(
@@ -133,11 +90,7 @@ abstract class WorkerPoolControllerTestSupport {
                 "test worker",
                 "test-",
                 new WorkerPoolController.Dependencies(
-                        replenishmentStarter,
-                        (thread, failure) -> {},
-                        System::nanoTime,
-                        null,
-                        BoundedTaskLimits.POOL_WORKERS::acquire));
+                        replenishmentStarter, (thread, failure) -> {}, System::nanoTime, null));
     }
 
     static WorkerRetirement.Action<TestWorker> closeAction(java.util.function.Consumer<TestWorker> closer) {

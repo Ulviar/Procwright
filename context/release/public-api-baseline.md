@@ -56,8 +56,8 @@ Session.expect() -> Expect.Draft -> open()
 - process/resource создается только `execute()` или `open()`;
 - protocol entry point принимает factory, создающую adapter на каждый session/worker;
 - pooled configuration вложена в line/protocol scenario и не раскрывает lease;
-- process-wide worker permits ограничивают суммарно 256 factory-admitted workers всех pools; reservation до permit
-  входит только в `maxSize` своего pool;
+- `maxSize` каждого pool принимает значения от 1 до 256, по умолчанию равен 1 и включает starting, idle, leased и
+  retiring slots; разные pools и direct sessions не делят process-global worker quota;
 - pool Draft задает bounded close timeout; pool handle предоставляет только synchronous `close()` и cancellation-isolated
   `closeAsync()` одного terminal cleanup; outcome выбирается под pool monitor и публикуется после его освобождения;
 - public scenario configuration carriers вне Draft, root pool shortcuts и второй protocol builder dialect отсутствуют;

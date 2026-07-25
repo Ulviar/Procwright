@@ -21,7 +21,7 @@ public record WorkerPoolSettings<W>(
         Consumer<W> resetHook,
         Predicate<W> healthCheck) {
 
-    /** Maximum worker count supported by the process-wide worker-permit capacity. */
+    /** Maximum worker count accepted for one pool. */
     public static final int MAX_SIZE = 256;
 
     public WorkerPoolSettings {

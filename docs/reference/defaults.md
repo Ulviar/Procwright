@@ -105,7 +105,7 @@ come from the Draft on which `pooled()` was called.
 
 | Setting | Default |
 | --- | --- |
-| Maximum workers | 1 |
+| Maximum workers per pool | 1 (allowed range: 1 through 256) |
 | Eager warmup workers | 0 |
 | Minimum idle workers | 0 |
 | Acquire timeout | 5 seconds |
@@ -119,3 +119,6 @@ come from the Draft on which `pooled()` was called.
 
 The 15-second close timeout bounds the caller's wait. It does not abandon internal worker cleanup; use `closeAsync()` to
 observe eventual completion after a timed-out `close()`.
+
+Each pool applies its own maximum to starting, idle, leased, and retiring workers. Pools and directly opened sessions do
+not share a worker quota; the application controls the aggregate process count through the resources it creates.

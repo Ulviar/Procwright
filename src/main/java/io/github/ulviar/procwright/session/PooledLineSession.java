@@ -15,15 +15,9 @@ import java.util.concurrent.CompletableFuture;
  * <p>Line validation and bounded encoding complete before a worker is leased. Once a worker is leased, every failed
  * pooled request retires that worker, including a pre-write failure that could leave a directly owned line session open.
  *
- * <p>The configured maximum is a per-pool bound from 1 through 256; it does not reserve process-wide capacity. Across
- * all line and protocol pools, at most 256 workers may collectively hold admission while starting, live, or retiring.
- * Admission is acquired before the worker factory and retained until physical retirement completes, including a
- * non-cooperative close.
- *
- * <p>Worker saturation during warmup fails pool opening with
- * {@link PooledLineSessionException.Reason#STARTUP_FAILED}; saturation during demand acquisition fails with
- * {@link PooledLineSessionException.Reason#ACQUIRE_TIMEOUT}. Capacity released by one pool has no specified recipient
- * or inter-pool ordering.
+ * <p>The configured maximum belongs to this pool, accepts values from 1 through 256, and defaults to 1. Starting, idle,
+ * leased, and retiring workers all occupy this pool's slots. Separate pools and directly opened sessions do not share a
+ * worker quota; applications control their aggregate process count through the pools and sessions they create.
  *
  * <p>This sealed interface is a Procwright-owned handle contract, not a service-provider interface. Applications receive
  * pooled line sessions from {@code CommandService}.

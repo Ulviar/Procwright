@@ -34,9 +34,7 @@ final class WorkerPoolStateTest {
     void fullWorkerLifecycleUpdatesPartitionAndMetricsAtomically() {
         StateFixture fixture = state(settings(1, 0, 0, 2));
         WorkerPoolState<String> state = fixture.state();
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> reservation =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> reservation = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
         PoolWorker<String> worker = reservation.stateWorker();
         WorkerPoolState.Lease<String> firstLease;
         claimStartup(fixture, reservation);
@@ -82,7 +80,6 @@ final class WorkerPoolStateTest {
         PoolMetrics.Snapshot completed = state.metrics();
         assertMetrics(completed, 0, 0, 0, 0, 0, 1, 1);
         assertEquals(1L, completed.retireReasons().get(PooledWorkerRetireReason.MAX_REQUESTS));
-        assertEquals(1, workerPermits.availablePermits());
     }
 
     @Test
@@ -142,9 +139,7 @@ final class WorkerPoolStateTest {
     void reservationCannotBeCompletedByAnotherPool() {
         StateFixture owner = state(settings(1, 0, 0, 10));
         StateFixture unrelated = state(settings(1, 0, 0, 10));
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> reservation =
-                reserveWithPermit(owner, workerPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> reservation = reserve(owner, PoolWorker.StartupPurpose.DEMAND);
 
         try (PoolStateEffects<String> effects = unrelated.effects()) {
             assertThrows(
@@ -153,19 +148,15 @@ final class WorkerPoolStateTest {
 
         assertMetrics(owner.state().metrics(), 1, 0, 0, 1, 0, 0, 0);
         assertMetrics(unrelated.state().metrics(), 0, 0, 0, 0, 0, 0, 0);
-        assertEquals(0, workerPermits.availablePermits());
         try (PoolStateEffects<String> effects = owner.effects()) {
             owner.state().removeFailedStartup(reservation, effects);
         }
-        assertEquals(1, workerPermits.availablePermits());
     }
 
     @Test
     void startupCannotCompleteBeforeItsLaunchIsClaimed() {
         StateFixture fixture = state(settings(1, 0, 0, 10));
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> reservation =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> reservation = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
 
         try (PoolStateEffects<String> effects = fixture.effects()) {
             assertThrows(IllegalStateException.class, () -> fixture.state()
@@ -177,22 +168,16 @@ final class WorkerPoolStateTest {
         try (PoolStateEffects<String> effects = fixture.effects()) {
             fixture.state().removeFailedStartup(reservation, effects);
         }
-        assertEquals(1, workerPermits.availablePermits());
     }
 
     @Test
     void beginClosingTransformsOnlyWorkersOwnedByThePoolLifecycle() {
         StateFixture fixture = state(settings(4, 0, 0, 10));
         WorkerPoolState<String> state = fixture.state();
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(4);
-        WorkerStartupCoordinator.Reservation<String> queued =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
-        WorkerStartupCoordinator.Reservation<String> running =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
-        WorkerStartupCoordinator.Reservation<String> idle =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
-        WorkerStartupCoordinator.Reservation<String> leased =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> queued = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> running = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> idle = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> leased = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
         assertSame(
                 WorkerStartupCoordinator.StartupClaim.RUN,
                 state.claimStartup(running, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
@@ -227,7 +212,6 @@ final class WorkerPoolStateTest {
                 WorkerStartup.TerminalDecision.CLOSED,
                 running.stateWorker().startup().terminalDecision());
         assertMetrics(state.metrics(), 3, 0, 1, 1, 1, 2, 0);
-        assertEquals(1, workerPermits.availablePermits());
         assertSame("leased", activeLease.session());
     }
 
@@ -236,9 +220,7 @@ final class WorkerPoolStateTest {
         StateFixture fixture = state(settings(1, 0, 0, 10));
         WorkerPoolState<String> state = fixture.state();
         state.finishConstruction();
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> reservation =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> reservation = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
         PoolWorker<String> worker = reservation.stateWorker();
         claimStartup(fixture, reservation);
         WorkerPoolState.Lease<String> lease;
@@ -265,7 +247,6 @@ final class WorkerPoolStateTest {
         assertMetrics(state.metrics(), 0, 0, 0, 0, 0, 1, 1);
 
         completionEffects.close();
-        assertEquals(1, workerPermits.availablePermits());
         state.terminationView().get(1, TimeUnit.SECONDS);
     }
 
@@ -287,9 +268,8 @@ final class WorkerPoolStateTest {
         });
         WorkerPoolState<String> state = fixture.state();
         state.finishConstruction();
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
         WorkerStartupCoordinator.Reservation<String> reservation =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.REPLENISHMENT);
+                reserve(fixture, PoolWorker.StartupPurpose.REPLENISHMENT);
         assertSame(
                 WorkerStartupCoordinator.StartupClaim.RUN,
                 state.claimStartup(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
@@ -308,7 +288,6 @@ final class WorkerPoolStateTest {
         assertFalse(closedStartup);
         assertEquals(1, state.metrics().failedStartups());
         assertMetrics(state.metrics(), 0, 0, 0, 0, 0, 0, 0);
-        assertEquals(1, workerPermits.availablePermits());
         ExecutionException terminal = assertThrows(
                 ExecutionException.class, () -> state.terminationView().get(1, TimeUnit.SECONDS));
         assertSame(fatal, terminal.getCause());
@@ -317,9 +296,7 @@ final class WorkerPoolStateTest {
     @Test
     void startupExitPathsKeepCreatedAndFailedCountersDistinct() {
         StateFixture preLaunch = state(settings(1, 0, 0, 10));
-        BoundedTaskLimiter preLaunchPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> cancelled =
-                reserveWithPermit(preLaunch, preLaunchPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> cancelled = reserve(preLaunch, PoolWorker.StartupPurpose.DEMAND);
         WorkerPoolState.Lease<String> cancelledLease = cancelled.preparedLease();
         claimStartup(preLaunch, cancelled);
 
@@ -330,12 +307,9 @@ final class WorkerPoolStateTest {
         assertThrows(IllegalStateException.class, cancelledLease::session);
         assertMetrics(preLaunch.state().metrics(), 0, 0, 0, 0, 0, 0, 0);
         assertEquals(0, preLaunch.state().metrics().failedStartups());
-        assertEquals(1, preLaunchPermits.availablePermits());
 
         StateFixture lateFailure = state(settings(1, 0, 0, 10));
-        BoundedTaskLimiter failedPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> failed =
-                reserveWithPermit(lateFailure, failedPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> failed = reserve(lateFailure, PoolWorker.StartupPurpose.DEMAND);
         claimStartup(lateFailure, failed);
 
         try (PoolStateEffects<String> effects = lateFailure.effects()) {
@@ -354,12 +328,9 @@ final class WorkerPoolStateTest {
 
         assertMetrics(lateFailure.state().metrics(), 0, 0, 0, 0, 0, 0, 0);
         assertEquals(1, lateFailure.state().metrics().failedStartups());
-        assertEquals(1, failedPermits.availablePermits());
 
         StateFixture lateSuccess = state(settings(1, 0, 0, 10));
-        BoundedTaskLimiter successfulPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> succeeded =
-                reserveWithPermit(lateSuccess, successfulPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> succeeded = reserve(lateSuccess, PoolWorker.StartupPurpose.DEMAND);
         claimStartup(lateSuccess, succeeded);
 
         try (PoolStateEffects<String> effects = lateSuccess.effects()) {
@@ -374,7 +345,6 @@ final class WorkerPoolStateTest {
 
         assertMetrics(lateSuccess.state().metrics(), 1, 0, 0, 0, 1, 1, 0);
         assertEquals(1, lateSuccess.state().metrics().failedStartups());
-        assertEquals(0, successfulPermits.availablePermits());
     }
 
     @Test
@@ -423,9 +393,7 @@ final class WorkerPoolStateTest {
     private static void verifyAcceptedFailurePublicationWhileHolding(boolean holdPrimary) throws Exception {
         StateFixture fixture = state(settings(1, 0, 0, 10));
         WorkerPoolState<String> state = fixture.state();
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
-        WorkerStartupCoordinator.Reservation<String> reservation =
-                reserveWithPermit(fixture, workerPermits, PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Reservation<String> reservation = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
         PoolWorker<String> worker = reservation.stateWorker();
         claimStartup(fixture, reservation);
         WorkerPoolState.Lease<String> lease;
@@ -469,7 +437,6 @@ final class WorkerPoolStateTest {
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
-        assertEquals(1, workerPermits.availablePermits());
         assertEquals(0, primary.getSuppressed().length);
     }
 
@@ -488,8 +455,8 @@ final class WorkerPoolStateTest {
         return new StateFixture(state, retirements);
     }
 
-    private static WorkerStartupCoordinator.Reservation<String> reserveWithPermit(
-            StateFixture fixture, BoundedTaskLimiter workerPermits, PoolWorker.StartupPurpose purpose) {
+    private static WorkerStartupCoordinator.Reservation<String> reserve(
+            StateFixture fixture, PoolWorker.StartupPurpose purpose) {
         WorkerStartupCoordinator.Reservation<String> reservation =
                 switch (purpose) {
                     case DEMAND -> {
@@ -509,7 +476,6 @@ final class WorkerPoolStateTest {
                 };
         assertNotNull(reservation);
         assertSame(purpose, reservation.purpose());
-        assertTrue(fixture.state().attachStartupPermit(reservation, workerPermits.acquireUninterruptibly()));
         return reservation;
     }
 

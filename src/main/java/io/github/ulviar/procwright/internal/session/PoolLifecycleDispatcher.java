@@ -3,16 +3,15 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.Threading;
-import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import java.util.ArrayDeque;
 import java.util.Objects;
 
 /**
  * Runs mandatory pool lifecycle work on a fixed set of owners.
  *
- * <p>Retirement batches need no queue permit because their number is already bounded by factory-admitted workers.
- * Reports and replenishment use independent bounded queues and owner sets. A task submitted recursively into its
- * current owner set runs inline, so queue capacity cannot make every owner wait for capacity that only those owners can
+ * <p>Each owner set has bounded queue admission. Mandatory retirement work runs on the caller when its queue is full;
+ * reports and replenishment wait for their independent bounded capacity. A task submitted recursively into its current
+ * owner set also runs inline, so queue capacity cannot make every owner wait for capacity that only those owners can
  * release.
  *
  * <p>All owners are started before this dispatcher becomes usable. A starter failure therefore fails construction
@@ -21,7 +20,7 @@ import java.util.Objects;
 final class PoolLifecycleDispatcher {
 
     private static final int SHARED_PARALLELISM = 8;
-    private static final int SHARED_TASK_CAPACITY = WorkerPoolSettings.MAX_SIZE;
+    private static final int SHARED_QUEUE_CAPACITY = 256;
 
     private final Object lock = new Object();
     private final ArrayDeque<TaskRequest> pending = new ArrayDeque<>();
@@ -71,7 +70,21 @@ final class PoolLifecycleDispatcher {
     }
 
     void dispatchRetirementBatch(Runnable task) {
-        enqueue(new TaskRequest(task, null));
+        if (Boolean.TRUE.equals(ownerThread.get())) {
+            runInline(task);
+            return;
+        }
+        BoundedTaskPermit permit = taskPermits.tryAcquire();
+        if (permit == null) {
+            runInline(task);
+            return;
+        }
+        try {
+            enqueue(new TaskRequest(task, permit));
+        } catch (RuntimeException | Error failure) {
+            permit.close();
+            throw failure;
+        }
     }
 
     private void enqueue(TaskRequest request) {
@@ -142,19 +155,19 @@ final class PoolLifecycleDispatcher {
 
     private static final class Retirements {
 
-        private static final PoolLifecycleDispatcher INSTANCE = shared("procwright-retirement-", SHARED_TASK_CAPACITY);
+        private static final PoolLifecycleDispatcher INSTANCE = shared("procwright-retirement-", SHARED_QUEUE_CAPACITY);
     }
 
     private static final class Reports {
 
         private static final PoolLifecycleDispatcher INSTANCE =
-                shared("procwright-pool-late-report-", SHARED_TASK_CAPACITY);
+                shared("procwright-pool-late-report-", SHARED_QUEUE_CAPACITY);
     }
 
     private static final class Replenishments {
 
         private static final PoolLifecycleDispatcher INSTANCE =
-                shared("procwright-pool-replenishment-", SHARED_TASK_CAPACITY);
+                shared("procwright-pool-replenishment-", SHARED_QUEUE_CAPACITY);
     }
 
     private static int defaultTaskCapacity(int parallelism) {

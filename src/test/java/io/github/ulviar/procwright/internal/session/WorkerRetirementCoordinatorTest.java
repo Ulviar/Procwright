@@ -235,7 +235,7 @@ final class WorkerRetirementCoordinatorTest {
     }
 
     @Test
-    void effectFailureDoesNotSkipPermitReleaseOrTerminalPublication() throws Exception {
+    void effectFailureDoesNotSkipTerminalPublication() throws Exception {
         IllegalStateException dispatchFailure = new IllegalStateException("dispatcher unavailable");
         WorkerPoolState<String> state = state();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
@@ -245,16 +245,13 @@ final class WorkerRetirementCoordinatorTest {
                 (worker, outcome) -> null,
                 (worker, failure) -> {},
                 report -> {});
-        BoundedTaskLimiter permits = new BoundedTaskLimiter(1);
         PoolStateEffects<String> effects = new PoolStateEffects<>(state, coordinator);
-        effects.release(permits.acquireUninterruptibly());
         effects.retire(worker(new AtomicInteger()));
         state.beginClose(null, effects);
 
         IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
 
         assertSame(dispatchFailure, observed);
-        assertEquals(1, permits.availablePermits());
         state.terminationView().get();
         assertTrue(state.terminationView().isDone());
     }

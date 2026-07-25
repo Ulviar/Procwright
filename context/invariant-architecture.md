@@ -110,8 +110,7 @@ Runtime получает только согласованный plan и не у
   `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
 - startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
-- обязательные post-monitor retirement, worker-permit release и terminal publication — одноразовый
-  `PoolStateEffects`;
+- обязательные post-monitor retirement и terminal publication — одноразовый `PoolStateEffects`;
 - pool commit — заранее подготовленный startup owner, bounded capacity `PoolPartition`, target-first переходы и
   post-monitor `PoolStateEffects`;
 - pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
@@ -182,8 +181,9 @@ scenario flags.
 - `LineSession` и `ProtocolSession` допускают только один request/response cycle одновременно;
 - helper или runtime pump получает exclusive ownership stdout/stderr;
 - позднее raw чтение после helper claim и поздний helper claim после raw operation отклоняются;
-- stream listeners, readiness probes и worker hooks имеют независимые process-wide capacity partitions; зависший
-  callback удерживает разрешение только своей категории до фактического возврата;
+- stream listeners, readiness probes и worker hooks выполняются через независимые bounded admission domains; это
+  внутренняя защита от неограниченной служебной работы, а не квота на процессы или pools. Зависший callback удерживает
+  разрешение только своей категории до фактического возврата;
 - readiness, worker hooks, protocol callbacks, custom charset encoding, blocking stdin writes и regex evaluation
   используют task-scoped adaptive owner: Java 24+ дает каждому invocation non-inheriting virtual thread, Java 17–23 —
   fresh non-inheriting daemon platform thread; callback thread не переходит другому invocation, а раннее monitor pinning
@@ -226,9 +226,12 @@ scenario flags.
 
 - pool использует существующий line/protocol runtime и не раскрывает lease;
 - каждый worker всегда принадлежит ровно одному состоянию: starting, idle, leased или retiring;
-- `maxSize` ограничивает live slots, включая starting/retiring;
-- process-wide worker permits ограничивают суммарно 256 factory-admitted workers всех pools; reservation до permit
-  занимает slot только своего pool;
+- `maxSize` одного pool принимает значения от 1 до 256, по умолчанию равен 1 и ограничивает starting, idle, leased и
+  retiring slots этого pool;
+- разные pools и direct sessions не делят process-global worker quota; суммарное число процессов контролирует приложение
+  количеством создаваемых ресурсов и `maxSize` каждого pool;
+- startup и hooks имеют bounded admission; retirement processing использует fixed owner set и bounded queue с
+  caller-runs backpressure при насыщении. Эти механизмы не являются пользовательской resource policy;
 - pool terminal outcome выбирается под monitor и публикуется после его освобождения без отдельной lifetime reservation;
 - acquire timeout и request timeout различаются;
 - failed request/timeout/decoder/process exit retire worker;

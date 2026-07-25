@@ -19,7 +19,6 @@ final class PoolWorker<S> {
     private final StartupPurpose startupPurpose;
     private S session;
     private final WorkerRetirement<S> retirement;
-    private BoundedTaskPermit permit;
     private long createdAtNanos;
     private int requests;
     private PooledWorkerRetireReason retireReason;
@@ -65,23 +64,6 @@ final class PoolWorker<S> {
         session = candidate;
         createdAtNanos = System.nanoTime();
         startup = null;
-    }
-
-    void workerPermit(BoundedTaskPermit acceptedPermit) {
-        if (permit != null) {
-            throw new IllegalStateException("worker permit is already assigned");
-        }
-        permit = Objects.requireNonNull(acceptedPermit, "acceptedPermit");
-    }
-
-    BoundedTaskPermit workerPermitOrNull() {
-        return permit;
-    }
-
-    BoundedTaskPermit detachWorkerPermit() {
-        BoundedTaskPermit owned = permit;
-        permit = null;
-        return owned;
     }
 
     void initiateClose() {

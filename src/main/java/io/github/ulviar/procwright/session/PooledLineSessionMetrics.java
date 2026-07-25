@@ -8,10 +8,9 @@ import java.util.Objects;
 /**
  * Snapshot of pooled line-session runtime counters.
  *
- * <p>This snapshot describes one pool. Its {@code size} is bounded by that pool's configured maximum from 1 through 256,
- * which neither reserves nor reports process-wide capacity. Across all line and protocol pools, a separate limit admits
- * at most 256 aggregate workers from before factory invocation through completed physical retirement. This snapshot
- * exposes neither remaining aggregate capacity nor any inter-pool acquisition order.
+ * <p>This snapshot describes one pool. Its {@code size} is bounded by that pool's configured maximum from 1 through 256
+ * and includes starting, idle, leased, and retiring workers. It does not report workers owned by other pools or directly
+ * opened sessions.
  *
  * @param size current occupied pool slots, including workers that are starting or retiring
  * @param idle current idle worker count

@@ -108,17 +108,17 @@ Its request, acquire, hook, and close timeouts are 5, 2, 1, and 15 seconds respe
 The pool owns acquisition, release, and retirement; leases are not public. One worker serves one request at a time.
 Concurrent callers may receive different workers, and caller affinity is not guaranteed.
 
-`withMaxSize(...)` accepts 1 through 256 workers and limits one pool only. Configured per-pool maxima do not reserve
-workers from other pools. Procwright also enforces one process-wide worker limit across line and protocol pools:
+`withMaxSize(...)` accepts 1 through 256 workers and limits one pool only; the default is 1. Starting, idle, leased, and
+retiring workers all occupy that pool's slots. Separate line pools, protocol pools, and directly opened sessions do not
+share a worker quota. Bound the application's aggregate process count by limiting how many pools and direct sessions it
+creates and by choosing each pool's `maxSize`.
 
-- At most 256 workers may collectively be admitted, starting, live, or retiring. A worker acquires admission before its
-  factory runs and retains it until physical retirement completes. A non-cooperative close therefore prevents that
-  capacity from being reused by another pool.
+Procwright bounds internal startup and hook admission. Retirement processing uses a fixed owner set and a bounded queue;
+when that queue is full, the caller performs the mandatory retirement step instead. These safeguards do not reserve
+worker capacity between pools.
 
-When warmup worker capacity is unavailable through the configured acquire deadline, `open()` fails with
-`STARTUP_FAILED` before an unadmitted worker factory runs. Worker-capacity saturation during demand acquisition fails
-with `ACQUIRE_TIMEOUT`; background replenishment retries while the pool remains open. The API makes no fairness or
-inter-pool ordering guarantee when worker capacity becomes available.
+`STARTUP_FAILED` reports a worker startup or synchronous warmup failure. `ACQUIRE_TIMEOUT` reports that a request could
+not obtain a worker from its own pool before the acquire deadline.
 
 Protocol pool startup may invoke its adapter factory concurrently. The factory must be thread-safe and return a fresh
 adapter for every worker. Keep mutable per-adapter state inside the factory call; externally captured mutable state remains

@@ -37,7 +37,8 @@ owner вынуждает при локальном изменении держа
   числе после caller timeout или interruption;
 - `ProcessProviderOperationCancellation` доставляет interrupt до или после binding owner-а, а
   `ProcessProviderOperationSettlement` удерживает reporting producer до завершения caller и owner;
-- `BoundedTaskLimits` задает независимые process-wide admission partitions, `BoundedTaskLimiter` и
+- `BoundedTaskLimits` задает независимые bounded admission domains для служебных операций. Это защита runtime от
+  неограниченной внутренней работы, а не пользовательская квота процессов или pools. `BoundedTaskLimiter` и
   `BoundedTaskPermit` владеют capacity, `BoundedTaskRunner.TaskStarter` запускает adaptive или session-affine execution
   owner, а `BoundedTaskHandoff` одним monitor владеет claim callback, admission и наблюдаемой retry-safe фазой;
   `BoundedTaskExecution` владеет completion, abandonment и interrupt одного принятого вызова. Отменяемая и неотменяемая

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.Threading;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class PoolLifecycleDispatcherTest {
@@ -105,22 +107,58 @@ final class PoolLifecycleDispatcherTest {
     }
 
     @Test
-    void retirementBatchQueuesWithoutTaskPermit() throws Exception {
+    void saturatedRetirementAdmissionRunsMandatoryBatchInlineExactlyOnce() throws Exception {
         PoolLifecycleDispatcher dispatcher =
-                new PoolLifecycleDispatcher(1, Threading::start, "test-permit-free-batch-", 1);
+                new PoolLifecycleDispatcher(1, Threading::start, "test-saturated-retirement-", 1);
         CountDownLatch blockerStarted = new CountDownLatch(1);
         CountDownLatch releaseBlocker = new CountDownLatch(1);
-        CountDownLatch completed = new CountDownLatch(1);
+        CountDownLatch blockerFinished = new CountDownLatch(1);
+        AtomicInteger inlineRuns = new AtomicInteger();
+        Thread caller = Thread.currentThread();
         dispatcher.dispatch(() -> {
             blockerStarted.countDown();
             awaitIgnoringInterrupt(releaseBlocker);
+            blockerFinished.countDown();
         });
         assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+        assertEquals(0, taskPermits(dispatcher).availablePermits());
 
-        dispatcher.dispatchRetirementBatch(completed::countDown);
+        dispatcher.dispatchRetirementBatch(() -> {
+            assertSame(caller, Thread.currentThread());
+            inlineRuns.incrementAndGet();
+        });
 
+        assertEquals(1, inlineRuns.get());
+        assertEquals(0, taskPermits(dispatcher).availablePermits());
         releaseBlocker.countDown();
-        assertTrue(completed.await(1, TimeUnit.SECONDS));
+        assertTrue(blockerFinished.await(1, TimeUnit.SECONDS));
+        awaitAvailableTaskPermits(dispatcher, 1);
+    }
+
+    @Test
+    void recursiveRetirementSubmissionRunsInlineExactlyOnceWithoutLeakingAdmission() throws Exception {
+        PoolLifecycleDispatcher dispatcher =
+                new PoolLifecycleDispatcher(1, Threading::start, "test-recursive-retirement-", 1);
+        AtomicInteger outerRuns = new AtomicInteger();
+        AtomicInteger nestedRuns = new AtomicInteger();
+        AtomicReference<Thread> owner = new AtomicReference<>();
+        CountDownLatch finished = new CountDownLatch(1);
+
+        dispatcher.dispatchRetirementBatch(() -> {
+            owner.set(Thread.currentThread());
+            outerRuns.incrementAndGet();
+            assertEquals(0, taskPermits(dispatcher).availablePermits());
+            dispatcher.dispatchRetirementBatch(() -> {
+                assertSame(owner.get(), Thread.currentThread());
+                nestedRuns.incrementAndGet();
+            });
+            finished.countDown();
+        });
+
+        assertTrue(finished.await(1, TimeUnit.SECONDS));
+        assertEquals(1, outerRuns.get());
+        assertEquals(1, nestedRuns.get());
+        awaitAvailableTaskPermits(dispatcher, 1);
     }
 
     @Test
@@ -236,6 +274,26 @@ final class PoolLifecycleDispatcherTest {
 
     private static PoolLifecycleDispatcher dispatcher(int parallelism) {
         return new PoolLifecycleDispatcher(parallelism, Threading::start, "test-lifecycle-");
+    }
+
+    private static void awaitAvailableTaskPermits(PoolLifecycleDispatcher dispatcher, int expected)
+            throws InterruptedException {
+        BoundedTaskLimiter permits = taskPermits(dispatcher);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        while (permits.availablePermits() != expected && System.nanoTime() < deadline) {
+            Thread.sleep(1);
+        }
+        assertEquals(expected, permits.availablePermits());
+    }
+
+    private static BoundedTaskLimiter taskPermits(PoolLifecycleDispatcher dispatcher) {
+        try {
+            Field field = PoolLifecycleDispatcher.class.getDeclaredField("taskPermits");
+            field.setAccessible(true);
+            return (BoundedTaskLimiter) field.get(dispatcher);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("could not inspect dispatcher admission", failure);
+        }
     }
 
     private static void assertStarterFailure(Throwable expected) throws Exception {

@@ -47,7 +47,7 @@ Runtime не обязан гарантировать:
 - специальную identity-дедупликацию и неизменность исходного графа `Throwable` при нескольких cleanup failures;
 - продвижение позднего `Error` в особый aggregate после выбора terminal outcome;
 - отдельный заранее запущенный publication owner для каждого lifecycle future;
-- process-wide terminal slot, резервируемый каждым pool во время `open()`;
+- process-global worker quota, разделяемую независимыми pools или direct sessions;
 - FIFO или fairness между конкурирующими internal cleanup/reporting задачами.
 
 Hard capacity, отсутствие выполнения пользовательского continuation под state monitor и освобождение resource permits

@@ -32,7 +32,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -133,10 +132,11 @@ final class PooledWorkerRetirementCoordinationTest {
     }
 
     @Test
-    void delayedLineTerminalErrorReleasesResolvedSlotAndPermitExactlyOnce() throws Exception {
+    void delayedLineTerminalErrorResolvesSlotAndClosesWorkerExactlyOnce() throws Exception {
         AssertionError terminalFailure = new AssertionError("delayed line terminal failed fatally");
         CompletableFuture<Void> delayedTerminal = new CompletableFuture<>();
         CompletableFuture<Void> closeTask = new CompletableFuture<>();
+        AtomicInteger closeCalls = new AtomicInteger();
         TrackingOutputStream stdin = new TrackingOutputStream();
         TrackingInputStream stdout = new TrackingInputStream();
         TrackingInputStream stderr = new TrackingInputStream();
@@ -144,18 +144,11 @@ final class PooledWorkerRetirementCoordinationTest {
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         DefaultLineSession worker =
                 new DefaultLineSession(openSession(process, closeDispatcher), LineSessionSettings.defaults());
-        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
-        WorkerPoolController.WorkerPermitProvider workerPermitProvider = deadlineNanos -> {
-            BoundedTaskPermit workerPermit = workerPermits.tryAcquire();
-            if (workerPermit == null) {
-                throw new TimeoutException("test lifecycle capacity exhausted");
-            }
-            return workerPermit;
-        };
         WorkerPoolController<DefaultLineSession> pool = WorkerPoolController.fromSettings(
                 () -> worker,
                 session -> WorkerCloseSupport.closeOutcome(
                         () -> {
+                            closeCalls.incrementAndGet();
                             try {
                                 session.close();
                                 closeTask.complete(null);
@@ -174,10 +167,8 @@ final class PooledWorkerRetirementCoordinationTest {
                         task -> Threading.start("test-delayed-terminal-replenish-", task),
                         (thread, failure) -> {},
                         System::nanoTime,
-                        null,
-                        workerPermitProvider));
+                        null));
         try {
-            assertEquals(0, workerPermits.availablePermits());
             CompletableFuture<Void> drain = pool.closeAsync();
 
             closeTask.get(1, TimeUnit.SECONDS);
@@ -192,7 +183,7 @@ final class PooledWorkerRetirementCoordinationTest {
             assertEquals(1, pool.metrics().retiring());
             assertEquals(0, pool.metrics().retired());
             assertEquals(0, pool.metrics().failedWorkerCloses());
-            assertEquals(0, workerPermits.availablePermits());
+            assertEquals(1, closeCalls.get());
 
             delayedTerminal.completeExceptionally(terminalFailure);
 
@@ -203,7 +194,6 @@ final class PooledWorkerRetirementCoordinationTest {
             assertEquals(1, pool.metrics().retired());
             assertEquals(1, pool.metrics().failedWorkerCloses());
             assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.CLOSED));
-            awaitAvailablePermits(workerPermits, 1);
 
             for (int attempt = 0; attempt < 10; attempt++) {
                 ExecutionException repeated = assertThrows(
@@ -211,7 +201,7 @@ final class PooledWorkerRetirementCoordinationTest {
                 assertSame(terminalFailure, repeated.getCause());
             }
             assertEquals(1, pool.metrics().failedWorkerCloses());
-            assertEquals(1, workerPermits.availablePermits(), "resolved failure must release the worker permit");
+            assertEquals(1, closeCalls.get(), "repeated close views must share one worker close");
             assertNoDispatcherLeak(closeDispatcher);
         } finally {
             delayedTerminal.completeExceptionally(terminalFailure);
@@ -265,14 +255,6 @@ final class PooledWorkerRetirementCoordinationTest {
             process.complete(143);
             pool.closeAsync().handle((ignored, failure) -> null).get(1, TimeUnit.SECONDS);
         }
-    }
-
-    private static void awaitAvailablePermits(BoundedTaskLimiter permits, int expected) throws InterruptedException {
-        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        while (permits.availablePermits() != expected && System.nanoTime() < deadlineNanos) {
-            Thread.sleep(1);
-        }
-        assertEquals(expected, permits.availablePermits());
     }
 
     private enum TestPoolFailures implements WorkerPoolController.FailureFactory {

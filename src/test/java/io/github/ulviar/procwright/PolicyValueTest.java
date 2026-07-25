@@ -164,7 +164,14 @@ final class PolicyValueTest {
 
     @Test
     void workerPoolSettingsRejectInvalidScalarPoliciesAndDeferCrossFieldChecks() {
-        assertEquals(Duration.ofSeconds(15), poolSettings().closeTimeout());
+        WorkerPoolSettings<Object> defaults = poolSettings();
+        assertEquals(1, defaults.maxSize());
+        assertEquals(Duration.ofSeconds(15), defaults.closeTimeout());
+        assertEquals(
+                WorkerPoolSettings.MAX_SIZE,
+                defaults.withMaxSize(WorkerPoolSettings.MAX_SIZE)
+                        .validateForOpen()
+                        .maxSize());
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxSize(0));
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withWarmupSize(-1));
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withMinIdle(-1));

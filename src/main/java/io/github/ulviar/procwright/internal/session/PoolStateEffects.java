@@ -17,7 +17,6 @@ final class PoolStateEffects<S> implements AutoCloseable {
     private final WorkerRetirementCoordinator<S> retirements;
     private FailureAccumulator failures;
     private ArrayList<PoolWorker<S>> workersToRetire;
-    private ArrayList<BoundedTaskPermit> permitsToRelease;
     private PoolDrain.Publication publication;
     private boolean closed;
 
@@ -41,17 +40,6 @@ final class PoolStateEffects<S> implements AutoCloseable {
         workersToRetire.add(Objects.requireNonNull(worker, "worker"));
     }
 
-    void release(BoundedTaskPermit permit) {
-        requireOpen();
-        if (permit == null) {
-            return;
-        }
-        if (permitsToRelease == null) {
-            permitsToRelease = new ArrayList<>();
-        }
-        permitsToRelease.add(permit);
-    }
-
     void publish(PoolDrain.Publication selected) {
         requireOpen();
         if (selected == null) {
@@ -69,7 +57,6 @@ final class PoolStateEffects<S> implements AutoCloseable {
             return;
         }
         closed = true;
-        closePermits();
         if (workersToRetire != null) {
             try {
                 retirements.dispatch(workersToRetire);
@@ -83,18 +70,6 @@ final class PoolStateEffects<S> implements AutoCloseable {
             record(failure);
         }
         throwRecordedFailure();
-    }
-
-    private void closePermits() {
-        if (permitsToRelease != null) {
-            for (BoundedTaskPermit permit : permitsToRelease) {
-                try {
-                    permit.close();
-                } catch (RuntimeException | Error failure) {
-                    record(failure);
-                }
-            }
-        }
     }
 
     private void record(Throwable failure) {

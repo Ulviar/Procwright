@@ -104,10 +104,12 @@
 ## Пулы line/protocol sessions
 
 - `lineSession().pooled()` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
-- `warmupSize` заранее создает workers, а `maxSize` ограничивает общий live worker count.
-- Process-wide worker permits ограничивают суммарно 256 factory-admitted workers всех pools; reservation до permit
-  занимает slot только своего pool.
-- Открытие pool не резервирует отдельный thread или process-wide slot для terminal future.
+- `warmupSize` заранее создает workers, а `maxSize` ограничивает starting, idle, leased и retiring slots одного pool;
+  допустимый диапазон — от 1 до 256, значение по умолчанию — 1.
+- Разные pools и direct sessions не делят process-global worker quota; суммарное число процессов задает приложение
+  количеством создаваемых ресурсов и `maxSize` каждого pool.
+- Startup и hooks имеют bounded admission; retirement processing использует fixed owner set и bounded queue с
+  caller-runs backpressure при насыщении. Эти механизмы не задают пользовательскую политику числа процессов.
 - Terminal outcome выбирается под pool monitor и публикуется после его освобождения.
 - Если создание pool падает после частичного warmup или при запуске replenishment, уже созданные workers закрываются.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.

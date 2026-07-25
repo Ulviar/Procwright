@@ -20,7 +20,7 @@ Scorecard фиксирует текущее состояние source и нал�
 | Line session | Готово | Serialized requests, end-to-end deadline, independent limits/backlog и hostile-decoder protection. |
 | Protocol session | Готово | Factory per session/worker, adapter-owned framing, strict decoding, global response budget и typed failures. |
 | Streaming | Готово | Backpressure, bounded diagnostics, fixed closed-stdin invariant и stable listener/read/process reasons. |
-| Pooling | Готово | Nested `PoolDraft`, no public lease, общий limit 256 workers, bounded startup/hooks/retirement, replenishment и metrics. |
+| Pooling | Готово | Nested `PoolDraft`, no public lease, per-pool `maxSize` 1..256, bounded startup/hooks, bounded retirement queue с caller-runs backpressure, replenishment и metrics. |
 | Diagnostics | Готово | Scenario-level hooks, bounded async best-effort delivery, schema и `runId`. |
 | PTY | Ограничено платформой | System provider на поддерживаемых POSIX-системах; `REQUIRED` не fallback-ится; ConPTY отсутствует. |
 | Kotlin | Синхронизировано | Реализация, ABI baseline и внешний Kotlin consumer используют Java Draft, durations, coroutine ownership, cold `openFlow()` и factory DSL. |

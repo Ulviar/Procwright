@@ -135,20 +135,6 @@ final class WorkerPoolState<S> {
         }
     }
 
-    boolean attachStartupPermit(WorkerStartupCoordinator.Reservation<S> reservation, BoundedTaskPermit permit) {
-        Objects.requireNonNull(reservation, "reservation");
-        Objects.requireNonNull(permit, "permit");
-        PoolWorker<S> worker = reservation.reservedWorker(this);
-        synchronized (monitor) {
-            if (!partition.contains(worker) || termination.closing()) {
-                return false;
-            }
-            partition.requireState(worker, PoolPartition.State.STARTING);
-            worker.workerPermit(permit);
-            return true;
-        }
-    }
-
     WorkerStartupCoordinator.StartupClaim claimStartup(
             WorkerStartupCoordinator.Reservation<S> reservation, long deadlineNanos) {
         Objects.requireNonNull(reservation, "reservation");
@@ -174,7 +160,7 @@ final class WorkerPoolState<S> {
         requireEffects(effects);
         PoolWorker<S> worker = reservation.attemptedWorker(this);
         synchronized (monitor) {
-            if (removeSlotLocked(worker, effects)) {
+            if (removeSlotLocked(worker)) {
                 changedLocked();
             }
             reservation.completeAttempt();
@@ -199,7 +185,7 @@ final class WorkerPoolState<S> {
             if (failure instanceof Error && worker.startupPurpose() == PoolWorker.StartupPurpose.REPLENISHMENT) {
                 enterClosingLocked(failure, effects);
             }
-            if (removeSlotLocked(worker, effects)) {
+            if (removeSlotLocked(worker)) {
                 metrics.startupFailed();
             }
             changedLocked();
@@ -261,7 +247,7 @@ final class WorkerPoolState<S> {
             }
             metrics.startupFailed();
             if (completion.session() == null) {
-                removeSlotLocked(worker, effects);
+                removeSlotLocked(worker);
             } else {
                 effects.retire(worker);
                 worker.accept(completion.session());
@@ -280,7 +266,7 @@ final class WorkerPoolState<S> {
         requireEffects(effects);
         PoolWorker<S> worker = reservation.reservedWorker(this);
         synchronized (monitor) {
-            if (removeSlotLocked(worker, effects)) {
+            if (removeSlotLocked(worker)) {
                 changedLocked();
             }
             reservation.completeReservation(this);
@@ -371,7 +357,7 @@ final class WorkerPoolState<S> {
         requireEffects(effects);
         synchronized (monitor) {
             partition.requireState(worker, PoolPartition.State.RETIRING);
-            removeSlotLocked(worker, effects);
+            removeSlotLocked(worker);
             Throwable closeFailure = outcome.failure();
             metrics.workerRetired(worker.retireReason(), closeFailure != null);
             FailureReport lateReport = null;
@@ -395,7 +381,7 @@ final class WorkerPoolState<S> {
         synchronized (monitor) {
             enterClosingLocked(failure, effects);
             if (partition.contains(worker) && partition.is(worker, PoolPartition.State.RETIRING)) {
-                removeSlotLocked(worker, effects);
+                removeSlotLocked(worker);
                 metrics.workerRetired(worker.retireReason(), true);
             }
             changedLocked();
@@ -544,7 +530,7 @@ final class WorkerPoolState<S> {
         for (PoolWorker<S> worker : startingWorkers) {
             if (partition.is(worker, PoolPartition.State.STARTING)
                     && worker.startupStage() == PoolWorker.StartupStage.QUEUED) {
-                removeSlotLocked(worker, effects);
+                removeSlotLocked(worker);
             }
         }
         return disposition;
@@ -566,19 +552,13 @@ final class WorkerPoolState<S> {
         worker.retireReason(Objects.requireNonNull(reason, "reason"));
     }
 
-    private boolean removeSlotLocked(PoolWorker<S> worker, PoolStateEffects<S> effects) {
+    private boolean removeSlotLocked(PoolWorker<S> worker) {
         PoolPartition.State state = partition.stateOf(worker);
         if (state == null) {
             return false;
         }
         if (state == PoolPartition.State.IDLE || state == PoolPartition.State.LEASED) {
             throw new IllegalStateException("cannot remove live worker in state " + state);
-        }
-        BoundedTaskPermit permit = worker.workerPermitOrNull();
-        effects.release(permit);
-        BoundedTaskPermit detached = worker.detachWorkerPermit();
-        if (detached != permit) {
-            throw new IllegalStateException("worker permit changed while removing its slot");
         }
         if (state == PoolPartition.State.STARTING) {
             partition.removeStarting(worker);

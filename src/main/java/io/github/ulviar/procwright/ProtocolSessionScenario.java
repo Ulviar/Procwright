@@ -275,21 +275,16 @@ public final class ProtocolSessionScenario {
      * Draft or PoolDraft branches with separate instances. The factory must still return a fresh adapter for every
      * worker.
      *
-     * <p>A pool's configured maximum is a per-pool bound and does not reserve process-wide capacity. Across all line and
-     * protocol pools, at most 256 factory-admitted workers may collectively hold permits while starting, live, or
-     * retiring. A worker permit is acquired before the worker factory is invoked and retained until session close,
-     * terminal observation, and physical output cleanup all complete; a non-cooperative retirement therefore continues
-     * to consume it. Saturated warmup fails with
-     * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED}; saturated demand acquisition fails with
-     * {@link PooledProtocolSessionException.Reason#ACQUIRE_TIMEOUT}. Released capacity has no specified inter-pool
-     * ordering.
+     * <p>A pool's configured maximum accepts values from 1 through 256 and defaults to 1. It counts every starting, idle,
+     * leased, and retiring worker in that pool. Separate pools and directly opened sessions do not share a worker quota;
+     * applications control their aggregate process count through the pools and sessions they create.
      *
      * @param <I> request type
      * @param <O> response type
      */
     public interface PoolDraft<I extends Object, O extends Object> {
         /**
-         * Sets the per-pool maximum capacity without reserving any part of the process-wide worker limit.
+         * Sets the maximum number of occupied worker slots in this pool.
          *
          * @param maxSize per-pool worker limit from 1 through 256
          * @return updated pool draft

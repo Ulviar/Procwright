@@ -153,15 +153,13 @@ Listener должен быстро завершаться; тяжелая обр
 - live worker находится ровно в одном состоянии: starting, idle, leased или retiring;
 - `withMaxSize` сразу отклоняет неположительный `maxSize`; `PoolDraft.open()` до запуска workers отклоняет
   `maxSize > 256`, `warmupSize > maxSize`, `minIdle > maxSize` и `minIdle > 0` без background replenishment;
-- после проверки в terminal `maxSize` ограничивает все live slots одного pool, включая startup/retirement, и не
-  резервирует process-wide capacity;
-- независимые process-wide worker permits допускают суммарно не более 256 factory-admitted workers всех pools; permit
-  захватывается до worker factory и удерживается через startup/live/retirement до полного retirement outcome:
-  завершения `session.close()`, terminal observation и physical output cleanup. Reservation, ожидающая permit, входит
-  только в `maxSize` своего pool;
-- полностью завершившийся retirement outcome, включая outcome с ошибкой, освобождает worker permit, а незавершившийся
-  outcome сохраняет backpressure; порядок получения освободившегося permit разными pools не является контрактом;
-- pool не резервирует отдельный thread или process-wide slot для terminal future во время `open()`;
+- после проверки в terminal `maxSize` ограничивает все slots одного pool: starting, idle, leased и retiring; значение по
+  умолчанию — 1, допустимый диапазон — от 1 до 256;
+- разные pools и direct sessions не делят process-global worker quota; приложение ограничивает суммарное число процессов
+  количеством создаваемых pools/direct sessions и `maxSize` каждого pool;
+- незавершившийся retirement продолжает занимать slot своего pool до полного retirement outcome;
+- startup и hooks имеют bounded admission; retirement processing использует fixed owner set и bounded queue с
+  caller-runs backpressure при насыщении. Эти механизмы не являются пользовательской политикой числа процессов;
 - warmup failure закрывает уже созданных workers;
 - worker становится idle только после readiness;
 - acquire timeout и request timeout различаются;
@@ -173,8 +171,8 @@ Listener должен быстро завершаться; тяжелая обр
 - `close()` bounded синхронно запрещает новые requests, закрывает idle workers и ждет retirement активных после request;
 - `closeAsync()` запускает тот же terminal cleanup и возвращает cancellation-isolated future;
 - `DRAIN_TIMEOUT` не отменяет cleanup; failed worker close дает `WORKER_FAILED` и остается видимым в metrics/outcome;
-- retirement, replenishment и reporting bounded и не запускают fallback thread; terminal outcome выбирается под pool
-  monitor и публикуется после его освобождения;
+- retirement processing использует fixed owner set и bounded queue, а saturation выполняет обязательный step на caller
+  thread без fallback thread; terminal outcome выбирается под pool monitor и публикуется после его освобождения;
 - metrics дают согласованный snapshot counters, durations, live states и retire reasons.
 
 Protocol pool дополнительно гарантирует отдельный adapter на worker. Persistent branches разделяют factory reference,
