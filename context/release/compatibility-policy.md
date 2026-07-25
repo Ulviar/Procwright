@@ -9,8 +9,9 @@
 - Kotlin module компилируется Kotlin 2.3.21 с JVM target, соответствующим `procwright.javaRelease`, и остается optional
   module. Consumer compiler должен читать Kotlin 2.3 metadata; совместимость с более старыми compiler versions не
   заявлена.
-- На Java 21+ runtime Procwright может использовать virtual threads через внутренний runtime boundary. Java 17 variant
-  использует daemon platform-thread fallback; это не меняет public API contract, но может менять performance profile.
+- На Java 24+ runtime Procwright может использовать virtual threads через внутренний runtime boundary. Java 17–23
+  используют daemon platform-thread fallback, чтобы monitor pinning в ранней реализации virtual threads не нарушал
+  bounded concurrency; это не меняет public API contract, но может менять performance profile.
 
 ## Поддержка платформ
 

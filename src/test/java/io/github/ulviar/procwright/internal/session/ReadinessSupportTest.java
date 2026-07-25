@@ -241,5 +241,4 @@ final class ReadinessSupportTest {
             Thread.currentThread().interrupt();
         }
     }
-
 }

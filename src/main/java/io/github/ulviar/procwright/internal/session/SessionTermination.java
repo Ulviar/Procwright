@@ -256,7 +256,7 @@ final class SessionTermination {
         emit(
                 publicationFailures,
                 DiagnosticEventType.PROCESS_FAILED,
-                DiagnosticEmitter.failureAttributes(terminalFailures.getFirst()));
+                DiagnosticEmitter.failureAttributes(terminalFailures.get(0)));
         Throwable publishedFailure =
                 FailureAggregation.combine(publicationFailures, "Session termination or diagnostics failed");
         terminal.completeExceptionally(publishedFailure);

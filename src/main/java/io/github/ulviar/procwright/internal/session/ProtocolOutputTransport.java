@@ -86,14 +86,20 @@ final class ProtocolOutputTransport {
     }
 
     void publishTerminal(ProtocolSessionState.TerminalSnapshot outcome) {
-        switch (outcome) {
-            case ProtocolSessionState.FailureSnapshot failure -> {
-                stdout.failAndClear(failure.reason(), failure.primary());
-                stderr.failAndClear(failure.reason(), failure.primary());
-            }
-            case ProtocolSessionState.FatalSnapshot fatal -> publishFatal(fatal.error());
-            case ProtocolSessionState.ClosedSnapshot ignored -> closeReaders();
+        if (outcome instanceof ProtocolSessionState.FailureSnapshot failure) {
+            stdout.failAndClear(failure.reason(), failure.primary());
+            stderr.failAndClear(failure.reason(), failure.primary());
+            return;
         }
+        if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
+            publishFatal(fatal.error());
+            return;
+        }
+        if (outcome instanceof ProtocolSessionState.ClosedSnapshot) {
+            closeReaders();
+            return;
+        }
+        throw new AssertionError("Unknown protocol terminal outcome: " + outcome);
     }
 
     void failFatal(Error error) {

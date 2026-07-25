@@ -27,8 +27,9 @@ Temurin JDK 21/25 под Linux. Отдельные Linux jobs запускают
 
 Прямые production-ссылки на Java 21 runtime API запрещены. Потоковая модель вынесена во внутренний boundary:
 
-- на Java 21+ runtime Procwright может использовать virtual threads через reflection;
-- на Java 17 runtime используется daemon platform-thread fallback;
+- на Java 24+ runtime Procwright может использовать virtual threads через reflection;
+- на Java 17–23 runtime используется daemon platform-thread fallback, чтобы monitor pinning не уменьшал фактическую
+  bounded capacity;
 - публичный API не обещает конкретную реализацию threading model.
 
 Методы коллекций и тестовый код также должны оставаться source-compatible с Java 17.
@@ -39,12 +40,11 @@ Temurin JDK 21/25 под Linux. Отдельные Linux jobs запускают
 
 - один scenario-first API для всех release variants;
 - нет долгоживущих compatibility branches;
-- Java 21/25 сохраняют дешевую concurrency path, когда runtime ее предоставляет;
+- Java 24+ сохраняет дешевую concurrency path, когда runtime предоставляет virtual threads без monitor pinning;
 - Java 17 variant становится проверяемым артефактом, а не отдельной ручной адаптацией.
 
 Ограничения:
 
-- Java 17 variant может иметь другой performance profile под высокой concurrency, потому что использует platform
-  threads;
+- Java 17–23 могут иметь другой performance profile под высокой concurrency, потому что используют platform threads;
 - published artifacts используют Java 17 target; Java 21/25 остаются проверяемыми, но не публикуемыми source variants;
 - нельзя добавлять production API, требующий Java выше минимального поддерживаемого release, без нового ADR.

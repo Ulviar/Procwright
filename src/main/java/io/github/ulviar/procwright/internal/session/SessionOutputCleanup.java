@@ -62,10 +62,15 @@ final class SessionOutputCleanup {
                 view.completeExceptionally(impossibleFailure);
                 return;
             }
-            switch (outcome.physicalClose()) {
-                case PhysicalClose.Success ignored -> view.complete(null);
-                case PhysicalClose.OutputOwnerFailure failure -> view.completeExceptionally(failure.failure());
-                case PhysicalClose.LifecycleFailure failure -> view.completeExceptionally(failure.failure());
+            PhysicalClose physicalClose = outcome.physicalClose();
+            if (physicalClose instanceof PhysicalClose.Success) {
+                view.complete(null);
+            } else if (physicalClose instanceof PhysicalClose.OutputOwnerFailure failure) {
+                view.completeExceptionally(failure.failure());
+            } else if (physicalClose instanceof PhysicalClose.LifecycleFailure failure) {
+                view.completeExceptionally(failure.failure());
+            } else {
+                view.completeExceptionally(new AssertionError("Unknown physical close outcome: " + physicalClose));
             }
         });
         return view;

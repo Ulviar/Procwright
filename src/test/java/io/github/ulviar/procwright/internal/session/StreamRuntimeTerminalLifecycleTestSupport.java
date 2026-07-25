@@ -76,9 +76,9 @@ abstract class StreamRuntimeTerminalLifecycleTestSupport extends StreamRuntimeTe
             assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
             assertEquals(1, reported.size());
             if (typedFirst) {
-                assertSame(fatalError, reported.getFirst());
+                assertSame(fatalError, reported.get(0));
             } else {
-                StreamException typedFailure = assertInstanceOf(StreamException.class, reported.getFirst());
+                StreamException typedFailure = assertInstanceOf(StreamException.class, reported.get(0));
                 assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, typedFailure.reason());
                 assertSame(readFailure, typedFailure.getCause());
             }

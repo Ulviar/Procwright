@@ -34,11 +34,7 @@ final class ExpectRegexMatcher {
             Attempt attempt;
             try {
                 attempt = BoundedTaskRunner.run(
-                        limiter,
-                        "procwright-expect-regex-",
-                        deadlineNanos,
-                        state.terminalCancellationToken(),
-                        () -> {
+                        limiter, "procwright-expect-regex-", deadlineNanos, state.terminalCancellationToken(), () -> {
                             evaluatorThread.set(Thread.currentThread());
                             ExpectSessionState.RegexSnapshot snapshot = state.regexSnapshot();
                             Evaluation evaluation = evaluator.find(pattern, snapshot.output(), snapshot.searchStart());

@@ -309,29 +309,32 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         while (true) {
             WorkerPoolState.AcquireResult<S> acquisition;
             acquisition = applyEffects(newEffects(), effects -> state.awaitAcquire(deadlineNanos, effects));
-            switch (acquisition) {
-                case WorkerPoolState.LeaseAcquired<S> acquired -> {
-                    return acquired.lease();
-                }
-                case WorkerPoolState.RetryAcquire<S> ignored -> {
-                    continue;
-                }
-                case WorkerPoolState.AcquireClosed<S> ignored -> throw failures.closed("Pool is closed");
-                case WorkerPoolState.AcquireTimedOut<S> ignored ->
-                    throw failures.acquireTimeout("Timed out waiting for " + workerLabel);
-                case WorkerPoolState.AcquireInterrupted<S> interrupted ->
-                    throw failures.acquireInterrupted(
-                            "Interrupted while waiting for " + workerLabel, interrupted.interruption());
-                case WorkerPoolState.StartupReserved<S> reserved -> {
-                    WorkerStartupCoordinator.Reservation<S> reservation = reserved.reservation();
-                    try {
-                        return openReservedWorker(reservation, deadlineNanos, PoolWorker.StartupPurpose.DEMAND);
-                    } catch (RuntimeException | Error failure) {
-                        rethrow(failStartupReservation(reservation, failure));
-                        throw new AssertionError("unreachable");
-                    }
+            if (acquisition instanceof WorkerPoolState.LeaseAcquired<S> acquired) {
+                return acquired.lease();
+            }
+            if (acquisition instanceof WorkerPoolState.RetryAcquire<S>) {
+                continue;
+            }
+            if (acquisition instanceof WorkerPoolState.AcquireClosed<S>) {
+                throw failures.closed("Pool is closed");
+            }
+            if (acquisition instanceof WorkerPoolState.AcquireTimedOut<S>) {
+                throw failures.acquireTimeout("Timed out waiting for " + workerLabel);
+            }
+            if (acquisition instanceof WorkerPoolState.AcquireInterrupted<S> interrupted) {
+                throw failures.acquireInterrupted(
+                        "Interrupted while waiting for " + workerLabel, interrupted.interruption());
+            }
+            if (acquisition instanceof WorkerPoolState.StartupReserved<S> reserved) {
+                WorkerStartupCoordinator.Reservation<S> reservation = reserved.reservation();
+                try {
+                    return openReservedWorker(reservation, deadlineNanos, PoolWorker.StartupPurpose.DEMAND);
+                } catch (RuntimeException | Error failure) {
+                    rethrow(failStartupReservation(reservation, failure));
+                    throw new AssertionError("unreachable");
                 }
             }
+            throw new AssertionError("Unknown pool acquisition result: " + acquisition);
         }
     }
 

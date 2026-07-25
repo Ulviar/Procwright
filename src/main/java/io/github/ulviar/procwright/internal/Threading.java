@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class Threading {
 
+    private static final int UNPINNED_VIRTUAL_THREADS_JAVA = 24;
     private static final Method THREAD_OF_VIRTUAL = method(Thread.class, "ofVirtual");
     private static final Method EXECUTORS_NEW_THREAD_PER_TASK_EXECUTOR =
             method(Executors.class, "newThreadPerTaskExecutor", ThreadFactory.class);
@@ -81,7 +82,8 @@ public final class Threading {
     }
 
     private static boolean virtualThreadingAvailable() {
-        return THREAD_OF_VIRTUAL != null
+        return Runtime.version().feature() >= UNPINNED_VIRTUAL_THREADS_JAVA
+                && THREAD_OF_VIRTUAL != null
                 && EXECUTORS_NEW_THREAD_PER_TASK_EXECUTOR != null
                 && THREAD_BUILDER_NAME != null
                 && THREAD_BUILDER_INHERIT_INHERITABLE_THREAD_LOCALS != null

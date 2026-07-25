@@ -16,7 +16,7 @@ import java.util.stream.Stream;
 class ProcessLifecycleSharedSupport {
     static List<Throwable> failureSources(Throwable failure) {
         List<Throwable> aggregateSources = FailureAggregation.sources(failure);
-        if (aggregateSources.size() != 1 || aggregateSources.getFirst() != failure) {
+        if (aggregateSources.size() != 1 || aggregateSources.get(0) != failure) {
             return aggregateSources;
         }
         if (failure instanceof io.github.ulviar.procwright.command.CommandExecutionException

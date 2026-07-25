@@ -76,8 +76,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
             releaseDecoder.countDown();
             assertTrue(eventually(() -> BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
             LineSessionException persisted = assertThrows(
-                    LineSessionException.class,
-                    () -> lineSession.request("after-timeout", Duration.ofSeconds(1)));
+                    LineSessionException.class, () -> lineSession.request("after-timeout", Duration.ofSeconds(1)));
             assertEquals(LineSessionException.Reason.TIMEOUT, persisted.reason());
         } finally {
             releaseDecoder.countDown();

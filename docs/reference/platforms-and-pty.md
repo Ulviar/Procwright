@@ -1,7 +1,7 @@
 # Platforms and terminal support
 
-Published artifacts target Java 17 and run on Java 17 or newer. Java 21 and newer may use virtual threads internally;
-Java 17 uses daemon platform threads. This does not change public API behavior, but concurrency performance can differ.
+Published artifacts target Java 17 and run on Java 17 or newer. Internal threading may differ by runtime version without
+changing public API behavior.
 
 Ordinary direct-process scenarios use the JDK process API on macOS, Linux, and Windows. Shell commands remain platform
 specific.

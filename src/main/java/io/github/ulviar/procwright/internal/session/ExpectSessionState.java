@@ -38,8 +38,7 @@ final class ExpectSessionState {
     private Terminal terminal;
     private Throwable outputFailure;
 
-    ExpectSessionState(
-            int transcriptLimit, int matchBufferLimit, BiConsumer<Thread, Error> lateFatalFailureReporter) {
+    ExpectSessionState(int transcriptLimit, int matchBufferLimit, BiConsumer<Thread, Error> lateFatalFailureReporter) {
         this(
                 new BoundedTranscriptBuffer(transcriptLimit),
                 new BoundedMatchBuffer(matchBufferLimit),

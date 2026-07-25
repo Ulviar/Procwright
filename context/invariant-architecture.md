@@ -185,8 +185,9 @@ scenario flags.
 - stream listeners, readiness probes и worker hooks имеют независимые process-wide capacity partitions; зависший
   callback удерживает разрешение только своей категории до фактического возврата;
 - readiness, worker hooks, protocol callbacks, custom charset encoding, blocking stdin writes и regex evaluation
-  используют task-scoped adaptive owner: Java 21+ дает каждому invocation non-inheriting virtual thread, Java 17 —
-  fresh non-inheriting daemon platform thread; callback thread не переходит другому invocation;
+  используют task-scoped adaptive owner: Java 24+ дает каждому invocation non-inheriting virtual thread, Java 17–23 —
+  fresh non-inheriting daemon platform thread; callback thread не переходит другому invocation, а раннее monitor pinning
+  virtual threads не уменьшает фактическую bounded capacity;
 - stream listener использует lazy session-affine daemon owner: chunks одной session не создают новые потоки, owner не
   переходит другой session и закрывается после pump completion либо начала остановки; аварийный выход owner либо
   запускает replacement для уже принятой доставки, либо завершает admission ошибкой с точным возвратом разрешения;

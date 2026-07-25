@@ -128,31 +128,37 @@ final class LineResponseDecoder {
                 }
 
                 LineOutputTransport.Event event = output.take(deadlineNanos, request);
-                switch (event) {
-                    case LineOutputTransport.LineEvent line -> {
-                        linesRead++;
-                        if (linesRead > options.maxResponseLines()) {
-                            throw track(() -> state.failure(
-                                    LineSessionException.Reason.RESPONSE_TOO_LARGE,
-                                    "Line response exceeds maxResponseLines",
-                                    null));
-                        }
-                        int lineLength = line.value().length();
-                        if (lineLength > options.maxResponseChars() - charactersRead) {
-                            throw track(() -> state.failure(
-                                    LineSessionException.Reason.RESPONSE_TOO_LARGE,
-                                    "Line response exceeds maxResponseChars",
-                                    null));
-                        }
-                        charactersRead += lineLength;
-                        return line.value();
+                if (event instanceof LineOutputTransport.LineEvent line) {
+                    linesRead++;
+                    if (linesRead > options.maxResponseLines()) {
+                        throw track(() -> state.failure(
+                                LineSessionException.Reason.RESPONSE_TOO_LARGE,
+                                "Line response exceeds maxResponseLines",
+                                null));
                     }
-                    case LineOutputTransport.EofEvent ignored -> throw track(state::eof);
-                    case LineOutputTransport.ClosedEvent ignored -> throw track(() -> state.closed(null));
-                    case LineOutputTransport.FailureEvent failure ->
-                        throw track(() -> state.failure(failure.reason(), failure.message(), failure.failure()));
-                    case LineOutputTransport.FatalEvent fatal -> throw fatal.error();
+                    int lineLength = line.value().length();
+                    if (lineLength > options.maxResponseChars() - charactersRead) {
+                        throw track(() -> state.failure(
+                                LineSessionException.Reason.RESPONSE_TOO_LARGE,
+                                "Line response exceeds maxResponseChars",
+                                null));
+                    }
+                    charactersRead += lineLength;
+                    return line.value();
                 }
+                if (event instanceof LineOutputTransport.EofEvent) {
+                    throw track(state::eof);
+                }
+                if (event instanceof LineOutputTransport.ClosedEvent) {
+                    throw track(() -> state.closed(null));
+                }
+                if (event instanceof LineOutputTransport.FailureEvent failure) {
+                    throw track(() -> state.failure(failure.reason(), failure.message(), failure.failure()));
+                }
+                if (event instanceof LineOutputTransport.FatalEvent fatal) {
+                    throw fatal.error();
+                }
+                throw new AssertionError("Unknown line output event: " + event);
             }
         }
 

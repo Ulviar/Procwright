@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -437,7 +438,7 @@ final class PooledWorkerPhysicalCleanupTest {
 
             assertSame(cleanupFailure, FailureAggregation.primary(observed));
             List<Throwable> sources = FailureAggregation.sources(observed);
-            PooledLineSessionException startup = (PooledLineSessionException) sources.getFirst();
+            PooledLineSessionException startup = assertInstanceOf(PooledLineSessionException.class, sources.get(0));
             assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, startup.reason());
             assertSame(startupFailure, startup.getCause());
             assertSame(cleanupFailure, sources.get(1));
@@ -481,7 +482,8 @@ final class PooledWorkerPhysicalCleanupTest {
 
             assertSame(cleanupFailure, FailureAggregation.primary(observed));
             List<Throwable> sources = FailureAggregation.sources(observed);
-            PooledProtocolSessionException startup = (PooledProtocolSessionException) sources.getFirst();
+            PooledProtocolSessionException startup =
+                    assertInstanceOf(PooledProtocolSessionException.class, sources.get(0));
             assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, startup.reason());
             assertSame(startupFailure, startup.getCause());
             assertSame(cleanupFailure, sources.get(1));
@@ -530,7 +532,7 @@ final class PooledWorkerPhysicalCleanupTest {
             PooledLineSessionException primary = (PooledLineSessionException) FailureAggregation.primary(aggregate);
             List<Throwable> sources = FailureAggregation.sources(aggregate);
             assertSame(startupFailure, primary.getCause());
-            assertSame(primary, sources.getFirst());
+            assertSame(primary, sources.get(0));
             assertEquals(2, sources.size());
             PooledLineSessionException cleanup = (PooledLineSessionException) sources.get(1);
             assertEquals(PooledLineSessionException.Reason.WORKER_FAILED, cleanup.reason());
@@ -591,7 +593,7 @@ final class PooledWorkerPhysicalCleanupTest {
                     (PooledProtocolSessionException) FailureAggregation.primary(aggregate);
             assertSame(startupFailure, primary.getCause());
             List<Throwable> sources = FailureAggregation.sources(aggregate);
-            assertSame(primary, sources.getFirst());
+            assertSame(primary, sources.get(0));
             assertEquals(2, sources.size());
             PooledProtocolSessionException cleanup = (PooledProtocolSessionException) sources.get(1);
             assertEquals(PooledProtocolSessionException.Reason.WORKER_FAILED, cleanup.reason());

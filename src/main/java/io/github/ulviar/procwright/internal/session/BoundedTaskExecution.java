@@ -104,10 +104,7 @@ final class BoundedTaskExecution {
         request.taskStarter().start(request.threadPrefix(), boundedTask, taskRejection);
     }
 
-    private static <T> T awaitOutcome(
-            Request<T> request,
-            CompletableFuture<TaskOutcome<T>> race,
-            ActiveTask activeTask)
+    private static <T> T awaitOutcome(Request<T> request, CompletableFuture<TaskOutcome<T>> race, ActiveTask activeTask)
             throws TimeoutException, InterruptedException, ExecutionException,
                     BoundedTaskRunner.TaskCancelledException {
         try {
@@ -132,9 +129,7 @@ final class BoundedTaskExecution {
     }
 
     private static void abandon(
-            BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
-            ActiveTask activeTask,
-            Throwable failure) {
+            BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler, ActiveTask activeTask, Throwable failure) {
         try {
             abandonmentHandler.beforeInterrupt(failure);
         } finally {

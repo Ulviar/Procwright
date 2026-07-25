@@ -15,9 +15,10 @@ import java.util.function.LongSupplier;
  *
  * <p>Java cannot forcibly terminate arbitrary callback code. A timed-out task therefore retains its permit until the
  * task actually returns. This lets the caller observe its deadline while putting a hard upper bound on abandoned
- * library-managed tasks. Each default invocation uses a non-inheriting virtual thread where available and a fresh
- * non-inheriting daemon platform thread on Java 17. A caller may supply a narrower lifecycle owner only when callback
- * ownership itself provides the isolation boundary.
+ * library-managed tasks. Each default invocation uses a non-inheriting virtual thread on Java 24 or newer, where
+ * monitor pinning no longer constrains bounded concurrency, and a fresh non-inheriting daemon platform thread on older
+ * runtimes. A caller may supply a narrower lifecycle owner only when callback ownership itself provides the isolation
+ * boundary.
  */
 public final class BoundedTaskRunner {
 

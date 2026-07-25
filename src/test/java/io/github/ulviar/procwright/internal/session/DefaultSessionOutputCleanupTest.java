@@ -931,7 +931,7 @@ final class DefaultSessionOutputCleanupTest {
 
         private Throwable onlyFailure() {
             assertEquals(1, failures.size());
-            return failures.getFirst();
+            return failures.get(0);
         }
 
         private boolean awaitWorkers() throws InterruptedException {

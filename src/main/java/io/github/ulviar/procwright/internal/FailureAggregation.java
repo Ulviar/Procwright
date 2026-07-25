@@ -31,7 +31,7 @@ public final class FailureAggregation {
         if (failures.isEmpty()) {
             return null;
         }
-        Throwable first = Objects.requireNonNull(failures.getFirst(), "failure");
+        Throwable first = Objects.requireNonNull(failures.get(0), "failure");
         boolean oneIdentity = true;
         for (Throwable failure : failures) {
             if (Objects.requireNonNull(failure, "failure") != first) {

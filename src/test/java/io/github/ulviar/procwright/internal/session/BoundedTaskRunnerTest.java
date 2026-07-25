@@ -69,11 +69,14 @@ final class BoundedTaskRunnerTest {
                             assertNull(contamination.get(), "callback ThreadLocal state crossed invocation ownership");
                             assertNull(inherited.get(), "callback inherited caller ThreadLocal state");
                             assertTrue(Thread.currentThread().isDaemon());
-                            assertTrue(Thread.currentThread()
-                                    .getName()
-                                    .startsWith("procwright-adaptive-callback-test-"));
-                            if (virtualThreadsAvailable()) {
-                                assertTrue(isVirtual(Thread.currentThread()), "Java 21+ should use a virtual owner");
+                            assertTrue(
+                                    Thread.currentThread().getName().startsWith("procwright-adaptive-callback-test-"));
+                            if (unpinnedVirtualThreadsAvailable()) {
+                                assertTrue(isVirtual(Thread.currentThread()), "Java 24+ should use a virtual owner");
+                            } else {
+                                assertFalse(
+                                        isVirtual(Thread.currentThread()),
+                                        "runtimes with monitor pinning should use a platform owner");
                             }
                             contamination.set("must-die-with-thread");
                             return Thread.currentThread();
@@ -502,7 +505,10 @@ final class BoundedTaskRunnerTest {
         return System.nanoTime() + duration.toNanos();
     }
 
-    private static boolean virtualThreadsAvailable() {
+    private static boolean unpinnedVirtualThreadsAvailable() {
+        if (Runtime.version().feature() < 24) {
+            return false;
+        }
         try {
             Thread.class.getMethod("ofVirtual");
             return true;
@@ -514,6 +520,8 @@ final class BoundedTaskRunnerTest {
     private static boolean isVirtual(Thread thread) {
         try {
             return (boolean) Thread.class.getMethod("isVirtual").invoke(thread);
+        } catch (NoSuchMethodException unavailable) {
+            return false;
         } catch (ReflectiveOperationException failure) {
             throw new AssertionError("Could not inspect callback thread kind", failure);
         }

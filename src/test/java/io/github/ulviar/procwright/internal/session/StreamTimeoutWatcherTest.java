@@ -65,10 +65,13 @@ final class StreamTimeoutWatcherTest {
         Thread stopper = null;
         try {
             assertTrue(expirationStarted.await(1, TimeUnit.SECONDS));
-            stopper = Thread.ofPlatform().start(() -> {
-                watcher.stopAndAwait();
-                stopReturned.countDown();
-            });
+            stopper = new Thread(
+                    () -> {
+                        watcher.stopAndAwait();
+                        stopReturned.countDown();
+                    },
+                    "stream-timeout-watcher-test-stopper");
+            stopper.start();
 
             assertFalse(stopReturned.await(100, TimeUnit.MILLISECONDS));
             releaseExpiration.countDown();

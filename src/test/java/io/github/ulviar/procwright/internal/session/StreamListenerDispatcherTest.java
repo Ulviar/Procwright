@@ -68,13 +68,17 @@ final class StreamListenerDispatcherTest {
 
     private static Thread deliver(
             StreamListenerDispatcher dispatcher, StreamChunk chunk, AtomicReference<Throwable> failure) {
-        return Thread.ofPlatform().start(() -> {
-            try {
-                dispatcher.deliver(chunk, () -> true);
-            } catch (Throwable deliveryFailure) {
-                failure.compareAndSet(null, deliveryFailure);
-            }
-        });
+        Thread thread = new Thread(
+                () -> {
+                    try {
+                        dispatcher.deliver(chunk, () -> true);
+                    } catch (Throwable deliveryFailure) {
+                        failure.compareAndSet(null, deliveryFailure);
+                    }
+                },
+                "stream-listener-dispatcher-test-delivery");
+        thread.start();
+        return thread;
     }
 
     private static void join(Thread thread) throws InterruptedException {

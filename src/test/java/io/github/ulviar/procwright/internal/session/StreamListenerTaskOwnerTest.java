@@ -218,12 +218,7 @@ final class StreamListenerTaskOwnerTest {
             assertTrue(firstIdleWait.await(1, TimeUnit.SECONDS));
 
             Future<?> running = caller.submit(() -> BoundedTaskRunner.runWithStarter(
-                    limiter,
-                    "procwright-stream-affinity-test-",
-                    Long.MAX_VALUE,
-                    cancellation,
-                    owner,
-                    () -> null));
+                    limiter, "procwright-stream-affinity-test-", Long.MAX_VALUE, cancellation, owner, () -> null));
             assertTrue(replacementAttempted.await(1, TimeUnit.SECONDS));
 
             cancellation.cancel();
@@ -353,12 +348,7 @@ final class StreamListenerTaskOwnerTest {
         ExecutorService caller = Executors.newSingleThreadExecutor();
         try {
             Future<?> running = caller.submit(() -> BoundedTaskRunner.runWithStarter(
-                    limiter,
-                    "procwright-stream-affinity-test-",
-                    Long.MAX_VALUE,
-                    cancellation,
-                    owner,
-                    () -> {
+                    limiter, "procwright-stream-affinity-test-", Long.MAX_VALUE, cancellation, owner, () -> {
                         started.countDown();
                         awaitIgnoringInterrupts(release);
                         return null;

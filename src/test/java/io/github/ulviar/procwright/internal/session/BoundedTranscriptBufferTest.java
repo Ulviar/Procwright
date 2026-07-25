@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -57,7 +58,8 @@ final class BoundedTranscriptBufferTest {
     void concurrentAppendsReportExactlyOneFirstTruncation() throws Exception {
         BoundedTranscriptBuffer buffer = new BoundedTranscriptBuffer(1);
         CountDownLatch start = new CountDownLatch(1);
-        try (var executor = Executors.newFixedThreadPool(2)) {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
             Future<Boolean> stdout = executor.submit(() -> {
                 start.await();
                 return buffer.appendStream("stdout", "x");
@@ -72,6 +74,9 @@ final class BoundedTranscriptBufferTest {
             int firstTransitions =
                     (stdout.get(1, TimeUnit.SECONDS) ? 1 : 0) + (stderr.get(1, TimeUnit.SECONDS) ? 1 : 0);
             assertEquals(1, firstTransitions);
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
     }
 }

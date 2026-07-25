@@ -313,11 +313,13 @@ final class LineOutputTransport {
     }
 
     private static Event eventFor(LineSessionState.TerminalSnapshot terminal) {
-        return switch (terminal) {
-            case LineSessionState.FailureSnapshot failure ->
-                new FailureEvent(failure.reason(), failure.message(), failure.primary());
-            case LineSessionState.FatalSnapshot fatal -> new FatalEvent(fatal.error());
-        };
+        if (terminal instanceof LineSessionState.FailureSnapshot failure) {
+            return new FailureEvent(failure.reason(), failure.message(), failure.primary());
+        }
+        if (terminal instanceof LineSessionState.FatalSnapshot fatal) {
+            return new FatalEvent(fatal.error());
+        }
+        throw new AssertionError("Unknown line terminal outcome: " + terminal);
     }
 
     static String failureMessage(String streamName, LineSessionException.Reason reason) {
