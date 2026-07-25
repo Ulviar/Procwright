@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -21,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProtocolSessionStateTest {
@@ -45,7 +47,9 @@ final class ProtocolSessionStateTest {
 
     @Test
     void terminalFailureIncludesProcessExitObservedAfterFailureSelection() {
-        ProtocolSessionState state = state();
+        AtomicReference<OptionalInt> exitCode = new AtomicReference<>(OptionalInt.empty());
+        ProtocolSessionState state =
+                new ProtocolSessionState(() -> new ProtocolTranscript("diagnostic", false, false), exitCode::get);
         state.recordTerminalFailure(
                 ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW,
                 "overflow",
@@ -54,10 +58,37 @@ final class ProtocolSessionStateTest {
         ProtocolSessionException beforeExit = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertTrue(beforeExit.exitCode().isEmpty());
 
-        state.recordProcessExit(OptionalInt.of(17));
+        exitCode.set(OptionalInt.of(17));
 
         ProtocolSessionException afterExit = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertEquals(17, afterExit.exitCode().orElseThrow());
+    }
+
+    @Test
+    void exitCodeSupplierIsNeverCalledUnderStateMonitor() {
+        AtomicReference<ProtocolSessionState> owner = new AtomicReference<>();
+        AtomicInteger snapshots = new AtomicInteger();
+        ProtocolSessionState state =
+                new ProtocolSessionState(() -> new ProtocolTranscript("diagnostic", false, false), () -> {
+                    assertFalse(Thread.holdsLock(owner.get()), "exit code supplier ran under the state monitor");
+                    snapshots.incrementAndGet();
+                    return OptionalInt.empty();
+                });
+        owner.set(state);
+        ProtocolSessionState.RequestOutcome request = state.beginRequest();
+
+        state.recordTerminalFailure(
+                ProtocolSessionException.Reason.FAILURE, "failure", new IllegalStateException("failure"));
+        assertThrows(ProtocolSessionException.class, () -> state.completeRequest(request));
+        assertThrows(ProtocolSessionException.class, state::ensureOpen);
+        request.close();
+
+        ProtocolSessionState.RequestOutcome followUp = state.beginRequest();
+        ProtocolSessionException selected = state.recordRequestFailure(followUp, () -> state.closed(null));
+        assertEquals(ProtocolSessionException.Reason.FAILURE, selected.reason());
+        followUp.close();
+
+        assertEquals(2, snapshots.get());
     }
 
     @Test

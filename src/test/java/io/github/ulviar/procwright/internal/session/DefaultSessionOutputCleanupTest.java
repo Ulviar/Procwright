@@ -208,7 +208,7 @@ final class DefaultSessionOutputCleanupTest {
             assertTrue(stdout.closeEntered.await(1, TimeUnit.SECONDS));
 
             process.complete(0);
-            assertTrue(eventually(session::exitCompleted));
+            assertTrue(eventually(session::terminationPublished));
             assertFalse(session.onExit().isDone());
 
             stdout.releaseClose.countDown();

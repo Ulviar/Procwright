@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
@@ -19,6 +18,7 @@ import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 
 /**
@@ -43,8 +43,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     private final ProtocolCallbackRunner callbackRunner;
     private final SerializedRequestGate requestGate;
     private final ProtocolSessionState state;
-    private final BoundedLifecyclePublisher.Permit exitPublication;
-    private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private final BoundedTaskRunner.CancellationSignal callbackCancellation =
             new BoundedTaskRunner.CancellationSignal();
 
@@ -120,16 +118,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                         DefaultProtocolSession.this.closeQuietly(failure);
                     }
                 });
-        BoundedLifecyclePublisher.Reservation publicationReservation =
-                BoundedLifecyclePublisher.shared().reserve(1);
-        this.exitPublication = publicationReservation.takePermit();
-        try {
-            output.start(runtime.pumpStarter());
-            observeExitAfterOutputCleanup();
-        } catch (RuntimeException | Error failure) {
-            exitPublication.release();
-            throw failure;
-        }
+        output.start(runtime.pumpStarter());
     }
 
     @Override
@@ -207,27 +196,15 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
 
     @Override
     public CompletableFuture<SessionExit> onExit() {
-        return exit.copy();
+        return session.onExit();
     }
 
-    boolean exitCompleted() {
-        return exit.isDone();
+    boolean publicExitCompleted() {
+        return session.publicExitCompleted();
     }
 
     CompletableFuture<Void> physicalOutputCleanup() {
         return session.physicalOutputCleanup();
-    }
-
-    private void observeExitAfterOutputCleanup() {
-        session.observeExit((result, failure) -> outputPumps.publishAfterOutputCleanup(
-                () -> session.afterPhysicalOutputCleanup(() -> exitPublication.publish(() -> {
-                    state.recordProcessExit(result == null ? exitCodeSnapshot() : result.exitCode());
-                    if (failure == null) {
-                        exit.complete(result);
-                    } else {
-                        exit.completeExceptionally(failure);
-                    }
-                }))));
     }
 
     @Override
@@ -296,32 +273,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             throw state.recordRequestInterruption(
                     requestOutcome, "Interrupted while writing protocol request", exception);
         } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            ProtocolSessionState.TerminalSnapshot outcome = state.terminal();
-            if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
-                if (fatal.error() != cause) {
-                    outputPumps.retainFailure(cause);
-                }
-                throw fatal.error();
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            requestOutcome.throwIfFailed();
-            if (cause instanceof ProtocolSessionException protocolException) {
-                throw protocolException;
-            }
-            if (cause instanceof IOException ioException) {
-                throw state.failure(
-                        ProtocolSessionException.Reason.BROKEN_PIPE, "Could not write protocol request", ioException);
-            }
-            if (cause instanceof ProcessExitedException processExited) {
-                throw state.failure(
-                        ProtocolSessionException.Reason.PROCESS_EXITED,
-                        "Protocol process exited before the request could be written",
-                        processExited);
-            }
-            throw state.failure(ProtocolSessionException.Reason.FAILURE, "Could not write protocol request", cause);
+            throw selectCallbackFailure(requestOutcome, exception.getCause(), this::writeCallbackFailure);
         } finally {
             capabilityScope.invalidate();
         }
@@ -361,26 +313,51 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             throw state.recordRequestInterruption(
                     requestOutcome, "Interrupted while decoding protocol response", exception);
         } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            ProtocolSessionState.TerminalSnapshot outcome = state.terminal();
-            if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
-                if (fatal.error() != cause) {
-                    outputPumps.retainFailure(cause);
-                }
-                throw fatal.error();
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            requestOutcome.throwIfFailed();
-            if (cause instanceof ProtocolSessionException protocolException) {
-                throw protocolException;
-            }
-            throw state.failure(
-                    ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, "Protocol response decoder failed", cause);
+            throw selectCallbackFailure(
+                    requestOutcome,
+                    exception.getCause(),
+                    cause -> state.failure(
+                            ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED,
+                            "Protocol response decoder failed",
+                            cause));
         } finally {
             capabilityScope.invalidate();
         }
+    }
+
+    private ProtocolSessionException selectCallbackFailure(
+            ProtocolSessionState.RequestOutcome requestOutcome,
+            Throwable cause,
+            Function<Throwable, ProtocolSessionException> fallback) {
+        ProtocolSessionState.TerminalSnapshot outcome = state.terminal();
+        if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
+            if (fatal.error() != cause) {
+                outputPumps.retainFailure(cause);
+            }
+            throw fatal.error();
+        }
+        if (cause instanceof Error error) {
+            throw error;
+        }
+        requestOutcome.throwIfFailed();
+        if (cause instanceof ProtocolSessionException protocolException) {
+            return protocolException;
+        }
+        return fallback.apply(cause);
+    }
+
+    private ProtocolSessionException writeCallbackFailure(Throwable cause) {
+        if (cause instanceof IOException ioException) {
+            return state.failure(
+                    ProtocolSessionException.Reason.BROKEN_PIPE, "Could not write protocol request", ioException);
+        }
+        if (cause instanceof ProcessExitedException processExited) {
+            return state.failure(
+                    ProtocolSessionException.Reason.PROCESS_EXITED,
+                    "Protocol process exited before the request could be written",
+                    processExited);
+        }
+        return state.failure(ProtocolSessionException.Reason.FAILURE, "Could not write protocol request", cause);
     }
 
     private ProtocolSessionException recordCallbackCancellation(

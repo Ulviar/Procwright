@@ -172,7 +172,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
     }
 
     private WorkerPoolController.HealthOutcome isHealthy(DefaultLineSession session, long acquireDeadlineNanos) {
-        if (session.exitCompleted()) {
+        if (session.publicExitCompleted()) {
             return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
         }
         Duration timeout = WorkerHookSupport.boundedTimeout(options.hookTimeout(), acquireDeadlineNanos);
@@ -193,7 +193,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                         PooledLineSessionException.Reason.WORKER_FAILED,
                         "Pooled line-session health check failed",
                         exception));
-        if (session.exitCompleted()) {
+        if (session.publicExitCompleted()) {
             return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
         }
         return accepted ? WorkerPoolController.HealthOutcome.HEALTHY : WorkerPoolController.HealthOutcome.HEALTH_FAILED;

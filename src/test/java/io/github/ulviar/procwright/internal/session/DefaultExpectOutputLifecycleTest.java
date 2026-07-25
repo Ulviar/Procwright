@@ -143,7 +143,7 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
 
             assertTrue(process.awaitDestroyed(), "process cleanup must precede helper output closure");
             close.get(1, TimeUnit.SECONDS);
-            assertTrue(rawSession.exitCompleted());
+            assertTrue(rawSession.terminationPublished());
             assertFalse(rawSession.onExit().isDone());
             assertTrue(stdout.awaitCloseStarted());
             assertTrue(stderr.awaitCloseStarted());

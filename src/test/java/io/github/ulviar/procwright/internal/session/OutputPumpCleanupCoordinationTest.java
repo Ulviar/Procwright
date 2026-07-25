@@ -316,7 +316,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
             coordinator.closeSession();
             assertTrue(stdout.awaitCloseStarted());
             assertTrue(stderr.awaitCloseStarted());
-            assertTrue(rawSession.exitCompleted());
+            assertTrue(rawSession.terminationPublished());
             assertFalse(rawSession.onExit().isDone());
 
             coordinator.closeSessionPreserving(latePrimary);
@@ -411,7 +411,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
             coordinator.closeSession();
 
             assertTrue(process.awaitDestroyed(), "process cleanup must precede output close");
-            assertTrue(rawSession.exitCompleted());
+            assertTrue(rawSession.terminationPublished());
             assertFalse(rawSession.onExit().isDone());
             assertTrue(stdout.awaitCloseStarted(), "stdout must own the only active close permit");
             assertEquals(0, stderr.closeCalls(), "stderr must remain queued while stdout physical close blocks");

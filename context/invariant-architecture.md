@@ -78,8 +78,8 @@ Runtime получает только согласованный plan и не у
 - декодирование завершенных one-shot captures и success/typed decode-failure `CommandResult` snapshot —
   `OneShotResultAssembler`;
 - session construction transaction — `SessionConstruction`;
-- session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, public cleanup
-  barrier — `SessionExitBarrier`;
+- session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, единый public
+  cleanup barrier raw/line/protocol handles — `SessionExitBarrier`;
 - pipe process launch — `ProcessLauncher`; ordinary и provider-bounded liveness — `ProcessLiveness`;
 - ожидание natural exit — `ProcessExitWaiter`, накопление наблюдавшихся живых descendants —
   `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessTreeShutdown`, bounded tree state —

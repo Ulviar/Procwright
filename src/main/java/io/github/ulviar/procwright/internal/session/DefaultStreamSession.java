@@ -129,7 +129,7 @@ public final class DefaultStreamSession implements StreamSession {
     public void close() {
         if (selectControlOutcome(StreamSessionState.Control.CLOSED)) {
             Throwable failure = null;
-            if (!session.exitCompleted()) {
+            if (!session.terminationPublished()) {
                 failure = emitCollecting(
                         DiagnosticEventType.SHUTDOWN_REQUESTED,
                         DiagnosticEmitter.attributes("reason", "close"),

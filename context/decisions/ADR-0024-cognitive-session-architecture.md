@@ -46,7 +46,9 @@ owner вынуждает при локальном изменении держа
   только lifecycle-owned physical failure; helper-owned failure остается у helper-а;
 - `SessionExitBarrier` получает immutable source-failure snapshot из `SessionTermination` и один раз объединяет process
   и raw-output failures без изменения исходных `Throwable`; lone physical failure успешного raw process уходит в
-  bounded reporter, а helper-owned failure остается у helper-а. Отдельный late-failure arbiter не нужен.
+  bounded reporter, а helper-owned failure остается у helper-а. Line/protocol `onExit()` используют этот же barrier:
+  зарегистрированный output helper уже не позволяет ему завершиться до pump и physical cleanup, поэтому второй future
+  и второй publication permit не нужны. Отдельный late-failure arbiter также не нужен.
 - `ProcessIoAcquisition` транзакционно приобретает стабильные ссылки на process streams и permits; при отказе сначала
   выполняет все обязательные rollback-операции, и только затем дополняет primary failure;
 - `ProcessStreamResource` владеет exact-once close одного stream, его permits и локальным close failure; общий для трех
@@ -66,9 +68,10 @@ owner вынуждает при локальном изменении держа
   transcript, асимметричными stdout/stderr queues и созданием request-scoped readers, а `ProtocolSessionState`
   сериализует active request, close, EOF, terminal/fatal arbitration и canonical request failures. Request scope,
   failure/fatal/closed snapshots и close claim представлены отдельными sealed/typed variants без nullable payload.
-  Terminal snapshot удерживает готовый transcript и доступный при выборе failure exit code. Более позднее наблюдение
-  process exit обогащает только exit metadata до публикации `onExit`; state monitor при этом не вызывает transcript
-  или process supplier и не входит в monitor decoder-а.
+  Terminal snapshot удерживает готовый transcript и доступный при выборе failure exit code. При последующем обращении
+  уже после освобождения state monitor exception может получить более свежий exit-code snapshot непосредственно у
+  `SessionProcessCleanup`; переходы под monitor используют только ранее захваченный snapshot и не вызывают transcript
+  или process supplier.
 - `DefaultExpect` остается пользовательским facade: `ExpectSessionState` сериализует output buffer, match cursor,
   transcript и first-terminal-wins, `ExpectOutputTransport` владеет pumps, decoding и physical cleanup, а
   `ExpectRegexMatcher` изолирует bounded regex execution от session state.
@@ -120,7 +123,8 @@ terminal outcome. Они не изменяют выбранную request failur
 - accepted provider operation выполняется на отдельном non-inheriting daemon owner-е и удерживает один из 32 permits до
   фактического возврата; abandoned operation не освобождает permit преждевременно;
 - provider owners не переиспользуются и не требуют неполной санации `ThreadLocal` или mutable thread state;
-- helper terminal publication композируется с physical-output settlement callback и не использует polling;
+- line/protocol helper не создают второй terminal publication: общий `SessionExitBarrier` ожидает их output-cleanup
+  registration и physical-output settlement без polling;
 - bounded callback admission и retry-safe handoff принадлежат одному `BoundedTaskHandoff`; параллельные flags не могут
   представить несовместимые фазы одного callback;
 - stdout/stderr имеет одного consumer owner, и вместе с ownership передается ответственность за close;
@@ -148,6 +152,7 @@ terminal outcome. Они не изменяют выбранную request failur
 - `DefaultLineSession` не содержит реализацию bounded write или decoder callback;
 - `DefaultProtocolSession` не содержит pump loops, output queues или конкурирующие представления active request и
   terminal state;
+- line/protocol session handles не дублируют `SessionExitBarrier` собственными futures и publication permits;
 - `DefaultExpect` не содержит pump loop, terminal arbitration или bounded-task protocol;
 - `DefaultStreamSession` не содержит read/decode loop, callback-admission protocol, timeout thread lifecycle,
   собственное семейство terminal outcome типов или publication races;

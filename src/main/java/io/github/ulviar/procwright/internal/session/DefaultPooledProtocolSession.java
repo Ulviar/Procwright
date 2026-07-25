@@ -133,7 +133,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
 
     private WorkerPoolController.HealthOutcome isHealthy(
             DefaultProtocolSession<I, O> session, long acquireDeadlineNanos) {
-        if (session.exitCompleted()) {
+        if (session.publicExitCompleted()) {
             return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
         }
         Duration timeout = WorkerHookSupport.boundedTimeout(options.hookTimeout(), acquireDeadlineNanos);
@@ -155,7 +155,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
                         PooledProtocolSessionException.Reason.WORKER_FAILED,
                         "Pooled protocol-session health check failed",
                         exception));
-        if (session.exitCompleted()) {
+        if (session.publicExitCompleted()) {
             return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
         }
         return accepted ? WorkerPoolController.HealthOutcome.HEALTHY : WorkerPoolController.HealthOutcome.HEALTH_FAILED;

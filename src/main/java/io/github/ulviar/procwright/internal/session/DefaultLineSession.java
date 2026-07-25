@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.session.LineResponse;
@@ -17,7 +16,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongSupplier;
-import java.util.function.Supplier;
 
 /**
  * Line-oriented request/response workflow over an interactive process.
@@ -39,8 +37,6 @@ public final class DefaultLineSession implements LineSession {
     private final LongSupplier nanoTime;
     private final SerializedRequestGate requestGate;
     private final LineSessionState state;
-    private final BoundedLifecyclePublisher.Permit exitPublication;
-    private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private final AtomicBoolean malformed = new AtomicBoolean();
 
     public DefaultLineSession(DefaultSession session, LineSessionSettings options) {
@@ -102,16 +98,7 @@ public final class DefaultLineSession implements LineSession {
                 });
         this.requestWriter = new LineRequestWriter(session, state, runtime.writeTaskRunner());
         this.responseDecoder = new LineResponseDecoder(options, state, output, outputPumps);
-        BoundedLifecyclePublisher.Reservation publicationReservation =
-                BoundedLifecyclePublisher.shared().reserve(1);
-        this.exitPublication = publicationReservation.takePermit();
-        try {
-            output.start(runtime.pumpStarter());
-            observeExitAfterOutputCleanup();
-        } catch (RuntimeException | Error failure) {
-            exitPublication.release();
-            throw failure;
-        }
+        output.start(runtime.pumpStarter());
     }
 
     /**
@@ -223,17 +210,13 @@ public final class DefaultLineSession implements LineSession {
     private void acquireRequestLock(long deadlineNanos) {
         try {
             if (!requestGate.acquireUntil(deadlineNanos)) {
-                throw arbitrateRequestLockFailure(state::timeout);
+                throw state.arbitrateRequestAdmissionFailure(state::timeout);
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw arbitrateRequestLockFailure(
+            throw state.arbitrateRequestAdmissionFailure(
                     () -> state.failure("Interrupted while waiting to start line request", exception));
         }
-    }
-
-    private LineSessionException arbitrateRequestLockFailure(Supplier<LineSessionException> localFailure) {
-        return state.arbitrateRequestAdmissionFailure(localFailure);
     }
 
     private void recordDeadlineFailure(long deadlineNanos, LineSessionState.Request requestFailures) {
@@ -258,26 +241,15 @@ public final class DefaultLineSession implements LineSession {
      * @return line-session exit future
      */
     public CompletableFuture<SessionExit> onExit() {
-        return exit.copy();
+        return session.onExit();
     }
 
-    boolean exitCompleted() {
-        return exit.isDone();
+    boolean publicExitCompleted() {
+        return session.publicExitCompleted();
     }
 
     CompletableFuture<Void> physicalOutputCleanup() {
         return session.physicalOutputCleanup();
-    }
-
-    private void observeExitAfterOutputCleanup() {
-        session.observeExit((result, failure) -> outputPumps.publishAfterOutputCleanup(
-                () -> session.afterPhysicalOutputCleanup(() -> exitPublication.publish(() -> {
-                    if (failure == null) {
-                        exit.complete(result);
-                    } else {
-                        exit.completeExceptionally(failure);
-                    }
-                }))));
     }
 
     /**

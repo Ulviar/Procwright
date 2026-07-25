@@ -24,7 +24,6 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     private final AtomicBoolean closed = new AtomicBoolean();
     private RequestOutcome activeRequest;
     private TerminalSnapshot terminalOutcome;
-    private volatile OptionalInt observedExitCode = OptionalInt.empty();
     private boolean stdoutEof;
     private boolean failureAttributionSealed;
 
@@ -153,13 +152,6 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         closed.set(true);
     }
 
-    void recordProcessExit(OptionalInt selectedExitCode) {
-        OptionalInt observed = Objects.requireNonNull(selectedExitCode, "selectedExitCode");
-        if (observed.isPresent()) {
-            observedExitCode = observed;
-        }
-    }
-
     synchronized TerminalSnapshot terminal() {
         return terminalOutcome;
     }
@@ -202,7 +194,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
                 discarded = cause;
             }
             if (activeRequest != null && terminalOutcome instanceof FailureSnapshot failure) {
-                selectActiveTerminalFailure(activeRequest, terminalException(failure));
+                selectActiveTerminalFailure(activeRequest, terminalExceptionFromSnapshot(failure));
             }
             selected = terminalOutcome;
         }
@@ -261,9 +253,9 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         if (terminalOutcome instanceof FailureSnapshot failure) {
             ProtocolSessionException primary = request.failure();
             if (primary == null) {
-                primary = request.record(terminalException(failure));
+                primary = request.record(terminalExceptionFromSnapshot(failure));
             } else if (primary.reason() == ProtocolSessionException.Reason.CLOSED) {
-                primary = request.replaceWithTerminal(terminalException(failure));
+                primary = request.replaceWithTerminal(terminalExceptionFromSnapshot(failure));
             }
             return selection(primary, candidate);
         }
@@ -401,23 +393,27 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
             throw fatalError;
         }
         if (outcome instanceof FailureSnapshot failure) {
-            throw terminalException(failure);
+            throw terminalExceptionWithLatestExitCode(failure);
         }
         throw ((ClosedSnapshot) outcome).failure();
     }
 
-    private ProtocolSessionException terminalException(FailureSnapshot failure) {
+    private ProtocolSessionException terminalExceptionWithLatestExitCode(FailureSnapshot failure) {
+        OptionalInt latestExitCode = exitCode.get();
+        return exception(failure, latestExitCode.isPresent() ? latestExitCode : failure.exitCode());
+    }
+
+    private static ProtocolSessionException terminalExceptionFromSnapshot(FailureSnapshot failure) {
+        return exception(failure, failure.exitCode());
+    }
+
+    private static ProtocolSessionException exception(FailureSnapshot failure, OptionalInt selectedExitCode) {
         return new ProtocolSessionException(
                 failure.reason(),
                 failure.transcript(),
-                effectiveExitCode(failure.exitCode()),
+                selectedExitCode,
                 "Protocol session was closed by an earlier failure: " + failure.message(),
                 failure.primary());
-    }
-
-    private OptionalInt effectiveExitCode(OptionalInt terminalExitCode) {
-        OptionalInt latest = observedExitCode;
-        return latest.isPresent() ? latest : terminalExitCode;
     }
 
     private static void selectActiveTerminalFailure(RequestOutcome request, ProtocolSessionException terminalFailure) {

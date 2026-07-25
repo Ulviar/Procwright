@@ -297,8 +297,12 @@ public final class DefaultSession implements Session {
         });
     }
 
-    boolean exitCompleted() {
+    boolean terminationPublished() {
         return termination.published();
+    }
+
+    boolean publicExitCompleted() {
+        return exitBarrier.completed();
     }
 
     CompletableFuture<Void> physicalOutputCleanup() {

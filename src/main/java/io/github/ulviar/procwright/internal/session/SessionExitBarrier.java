@@ -37,6 +37,10 @@ final class SessionExitBarrier {
         return exit.copy();
     }
 
+    boolean completed() {
+        return exit.isDone();
+    }
+
     Registration registerHelper() {
         Registration registration = new Registration(this);
         synchronized (lock) {

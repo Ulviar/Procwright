@@ -149,7 +149,7 @@ final class OutputPumpCleanup {
             sessionFailure = failure;
             closeFailures.retainFallback(failure);
         } finally {
-            if (session.exitCompleted()) {
+            if (session.terminationPublished()) {
                 processCleanupCompleted();
             }
         }
