@@ -213,9 +213,18 @@ final class DiagnosticEmitterTest {
     }
 
     @Test
-    void processFailureEmissionNeverReplacesTheOperationPrimaryWhenEventConstructionFails() {
+    void processFailureEmissionReportsConstructionFailureWithoutMutatingThePrimary() throws Exception {
         AssertionError primaryFailure = new AssertionError("operation failed");
         AssertionError diagnosticFailure = new AssertionError("diagnostic construction failed");
+        CountDownLatch reported = new CountDownLatch(1);
+        AtomicInteger matchingReports = new AtomicInteger();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
+            if (failure == diagnosticFailure) {
+                matchingReports.incrementAndGet();
+                reported.countDown();
+            }
+        });
         DiagnosticEmitter emitter = DiagnosticEmitter.of(
                 DiagnosticsSettings.disabled().withListener(ignored -> {}),
                 "run",
@@ -224,10 +233,17 @@ final class DiagnosticEmitterTest {
                     throw diagnosticFailure;
                 });
 
-        emitter.emitProcessFailure(primaryFailure);
+        try {
+            emitter.emitProcessFailure(primaryFailure);
 
-        assertEquals(1, primaryFailure.getSuppressed().length);
-        assertSame(diagnosticFailure, primaryFailure.getSuppressed()[0]);
+            assertTrue(reported.await(1, TimeUnit.SECONDS));
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(java.time.Duration.ofSeconds(1)));
+            assertEquals(1, matchingReports.get());
+            assertEquals(0, primaryFailure.getSuppressed().length);
+            assertEquals(0, diagnosticFailure.getSuppressed().length);
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous);
+        }
     }
 
     @Test

@@ -8,7 +8,6 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.LaunchMode;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.SessionExecutionPlan;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
@@ -58,7 +57,6 @@ abstract class StreamRuntimeTestSupport {
 
     protected static StreamExecutionPlan plan(Charset charset, int diagnosticLimit, StreamListener listener) {
         LaunchPlan launchPlan = new LaunchPlan(
-                LaunchMode.DIRECT,
                 List.of("stub"),
                 Optional.empty(),
                 EnvironmentPolicy.INHERIT,

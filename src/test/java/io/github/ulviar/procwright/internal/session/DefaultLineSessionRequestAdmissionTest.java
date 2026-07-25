@@ -60,12 +60,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
         DefaultLineSession lineSession = new DefaultLineSession(
                 session(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
                 settings,
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                (limiter, threadPrefix, deadlineNanos, handoff, task) ->
-                        BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task),
-                System::nanoTime,
-                lockWaiter);
+                LineSessionTestDependencies.withRequestLockWaiter(lockWaiter));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         AtomicReference<Thread> waiterThread = new AtomicReference<>();
         AtomicBoolean waiterInterruptRestored = new AtomicBoolean();
@@ -152,14 +147,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
         });
         ControlledRequestLockWaiter lockWaiter = new ControlledRequestLockWaiter();
         DefaultLineSession lineSession = new DefaultLineSession(
-                session(process),
-                settings,
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                (limiter, threadPrefix, deadlineNanos, handoff, task) ->
-                        BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task),
-                System::nanoTime,
-                lockWaiter);
+                session(process), settings, LineSessionTestDependencies.withRequestLockWaiter(lockWaiter));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         AtomicReference<Thread> waiterThread = new AtomicReference<>();
         AtomicBoolean waiterInterruptRestored = new AtomicBoolean();
@@ -312,12 +300,11 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
         DefaultLineSession lineSession = new DefaultLineSession(
                 session(process),
                 LineSessionSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> {
-                    writeAdmissionAttempted.countDown();
-                    BoundedTaskRunner.runTracked(writeLimiter, threadPrefix, deadlineNanos, handoff, task);
-                });
+                LineSessionTestDependencies.withTaskRunner(
+                        (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> {
+                            writeAdmissionAttempted.countDown();
+                            BoundedTaskTestSupport.runTracked(writeLimiter, threadPrefix, deadlineNanos, handoff, task);
+                        }));
         AtomicReference<Throwable> observedFailure = new AtomicReference<>();
         AtomicBoolean interruptRestored = new AtomicBoolean();
         Thread caller = new Thread(
@@ -382,7 +369,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
         AtomicBoolean rejectNextStart = new AtomicBoolean(true);
         AtomicInteger threadSequence = new AtomicInteger();
         AtomicReference<Thread> rejectedThread = new AtomicReference<>();
-        BoundedTaskRunner.TaskThreadFactory threadFactory = (threadPrefix, task) -> {
+        BoundedTaskTestSupport.TaskThreadFactory threadFactory = (threadPrefix, task) -> {
             Thread thread;
             if (rejectNextStart.compareAndSet(true, false)) {
                 thread = new Thread(task, threadPrefix + threadSequence.getAndIncrement()) {
@@ -399,17 +386,16 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
             thread.setDaemon(true);
             return thread;
         };
-        DefaultLineSession.WriteTaskRunner taskRunner = (writeLimiter, threadPrefix, deadlineNanos, handoff, task) ->
-                BoundedTaskRunner.runTracked(writeLimiter, threadPrefix, deadlineNanos, handoff, threadFactory, task);
+        LineRequestWriter.TaskRunner taskRunner =
+                (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> BoundedTaskTestSupport.runTracked(
+                        writeLimiter, threadPrefix, deadlineNanos, handoff, threadFactory, task);
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
         DefaultLineSession lineSession = new DefaultLineSession(
                 session(process),
                 LineSessionSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                taskRunner);
+                LineSessionTestDependencies.withTaskRunner(taskRunner));
         try {
             LineSessionException failure = assertThrows(
                     LineSessionException.class,
@@ -449,7 +435,7 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
         DefaultSession rawSession = session(process);
         CountDownLatch writerWrapperCompleted = new CountDownLatch(1);
-        BoundedTaskRunner.TaskThreadFactory threadFactory = (threadPrefix, task) -> {
+        BoundedTaskTestSupport.TaskThreadFactory threadFactory = (threadPrefix, task) -> {
             Thread thread = new Thread(
                     () -> {
                         try {
@@ -465,10 +451,9 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
         DefaultLineSession lineSession = new DefaultLineSession(
                 rawSession,
                 LineSessionSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> BoundedTaskRunner.runTracked(
-                        writeLimiter, threadPrefix, deadlineNanos, handoff, threadFactory, task));
+                LineSessionTestDependencies.withTaskRunner(
+                        (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> BoundedTaskTestSupport.runTracked(
+                                writeLimiter, threadPrefix, deadlineNanos, handoff, threadFactory, task)));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<Thread> requestCaller = new AtomicReference<>();
         try {

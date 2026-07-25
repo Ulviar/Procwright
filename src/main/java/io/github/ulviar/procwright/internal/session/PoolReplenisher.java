@@ -2,7 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.SuppressionSupport;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
@@ -79,13 +79,24 @@ final class PoolReplenisher {
             }
             deactivate();
         } catch (RuntimeException | Error failure) {
+            Throwable terminalFailure = failure;
             try {
                 fail(failure);
             } catch (RuntimeException | Error reportingFailure) {
-                SuppressionSupport.attach(failure, reportingFailure);
+                terminalFailure = FailureAggregation.combine(
+                        terminalFailure,
+                        reportingFailure,
+                        "Pool replenishment and terminal failure handling both failed");
             }
-            throw failure;
+            rethrow(terminalFailure);
         }
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        throw (Error) failure;
     }
 
     private void deactivate() {

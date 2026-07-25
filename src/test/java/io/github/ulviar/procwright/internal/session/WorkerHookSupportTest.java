@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -162,7 +163,7 @@ final class WorkerHookSupportTest {
             assertTrue(reported.await(1, TimeUnit.SECONDS));
             assertTrue(eventuallyTrue(() ->
                     BoundedTaskLimits.WORKER_HOOKS.availablePermits() == BoundedTaskLimits.WORKER_HOOKS.capacity()));
-            Thread.sleep(50);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
             assertEquals(1, matchingReports.get());
         } finally {
             releaseHook.countDown();
@@ -216,7 +217,7 @@ final class WorkerHookSupportTest {
             assertTrue(reported.await(1, TimeUnit.SECONDS));
             assertTrue(eventuallyTrue(() ->
                     BoundedTaskLimits.WORKER_HOOKS.availablePermits() == BoundedTaskLimits.WORKER_HOOKS.capacity()));
-            Thread.sleep(50);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
             assertEquals(1, matchingReports.get());
         } finally {
             releaseHook.countDown();

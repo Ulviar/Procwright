@@ -9,8 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -163,7 +167,9 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                         }));
 
         assertEquals(FailureKind.RETIREMENT_FAILED, observed.kind);
-        assertSame(schedulingFailure, observed.getCause());
+        PoolFailure primary = (PoolFailure) FailureAggregation.primary(observed.getCause());
+        assertSame(schedulingFailure, primary.getCause());
+        assertEquals(0, primary.getSuppressed().length);
         assertEquals(1, factoryInvocations.get());
         assertEquals(1, closedWorkers.get());
     }
@@ -193,25 +199,30 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
     }
 
     @Test
-    void constructorAttachesWarmWorkerCloseFailureAfterFatalReplenishmentScheduling() {
+    void constructorRetainsEveryWarmWorkerCloseFailureAfterFatalReplenishmentScheduling() {
         AssertionError schedulingError = new AssertionError("replenishment scheduling failed");
-        IllegalStateException closeFailure = new IllegalStateException("warm worker close failed");
+        IllegalStateException firstCloseFailure = new IllegalStateException("first warm worker close failed");
+        IllegalArgumentException secondCloseFailure = new IllegalArgumentException("second warm worker close failed");
+        AtomicInteger created = new AtomicInteger();
 
-        AssertionError thrown = assertThrows(
-                AssertionError.class,
+        Error thrown = assertThrows(
+                Error.class,
                 () -> controller(
-                        () -> new TestWorker(1),
+                        () -> new TestWorker(created.incrementAndGet()),
                         worker -> {
-                            throw closeFailure;
+                            if (worker.id() == 1) {
+                                throw firstCloseFailure;
+                            }
+                            throw secondCloseFailure;
                         },
-                        new Options(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                        new Options(3, 2, 3, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                         task -> {
                             throw schedulingError;
                         }));
 
-        assertSame(schedulingError, thrown);
-        assertEquals(1, thrown.getSuppressed().length);
-        assertSame(closeFailure, thrown.getSuppressed()[0]);
+        assertSame(schedulingError, FailureAggregation.primary(thrown));
+        assertEquals(1, countIdentity(thrown, firstCloseFailure));
+        assertEquals(1, countIdentity(thrown, secondCloseFailure));
     }
 
     @Test
@@ -232,6 +243,22 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
         assertEquals(1, pool.metrics().failedStartups());
         pool.closeAsync();
         pool.closeAsync().get(1, TimeUnit.SECONDS);
+    }
+
+    private static int countIdentity(Throwable root, Throwable expected) {
+        return countIdentity(root, expected, Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    private static int countIdentity(Throwable current, Throwable expected, Set<Throwable> visited) {
+        if (current == null || !visited.add(current)) {
+            return 0;
+        }
+        int count = current == expected ? 1 : 0;
+        count += countIdentity(current.getCause(), expected, visited);
+        for (Throwable suppressed : current.getSuppressed()) {
+            count += countIdentity(suppressed, expected, visited);
+        }
+        return count;
     }
 
     @Test

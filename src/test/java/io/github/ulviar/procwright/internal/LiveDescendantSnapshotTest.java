@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -268,6 +269,13 @@ final class LiveDescendantSnapshotTest extends ProcessLifecycleSharedSupport {
         AssertionError scanFailure = new AssertionError("fatal scan after prefix");
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(retained));
         AtomicReference<Throwable> observed = new AtomicReference<>();
+        CountDownLatch reported = new CountDownLatch(1);
+        AtomicReference<Throwable> reportedFailure = new AtomicReference<>();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
+            reportedFailure.set(failure);
+            reported.countDown();
+        });
         Thread caller = new Thread(() -> {
             try {
                 snapshot.refresh(
@@ -279,16 +287,66 @@ final class LiveDescendantSnapshotTest extends ProcessLifecycleSharedSupport {
             }
         });
 
-        caller.start();
-        assertTrue(retainedDelegate.livenessEntered.await(1, TimeUnit.SECONDS));
-        caller.interrupt();
-        caller.join(TimeUnit.SECONDS.toMillis(1));
+        try {
+            caller.start();
+            assertTrue(retainedDelegate.livenessEntered.await(1, TimeUnit.SECONDS));
+            caller.interrupt();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
 
-        assertFalse(caller.isAlive());
-        assertTrue(observed.get() instanceof InterruptedException);
-        assertEquals(List.of(scanFailure), List.of(observed.get().getSuppressed()));
-        assertTrue(snapshot.current().contains(retained));
-        assertTrue(snapshot.current().contains(scannedPrefix));
+            assertFalse(caller.isAlive());
+            assertTrue(observed.get() instanceof InterruptedException);
+            assertEquals(0, observed.get().getSuppressed().length);
+            assertTrue(reported.await(1, TimeUnit.SECONDS));
+            assertSame(scanFailure, reportedFailure.get());
+            assertTrue(snapshot.current().contains(retained));
+            assertTrue(snapshot.current().contains(scannedPrefix));
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous);
+        }
+    }
+
+    @Test
+    void failureAggregationDoesNotDelayRefreshOrCleanupHandoff() throws Exception {
+        AssertionError scanFailure = new AssertionError("fatal scan after prefix");
+        IllegalStateException pruningFailure = new IllegalStateException("liveness failed");
+        TestHandle scannedPrefix = TestHandle.live(312);
+        LiveDescendantSnapshot snapshot =
+                new LiveDescendantSnapshot(knownDescendants(TestHandle.failing(313, pruningFailure)));
+        AtomicReference<Throwable> observed = new AtomicReference<>();
+        AtomicReference<KnownDescendants> handedOff = new AtomicReference<>();
+        Thread refresh = new Thread(() -> {
+            try {
+                snapshot.refresh(
+                        new FatalPrefixDescendantProcess(scannedPrefix, scanFailure),
+                        Duration.ofSeconds(1),
+                        DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+            } catch (Throwable failure) {
+                observed.set(failure);
+            }
+        });
+        Thread cleanup = new Thread(() -> handedOff.set(snapshot.sealForCleanup()));
+
+        try (var monitor = hold(scanFailure)) {
+            monitor.verifyHeld();
+            refresh.start();
+            refresh.join(TimeUnit.SECONDS.toMillis(1));
+            assertFalse(refresh.isAlive());
+
+            cleanup.start();
+            cleanup.join(TimeUnit.SECONDS.toMillis(1));
+
+            assertFalse(cleanup.isAlive(), "diagnostic attachment must not retain snapshot ownership");
+            assertTrue(handedOff.get().handles().contains(scannedPrefix));
+        } finally {
+            refresh.join(TimeUnit.SECONDS.toMillis(1));
+            cleanup.join(TimeUnit.SECONDS.toMillis(1));
+        }
+
+        assertFalse(refresh.isAlive());
+        assertFalse(cleanup.isAlive());
+        assertSame(scanFailure, observed.get().getCause());
+        assertEquals(List.of(pruningFailure), List.of(observed.get().getSuppressed()));
+        assertEquals(0, scanFailure.getSuppressed().length);
     }
 
     @Test

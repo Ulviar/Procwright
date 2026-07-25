@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
+import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -35,7 +37,7 @@ final class ReadinessSupportTest {
     }
 
     @Test
-    void readinessFailureRetainsCloseFailureAsSuppressedContext() {
+    void readinessFailureUsesAFreshTypedEnvelopeForCloseContext() {
         IllegalStateException readinessFailure = new IllegalStateException("not ready");
         IllegalArgumentException closeFailure = new IllegalArgumentException("could not close");
 
@@ -55,31 +57,76 @@ final class ReadinessSupportTest {
         assertSame(readinessFailure, exception.getCause());
         assertEquals(1, exception.getSuppressed().length);
         assertSame(closeFailure, exception.getSuppressed()[0]);
+        assertEquals(0, readinessFailure.getSuppressed().length);
+        assertEquals(0, closeFailure.getSuppressed().length);
     }
 
     @Test
-    void fatalReadinessFailurePreservesIdentityAndClosesExactlyOnce() {
+    void fatalReadinessFailurePreservesIdentityAndReportsCloseFailureExactlyOnce() throws Exception {
         AssertionError readinessFailure = new AssertionError("fatal readiness failure");
         IllegalStateException closeFailure = new IllegalStateException("close failed");
         AtomicInteger closes = new AtomicInteger();
+        AtomicInteger matchingReports = new AtomicInteger();
+        CountDownLatch reported = new CountDownLatch(1);
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
+            if (failure == closeFailure) {
+                matchingReports.incrementAndGet();
+                reported.countDown();
+            }
+        });
 
-        AssertionError thrown = assertThrows(
-                AssertionError.class,
-                () -> ReadinessSupport.check(
-                        "target",
-                        ignored -> {
-                            throw readinessFailure;
-                        },
-                        Duration.ofSeconds(1),
-                        () -> {
-                            closes.incrementAndGet();
-                            throw closeFailure;
-                        }));
+        try {
+            AssertionError thrown = assertThrows(
+                    AssertionError.class,
+                    () -> ReadinessSupport.check(
+                            "target",
+                            ignored -> {
+                                throw readinessFailure;
+                            },
+                            Duration.ofSeconds(1),
+                            () -> {
+                                closes.incrementAndGet();
+                                throw closeFailure;
+                            }));
 
-        assertSame(readinessFailure, thrown);
-        assertEquals(1, closes.get());
-        assertEquals(1, thrown.getSuppressed().length);
-        assertSame(closeFailure, thrown.getSuppressed()[0]);
+            assertSame(readinessFailure, thrown);
+            assertEquals(1, closes.get());
+            assertTrue(reported.await(1, TimeUnit.SECONDS));
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(1, matchingReports.get());
+            assertEquals(0, thrown.getSuppressed().length);
+            assertEquals(0, closeFailure.getSuppressed().length);
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous);
+        }
+    }
+
+    @Test
+    void fatalReadinessCleanupDoesNotWaitForTheForeignFailureMonitor() throws Exception {
+        AssertionError readinessFailure = new AssertionError("fatal readiness failure");
+        AtomicInteger closes = new AtomicInteger();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (var monitor = hold(readinessFailure)) {
+            monitor.verifyHeld();
+            Future<Throwable> outcome = executor.submit(() -> captureFailure(() -> ReadinessSupport.check(
+                    "target",
+                    ignored -> {
+                        throw readinessFailure;
+                    },
+                    Duration.ofSeconds(1),
+                    () -> {
+                        closes.incrementAndGet();
+                        throw new IllegalStateException("close failed");
+                    })));
+
+            assertSame(readinessFailure, outcome.get(1, TimeUnit.SECONDS));
+            assertEquals(1, closes.get());
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+        assertEquals(0, readinessFailure.getSuppressed().length);
     }
 
     @Test
@@ -204,7 +251,7 @@ final class ReadinessSupportTest {
             assertTrue(reported.await(1, TimeUnit.SECONDS));
             assertTrue(eventually(() -> BoundedTaskLimits.READINESS_PROBES.availablePermits()
                     == BoundedTaskLimits.READINESS_PROBES.capacity()));
-            Thread.sleep(50);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
             assertEquals(1, matchingReports.get());
         } finally {
             releaseProbe.countDown();
@@ -256,7 +303,7 @@ final class ReadinessSupportTest {
             assertTrue(reported.await(1, TimeUnit.SECONDS));
             assertTrue(eventually(() -> BoundedTaskLimits.READINESS_PROBES.availablePermits()
                     == BoundedTaskLimits.READINESS_PROBES.capacity()));
-            Thread.sleep(50);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
             assertEquals(1, matchingReports.get());
         } finally {
             releaseProbe.countDown();

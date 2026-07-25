@@ -33,7 +33,6 @@ import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -78,7 +77,7 @@ final class ProtocolTerminalFailureIntegrationTest {
     }
 
     @Test
-    void caughtWriterFailurePrecedesSecondaryErrorButRethrowsThatError() throws Exception {
+    void writerErrorSupersedesTheTypedFailureHandledByTheAdapter() throws Exception {
         AssertionError secondaryFailure = new AssertionError("secondary writer error");
         AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -106,7 +105,7 @@ final class ProtocolTerminalFailureIntegrationTest {
             assertSame(secondaryFailure, thrown);
             ProtocolSessionException requestLimit = caughtFailure.get();
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, requestLimit.reason());
-            assertIdentitySuppressedOnce(secondaryFailure, requestLimit);
+            assertIndependentFailures(secondaryFailure, requestLimit);
             session.onExit().get(2, TimeUnit.SECONDS);
             AssertionError followUp = assertThrows(AssertionError.class, () -> session.request("x"));
             assertSame(secondaryFailure, followUp);
@@ -177,7 +176,7 @@ final class ProtocolTerminalFailureIntegrationTest {
     }
 
     @Test
-    void caughtProtocolLineReaderFailurePrecedesSecondaryErrorButRethrowsThatError() throws Exception {
+    void lineReaderErrorSupersedesTheTypedFailureHandledByTheAdapter() throws Exception {
         AssertionError secondaryFailure = new AssertionError("secondary line reader error");
         AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -205,7 +204,7 @@ final class ProtocolTerminalFailureIntegrationTest {
             assertSame(secondaryFailure, thrown);
             ProtocolSessionException responseLimit = caughtFailure.get();
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseLimit.reason());
-            assertIdentitySuppressedOnce(secondaryFailure, responseLimit);
+            assertIndependentFailures(secondaryFailure, responseLimit);
             session.onExit().get(2, TimeUnit.SECONDS);
             AssertionError followUp = assertThrows(AssertionError.class, () -> session.request(""));
             assertSame(secondaryFailure, followUp);
@@ -249,7 +248,7 @@ final class ProtocolTerminalFailureIntegrationTest {
     }
 
     @Test
-    void caughtProtocolByteReaderFailurePrecedesSecondaryErrorButRethrowsThatError() throws Exception {
+    void byteReaderErrorSupersedesTheTypedFailureHandledByTheAdapter() throws Exception {
         AssertionError secondaryFailure = new AssertionError("secondary byte reader error");
         AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -278,7 +277,7 @@ final class ProtocolTerminalFailureIntegrationTest {
             assertSame(secondaryFailure, thrown);
             ProtocolSessionException responseLimit = caughtFailure.get();
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseLimit.reason());
-            assertIdentitySuppressedOnce(secondaryFailure, responseLimit);
+            assertIndependentFailures(secondaryFailure, responseLimit);
             session.onExit().get(2, TimeUnit.SECONDS);
             AssertionError followUp = assertThrows(AssertionError.class, () -> session.request(""));
             assertSame(secondaryFailure, followUp);
@@ -616,12 +615,10 @@ final class ProtocolTerminalFailureIntegrationTest {
         return false;
     }
 
-    private static void assertIdentitySuppressedOnce(Throwable primary, Throwable expected) {
-        long occurrences = Arrays.stream(primary.getSuppressed())
-                .filter(candidate -> candidate == expected)
-                .count();
-        assertEquals(1, occurrences);
-        assertFalse(causeChainContains(expected, primary));
-        assertFalse(Arrays.stream(expected.getSuppressed()).anyMatch(candidate -> candidate == primary));
+    private static void assertIndependentFailures(Throwable terminalFailure, Throwable handledFailure) {
+        assertFalse(causeChainContains(terminalFailure, handledFailure));
+        assertFalse(causeChainContains(handledFailure, terminalFailure));
+        assertEquals(0, terminalFailure.getSuppressed().length);
+        assertEquals(0, handledFailure.getSuppressed().length);
     }
 }

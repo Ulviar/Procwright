@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
+import io.github.ulviar.procwright.command.CommandInput;
 import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
@@ -17,8 +18,68 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 
 abstract class ProcessKernelTestSupport {
+
+    static ProcessKernel kernel(ProcessKernel.ProcessStarter processStarter) {
+        return kernel(process -> {}, processStarter);
+    }
+
+    static ProcessKernel kernel(Consumer<Process> postStartHook, ProcessKernel.ProcessStarter processStarter) {
+        return kernel(
+                postStartHook,
+                processStarter,
+                BoundedCloseDispatcher.shared(),
+                Duration.ofSeconds(5),
+                OneShotIoTaskOwner.shared(),
+                System::nanoTime);
+    }
+
+    static ProcessKernel kernel(
+            Consumer<Process> postStartHook,
+            ProcessKernel.ProcessStarter processStarter,
+            BoundedCloseDispatcher closeDispatcher,
+            Duration cleanupTimeout) {
+        return kernel(
+                postStartHook,
+                processStarter,
+                closeDispatcher,
+                cleanupTimeout,
+                OneShotIoTaskOwner.shared(),
+                System::nanoTime);
+    }
+
+    static ProcessKernel kernel(
+            Consumer<Process> postStartHook,
+            ProcessKernel.ProcessStarter processStarter,
+            BoundedCloseDispatcher closeDispatcher,
+            Duration cleanupTimeout,
+            LongSupplier nanoTime) {
+        return kernel(
+                postStartHook, processStarter, closeDispatcher, cleanupTimeout, OneShotIoTaskOwner.shared(), nanoTime);
+    }
+
+    static ProcessKernel kernel(
+            Consumer<Process> postStartHook,
+            ProcessKernel.ProcessStarter processStarter,
+            BoundedCloseDispatcher closeDispatcher,
+            Duration cleanupTimeout,
+            OneShotIoTaskOwner ioTaskOwner) {
+        return kernel(postStartHook, processStarter, closeDispatcher, cleanupTimeout, ioTaskOwner, System::nanoTime);
+    }
+
+    static ProcessKernel kernel(
+            Consumer<Process> postStartHook,
+            ProcessKernel.ProcessStarter processStarter,
+            BoundedCloseDispatcher closeDispatcher,
+            Duration cleanupTimeout,
+            OneShotIoTaskOwner ioTaskOwner,
+            LongSupplier nanoTime) {
+        return new ProcessKernel(new ProcessKernel.Dependencies(
+                postStartHook, processStarter, closeDispatcher, cleanupTimeout, ioTaskOwner, nanoTime));
+    }
 
     static int terminalCount(List<DiagnosticEvent> events, DiagnosticEventType type) {
         return Math.toIntExact(
@@ -26,19 +87,18 @@ abstract class ProcessKernelTestSupport {
     }
 
     static ExecutionPlan executionPlan(
-            DiagnosticsSettings diagnostics, StdinPolicy stdin, OutputMode outputMode, Duration timeout) {
-        return executionPlan(CapturePolicy.bounded(8), diagnostics, stdin, outputMode, timeout);
+            DiagnosticsSettings diagnostics, Optional<CommandInput> input, OutputMode outputMode, Duration timeout) {
+        return executionPlan(CapturePolicy.bounded(8), diagnostics, input, outputMode, timeout);
     }
 
     static ExecutionPlan executionPlan(
             CapturePolicy capturePolicy,
             DiagnosticsSettings diagnostics,
-            StdinPolicy stdin,
+            Optional<CommandInput> input,
             OutputMode outputMode,
             Duration timeout) {
         return new ExecutionPlan(
                 new LaunchPlan(
-                        LaunchMode.DIRECT,
                         List.of("unused"),
                         Optional.empty(),
                         EnvironmentPolicy.INHERIT,
@@ -49,7 +109,7 @@ abstract class ProcessKernelTestSupport {
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 timeout,
                 CharsetPolicy.report(StandardCharsets.UTF_8),
-                stdin,
+                input,
                 diagnostics);
     }
 
@@ -69,7 +129,6 @@ abstract class ProcessKernelTestSupport {
     static ExecutionPlan executionPlan(Charset charset, DiagnosticsSettings diagnostics) {
         return new ExecutionPlan(
                 new LaunchPlan(
-                        LaunchMode.DIRECT,
                         List.of("unused"),
                         Optional.empty(),
                         EnvironmentPolicy.INHERIT,
@@ -80,7 +139,7 @@ abstract class ProcessKernelTestSupport {
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 Duration.ofSeconds(1),
                 CharsetPolicy.report(charset),
-                StdinPolicy.closed(),
+                Optional.empty(),
                 diagnostics);
     }
 

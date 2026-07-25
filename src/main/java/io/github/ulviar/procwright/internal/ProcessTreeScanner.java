@@ -6,9 +6,11 @@ import io.github.ulviar.procwright.command.CommandExecutionException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -338,15 +340,14 @@ final class ProcessTreeScanner {
         } catch (Error failure) {
             closeFailure = failure;
         }
-        Error fatalFailure = null;
-        if (traversalFailure instanceof Error fatal) {
-            fatalFailure = fatal;
-            SuppressionSupport.attach(fatalFailure, closeUnavailable);
-            SuppressionSupport.attach(fatalFailure, closeFailure);
-        } else if (closeFailure != null) {
-            fatalFailure = closeFailure;
-            SuppressionSupport.attach(fatalFailure, traversalFailure);
-            SuppressionSupport.attach(fatalFailure, closeUnavailable);
+        Error fatalFailure = traversalFailure instanceof Error error ? error : closeFailure;
+        if (fatalFailure != null) {
+            List<Throwable> failures = new ArrayList<>(3);
+            addIfPresent(failures, traversalFailure);
+            addIfPresent(failures, closeUnavailable);
+            addIfPresent(failures, closeFailure);
+            fatalFailure = (Error) FailureAggregation.combineWithPrimary(
+                    fatalFailure, failures, "Process descendant stream traversal and cleanup failed");
         }
         IncompleteReason incompleteReason = traversalFailure != null || closeUnavailable != null || fatalFailure != null
                 ? IncompleteReason.UNAVAILABLE
@@ -392,8 +393,13 @@ final class ProcessTreeScanner {
         if (primary == null) {
             return next;
         }
-        SuppressionSupport.attach(primary, next);
-        return primary;
+        return (Error) FailureAggregation.combine(primary, next, "Multiple process-tree provider failures");
+    }
+
+    private static void addIfPresent(List<Throwable> failures, Throwable failure) {
+        if (failure != null) {
+            failures.add(failure);
+        }
     }
 
     static HandleIdentity identity(ProcessHandle handle) {

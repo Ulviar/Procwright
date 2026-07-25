@@ -88,8 +88,8 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
             coordinator.sealFailureAttribution(terminalPrimary);
 
             assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
-            assertSuppressedOnce(terminalPrimary, stdoutCloseFailure);
-            assertSuppressedOnce(terminalPrimary, stderrCloseFailure);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(0, terminalPrimary.getSuppressed().length);
         } finally {
             coordinator.closeSessionPreserving(terminalPrimary);
             rawSession.close();
@@ -132,8 +132,8 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
             assertTrue(stdout.awaitCloseCompleted());
             assertTrue(stderr.awaitCloseCompleted());
             assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
-            assertSuppressedOnce(terminalPrimary, stdoutCloseFailure);
-            assertSuppressedOnce(terminalPrimary, stderrCloseFailure);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(0, terminalPrimary.getSuppressed().length);
         } finally {
             stdout.releaseClose();
             stderr.releaseClose();
@@ -143,7 +143,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
     }
 
     @Test
-    void closeFailuresAreNotReportedBeforeAStillRunningPumpCanSelectItsPrimary() throws Exception {
+    void closeFailuresWaitForAStillRunningPumpToSelectItsPrimaryBeforeReporting() throws Exception {
         AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
         AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
         AssertionError workerFailure = new AssertionError("late worker failure");
@@ -211,10 +211,8 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
 
             assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
             assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(0, failureReportCount.get());
-            assertSuppressedOnce(workerFailure, stdoutCloseFailure);
-            assertSuppressedOnce(workerFailure, stderrCloseFailure);
-            assertEquals(2, workerFailure.getSuppressed().length);
+            assertEquals(2, failureReportCount.get());
+            assertEquals(0, workerFailure.getSuppressed().length);
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
         } finally {
@@ -273,8 +271,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
             hostileContinuation.get(1, TimeUnit.SECONDS);
             awaitSettlement(rawSession.onExit());
 
-            assertSuppressedOnce(pumpFailure, stdoutCloseFailure);
-            assertSuppressedOnce(pumpFailure, stderrCloseFailure);
+            assertEquals(0, pumpFailure.getSuppressed().length);
         } finally {
             releasePump.countDown();
             releaseHostileContinuation.countDown();
@@ -330,9 +327,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
             assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
             rawSession.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);
 
-            assertSuppressedOnce(latePrimary, stdoutCloseFailure);
-            assertSuppressedOnce(latePrimary, stderrCloseFailure);
-            assertEquals(2, latePrimary.getSuppressed().length);
+            assertEquals(0, latePrimary.getSuppressed().length);
         } finally {
             stdout.releaseClose();
             stderr.releaseClose();

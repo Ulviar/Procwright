@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 final class ShutdownFailureLedgerTest {
 
     @Test
-    void firstFailureRetainsIdentityAndLaterFailuresKeepInsertionOrder() {
+    void firstFailureRemainsAggregatePrimaryAndLaterFailuresKeepInsertionOrder() {
         ShutdownFailureLedger ledger = new ShutdownFailureLedger();
         AssertionError first = new AssertionError("first");
         IllegalStateException second = new IllegalStateException("second");
@@ -25,9 +25,25 @@ final class ShutdownFailureLedgerTest {
         ledger.record(second);
         ledger.record(third);
 
-        AssertionError actual = assertThrows(AssertionError.class, ledger::rethrowIfPresent);
-        assertSame(first, actual);
+        Error actual = assertThrows(Error.class, ledger::rethrowIfPresent);
+        assertSame(first, actual.getCause());
         assertEquals(List.of(second, third), List.of(actual.getSuppressed()));
+        assertEquals(0, first.getSuppressed().length);
+    }
+
+    @Test
+    void ordinaryFailuresUseThePublicExecutionFailureEnvelope() {
+        ShutdownFailureLedger ledger = new ShutdownFailureLedger();
+        IllegalStateException first = new IllegalStateException("first");
+        IllegalArgumentException second = new IllegalArgumentException("second");
+
+        ledger.record(first);
+        ledger.record(second);
+
+        CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
+        assertSame(first, actual.getCause());
+        assertEquals(List.of(second), List.of(actual.getSuppressed()));
+        assertEquals(0, first.getSuppressed().length);
     }
 
     @Test
@@ -43,8 +59,10 @@ final class ShutdownFailureLedgerTest {
             assertFalse(Thread.currentThread().isInterrupted());
             assertTrue(ledger.wasInterrupted());
             CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
-            assertTrue(actual.getCause() instanceof InterruptedException);
+            assertTrue(actual.getCause() instanceof CommandExecutionException);
+            assertTrue(actual.getCause().getCause() instanceof InterruptedException);
             assertEquals(List.of(previous), List.of(actual.getSuppressed()));
+            assertEquals(0, actual.getCause().getSuppressed().length);
 
             ledger.restoreInterrupt();
             assertTrue(Thread.currentThread().isInterrupted());
@@ -64,7 +82,8 @@ final class ShutdownFailureLedgerTest {
 
         try {
             CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
-            assertSame(interruption, actual.getCause());
+            assertTrue(actual.getCause() instanceof CommandExecutionException);
+            assertSame(interruption, actual.getCause().getCause());
             assertEquals(List.of(before, after), List.of(actual.getSuppressed()));
             assertEquals(0, before.getSuppressed().length);
             assertTrue(ledger.wasInterrupted());
@@ -75,7 +94,7 @@ final class ShutdownFailureLedgerTest {
     }
 
     @Test
-    void typedFailureContainingInterruptionRetainsIdentity() {
+    void wrappedInterruptionDoesNotReplaceExplicitInterruptState() {
         ShutdownFailureLedger ledger = new ShutdownFailureLedger();
         CommandExecutionException expected =
                 new CommandExecutionException("provider interrupted", new InterruptedException("stop"));
@@ -84,14 +103,10 @@ final class ShutdownFailureLedgerTest {
 
         CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
         assertSame(expected, actual);
-        assertTrue(ledger.wasInterrupted());
+        assertFalse(ledger.wasInterrupted());
         assertFalse(Thread.currentThread().isInterrupted());
-        try {
-            ledger.restoreInterrupt();
-            assertTrue(Thread.currentThread().isInterrupted());
-        } finally {
-            Thread.interrupted();
-        }
+        ledger.restoreInterrupt();
+        assertFalse(Thread.currentThread().isInterrupted());
     }
 
     @Test
@@ -105,7 +120,8 @@ final class ShutdownFailureLedgerTest {
         });
 
         CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
-        assertTrue(actual.getCause() instanceof InterruptedException);
+        assertTrue(actual.getCause() instanceof CommandExecutionException);
+        assertTrue(actual.getCause().getCause() instanceof InterruptedException);
         assertEquals(List.of(expected), List.of(actual.getSuppressed()));
         assertFalse(Thread.currentThread().isInterrupted());
         try {
@@ -113,5 +129,22 @@ final class ShutdownFailureLedgerTest {
         } finally {
             Thread.interrupted();
         }
+    }
+
+    @Test
+    void knownAggregateSourcesRemainFlatInsideTheTypedEnvelope() {
+        ShutdownFailureLedger ledger = new ShutdownFailureLedger();
+        IllegalStateException first = new IllegalStateException("first");
+        IllegalArgumentException second = new IllegalArgumentException("second");
+        IllegalMonitorStateException third = new IllegalMonitorStateException("third");
+        Throwable aggregate = FailureAggregation.combine(first, second, "prior");
+
+        ledger.record(aggregate);
+        ledger.record(second);
+        ledger.record(third);
+
+        CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
+        assertSame(first, actual.getCause());
+        assertEquals(List.of(second, third), List.of(actual.getSuppressed()));
     }
 }

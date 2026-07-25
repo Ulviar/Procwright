@@ -251,10 +251,11 @@ final class ProcessLivenessTest extends ProcessLifecycleSharedSupport {
         ShutdownFailureLedger ledger = new ShutdownFailureLedger();
         ledger.recordObserved(observation.events());
         try {
-            CommandExecutionException failure = org.junit.jupiter.api.Assertions.assertThrows(
-                    CommandExecutionException.class, ledger::rethrowIfPresent);
-            assertSame(observation.events().get(1), failure.getCause());
-            assertEquals(List.of(livenessFailure), List.of(failure.getSuppressed()));
+            RuntimeException failure =
+                    org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, ledger::rethrowIfPresent);
+            assertTrue(failure.getCause() instanceof CommandExecutionException);
+            assertSame(observation.events().get(1), failure.getCause().getCause());
+            assertTrue(java.util.Arrays.asList(failure.getSuppressed()).contains(livenessFailure));
         } finally {
             ledger.restoreInterrupt();
             Thread.interrupted();

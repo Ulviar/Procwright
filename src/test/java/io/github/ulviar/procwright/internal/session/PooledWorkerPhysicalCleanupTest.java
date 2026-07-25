@@ -13,6 +13,7 @@ import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.internal.Threading;
@@ -66,7 +67,7 @@ final class PooledWorkerPhysicalCleanupTest {
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
                 () -> workers.get(workerIndex.getAndIncrement()),
                 LineSessionSettings.defaults(),
-                WorkerPoolSettings.<LineSession>defaults(ignored -> {}, ignored -> true)
+                WorkerPoolSettings.<LineSession>defaults()
                         .withMaxSize(2)
                         .withWarmupSize(2)
                         .withCloseTimeout(Duration.ofSeconds(1)));
@@ -114,9 +115,7 @@ final class PooledWorkerPhysicalCleanupTest {
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
                 () -> worker,
                 LineSessionSettings.defaults(),
-                WorkerPoolSettings.<LineSession>defaults(ignored -> {}, ignored -> true)
-                        .withWarmupSize(1)
-                        .withCloseTimeout(Duration.ofSeconds(1)),
+                WorkerPoolSettings.<LineSession>defaults().withWarmupSize(1).withCloseTimeout(Duration.ofSeconds(1)),
                 System::nanoTime,
                 dispatcher::dispatch);
         try {
@@ -177,7 +176,7 @@ final class PooledWorkerPhysicalCleanupTest {
         assertTrue(stderr.awaitReadStarted());
         DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
                 () -> worker,
-                WorkerPoolSettings.<ProtocolSession<String, String>>defaults(ignored -> {}, ignored -> true)
+                WorkerPoolSettings.<ProtocolSession<String, String>>defaults()
                         .withWarmupSize(1)
                         .withCloseTimeout(Duration.ofSeconds(1)),
                 dispatcher::dispatch);
@@ -231,8 +230,7 @@ final class PooledWorkerPhysicalCleanupTest {
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
                 () -> worker,
                 LineSessionSettings.defaults(),
-                WorkerPoolSettings.<LineSession>defaults(ignored -> {}, ignored -> true)
-                        .withWarmupSize(1),
+                WorkerPoolSettings.<LineSession>defaults().withWarmupSize(1),
                 System::nanoTime,
                 PoolLifecycleDispatcher::execute,
                 (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
@@ -372,8 +370,7 @@ final class PooledWorkerPhysicalCleanupTest {
                 openSession(process, closeDispatcher), noOpAdapter(), ProtocolSessionSettings.defaults());
         DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
                 () -> worker,
-                WorkerPoolSettings.<ProtocolSession<String, String>>defaults(ignored -> {}, ignored -> true)
-                        .withWarmupSize(1),
+                WorkerPoolSettings.<ProtocolSession<String, String>>defaults().withWarmupSize(1),
                 PoolLifecycleDispatcher::execute,
                 (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
                         () -> {
@@ -410,6 +407,156 @@ final class PooledWorkerPhysicalCleanupTest {
     }
 
     @Test
+    void lineWarmupCleanupErrorRemainsFatalOverTheEarlierTypedStartupFailure() throws Exception {
+        AssertionError cleanupFailure = new AssertionError("line worker cleanup failed");
+        IllegalStateException startupFailure = new IllegalStateException("second worker startup failed");
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        TestProcess process = new TestProcess(
+                new TrackingOutputStream(),
+                new ImmediateFailingCloseInputStream(cleanupFailure),
+                new TrackingInputStream());
+        LineSession firstWorker =
+                new DefaultLineSession(openSession(process, dispatcher), LineSessionSettings.defaults());
+        AtomicInteger starts = new AtomicInteger();
+
+        try {
+            Error observed = assertThrows(
+                    Error.class,
+                    () -> new DefaultPooledLineSession(
+                            () -> {
+                                if (starts.incrementAndGet() == 1) {
+                                    return firstWorker;
+                                }
+                                throw startupFailure;
+                            },
+                            LineSessionSettings.defaults(),
+                            WorkerPoolSettings.<LineSession>defaults()
+                                    .withMaxSize(2)
+                                    .withWarmupSize(2)
+                                    .withCloseTimeout(Duration.ofSeconds(1))));
+
+            assertSame(cleanupFailure, FailureAggregation.primary(observed));
+            List<Throwable> sources = FailureAggregation.sources(observed);
+            PooledLineSessionException startup = (PooledLineSessionException) sources.getFirst();
+            assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, startup.reason());
+            assertSame(startupFailure, startup.getCause());
+            assertSame(cleanupFailure, sources.get(1));
+            assertEquals(0, startup.getSuppressed().length);
+            assertEquals(0, startupFailure.getSuppressed().length);
+            assertEquals(0, cleanupFailure.getSuppressed().length);
+            assertNoDispatcherLeak(dispatcher);
+        } finally {
+            process.complete(143);
+            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void protocolWarmupCleanupErrorRemainsFatalOverTheEarlierTypedStartupFailure() throws Exception {
+        AssertionError cleanupFailure = new AssertionError("protocol worker cleanup failed");
+        IllegalStateException startupFailure = new IllegalStateException("second worker startup failed");
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        TestProcess process = new TestProcess(
+                new TrackingOutputStream(),
+                new ImmediateFailingCloseInputStream(cleanupFailure),
+                new TrackingInputStream());
+        ProtocolSession<String, String> firstWorker = new DefaultProtocolSession<>(
+                openSession(process, dispatcher), noOpAdapter(), ProtocolSessionSettings.defaults());
+        AtomicInteger starts = new AtomicInteger();
+
+        try {
+            Error observed = assertThrows(
+                    Error.class,
+                    () -> new DefaultPooledProtocolSession<>(
+                            () -> {
+                                if (starts.incrementAndGet() == 1) {
+                                    return firstWorker;
+                                }
+                                throw startupFailure;
+                            },
+                            WorkerPoolSettings.<ProtocolSession<String, String>>defaults()
+                                    .withMaxSize(2)
+                                    .withWarmupSize(2)
+                                    .withCloseTimeout(Duration.ofSeconds(1))));
+
+            assertSame(cleanupFailure, FailureAggregation.primary(observed));
+            List<Throwable> sources = FailureAggregation.sources(observed);
+            PooledProtocolSessionException startup = (PooledProtocolSessionException) sources.getFirst();
+            assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, startup.reason());
+            assertSame(startupFailure, startup.getCause());
+            assertSame(cleanupFailure, sources.get(1));
+            assertEquals(0, startup.getSuppressed().length);
+            assertEquals(0, startupFailure.getSuppressed().length);
+            assertEquals(0, cleanupFailure.getSuppressed().length);
+            assertNoDispatcherLeak(dispatcher);
+        } finally {
+            process.complete(143);
+            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void failedLineWarmupExposesTypedDetachedSourcesWhilePhysicalCleanupRemainsOwned() throws Exception {
+        BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(null);
+        TrackingOutputStream stdin = new TrackingOutputStream();
+        TrackingInputStream stderr = new TrackingInputStream();
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        TestProcess process = new TestProcess(stdin, stdout, stderr);
+        LineSession firstWorker =
+                new DefaultLineSession(openSession(process, dispatcher), LineSessionSettings.defaults());
+        assertTrue(stdout.awaitReadStarted(), "line stdout pump did not enter the blocked read");
+        AtomicInteger starts = new AtomicInteger();
+        IllegalStateException startupFailure = new IllegalStateException("second worker startup failed");
+
+        try {
+            PooledLineSessionException failure = assertThrows(
+                    PooledLineSessionException.class,
+                    () -> new DefaultPooledLineSession(
+                            () -> {
+                                if (starts.incrementAndGet() == 1) {
+                                    return firstWorker;
+                                }
+                                throw startupFailure;
+                            },
+                            LineSessionSettings.defaults(),
+                            WorkerPoolSettings.<LineSession>defaults()
+                                    .withMaxSize(2)
+                                    .withWarmupSize(2)
+                                    .withCloseTimeout(CLOSE_TIMEOUT)));
+
+            assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, failure.reason());
+            assertEquals("Could not start pooled line-session worker", failure.getMessage());
+            Throwable aggregate = failure.getCause();
+            PooledLineSessionException primary = (PooledLineSessionException) FailureAggregation.primary(aggregate);
+            List<Throwable> sources = FailureAggregation.sources(aggregate);
+            assertSame(startupFailure, primary.getCause());
+            assertSame(primary, sources.getFirst());
+            assertEquals(2, sources.size());
+            PooledLineSessionException cleanup = (PooledLineSessionException) sources.get(1);
+            assertEquals(PooledLineSessionException.Reason.WORKER_FAILED, cleanup.reason());
+            assertTrue(cleanup.getCause() instanceof TimeoutException);
+            assertEquals(0, primary.getSuppressed().length);
+            assertEquals(0, cleanup.getSuppressed().length);
+            assertEquals(0, startupFailure.getSuppressed().length);
+            assertTrue(stdout.awaitCloseInvoked(), "failed construction did not start worker cleanup");
+            assertFalse(stdout.closeFinished(), "constructor timeout must not abandon physical cleanup");
+
+            stdout.releaseRead();
+            assertTrue(stdout.awaitReadFinished());
+            assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));
+            assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
+            assertTrue(stderr.awaitCloseFinished(Duration.ofSeconds(1)));
+            firstWorker.onExit().handle((ignored, exitFailure) -> null).get(1, TimeUnit.SECONDS);
+            PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
+            assertNoDispatcherLeak(dispatcher);
+        } finally {
+            stdout.releaseRead();
+            process.complete(143);
+            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     void failedProtocolWarmupReturnsAfterCloseDeadlineWhilePhysicalCleanupRemainsOwned() throws Exception {
         BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(null);
         TrackingOutputStream stdin = new TrackingOutputStream();
@@ -432,17 +579,26 @@ final class PooledWorkerPhysicalCleanupTest {
                                 }
                                 throw startupFailure;
                             },
-                            WorkerPoolSettings.<ProtocolSession<String, String>>defaults(ignored -> {}, ignored -> true)
+                            WorkerPoolSettings.<ProtocolSession<String, String>>defaults()
                                     .withMaxSize(2)
                                     .withWarmupSize(2)
                                     .withCloseTimeout(CLOSE_TIMEOUT)));
 
             assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, failure.reason());
-            assertSame(startupFailure, failure.getCause());
-            assertEquals(1, failure.getSuppressed().length);
-            PooledProtocolSessionException cleanup = (PooledProtocolSessionException) failure.getSuppressed()[0];
+            assertEquals("Could not start pooled protocol-session worker", failure.getMessage());
+            Throwable aggregate = failure.getCause();
+            PooledProtocolSessionException primary =
+                    (PooledProtocolSessionException) FailureAggregation.primary(aggregate);
+            assertSame(startupFailure, primary.getCause());
+            List<Throwable> sources = FailureAggregation.sources(aggregate);
+            assertSame(primary, sources.getFirst());
+            assertEquals(2, sources.size());
+            PooledProtocolSessionException cleanup = (PooledProtocolSessionException) sources.get(1);
             assertEquals(PooledProtocolSessionException.Reason.WORKER_FAILED, cleanup.reason());
             assertTrue(cleanup.getCause() instanceof TimeoutException);
+            assertEquals(0, primary.getSuppressed().length);
+            assertEquals(0, cleanup.getSuppressed().length);
+            assertEquals(0, startupFailure.getSuppressed().length);
             assertTrue(stdout.awaitCloseInvoked(), "failed construction did not start worker cleanup");
             assertFalse(stdout.closeFinished(), "constructor timeout must not abandon physical cleanup");
 
@@ -473,9 +629,7 @@ final class PooledWorkerPhysicalCleanupTest {
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
                 () -> worker,
                 LineSessionSettings.defaults(),
-                WorkerPoolSettings.<LineSession>defaults(ignored -> {}, ignored -> true)
-                        .withWarmupSize(1)
-                        .withCloseTimeout(CLOSE_TIMEOUT));
+                WorkerPoolSettings.<LineSession>defaults().withWarmupSize(1).withCloseTimeout(CLOSE_TIMEOUT));
         try {
             CompletableFuture<Void> eventual = pool.closeAsync();
             assertTrue(stdout.awaitCloseInvoked(), "line stdout physical close was not dispatched");
@@ -515,7 +669,7 @@ final class PooledWorkerPhysicalCleanupTest {
         assertTrue(stdout.awaitReadStarted(), "protocol stdout pump did not enter the blocked read");
         DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
                 () -> worker,
-                WorkerPoolSettings.<ProtocolSession<String, String>>defaults(ignored -> {}, ignored -> true)
+                WorkerPoolSettings.<ProtocolSession<String, String>>defaults()
                         .withWarmupSize(1)
                         .withCloseTimeout(CLOSE_TIMEOUT));
         try {
@@ -562,16 +716,16 @@ final class PooledWorkerPhysicalCleanupTest {
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
                 () -> workers.get(workerIndex.getAndIncrement()),
                 LineSessionSettings.defaults(),
-                WorkerPoolSettings.<LineSession>defaults(ignored -> {}, ignored -> true)
-                        .withMaxSize(2)
-                        .withWarmupSize(2));
+                WorkerPoolSettings.<LineSession>defaults().withMaxSize(2).withWarmupSize(2));
         try {
             ExecutionException observed = assertThrows(
                     ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-            assertSame(fatalFailure, observed.getCause());
-            assertSuppressedExactlyOnce(fatalFailure, runtimeFailure);
-            assertSame(fatalFailure, assertThrows(AssertionError.class, pool::close));
+            Throwable aggregate = observed.getCause();
+            assertSame(fatalFailure, aggregate.getCause());
+            assertSuppressedExactlyOnce(aggregate, runtimeFailure);
+            assertEquals(0, fatalFailure.getSuppressed().length);
+            assertSame(aggregate, assertThrows(Error.class, pool::close));
             assertNoDispatcherLeak(dispatcher, 6);
         } finally {
             firstProcess.complete(143);
@@ -601,16 +755,18 @@ final class PooledWorkerPhysicalCleanupTest {
         AtomicInteger workerIndex = new AtomicInteger();
         DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
                 () -> workers.get(workerIndex.getAndIncrement()),
-                WorkerPoolSettings.<ProtocolSession<String, String>>defaults(ignored -> {}, ignored -> true)
+                WorkerPoolSettings.<ProtocolSession<String, String>>defaults()
                         .withMaxSize(2)
                         .withWarmupSize(2));
         try {
             ExecutionException observed = assertThrows(
                     ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-            assertSame(fatalFailure, observed.getCause());
-            assertSuppressedExactlyOnce(fatalFailure, runtimeFailure);
-            assertSame(fatalFailure, assertThrows(AssertionError.class, pool::close));
+            Throwable aggregate = observed.getCause();
+            assertSame(fatalFailure, aggregate.getCause());
+            assertSuppressedExactlyOnce(aggregate, runtimeFailure);
+            assertEquals(0, fatalFailure.getSuppressed().length);
+            assertSame(aggregate, assertThrows(Error.class, pool::close));
             assertNoDispatcherLeak(dispatcher, 6);
         } finally {
             firstProcess.complete(143);

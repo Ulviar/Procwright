@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.session.StreamException;
 import io.github.ulviar.procwright.session.StreamSession;
 import java.io.IOException;
@@ -19,7 +20,9 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +38,9 @@ abstract class StreamRuntimeTerminalLifecycleTestSupport extends StreamRuntimeTe
         GatedFailureInputStream fatalStream = new GatedFailureInputStream(fatalError);
         ControllableProcess process = new ControllableProcess(typedStream, fatalStream, null);
         DefaultSession rawSession = session(process);
+        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> reported.add(failure));
         StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
         try {
             assertTrue(typedStream.awaitReadEntered());
@@ -62,10 +68,17 @@ abstract class StreamRuntimeTerminalLifecycleTestSupport extends StreamRuntimeTe
                 StreamException primary = assertInstanceOf(StreamException.class, failure.getCause());
                 assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, primary.reason());
                 assertSame(readFailure, primary.getCause());
-                assertSuppressedOnce(primary, fatalError);
+                assertEquals(0, primary.getSuppressed().length);
             } else {
                 assertSame(fatalError, failure.getCause());
-                StreamException typedFailure = assertInstanceOf(StreamException.class, singleSuppressed(fatalError));
+                assertEquals(0, fatalError.getSuppressed().length);
+            }
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(1, reported.size());
+            if (typedFirst) {
+                assertSame(fatalError, reported.getFirst());
+            } else {
+                StreamException typedFailure = assertInstanceOf(StreamException.class, reported.getFirst());
                 assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, typedFailure.reason());
                 assertSame(readFailure, typedFailure.getCause());
             }
@@ -73,22 +86,9 @@ abstract class StreamRuntimeTerminalLifecycleTestSupport extends StreamRuntimeTe
             typedStream.release();
             fatalStream.release();
             stream.close();
+            BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1));
+            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
-    }
-
-    protected static Throwable singleSuppressed(Throwable primary) {
-        assertEquals(1, primary.getSuppressed().length);
-        return primary.getSuppressed()[0];
-    }
-
-    protected static void assertSuppressedOnce(Throwable primary, Throwable expected) {
-        int count = 0;
-        for (Throwable suppressed : primary.getSuppressed()) {
-            if (suppressed == expected) {
-                count++;
-            }
-        }
-        assertEquals(1, count);
     }
 
     protected static final class HostileCompletionException extends CompletionException {

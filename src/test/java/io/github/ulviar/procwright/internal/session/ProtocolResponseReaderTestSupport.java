@@ -73,9 +73,9 @@ abstract class ProtocolResponseReaderTestSupport {
     static ProtocolTextDecoderState streamDecoder(ProtocolSessionSettings options) {
         return new ProtocolTextDecoderState(
                 options.charsetPolicy(),
-                ProtocolResponseReader.pendingByteLimit(options),
-                ProtocolResponseReader.outputWithoutInputLimit(options),
-                ProtocolResponseReader.decodedLineSuffixLimit(options));
+                ProtocolTextReader.pendingByteLimit(options),
+                ProtocolTextReader.outputWithoutInputLimit(options),
+                ProtocolTextReader.decodedLineSuffixLimit(options));
     }
 
     static ProtocolOutputQueue atomicLineOutput(int limit) {

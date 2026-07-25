@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -155,8 +156,9 @@ final class PoolTerminalPublisherTest {
     }
 
     private static void claimAndPublish(PoolDrain drain, Throwable failure) {
-        assertTrue(drain.tryClaim());
-        drain.publish(failure);
+        PoolDrain.Publication publication = drain.claim(failure);
+        assertNotNull(publication);
+        publication.publish();
     }
 
     private static PoolDrain drainEventually(PoolTerminalPublisher.Capacity capacity, Duration timeout)

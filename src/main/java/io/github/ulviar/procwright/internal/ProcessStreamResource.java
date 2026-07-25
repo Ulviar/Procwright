@@ -56,15 +56,17 @@ public final class ProcessStreamResource<T extends Closeable> {
         if (!claimClose()) {
             return;
         }
-        Throwable failure = null;
+        Throwable settledFailure = null;
         try {
             closePermit.closeInline(stream);
         } catch (IOException | RuntimeException | Error closeFailure) {
-            failure = closeFailure;
-            notifyInlineCloseFailure(closeFailure);
+            settledFailure = FailureAggregation.combine(
+                    closeFailure,
+                    notifyInlineCloseFailure(closeFailure),
+                    "Process stream close and its failure callback both failed");
             throw closeFailure;
         } finally {
-            settleClose(failure);
+            settleClose(settledFailure);
         }
     }
 
@@ -92,24 +94,21 @@ public final class ProcessStreamResource<T extends Closeable> {
         dispatchOutcome.rethrowStartFailure();
     }
 
-    public void closeOwnedAsync(
+    public BoundedCloseDispatcher.DispatchOutcome closeOwnedAsync(
             String threadPrefix, Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
         Objects.requireNonNull(threadPrefix, "threadPrefix");
         Objects.requireNonNull(failureHandler, "failureHandler");
         Objects.requireNonNull(completionHandler, "completionHandler");
         if (!claimClose()) {
             observeExistingClose(failureHandler, completionHandler);
-            return;
+            return BoundedCloseDispatcher.DispatchOutcome.accepted(null);
         }
-        BoundedCloseDispatcher.DispatchOutcome dispatchOutcome;
         try {
-            dispatchOutcome =
-                    closePermit.dispatchOutcome(ownedCloseRequest(threadPrefix, failureHandler, completionHandler));
+            return closePermit.dispatchOutcome(ownedCloseRequest(threadPrefix, failureHandler, completionHandler));
         } catch (RuntimeException | Error dispatchFailure) {
             recordDispatchFailure(dispatchFailure);
             throw dispatchFailure;
         }
-        dispatchOutcome.rethrowStartFailure();
     }
 
     public CompletableFuture<Void> closeCompletion() {
@@ -151,7 +150,7 @@ public final class ProcessStreamResource<T extends Closeable> {
         }
     }
 
-    static void closePairAsync(
+    static BoundedCloseDispatcher.DispatchOutcome closePairAsync(
             ProcessStreamResource<? extends Closeable> first,
             String firstThreadPrefix,
             Consumer<? super Throwable> firstFailureHandler,
@@ -162,13 +161,21 @@ public final class ProcessStreamResource<T extends Closeable> {
             Runnable secondCompletionHandler) {
         Objects.requireNonNull(first, "first");
         Objects.requireNonNull(second, "second");
-        if (first == second || first.closeClaimLock != second.closeClaimLock) {
-            throw new IllegalArgumentException("Paired close resources must be distinct owners from one process");
-        }
         BoundedCloseDispatcher.CloseRequest firstRequest =
                 first.ownedCloseRequest(firstThreadPrefix, firstFailureHandler, firstCompletionHandler);
         BoundedCloseDispatcher.CloseRequest secondRequest =
                 second.ownedCloseRequest(secondThreadPrefix, secondFailureHandler, secondCompletionHandler);
+        return dispatchPair(first, firstRequest, second, secondRequest);
+    }
+
+    private static BoundedCloseDispatcher.DispatchOutcome dispatchPair(
+            ProcessStreamResource<? extends Closeable> first,
+            BoundedCloseDispatcher.CloseRequest firstRequest,
+            ProcessStreamResource<? extends Closeable> second,
+            BoundedCloseDispatcher.CloseRequest secondRequest) {
+        if (first == second || first.closeClaimLock != second.closeClaimLock) {
+            throw new IllegalArgumentException("Paired close resources must be distinct owners from one process");
+        }
         synchronized (first.closeClaimLock) {
             if (first.closeClaimed.get() || second.closeClaimed.get()) {
                 throw new IllegalStateException("Paired process output close has already started");
@@ -176,14 +183,15 @@ public final class ProcessStreamResource<T extends Closeable> {
             first.closeClaimed.set(true);
             second.closeClaimed.set(true);
         }
-        first.closePermit.dispatchPair(firstRequest, second.closePermit, secondRequest);
+        return first.closePermit.dispatchPairOutcome(firstRequest, second.closePermit, secondRequest);
     }
 
-    private void notifyInlineCloseFailure(Throwable failure) {
+    private Throwable notifyInlineCloseFailure(Throwable failure) {
         try {
             inlineCloseFailureHandler.accept(failure);
+            return null;
         } catch (Throwable callbackFailure) {
-            SuppressionSupport.attach(failure, callbackFailure);
+            return callbackFailure;
         }
     }
 
@@ -215,50 +223,81 @@ public final class ProcessStreamResource<T extends Closeable> {
     private void settleOwnedClose(
             Throwable physicalFailure, Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
         recordCloseFailure(physicalFailure);
-        BoundedFailureReporter.FailureTarget failureTarget = BoundedFailureReporter.captureFailureTarget();
-        publicationPermit.publish(() -> BoundedFailureReporter.withFailureTarget(failureTarget, () -> {
-            Throwable callbackFailure = null;
-            try {
-                if (physicalFailure != null) {
-                    failureHandler.accept(physicalFailure);
-                }
-            } catch (Throwable failure) {
-                callbackFailure = failure;
+        BoundedFailureReporter.FailureTarget failureTarget = captureFailureTarget();
+        publicationPermit.publish(() -> runWithFailureTarget(
+                failureTarget,
+                () -> publishOwnedClose(physicalFailure, failureHandler, completionHandler, failureTarget)));
+    }
+
+    private void publishOwnedClose(
+            Throwable physicalFailure,
+            Consumer<? super Throwable> failureHandler,
+            Runnable completionHandler,
+            BoundedFailureReporter.FailureTarget failureTarget) {
+        Throwable callbackFailure = null;
+        try {
+            if (physicalFailure != null) {
+                failureHandler.accept(physicalFailure);
             }
-            try {
-                completionHandler.run();
-            } catch (Throwable failure) {
-                callbackFailure = SuppressionSupport.combine(callbackFailure, failure);
-            }
-            try {
-                recordCloseFailure(callbackFailure);
-                if (callbackFailure != null) {
-                    try {
-                        failureReporter.accept(failureTarget, callbackFailure);
-                    } catch (RuntimeException | Error reporterFailure) {
-                        rethrowCombined(callbackFailure, reporterFailure);
-                    }
-                }
-            } finally {
-                closeCompletion.complete(null);
-            }
-        }));
+        } catch (Throwable failure) {
+            callbackFailure = failure;
+        }
+        try {
+            completionHandler.run();
+        } catch (Throwable failure) {
+            callbackFailure = FailureAggregation.combine(
+                    callbackFailure, failure, "Multiple process stream close callbacks failed");
+        } finally {
+            closeCompletion.complete(null);
+        }
+        if (callbackFailure != null) {
+            reportCallbackFailure(failureTarget, callbackFailure);
+        }
+    }
+
+    private void reportCallbackFailure(BoundedFailureReporter.FailureTarget failureTarget, Throwable callbackFailure) {
+        if (failureTarget == null) {
+            BoundedFailureReporter.reportBestEffort(callbackFailure);
+            return;
+        }
+        try {
+            failureReporter.accept(failureTarget, callbackFailure);
+        } catch (RuntimeException | Error reporterFailure) {
+            rethrowCombined(callbackFailure, reporterFailure);
+        }
+    }
+
+    private static BoundedFailureReporter.FailureTarget captureFailureTarget() {
+        try {
+            return BoundedFailureReporter.captureFailureTarget();
+        } catch (RuntimeException | Error ignored) {
+            return null;
+        }
+    }
+
+    private static void runWithFailureTarget(BoundedFailureReporter.FailureTarget failureTarget, Runnable task) {
+        if (failureTarget == null) {
+            task.run();
+        } else {
+            BoundedFailureReporter.withFailureTarget(failureTarget, task);
+        }
     }
 
     private static void rethrowCombined(Throwable callbackFailure, Throwable reporterFailure) {
-        if (callbackFailure instanceof RuntimeException runtimeFailure) {
-            SuppressionSupport.attach(runtimeFailure, reporterFailure);
+        Throwable primary = callbackFailure instanceof RuntimeException || callbackFailure instanceof Error
+                ? callbackFailure
+                : reporterFailure;
+        Throwable combined = FailureAggregation.combineWithPrimary(
+                primary,
+                List.of(callbackFailure, reporterFailure),
+                "Process stream close callback and failure reporting both failed");
+        if (combined instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;
         }
-        if (callbackFailure instanceof Error error) {
-            SuppressionSupport.attach(error, reporterFailure);
+        if (combined instanceof Error error) {
             throw error;
         }
-        SuppressionSupport.attach(reporterFailure, callbackFailure);
-        if (reporterFailure instanceof RuntimeException runtimeFailure) {
-            throw runtimeFailure;
-        }
-        throw (Error) reporterFailure;
+        throw new IllegalStateException("Unexpected checked process stream reporting failure", combined);
     }
 
     private void settleClose(Throwable physicalFailure) {
@@ -275,15 +314,10 @@ public final class ProcessStreamResource<T extends Closeable> {
         if (failure == null) {
             return;
         }
-        Throwable primaryFailure;
         synchronized (closeFailureLock) {
-            if (closeFailure == null) {
-                closeFailure = failure;
-                return;
-            }
-            primaryFailure = closeFailure;
+            closeFailure = FailureAggregation.combine(
+                    closeFailure, failure, "Multiple failures occurred while closing a process stream");
         }
-        SuppressionSupport.attach(primaryFailure, failure);
     }
 
     private void observeExistingClose(Consumer<? super Throwable> failureHandler, Runnable completionHandler) {

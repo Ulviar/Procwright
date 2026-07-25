@@ -3,7 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
@@ -30,13 +30,17 @@ final class PoolFailurePublisher {
             PoolLifecycleDispatcher.Ownership ownership = PoolLifecycleDispatcher.report(() -> report(report));
             ownership.started().whenComplete((ignored, launchFailure) -> {
                 if (launchFailure != null) {
-                    SuppressionSupport.attach(report.failure(), unwrap(launchFailure));
-                    BoundedFailureReporter.shared().report(report.failureTarget(), report.failure());
+                    Throwable aggregate = FailureAggregation.combine(
+                            report.failure(),
+                            unwrap(launchFailure),
+                            "Pool failure and bounded publication startup both failed");
+                    BoundedFailureReporter.shared().report(report.failureTarget(), aggregate);
                 }
             });
         } catch (RuntimeException | Error dispatchFailure) {
-            SuppressionSupport.attach(report.failure(), dispatchFailure);
-            BoundedFailureReporter.shared().report(report.failureTarget(), report.failure());
+            Throwable aggregate = FailureAggregation.combine(
+                    report.failure(), dispatchFailure, "Pool failure publication dispatch failed");
+            BoundedFailureReporter.shared().report(report.failureTarget(), aggregate);
         }
     }
 

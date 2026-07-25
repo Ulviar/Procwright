@@ -16,6 +16,7 @@ import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSessionException;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -79,7 +80,8 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
     @Test
     void publicExitWaitsForFallbackOwnedPhysicalOutputClose() throws Exception {
         IllegalStateException startFailure = new IllegalStateException("line stdout close starter failed");
-        BlockingPhysicalCloseInputStream stdout = new BlockingPhysicalCloseInputStream();
+        IOException physicalFailure = new IOException("line stdout physical close failed");
+        FailingBlockingPhysicalCloseInputStream stdout = new FailingBlockingPhysicalCloseInputStream(physicalFailure);
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3, (name, task) -> {
@@ -90,6 +92,19 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
         });
         DefaultLineSession lineSession =
                 new DefaultLineSession(session(process, dispatcher), LineSessionSettings.defaults());
+        AtomicInteger startReports = new AtomicInteger();
+        AtomicInteger physicalReports = new AtomicInteger();
+        AtomicReference<Throwable> unexpectedReport = new AtomicReference<>();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
+            if (failure == startFailure) {
+                startReports.incrementAndGet();
+            } else if (failure == physicalFailure) {
+                physicalReports.incrementAndGet();
+            } else {
+                unexpectedReport.compareAndSet(null, failure);
+            }
+        });
         try {
             process.complete(0);
             assertTrue(stdout.closeEntered.await(1, TimeUnit.SECONDS));
@@ -100,6 +115,13 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             stdout.releaseClose.countDown();
             lineSession.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);
             assertTrue(lineSession.physicalOutputCleanup().isDone());
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(1, stdout.closeCalls.get());
+            assertEquals(1, startReports.get());
+            assertEquals(1, physicalReports.get());
+            assertEquals(null, unexpectedReport.get());
+            assertEquals(0, startFailure.getSuppressed().length);
+            assertEquals(0, physicalFailure.getSuppressed().length);
             assertTrue(eventually(() -> dispatcher.activeCount() == 0
                     && dispatcher.pendingCount() == 0
                     && dispatcher.outstandingCount() == 0));
@@ -111,6 +133,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             } catch (RuntimeException | Error expectedTerminalFailure) {
                 assertSame(startFailure, expectedTerminalFailure);
             }
+            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
     }
 
@@ -221,7 +244,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             return thread;
         };
         DefaultLineSession lineSession = new DefaultLineSession(
-                rawSession, LineSessionSettings.defaults(), ZeroReadBackoff.exponential(), starter);
+                rawSession, LineSessionSettings.defaults(), LineSessionTestDependencies.withPumpStarter(starter));
         try {
             assertTrue(stdout.awaitReadEntered());
 
@@ -243,11 +266,14 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             ExecutionException cleanupFailure = assertThrows(
                     ExecutionException.class,
                     () -> rawSession.physicalOutputCleanup().get(1, TimeUnit.SECONDS));
-            assertSame(stdoutCloseFailure, cleanupFailure.getCause());
+            assertSame(stdoutCloseFailure, cleanupFailure.getCause().getCause());
+            assertEquals(
+                    List.of(stderrCloseFailure),
+                    List.of(cleanupFailure.getCause().getSuppressed()));
+            assertEquals(0, stdoutCloseFailure.getSuppressed().length);
+            assertEquals(0, stderrCloseFailure.getSuppressed().length);
 
-            assertIdentitySuppressedOnce(pumpError, stdoutCloseFailure);
-            assertIdentitySuppressedOnce(pumpError, stderrCloseFailure);
-            assertEquals(2, pumpError.getSuppressed().length);
+            assertEquals(0, pumpError.getSuppressed().length);
         } finally {
             stdout.releaseReadFailure();
             stdout.releaseCloseFailure();
@@ -300,12 +326,10 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             releaseDecoder.countDown();
             LineSessionException eof = assertInstanceOf(LineSessionException.class, request.get(1, TimeUnit.SECONDS));
             assertEquals(LineSessionException.Reason.EOF, eof.reason());
-            assertIdentitySuppressedOnce(eof, stdoutCloseFailure);
-            assertIdentitySuppressedOnce(eof, stderrCloseFailure);
-            assertEquals(2, eof.getSuppressed().length);
+            assertEquals(0, eof.getSuppressed().length);
             lineSession.onExit().handle((ignored, exitFailure) -> null).get(1, TimeUnit.SECONDS);
             assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(0, lateReports.get());
+            assertEquals(2, lateReports.get());
             assertEquals(0, dispatcher.outstandingCount());
         } finally {
             releaseDecoder.countDown();
@@ -379,7 +403,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
     }
 
     @Test
-    void responseLimitRemainsPrimaryWhenStderrDecoderFailsLater() throws Exception {
+    void fatalStderrDecoderFailureReplacesAnEarlierResponseLimit() throws Exception {
         assertResponseLimitAndFatalErrorAreArbitrated();
     }
 
@@ -391,8 +415,8 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
                 new ByteArrayInputStream(new byte[] {'x', 'y'}),
                 InputStream.nullInputStream());
         DefaultSession rawSession = session(process);
-        try (DefaultLineSession lineSession =
-                new DefaultLineSession(rawSession, options(charset), ZeroReadBackoff.exponential())) {
+        try (DefaultLineSession lineSession = new DefaultLineSession(
+                rawSession, options(charset), LineSessionTestDependencies.withBackoff(ZeroReadBackoff.exponential()))) {
             ExecutorService executor = Executors.newSingleThreadExecutor();
             try {
                 Future<LineResponse> request = executor.submit(() -> lineSession.requestEncoded(
@@ -425,8 +449,8 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             InputStream stderr = zeroStdout ? InputStream.nullInputStream() : zeroStream;
             ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
             DefaultSession rawSession = session(process);
-            DefaultLineSession lineSession =
-                    new DefaultLineSession(rawSession, LineSessionSettings.defaults(), backoff);
+            DefaultLineSession lineSession = new DefaultLineSession(
+                    rawSession, LineSessionSettings.defaults(), LineSessionTestDependencies.withBackoff(backoff));
             try {
                 assertTrue(backoff.awaitEntered());
                 assertEquals(1, zeroStream.reads(), "the pump must enter backoff before attempting another read");
@@ -544,14 +568,14 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
             Throwable thrown = request.get(2, TimeUnit.SECONDS);
             LineSessionException responseFailure = observedResponseFailure.get();
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
-            assertSame(responseFailure, thrown);
-            assertIdentitySuppressedOnce(responseFailure, fatalError);
+            assertSame(fatalError, thrown);
+            assertEquals(0, fatalError.getSuppressed().length);
+            assertEquals(0, responseFailure.getSuppressed().length);
 
             int writesAfterFailure = stdin.writeCalls();
             Throwable followUp = captureFailure(() ->
                     lineSession.requestEncoded("retry\n".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
-            assertTrue(followUp instanceof LineSessionException);
-            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, ((LineSessionException) followUp).reason());
+            assertSame(fatalError, followUp);
             assertEquals(writesAfterFailure, stdin.writeCalls());
         } finally {
             stdout.releaseByte();
@@ -566,15 +590,5 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
                 assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
             }
         }
-    }
-
-    private static void assertIdentitySuppressedOnce(Throwable primary, Throwable expected) {
-        int matches = 0;
-        for (Throwable suppressed : primary.getSuppressed()) {
-            if (suppressed == expected) {
-                matches++;
-            }
-        }
-        assertEquals(1, matches);
     }
 }

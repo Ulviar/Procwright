@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.concurrent.CountDownLatch;
@@ -285,109 +284,6 @@ abstract class ProcessKernelFailureOutputAndSupervisionCleanupTestSupport extend
 
         int forceDestroyCalls() {
             return forceDestroyCalls.get();
-        }
-    }
-
-    static final class SelfFailingCleanupProcess extends Process {
-
-        final AssertionError primaryFailure;
-        final AtomicBoolean stopped = new AtomicBoolean();
-        final AtomicBoolean stdoutClosed = new AtomicBoolean();
-        final AtomicBoolean stderrClosed = new AtomicBoolean();
-
-        SelfFailingCleanupProcess(AssertionError primaryFailure) {
-            this.primaryFailure = primaryFailure;
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return new InputStream() {
-                @Override
-                public int read() {
-                    return -1;
-                }
-
-                @Override
-                public void close() throws IOException {
-                    stdoutClosed.set(true);
-                    throw primaryFailure;
-                }
-            };
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return new InputStream() {
-                @Override
-                public int read() {
-                    return -1;
-                }
-
-                @Override
-                public void close() {
-                    stderrClosed.set(true);
-                }
-            };
-        }
-
-        @Override
-        public int waitFor() {
-            return 137;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            return stopped.get();
-        }
-
-        @Override
-        public int exitValue() {
-            if (!stopped.get()) {
-                throw new IllegalThreadStateException("process is alive");
-            }
-            return 137;
-        }
-
-        @Override
-        public void destroy() {
-            throw primaryFailure;
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            stopped.set(true);
-            throw primaryFailure;
-        }
-
-        @Override
-        public boolean isAlive() {
-            if (!stopped.get()) {
-                throw new SecurityException("root liveness observation is denied");
-            }
-            return false;
-        }
-
-        @Override
-        public ProcessHandle toHandle() {
-            throw new UnsupportedOperationException("process handles are unavailable");
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            throw new SecurityException("descendant enumeration is denied");
-        }
-
-        boolean stdoutClosed() {
-            return stdoutClosed.get();
-        }
-
-        boolean stderrClosed() {
-            return stderrClosed.get();
         }
     }
 }

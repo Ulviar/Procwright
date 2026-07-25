@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.HEALTHY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
@@ -27,6 +29,27 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSupport {
+
+    @Test
+    void typedAggregateExposureDoesNotWaitForOrMutateTheSourceFailure() throws Exception {
+        PoolFailure primary = new PoolFailure(FailureKind.CLOSED, "closed", null);
+        IllegalStateException cleanup = new IllegalStateException("cleanup failed");
+        Throwable aggregate = FailureAggregation.combine(primary, cleanup, "pool failed and cleanup failed");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (var monitor = hold(primary)) {
+            monitor.verifyHeld();
+            Future<Throwable> exposure = executor.submit(() -> Failures.INSTANCE.expose(aggregate));
+
+            PoolFailure exposed = (PoolFailure) exposure.get(1, TimeUnit.SECONDS);
+            assertEquals(FailureKind.CLOSED, exposed.kind);
+            assertSame(aggregate, exposed.getCause());
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+        assertEquals(0, primary.getSuppressed().length);
+        assertEquals(0, cleanup.getSuppressed().length);
+    }
 
     @Test
     void terminalCapacitySaturationFailsBeforeWorkerFactoryAndRecoversAfterClose() throws Exception {
@@ -464,8 +487,10 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-        assertSame(fatalFailure, observed.getCause());
-        assertSuppressedExactlyOnce(fatalFailure, runtimeFailure);
+        Throwable aggregate = observed.getCause();
+        assertSame(fatalFailure, aggregate.getCause());
+        assertSuppressedExactlyOnce(aggregate, runtimeFailure);
+        assertEquals(0, fatalFailure.getSuppressed().length);
         assertEquals(2, pool.metrics().failedWorkerCloses());
     }
 
@@ -487,8 +512,10 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-        assertSame(fatalFailure, observed.getCause());
-        assertSuppressedExactlyOnce(fatalFailure, runtimeFailure);
+        Throwable aggregate = observed.getCause();
+        assertSame(fatalFailure, aggregate.getCause());
+        assertSuppressedExactlyOnce(aggregate, runtimeFailure);
+        assertEquals(0, fatalFailure.getSuppressed().length);
         assertEquals(2, pool.metrics().failedWorkerCloses());
     }
 
@@ -512,9 +539,11 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-        assertSame(firstFatal, observed.getCause());
-        assertSuppressedExactlyOnce(firstFatal, runtimeFailure);
-        assertSuppressedExactlyOnce(firstFatal, secondFatal);
+        Throwable aggregate = observed.getCause();
+        assertSame(firstFatal, aggregate.getCause());
+        assertSuppressedExactlyOnce(aggregate, runtimeFailure);
+        assertSuppressedExactlyOnce(aggregate, secondFatal);
+        assertEquals(0, firstFatal.getSuppressed().length);
         assertEquals(3, pool.metrics().failedWorkerCloses());
     }
 

@@ -82,8 +82,11 @@ final class ProcessIoAcquisition {
             return new ProcessIoResources(stdin, stdout, stderr);
         } catch (RuntimeException | Error failure) {
             ledger.rollback(process, cleanupFailures);
-            attachAll(failure, cleanupFailures);
-            throw failure;
+            rethrow(FailureAggregation.combine(
+                    failure,
+                    FailureAggregation.combine(cleanupFailures, "Process I/O acquisition cleanup failed"),
+                    "Process I/O acquisition and cleanup both failed"));
+            throw new AssertionError("unreachable");
         }
     }
 
@@ -119,14 +122,14 @@ final class ProcessIoAcquisition {
         }
     }
 
-    private static void attachAll(Throwable primaryFailure, List<Throwable> secondaryFailures) {
-        for (int index = 0; index < secondaryFailures.size(); index++) {
-            try {
-                SuppressionSupport.attach(primaryFailure, secondaryFailures.get(index));
-            } catch (Throwable ignored) {
-                // Failure decoration is best effort after mandatory rollback has completed.
-            }
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
         }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new AssertionError("Process I/O acquisition produced a checked failure", failure);
     }
 
     private static final class ConstructionLedger {

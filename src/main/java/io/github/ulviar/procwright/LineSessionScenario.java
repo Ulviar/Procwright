@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
-import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticListener;
 import io.github.ulviar.procwright.diagnostics.DiagnosticTranscriptSink;
@@ -36,7 +35,7 @@ public final class LineSessionScenario {
         return new ImmutableDraft(
                 runtime,
                 new SessionScenarioSettings<>(
-                        SessionSettings.defaults(runtime.launchSettings()),
+                        SessionSettings.defaults(runtime.commandSpec()),
                         ReadinessSettings.defaults(),
                         LineSessionSettings.defaults()));
     }
@@ -463,14 +462,14 @@ public final class LineSessionScenario {
 
         @Override
         public Draft withInheritedEnvironment() {
-            return withSession(settings.session()
-                    .withLaunch(settings.session().launch().withEnvironmentPolicy(EnvironmentPolicy.INHERIT)));
+            return withSession(
+                    settings.session().withLaunch(settings.session().launch().withInheritedEnvironment()));
         }
 
         @Override
         public Draft withCleanEnvironment() {
-            return withSession(settings.session()
-                    .withLaunch(settings.session().launch().withEnvironmentPolicy(EnvironmentPolicy.CLEAN)));
+            return withSession(
+                    settings.session().withLaunch(settings.session().launch().withCleanEnvironment()));
         }
 
         @Override
@@ -558,18 +557,13 @@ public final class LineSessionScenario {
 
         @Override
         public Draft withCharset(Charset charset) {
-            CharsetPolicy charsetPolicy = CharsetPolicy.replace(charset);
-            return withSessionAndProtocol(
-                    settings.session().withCharset(charsetPolicy.charset()),
-                    settings.protocol().withCharsetPolicy(charsetPolicy));
+            return withCharsetPolicy(CharsetPolicy.replace(charset));
         }
 
         @Override
         public Draft withCharsetPolicy(CharsetPolicy charsetPolicy) {
-            Objects.requireNonNull(charsetPolicy, "charsetPolicy");
-            return withSessionAndProtocol(
-                    settings.session().withCharset(charsetPolicy.charset()),
-                    settings.protocol().withCharsetPolicy(charsetPolicy));
+            return withProtocol(
+                    settings.protocol().withCharsetPolicy(Objects.requireNonNull(charsetPolicy, "charsetPolicy")));
         }
 
         @Override
@@ -591,7 +585,7 @@ public final class LineSessionScenario {
 
         @Override
         public PoolDraft pooled() {
-            WorkerPoolSettings<LineSession> poolSettings = WorkerPoolSettings.defaults(worker -> {}, worker -> true);
+            WorkerPoolSettings<LineSession> poolSettings = WorkerPoolSettings.defaults();
             return new ImmutablePoolDraft(runtime, settings, poolSettings);
         }
 
@@ -601,22 +595,19 @@ public final class LineSessionScenario {
         }
 
         private Draft withSession(SessionSettings session) {
-            return new ImmutableDraft(
-                    runtime, new SessionScenarioSettings<>(session, settings.readiness(), settings.protocol()));
+            return copy(settings.withSession(session));
         }
 
         private Draft withReadiness(ReadinessSettings<LineSession> readiness) {
-            return new ImmutableDraft(
-                    runtime, new SessionScenarioSettings<>(settings.session(), readiness, settings.protocol()));
+            return copy(settings.withReadiness(readiness));
         }
 
         private Draft withProtocol(LineSessionSettings protocol) {
-            return new ImmutableDraft(
-                    runtime, new SessionScenarioSettings<>(settings.session(), settings.readiness(), protocol));
+            return copy(settings.withProtocol(protocol));
         }
 
-        private Draft withSessionAndProtocol(SessionSettings session, LineSessionSettings protocol) {
-            return new ImmutableDraft(runtime, new SessionScenarioSettings<>(session, settings.readiness(), protocol));
+        private Draft copy(SessionScenarioSettings<LineSession, LineSessionSettings> updated) {
+            return new ImmutableDraft(runtime, updated);
         }
     }
 

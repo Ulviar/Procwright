@@ -4,7 +4,6 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DurationSupport;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.ExpectMatch;
 import io.github.ulviar.procwright.session.LineTranscript;
@@ -222,12 +221,12 @@ final class ExpectSessionState {
                 return propagateRegexFailure(cause);
             }
             if (terminal.kind() == TerminalKind.FAILURE) {
-                resolution = RegexFailureResolution.suppress(selected, terminal.cause(), cause);
+                resolution = RegexFailureResolution.retain(selected, cause);
             } else if (cause instanceof Error error) {
                 resolution = RegexFailureResolution.report(
                         selected, Objects.requireNonNull(evaluatorThread, "regex evaluator thread"), error);
             } else {
-                resolution = RegexFailureResolution.suppress(selected, selected, cause);
+                resolution = RegexFailureResolution.retain(selected, cause);
             }
         }
         resolution.apply(lateFatalFailureReporter);
@@ -235,15 +234,7 @@ final class ExpectSessionState {
     }
 
     void handleLateRegexError(Thread evaluatorThread, Error failure) {
-        Throwable suppressionTarget;
-        synchronized (this) {
-            suppressionTarget = terminal != null && terminal.kind() == TerminalKind.FAILURE ? terminal.cause() : null;
-        }
-        if (suppressionTarget != null) {
-            SuppressionSupport.attach(suppressionTarget, failure);
-        } else {
-            lateFatalFailureReporter.handle(evaluatorThread, failure);
-        }
+        lateFatalFailureReporter.handle(evaluatorThread, failure);
     }
 
     void reportLateFatal(Thread failureThread, Error failure) {
@@ -347,25 +338,20 @@ final class ExpectSessionState {
     }
 
     private record RegexFailureResolution(
-            ExpectException selectedFailure,
-            Throwable suppressionTarget,
-            Throwable losingFailure,
-            Thread reportThread,
-            Error reportedError) {
+            ExpectException selectedFailure, Throwable retainedFailure, Thread reportThread, Error reportedError) {
 
-        private static RegexFailureResolution suppress(
-                ExpectException selectedFailure, Throwable target, Throwable losingFailure) {
-            return new RegexFailureResolution(selectedFailure, target, losingFailure, null, null);
+        private static RegexFailureResolution retain(ExpectException selectedFailure, Throwable retainedFailure) {
+            return new RegexFailureResolution(selectedFailure, retainedFailure, null, null);
         }
 
         private static RegexFailureResolution report(
                 ExpectException selectedFailure, Thread reportThread, Error reportedError) {
-            return new RegexFailureResolution(selectedFailure, null, null, reportThread, reportedError);
+            return new RegexFailureResolution(selectedFailure, null, reportThread, reportedError);
         }
 
         private void apply(BoundedTaskRunner.LateFatalHandler reporter) {
-            if (suppressionTarget != null) {
-                SuppressionSupport.attach(suppressionTarget, losingFailure);
+            if (retainedFailure != null) {
+                selectedFailure.addSuppressed(retainedFailure);
             } else {
                 reporter.handle(reportThread, reportedError);
             }

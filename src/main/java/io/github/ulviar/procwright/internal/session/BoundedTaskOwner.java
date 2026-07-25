@@ -14,10 +14,6 @@ interface BoundedTaskOwner {
         return FreshOwner.INSTANCE;
     }
 
-    static BoundedTaskOwner fresh(BoundedTaskRunner.TaskThreadFactory threadFactory) {
-        return new FactoryOwner(Objects.requireNonNull(threadFactory, "threadFactory"));
-    }
-
     static BoundedTaskOwner delegated(BoundedTaskRunner.TaskStarter taskStarter) {
         return new DelegatedOwner(Objects.requireNonNull(taskStarter, "taskStarter"));
     }
@@ -29,18 +25,6 @@ interface BoundedTaskOwner {
         public void start(
                 String threadPrefix, String taskName, Runnable task, BoundedTaskRunner.TaskRejection rejection) {
             Threading.unstartedPlatformNonInheriting(taskName, task).start();
-        }
-    }
-
-    record FactoryOwner(BoundedTaskRunner.TaskThreadFactory threadFactory) implements BoundedTaskOwner {
-
-        @Override
-        public void start(
-                String threadPrefix, String taskName, Runnable task, BoundedTaskRunner.TaskRejection rejection) {
-            Thread thread =
-                    Objects.requireNonNull(threadFactory.unstarted(threadPrefix, task), "threadFactory returned null");
-            thread.setDaemon(true);
-            thread.start();
         }
     }
 

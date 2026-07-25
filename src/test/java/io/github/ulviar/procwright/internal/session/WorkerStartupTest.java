@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -85,6 +86,36 @@ final class WorkerStartupTest {
 
         assertSame(expected, observed.getCause());
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
+    }
+
+    @Test
+    void failureTargetCaptureCannotReplaceFactoryFailureOrPreventSettlement() throws Exception {
+        IllegalStateException expected = new IllegalStateException("factory failed");
+        AssertionError captureFailure = new AssertionError("context loader unavailable");
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
+        WorkerStartup<String> startup = new WorkerStartup<>(
+                () -> {
+                    throw expected;
+                },
+                "startup-hostile-target-test-",
+                ignored -> {},
+                (name, task) -> new Thread(task, name) {
+                    @Override
+                    public ClassLoader getContextClassLoader() {
+                        throw captureFailure;
+                    }
+                });
+        BoundedTaskPermit initialPermit = limiter.tryAcquire();
+        assertNotNull(initialPermit);
+        startup.start(initialPermit);
+
+        ExecutionException observed = assertThrows(ExecutionException.class, () -> startup.await(deadline()));
+
+        assertSame(expected, observed.getCause());
+        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
+        BoundedTaskPermit recoveredPermit = limiter.tryAcquire();
+        assertNotNull(recoveredPermit, "factory permit was not released");
+        recoveredPermit.close();
     }
 
     @Test

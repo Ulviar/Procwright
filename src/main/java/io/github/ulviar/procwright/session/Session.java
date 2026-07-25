@@ -91,15 +91,19 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
      * Returns an isolated view of the session's terminal future.
      *
      * <p>Completion follows process-tree cleanup, both physical stdout and stderr close attempts, and, when a Procwright
-     * output helper owns those streams, both helper pump tasks and final close-failure aggregation. The internal process
+     * output helper owns those streams, both helper pump tasks and final close-failure settlement. The internal process
      * outcome does not wait on helper cleanup, so helper observation cannot form a lifecycle dependency cycle; only this
      * public view applies the full cleanup barrier. A helper failure does not replace the raw process outcome.
      *
      * <p>A failure from a caller's inline raw-output close becomes the terminal session failure, by identity, if no other
      * terminal failure already owns the session. An inline close already in flight remains part of the public barrier and
-     * can therefore replace a selected natural-success outcome until that physical close settles. Existing primary
-     * failures remain primary and retain later cleanup failures through suppression; other late asynchronous failures do
-     * not rewrite a published outcome.
+     * can therefore replace a selected natural-success outcome until that physical close settles. When the process or
+     * an inline raw-output close fails, independently observed raw-output cleanup failures join one stable aggregate:
+     * the first terminal failure is its cause and later failures are directly suppressed on the aggregate. The source
+     * failures are not mutated. A physical raw-output failure by itself does not replace a successful process outcome;
+     * it is submitted to the bounded diagnostic reporter on a best-effort basis and may be dropped if reporting capacity
+     * is unavailable. Output helpers report non-selected close diagnostics separately, and other late asynchronous
+     * failures do not rewrite a published outcome.
      *
      * <p>The barrier does not wait for a physical stdin close blocked by a concurrent write. Caller-side completion or
      * cancellation of the returned view cannot affect the lifecycle owner. Synchronous continuations run on bounded

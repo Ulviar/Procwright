@@ -6,7 +6,6 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.KnownDescendants;
 import io.github.ulviar.procwright.internal.LiveDescendantSnapshot;
 import io.github.ulviar.procwright.internal.ProcessLifecycle;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.OptionalInt;
@@ -52,32 +51,36 @@ final class SessionProcessCleanup {
         }
     }
 
-    synchronized void forcePreserving(Throwable primaryFailure) {
-        Objects.requireNonNull(primaryFailure, "primaryFailure");
-        if (completed) {
-            return;
-        }
-        try {
-            ProcessLifecycle.forceStop(process, knownDescendants(), FAILURE_CLEANUP_TIMEOUT);
-        } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
-        } finally {
-            completed = true;
+    Throwable forceAfterFailure() {
+        synchronized (this) {
+            if (completed) {
+                return null;
+            }
+            try {
+                ProcessLifecycle.forceStop(process, knownDescendants(), FAILURE_CLEANUP_TIMEOUT);
+                return null;
+            } catch (RuntimeException | Error failure) {
+                return failure;
+            } finally {
+                completed = true;
+            }
         }
     }
 
-    synchronized void stopPreserving(Throwable primaryFailure) {
-        Objects.requireNonNull(primaryFailure, "primaryFailure");
-        if (completed) {
-            return;
-        }
-        try {
-            exitCode = ProcessLifecycle.stop(process, knownDescendants(), shutdownPolicy);
-            exitCodeSnapshot = exitCode;
-        } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
-        } finally {
-            completed = true;
+    Throwable stopAfterFailure() {
+        synchronized (this) {
+            if (completed) {
+                return null;
+            }
+            try {
+                exitCode = ProcessLifecycle.stop(process, knownDescendants(), shutdownPolicy);
+                exitCodeSnapshot = exitCode;
+                return null;
+            } catch (RuntimeException | Error failure) {
+                return failure;
+            } finally {
+                completed = true;
+            }
         }
     }
 

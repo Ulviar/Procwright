@@ -23,7 +23,7 @@ implementation helpers в пользовательский API.
 - `io.github.ulviar.procwright.session` содержит публичные sealed handle interfaces и immutable value/exception types;
 - `io.github.ulviar.procwright.internal.session` содержит stateful implementations и runtime factories:
   `DefaultSession`, `DefaultExpect`, `DefaultLineSession`, `DefaultStreamSession`, `DefaultPooledLineSession`,
-  `SessionRuntime`, `StreamRuntime`, `SessionScenarioSupport`;
+  `SessionRuntime`, `StreamRuntime`;
 - root facade `CommandService` продолжает возвращать scenario-first public interfaces;
 - `module-info.java` экспортирует только public API packages:
   `io.github.ulviar.procwright`, `command`, `diagnostics`, `session`, `terminal`;

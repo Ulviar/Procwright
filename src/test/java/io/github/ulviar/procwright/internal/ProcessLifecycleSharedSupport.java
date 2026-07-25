@@ -14,6 +14,29 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 class ProcessLifecycleSharedSupport {
+    static List<Throwable> failureSources(Throwable failure) {
+        List<Throwable> aggregateSources = FailureAggregation.sources(failure);
+        if (aggregateSources.size() != 1 || aggregateSources.getFirst() != failure) {
+            return aggregateSources;
+        }
+        if (failure instanceof io.github.ulviar.procwright.command.CommandExecutionException
+                && failure.getCause() != null) {
+            java.util.ArrayList<Throwable> sources = new java.util.ArrayList<>();
+            sources.add(failure.getCause());
+            sources.addAll(List.of(failure.getSuppressed()));
+            return List.copyOf(sources);
+        }
+        return aggregateSources;
+    }
+
+    static Throwable failureSourceContaining(Throwable failure, String text) {
+        return failureSources(failure).stream()
+                .filter(source ->
+                        source.getMessage() != null && source.getMessage().contains(text))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No failure source contains: " + text, failure));
+    }
+
     static KnownDescendants knownDescendants(ProcessHandle... handles) {
         return knownDescendants(List.of(handles));
     }

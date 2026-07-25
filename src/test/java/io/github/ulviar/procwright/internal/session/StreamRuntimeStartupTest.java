@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -166,8 +165,7 @@ final class StreamRuntimeStartupTest extends StreamRuntimeStartupTestSupport {
                                 session,
                                 streamPlan,
                                 streamDiagnostics,
-                                ZeroReadBackoff.exponential(),
-                                trackingStarter)));
+                                StreamSessionTestDependencies.withPumpStarter(trackingStarter))));
 
         assertSame(constructionFailure, thrown);
         assertTrue(process.awaitDestroyed(), "process cleanup must complete before owned output closes");
@@ -196,16 +194,27 @@ final class StreamRuntimeStartupTest extends StreamRuntimeStartupTestSupport {
     }
 
     @Test
-    void cleanupFailureIsSuppressedOnTheConstructionFailure() {
-        AssertionError constructionFailure = new AssertionError("stream construction failed");
+    void cleanupFailureIsReportedWithoutMutatingTheConstructionFailure() throws Exception {
         AssertionError cleanupFailure = new AssertionError("stream cleanup failed");
+        CountDownLatch reported = new CountDownLatch(1);
+        AtomicInteger matchingReports = new AtomicInteger();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
+            if (failure == cleanupFailure) {
+                matchingReports.incrementAndGet();
+                reported.countDown();
+            }
+        });
 
-        StreamRuntime.closePreserving(
-                () -> {
-                    throw cleanupFailure;
-                },
-                constructionFailure);
-
-        assertArrayEquals(new Throwable[] {cleanupFailure}, constructionFailure.getSuppressed());
+        try {
+            StreamRuntime.closePreserving(() -> {
+                throw cleanupFailure;
+            });
+            assertTrue(reported.await(1, TimeUnit.SECONDS));
+            assertEquals(1, matchingReports.get());
+            assertEquals(0, cleanupFailure.getSuppressed().length);
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous);
+        }
     }
 }

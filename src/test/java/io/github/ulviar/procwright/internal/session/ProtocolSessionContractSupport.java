@@ -62,7 +62,7 @@ abstract class ProtocolSessionContractSupport {
         pending.add(root);
         while (!pending.isEmpty()) {
             Throwable current = pending.remove(pending.size() - 1);
-            assertNotSame(forbidden, current, "failure graph must not contain a suppression cycle");
+            assertNotSame(forbidden, current, "failure graph unexpectedly references the forbidden failure");
             if (visited.put(current, Boolean.TRUE) != null) {
                 continue;
             }

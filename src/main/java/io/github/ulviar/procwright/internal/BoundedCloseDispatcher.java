@@ -184,7 +184,7 @@ public final class BoundedCloseDispatcher {
             secondLaunch = admitLocked(secondExecution);
         }
         Throwable failure = startExecution(firstLaunch);
-        failure = SuppressionSupport.combine(failure, startExecution(secondLaunch));
+        failure = combineFailures(failure, startExecution(secondLaunch));
         return DispatchOutcome.accepted(failure);
     }
 
@@ -329,7 +329,7 @@ public final class BoundedCloseDispatcher {
             request.settlement().accept(failure);
             return failure;
         } catch (Throwable settlementFailure) {
-            return SuppressionSupport.combine(failure, settlementFailure);
+            return combineFailures(failure, settlementFailure);
         }
     }
 
@@ -340,12 +340,11 @@ public final class BoundedCloseDispatcher {
                     try {
                         request.failureHandler().accept(failure);
                     } catch (Throwable callbackFailure) {
-                        SuppressionSupport.attach(failure, callbackFailure);
-                        notifications.report(sourceThread, failure);
+                        notifications.report(sourceThread, combineFailures(failure, callbackFailure));
                     }
                 });
-            } catch (Throwable notificationFailure) {
-                SuppressionSupport.attach(failure, notificationFailure);
+            } catch (Throwable ignored) {
+                // Physical close and mandatory settlement are already complete.
             }
         }
     }
@@ -467,6 +466,10 @@ public final class BoundedCloseDispatcher {
             owner.dispatchReservedPair(this, first, secondPermit, second).rethrowStartFailure();
         }
 
+        DispatchOutcome dispatchPairOutcome(CloseRequest first, Permit secondPermit, CloseRequest second) {
+            return owner.dispatchReservedPair(this, first, secondPermit, second);
+        }
+
         DispatchOutcome dispatchOutcome(CloseRequest request) {
             Objects.requireNonNull(request, "request");
             return owner.dispatchReserved(this, request);
@@ -517,7 +520,7 @@ public final class BoundedCloseDispatcher {
      * physical close. A recorded starter failure may still be rethrown to preserve the synchronous API, but it must not
      * be interpreted as a transfer of cleanup responsibility back to the caller.
      */
-    static final class DispatchOutcome {
+    public static final class DispatchOutcome {
 
         private final Throwable startFailure;
 
@@ -525,11 +528,11 @@ public final class BoundedCloseDispatcher {
             this.startFailure = startFailure;
         }
 
-        private static DispatchOutcome accepted(Throwable startFailure) {
+        static DispatchOutcome accepted(Throwable startFailure) {
             return new DispatchOutcome(startFailure);
         }
 
-        void rethrowStartFailure() {
+        public void rethrowStartFailure() {
             if (startFailure instanceof RuntimeException runtimeFailure) {
                 throw runtimeFailure;
             }
@@ -580,13 +583,17 @@ public final class BoundedCloseDispatcher {
         }
 
         private void runClaimedAfterStartFailure() {
-            Throwable failure = startFailure;
-            if (failure == null) {
+            Throwable launchFailure = startFailure;
+            if (launchFailure == null) {
                 throw new IllegalStateException("Fallback close execution has no starter failure");
             }
-            SuppressionSupport.attach(failure, attemptPhysicalClose(request.closeable()));
-            completeExecution(this, failure);
+            Throwable closeFailure = attemptPhysicalClose(request.closeable());
+            completeExecution(this, combineFailures(launchFailure, closeFailure));
         }
+    }
+
+    private static Throwable combineFailures(Throwable first, Throwable second) {
+        return FailureAggregation.combine(first, second, "Multiple failures occurred while closing a process stream");
     }
 
     private final class WorkerStartGate {

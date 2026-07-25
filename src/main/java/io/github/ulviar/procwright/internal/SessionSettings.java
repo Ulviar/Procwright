@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal;
 
+import io.github.ulviar.procwright.command.CommandSpec;
+import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -10,7 +12,7 @@ import java.util.Objects;
 
 /** Immutable launch, lifecycle, terminal, and diagnostics state shared by session scenarios. */
 public record SessionSettings(
-        LaunchSettings launch,
+        CommandSpec launch,
         ShutdownPolicy shutdownPolicy,
         Duration idleTimeout,
         Charset charset,
@@ -26,7 +28,7 @@ public record SessionSettings(
         Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
-    public static SessionSettings defaults(LaunchSettings launch) {
+    public static SessionSettings defaults(CommandSpec launch) {
         return new SessionSettings(
                 launch,
                 ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)),
@@ -38,7 +40,7 @@ public record SessionSettings(
 
     public SessionExecutionPlan plan() {
         return new SessionExecutionPlan(
-                launch.plan(io.github.ulviar.procwright.command.OutputMode.SEPARATE, terminal.policy()),
+                LaunchPlan.from(launch, OutputMode.SEPARATE, terminal.policy()),
                 shutdownPolicy,
                 idleTimeout,
                 charset,
@@ -46,7 +48,7 @@ public record SessionSettings(
                 terminal.size());
     }
 
-    public SessionSettings withLaunch(LaunchSettings launch) {
+    public SessionSettings withLaunch(CommandSpec launch) {
         return new SessionSettings(launch, shutdownPolicy, idleTimeout, charset, terminal, diagnostics);
     }
 

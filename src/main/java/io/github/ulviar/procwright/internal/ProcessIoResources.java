@@ -93,14 +93,26 @@ public final class ProcessIoResources {
 
     public void closeAllAsync(Consumer<? super Throwable> failureHandler) {
         Objects.requireNonNull(failureHandler, "failureHandler");
-        dispatchAll(
-                () -> stdin.closeAsync("procwright-process-stdin-close-", failureHandler),
-                () -> stdout.closeAsync("procwright-process-stdout-close-", failureHandler),
-                () -> stderr.closeAsync("procwright-process-stderr-close-", failureHandler));
+        Throwable failure = null;
+        try {
+            stdin.closeAsync("procwright-process-stdin-close-", failureHandler);
+        } catch (RuntimeException | Error dispatchFailure) {
+            failure = dispatchFailure;
+        }
+        try {
+            stdout.closeAsync("procwright-process-stdout-close-", failureHandler);
+        } catch (RuntimeException | Error dispatchFailure) {
+            failure = combineDispatchFailures(failure, dispatchFailure);
+        }
+        try {
+            stderr.closeAsync("procwright-process-stderr-close-", failureHandler);
+        } catch (RuntimeException | Error dispatchFailure) {
+            failure = combineDispatchFailures(failure, dispatchFailure);
+        }
+        rethrow(failure);
     }
 
-    public void rollbackConstruction(Throwable primaryFailure) {
-        Objects.requireNonNull(primaryFailure, "primaryFailure");
+    public Throwable rollbackConstruction() {
         List<Throwable> rollbackFailures;
         try {
             rollbackFailures = new ArrayList<>(6);
@@ -108,24 +120,19 @@ public final class ProcessIoResources {
             stdin.rollbackConstruction();
             stdout.rollbackConstruction();
             stderr.rollbackConstruction();
-            attachPreserving(primaryFailure, allocationFailure);
-            return;
+            return allocationFailure;
         }
         stdin.rollbackConstruction(rollbackFailures);
         stdout.rollbackConstruction(rollbackFailures);
         stderr.rollbackConstruction(rollbackFailures);
-        attachAll(primaryFailure, rollbackFailures);
+        return FailureAggregation.combine(rollbackFailures, "Multiple process stream construction rollbacks failed");
     }
 
-    private static void dispatchAll(Runnable... dispatches) {
-        Throwable failure = null;
-        for (Runnable dispatch : dispatches) {
-            try {
-                dispatch.run();
-            } catch (RuntimeException | Error dispatchFailure) {
-                failure = SuppressionSupport.combine(failure, dispatchFailure);
-            }
-        }
+    private static Throwable combineDispatchFailures(Throwable first, Throwable second) {
+        return FailureAggregation.combine(first, second, "Multiple process stream close dispatches failed");
+    }
+
+    private static void rethrow(Throwable failure) {
         if (failure instanceof RuntimeException runtimeException) {
             throw runtimeException;
         }
@@ -155,13 +162,12 @@ public final class ProcessIoResources {
         } catch (ExecutionException impossible) {
             return new AssertionError("process close completion stores failures as values", impossible);
         }
-        Throwable failure = null;
-        failure = SuppressionSupport.combine(failure, stdin.closeResult());
-        failure = SuppressionSupport.combine(failure, stdout.closeResult());
-        return SuppressionSupport.combine(failure, stderr.closeResult());
+        Throwable failure = FailureAggregation.combine(
+                stdin.closeResult(), stdout.closeResult(), "Multiple process streams failed to close");
+        return FailureAggregation.combine(failure, stderr.closeResult(), "Multiple process streams failed to close");
     }
 
-    public static void closePairAsync(
+    public static BoundedCloseDispatcher.DispatchOutcome closePairAsync(
             ProcessStreamResource<? extends Closeable> first,
             String firstThreadPrefix,
             Consumer<? super Throwable> firstFailureHandler,
@@ -170,7 +176,7 @@ public final class ProcessIoResources {
             String secondThreadPrefix,
             Consumer<? super Throwable> secondFailureHandler,
             Runnable secondCompletionHandler) {
-        ProcessStreamResource.closePairAsync(
+        return ProcessStreamResource.closePairAsync(
                 first,
                 firstThreadPrefix,
                 firstFailureHandler,
@@ -179,23 +185,5 @@ public final class ProcessIoResources {
                 secondThreadPrefix,
                 secondFailureHandler,
                 secondCompletionHandler);
-    }
-
-    private static void attachAll(Throwable primaryFailure, List<Throwable> secondaryFailures) {
-        for (int index = 0; index < secondaryFailures.size(); index++) {
-            try {
-                SuppressionSupport.attach(primaryFailure, secondaryFailures.get(index));
-            } catch (Throwable ignored) {
-                // Failure decoration is best effort after mandatory rollback has completed.
-            }
-        }
-    }
-
-    private static void attachPreserving(Throwable primaryFailure, Throwable secondaryFailure) {
-        try {
-            SuppressionSupport.attach(primaryFailure, secondaryFailure);
-        } catch (Throwable ignored) {
-            // Mandatory rollback has completed; failure decoration remains best effort.
-        }
     }
 }

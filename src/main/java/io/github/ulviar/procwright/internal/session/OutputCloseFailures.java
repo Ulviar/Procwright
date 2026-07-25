@@ -3,168 +3,178 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 
-/** Classifies output-close failures for attachment to a terminal failure or bounded late reporting. */
+/** Selects the already-observed helper failure and reports every other failure best effort. */
 final class OutputCloseFailures {
 
     private final Object lock = new Object();
-    private final Set<Throwable> recorded = Collections.newSetFromMap(new IdentityHashMap<>());
-    private final Set<Throwable> fallbacks = Collections.newSetFromMap(new IdentityHashMap<>());
-    private final List<CleanupFailure> cleanupFailures = new ArrayList<>(2);
-    private final List<Throwable> fallbackFailures = new ArrayList<>();
+    private final Reporter reporter;
+    private List<ObservedFailure> observed;
     private Throwable terminalPrimary;
     private Throwable fallbackPrimary;
     private boolean finished;
-    private boolean reportFutureCleanupFailures;
+
+    OutputCloseFailures() {
+        this((target, failure) -> BoundedFailureReporter.shared().report(target, failure));
+    }
+
+    OutputCloseFailures(Reporter reporter) {
+        this.reporter = Objects.requireNonNull(reporter, "reporter");
+    }
 
     void retainPrimary(Throwable failure) {
         if (failure == null) {
             return;
         }
+        List<ObservedFailure> candidates = observe(failure);
+        List<ObservedFailure> reports;
         synchronized (lock) {
             if (terminalPrimary == null) {
                 terminalPrimary = failure;
-                reportFutureCleanupFailures = false;
-                for (Throwable fallbackFailure : fallbackFailures) {
-                    SuppressionSupport.attach(failure, fallbackFailure);
-                }
-                for (CleanupFailure cleanupFailure : cleanupFailures) {
-                    if (cleanupFailure.publication == Publication.PENDING) {
-                        cleanupFailure.publication = Publication.ATTACHED;
-                        SuppressionSupport.attachDirect(failure, cleanupFailure.failure);
-                    }
-                }
-            } else if (terminalPrimary != failure) {
-                SuppressionSupport.attach(terminalPrimary, failure);
             }
+            addLocked(candidates);
+            reports = finished ? claimReportsLocked() : List.of();
         }
+        report(reports);
     }
 
     void retainFallback(Throwable failure) {
         if (failure == null) {
             return;
         }
+        List<ObservedFailure> candidates = observe(failure);
+        List<ObservedFailure> reports;
         synchronized (lock) {
-            if (!fallbacks.add(failure)) {
-                return;
-            }
-            fallbackFailures.add(failure);
-            if (terminalPrimary != null) {
-                SuppressionSupport.attach(terminalPrimary, failure);
-            } else if (fallbackPrimary == null) {
+            if (fallbackPrimary == null) {
                 fallbackPrimary = failure;
-            } else {
-                SuppressionSupport.attach(fallbackPrimary, failure);
             }
+            addLocked(candidates);
+            reports = finished ? claimReportsLocked() : List.of();
         }
+        report(reports);
     }
 
     void record(Throwable failure) {
         if (failure == null) {
             return;
         }
-        BoundedFailureReporter.FailureTarget failureTarget = BoundedFailureReporter.captureFailureTarget();
-        Throwable target;
-        boolean reportUncaught;
-        CleanupFailure cleanupFailure;
+        List<ObservedFailure> candidates = observe(failure);
+        List<ObservedFailure> reports;
         synchronized (lock) {
-            if (!recorded.add(failure)) {
-                return;
-            }
-            cleanupFailure = new CleanupFailure(failure, failureTarget);
-            cleanupFailures.add(cleanupFailure);
-            if (terminalPrimary != null) {
-                cleanupFailure.publication = Publication.ATTACHED;
-                target = terminalPrimary;
-                reportUncaught = false;
-            } else if (reportFutureCleanupFailures) {
-                cleanupFailure.publication = Publication.REPORT_CLAIMED;
-                target = null;
-                reportUncaught = true;
-            } else if (finished && fallbackPrimary != null) {
-                cleanupFailure.publication = Publication.ATTACHED;
-                target = fallbackPrimary;
-                reportUncaught = false;
-            } else if (finished) {
-                cleanupFailure.publication = Publication.REPORT_CLAIMED;
-                target = null;
-                reportUncaught = true;
-            } else {
-                target = null;
-                reportUncaught = false;
-            }
+            addLocked(candidates);
+            reports = finished ? claimReportsLocked() : List.of();
         }
-        if (target != null) {
-            SuppressionSupport.attachDirect(target, failure);
-        }
-        if (reportUncaught) {
-            BoundedFailureReporter.shared().report(cleanupFailure.failureTarget, failure);
-        }
+        report(reports);
     }
 
     void finish() {
-        Throwable target;
-        List<Throwable> attachments = new ArrayList<>(2);
-        List<CleanupFailure> reports = new ArrayList<>(2);
+        List<ObservedFailure> reports;
         synchronized (lock) {
             if (finished) {
                 return;
             }
             finished = true;
-            target = terminalPrimary != null ? terminalPrimary : fallbackPrimary;
-            reportFutureCleanupFailures = target == null;
-            for (CleanupFailure cleanupFailure : cleanupFailures) {
-                if (cleanupFailure.publication != Publication.PENDING) {
+            reports = claimReportsLocked();
+        }
+        report(reports);
+    }
+
+    private static BoundedFailureReporter.FailureTarget captureFailureTarget() {
+        try {
+            return BoundedFailureReporter.captureFailureTarget();
+        } catch (RuntimeException | Error ignored) {
+            return null;
+        }
+    }
+
+    private static List<ObservedFailure> observe(Throwable failure) {
+        BoundedFailureReporter.FailureTarget target = captureFailureTarget();
+        return FailureAggregation.sources(failure).stream()
+                .map(source -> new ObservedFailure(source, target))
+                .toList();
+    }
+
+    private void addLocked(List<ObservedFailure> candidates) {
+        for (ObservedFailure candidate : candidates) {
+            if (observed != null) {
+                boolean alreadyObserved = false;
+                for (ObservedFailure existing : observed) {
+                    if (existing.failure == candidate.failure) {
+                        alreadyObserved = true;
+                        break;
+                    }
+                }
+                if (alreadyObserved) {
                     continue;
                 }
-                if (target == null) {
-                    cleanupFailure.publication = Publication.REPORT_CLAIMED;
-                    reports.add(cleanupFailure);
-                } else {
-                    cleanupFailure.publication = Publication.ATTACHED;
-                    attachments.add(cleanupFailure.failure);
+            } else {
+                observed = new ArrayList<>(3);
+            }
+            observed.add(candidate);
+        }
+    }
+
+    private List<ObservedFailure> claimReportsLocked() {
+        if (observed == null) {
+            return List.of();
+        }
+        Throwable selectedPrimary = terminalPrimary != null ? terminalPrimary : fallbackPrimary;
+        List<Throwable> representedSources =
+                selectedPrimary == null ? List.of() : FailureAggregation.sources(selectedPrimary);
+        List<ObservedFailure> reports = null;
+        for (ObservedFailure failure : observed) {
+            if (!failure.reportClaimed && !containsIdentity(representedSources, failure.failure)) {
+                failure.reportClaimed = true;
+                if (reports == null) {
+                    reports = new ArrayList<>(observed.size());
                 }
+                reports.add(failure);
             }
         }
-        attachAll(target, attachments);
-        for (CleanupFailure cleanupFailure : reports) {
-            BoundedFailureReporter.shared().report(cleanupFailure.failureTarget, cleanupFailure.failure);
-        }
+        return reports == null ? List.of() : List.copyOf(reports);
     }
 
-    private static void attachAll(Throwable primary, List<Throwable> failures) {
-        if (primary == null) {
-            if (!failures.isEmpty()) {
-                throw new IllegalStateException("Output close failures have no attachment target");
-            }
-            return;
-        }
+    private static boolean containsIdentity(List<Throwable> failures, Throwable candidate) {
         for (Throwable failure : failures) {
-            SuppressionSupport.attachDirect(primary, failure);
+            if (failure == candidate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void report(List<ObservedFailure> reports) {
+        for (ObservedFailure observedFailure : reports) {
+            if (observedFailure.reportingTarget == null) {
+                continue;
+            }
+            try {
+                reporter.report(observedFailure.reportingTarget, observedFailure.failure);
+            } catch (RuntimeException | Error ignored) {
+                // Reporting is optional and cannot retain helper cleanup ownership.
+            }
         }
     }
 
-    private static final class CleanupFailure {
+    private static final class ObservedFailure {
 
         private final Throwable failure;
-        private final BoundedFailureReporter.FailureTarget failureTarget;
-        private Publication publication = Publication.PENDING;
+        private final BoundedFailureReporter.FailureTarget reportingTarget;
+        private boolean reportClaimed;
 
-        private CleanupFailure(Throwable failure, BoundedFailureReporter.FailureTarget failureTarget) {
+        private ObservedFailure(Throwable failure, BoundedFailureReporter.FailureTarget reportingTarget) {
             this.failure = failure;
-            this.failureTarget = failureTarget;
+            this.reportingTarget = reportingTarget;
         }
     }
 
-    private enum Publication {
-        PENDING,
-        ATTACHED,
-        REPORT_CLAIMED
+    @FunctionalInterface
+    interface Reporter {
+
+        void report(BoundedFailureReporter.FailureTarget target, Throwable failure);
     }
 }

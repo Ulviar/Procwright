@@ -169,8 +169,7 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
             ProtocolSessionException responseFailure = observedResponseFailure.get();
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
             assertSame(fatalError, thrown);
-            assertIdentitySuppressedOnce(fatalError, responseFailure);
-            assertFailureGraphDoesNotContain(responseFailure, fatalError);
+            assertEquals(0, fatalError.getSuppressed().length);
 
             int writesAfterFailure = stdin.writeCalls();
             Throwable followUp = captureFailure(() -> protocol.request("retry"));

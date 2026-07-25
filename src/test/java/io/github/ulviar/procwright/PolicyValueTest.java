@@ -10,7 +10,6 @@ import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.ExpectSettings;
-import io.github.ulviar.procwright.internal.LaunchSettings;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.internal.RunSettings;
@@ -148,7 +147,7 @@ final class PolicyValueTest {
     @Test
     void sessionSettingsCarryTerminalDefaults() {
         PtyProvider provider = PtyProvider.unavailable("no test provider");
-        SessionSettings options = SessionSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
+        SessionSettings options = SessionSettings.defaults(CommandSpec.of("tool"))
                 .withTerminal(new io.github.ulviar.procwright.internal.TerminalSettings(
                         TerminalPolicy.REQUIRED, provider, new TerminalSize(100, 40)));
 
@@ -300,14 +299,14 @@ final class PolicyValueTest {
     }
 
     private static RunSettings runSettings() {
-        return RunSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")));
+        return RunSettings.defaults(CommandSpec.of("tool"));
     }
 
     private static StreamSettings streamSettings() {
-        return StreamSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")));
+        return StreamSettings.defaults(CommandSpec.of("tool"));
     }
 
     private static WorkerPoolSettings<Object> poolSettings() {
-        return WorkerPoolSettings.defaults(worker -> {}, worker -> true);
+        return WorkerPoolSettings.defaults();
     }
 }

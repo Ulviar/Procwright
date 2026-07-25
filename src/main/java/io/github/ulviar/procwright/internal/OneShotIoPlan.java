@@ -31,10 +31,10 @@ final class OneShotIoPlan {
 
     static OneShotIoPlan resolve(ExecutionPlan plan) {
         Objects.requireNonNull(plan, "plan");
-        StdinResolution stdin = resolveStdin(plan.stdin());
+        StdinResolution stdin = resolveStdin(plan.input());
         Optional<CapturePolicy.Bounded> boundedCapture =
                 plan.capturePolicy() instanceof CapturePolicy.Bounded bounded ? Optional.of(bounded) : Optional.empty();
-        boolean capturesStderr = boundedCapture.isPresent() && plan.outputMode() == OutputMode.SEPARATE;
+        boolean capturesStderr = boundedCapture.isPresent() && plan.launchPlan().outputMode() == OutputMode.SEPARATE;
         return new OneShotIoPlan(
                 new StdioConfig(
                         stdin.redirect(), resolveStdout(plan.capturePolicy()), resolveStderr(plan.capturePolicy())),
@@ -69,25 +69,21 @@ final class OneShotIoPlan {
         return stdinOperation.action() == StdinAction.WRITE ? count + 1 : count;
     }
 
-    private static StdinResolution resolveStdin(StdinPolicy stdin) {
-        return switch (stdin.mode()) {
-            case CLOSED -> new StdinResolution(ProcessBuilder.Redirect.PIPE, StdinOperation.close());
-            case OPEN -> throw new CommandExecutionException("One-shot execution cannot keep stdin open");
-            case INPUT ->
-                stdin.input()
-                        .path()
-                        .map(path -> {
-                            if (!Files.isRegularFile(path)) {
-                                throw new CommandExecutionException(
-                                        CommandExecutionException.Reason.LAUNCH_FAILED,
-                                        "Stdin source file does not exist or is not a regular file: " + path);
-                            }
-                            return new StdinResolution(
-                                    ProcessBuilder.Redirect.from(path.toFile()), StdinOperation.redirect());
-                        })
-                        .orElseGet(() ->
-                                new StdinResolution(ProcessBuilder.Redirect.PIPE, StdinOperation.write(stdin.input())));
-        };
+    private static StdinResolution resolveStdin(Optional<CommandInput> input) {
+        if (input.isEmpty()) {
+            return new StdinResolution(ProcessBuilder.Redirect.PIPE, StdinOperation.close());
+        }
+        CommandInput selected = input.orElseThrow();
+        return selected.path()
+                .map(path -> {
+                    if (!Files.isRegularFile(path)) {
+                        throw new CommandExecutionException(
+                                CommandExecutionException.Reason.LAUNCH_FAILED,
+                                "Stdin source file does not exist or is not a regular file: " + path);
+                    }
+                    return new StdinResolution(ProcessBuilder.Redirect.from(path.toFile()), StdinOperation.redirect());
+                })
+                .orElseGet(() -> new StdinResolution(ProcessBuilder.Redirect.PIPE, StdinOperation.write(selected)));
     }
 
     private static ProcessBuilder.Redirect resolveStdout(CapturePolicy capturePolicy) {

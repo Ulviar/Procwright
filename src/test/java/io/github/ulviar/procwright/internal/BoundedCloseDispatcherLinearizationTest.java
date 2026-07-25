@@ -2,12 +2,15 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -145,6 +148,131 @@ final class BoundedCloseDispatcherLinearizationTest {
                         () -> {}, "second-fallback-", ignored -> secondSettled.countDown(), ignored -> {}, () -> {})));
 
         assertTrue(secondSettled.await(1, TimeUnit.SECONDS));
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+    }
+
+    @Test
+    void fallbackFailureAggregationDoesNotDependOnTheLaunchFailureMonitor() throws Exception {
+        IllegalStateException firstStart = new IllegalStateException("first owner rejected");
+        IllegalArgumentException secondStart = new IllegalArgumentException("second owner rejected");
+        AssertionError firstClose = new AssertionError("first close failed");
+        IllegalArgumentException secondClose = new IllegalArgumentException("second close failed");
+        AtomicInteger starts = new AtomicInteger();
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
+            if (starts.getAndIncrement() == 0) {
+                throw firstStart;
+            }
+            throw secondStart;
+        });
+        BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(2);
+        CountDownLatch firstSettled = new CountDownLatch(1);
+        CountDownLatch secondSettled = new CountDownLatch(1);
+        AtomicReference<Throwable> firstResult = new AtomicReference<>();
+        AtomicReference<Throwable> secondResult = new AtomicReference<>();
+        AtomicInteger firstCloses = new AtomicInteger();
+        AtomicInteger secondCloses = new AtomicInteger();
+        AtomicInteger firstSettlements = new AtomicInteger();
+        AtomicInteger secondSettlements = new AtomicInteger();
+
+        try (var monitor = hold(firstStart)) {
+            monitor.verifyHeld();
+            assertSame(
+                    firstStart,
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                                    () -> {
+                                        firstCloses.incrementAndGet();
+                                        throw firstClose;
+                                    },
+                                    "first-blocked-failure-",
+                                    failure -> {
+                                        firstSettlements.incrementAndGet();
+                                        firstResult.set(failure);
+                                        firstSettled.countDown();
+                                    },
+                                    ignored -> {},
+                                    () -> {}))));
+            assertTrue(firstSettled.await(1, TimeUnit.SECONDS));
+
+            assertSame(
+                    secondStart,
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () -> reservation.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                                    () -> {
+                                        secondCloses.incrementAndGet();
+                                        throw secondClose;
+                                    },
+                                    "second-independent-failure-",
+                                    failure -> {
+                                        secondSettlements.incrementAndGet();
+                                        secondResult.set(failure);
+                                        secondSettled.countDown();
+                                    },
+                                    ignored -> {},
+                                    () -> {}))));
+            assertTrue(secondSettled.await(1, TimeUnit.SECONDS));
+        }
+
+        assertSame(firstStart, firstResult.get().getCause());
+        assertEquals(
+                java.util.List.of(firstClose),
+                java.util.List.of(firstResult.get().getSuppressed()));
+        assertSame(secondStart, secondResult.get().getCause());
+        assertEquals(
+                java.util.List.of(secondClose),
+                java.util.List.of(secondResult.get().getSuppressed()));
+        assertEquals(1, firstCloses.get());
+        assertEquals(1, secondCloses.get());
+        assertEquals(1, firstSettlements.get());
+        assertEquals(1, secondSettlements.get());
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+    }
+
+    @Test
+    void physicalSettlementAndCallbackFailuresProduceOneFlatDiagnosticAggregate() throws Exception {
+        IOException physicalFailure = new IOException("physical close failed");
+        IllegalStateException settlementFailure = new IllegalStateException("settlement failed");
+        AssertionError callbackFailure = new AssertionError("callback failed");
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        CountDownLatch reportCompleted = new CountDownLatch(1);
+        CloseNotificationPublisher notifications = new CloseNotificationPublisher() {
+            @Override
+            public void execute(Thread sourceThread, Runnable callback) {
+                callback.run();
+            }
+
+            @Override
+            public void report(Thread sourceThread, Throwable failure) {
+                reported.set(failure);
+                reportCompleted.countDown();
+            }
+        };
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, Threading::start, notifications);
+
+        dispatcher
+                .reserve(1)
+                .dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                        () -> {
+                            throw physicalFailure;
+                        },
+                        "procwright-flat-close-failures-",
+                        ignored -> {
+                            throw settlementFailure;
+                        },
+                        ignored -> {
+                            throw callbackFailure;
+                        },
+                        () -> {}));
+
+        assertTrue(reportCompleted.await(1, TimeUnit.SECONDS));
+        assertSame(physicalFailure, reported.get().getCause());
+        assertEquals(
+                List.of(settlementFailure, callbackFailure),
+                List.of(reported.get().getSuppressed()));
+        assertEquals(0, physicalFailure.getSuppressed().length);
+        assertEquals(0, settlementFailure.getSuppressed().length);
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
 

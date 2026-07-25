@@ -225,11 +225,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             }
         };
         DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                rawSession,
-                adapter,
-                ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofMinutes(1)),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading());
+                rawSession, adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofMinutes(1)));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> {
@@ -250,7 +246,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             assertTrue(callerInterruptRestored.get());
             assertTrue(decoderFailureObserved.await(1, TimeUnit.SECONDS));
             assertSame(interrupted, decoderFailure.get());
-            assertEventuallyIdentitySuppressedOnce(interrupted, callbackFailure);
+            assertEquals(0, interrupted.getSuppressed().length);
+            assertEquals(0, callbackFailure.getSuppressed().length);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("again"));
             assertEquals(ProtocolSessionException.Reason.FAILURE, followUp.reason());
@@ -288,11 +285,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
         };
         ControllableProcess process = new ControllableProcess();
         DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(process),
-                adapter,
-                ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading());
+                session(process), adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)));
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -314,7 +307,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             assertInstanceOf(InterruptedException.class, interrupted.getCause());
             assertTrue(callerInterruptRestored.get());
             assertTrue(callbackInterrupted.await(1, TimeUnit.SECONDS));
-            assertEventuallyIdentitySuppressedOnce(interrupted, callbackFailure);
+            assertEquals(0, interrupted.getSuppressed().length);
+            assertEquals(0, callbackFailure.getSuppressed().length);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("retry"));
             assertEquals(ProtocolSessionException.Reason.FAILURE, followUp.reason());
@@ -365,11 +359,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
                 session(process),
                 adapter,
                 ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                System::nanoTime,
-                DefaultProtocolSession.ProtocolCallbackRunner.bounded(),
-                lockWaiter);
+                ProtocolSessionTestDependencies.withRequestLockWaiter(lockWaiter));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         AtomicReference<Thread> waiterThread = new AtomicReference<>();
         AtomicBoolean waiterInterruptRestored = new AtomicBoolean();
@@ -468,11 +458,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
         };
         ControllableProcess process = new ControllableProcess();
         DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(process),
-                adapter,
-                ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading());
+                session(process), adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -485,7 +471,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             assertEquals(ProtocolSessionException.Reason.CLOSED, closed.reason());
             assertInstanceOf(BoundedTaskRunner.TaskCancelledException.class, closed.getCause());
             assertTrue(callbackInterrupted.await(1, TimeUnit.SECONDS));
-            assertEventuallyIdentitySuppressedOnce(closed, callbackFailure);
+            assertEquals(0, closed.getSuppressed().length);
+            assertEquals(0, callbackFailure.getSuppressed().length);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("retry"));
             assertEquals(ProtocolSessionException.Reason.CLOSED, followUp.reason());
@@ -497,25 +484,13 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
         }
     }
 
-    private static void assertEventuallyIdentitySuppressedOnce(Throwable primary, Throwable expected)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-        while (identitySuppressionCount(primary, expected) == 0 && System.nanoTime() < deadline) {
-            Thread.sleep(1);
-        }
-        assertIdentitySuppressedOnce(primary, expected);
-    }
-
     private static <I, O> DefaultProtocolSession<I, O> protocolWithCallbackRunner(
             ProtocolAdapter<I, O> adapter, DefaultProtocolSession.ProtocolCallbackRunner callbackRunner) {
         return new DefaultProtocolSession<>(
                 session(new ControllableProcess()),
                 adapter,
                 ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                System::nanoTime,
-                callbackRunner);
+                ProtocolSessionTestDependencies.withCallbackRunner(callbackRunner));
     }
 
     private static final class ControlledRequestLockWaiter implements SerializedRequestGate.Waiter {
@@ -570,11 +545,11 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
                         case 2 -> () -> deadlineNanos;
                         default -> System::nanoTime;
                     };
-            return BoundedTaskRunner.runTracked(
+            return BoundedTaskTestSupport.runTracked(
                     limiter,
                     threadPrefix,
                     deadlineNanos,
-                    new BoundedTaskRunner.TaskHandoff(),
+                    new BoundedTaskHandoff(),
                     (prefix, callback) -> {
                         Thread thread = new Thread(callback, prefix + "saturation-test");
                         thread.setDaemon(true);

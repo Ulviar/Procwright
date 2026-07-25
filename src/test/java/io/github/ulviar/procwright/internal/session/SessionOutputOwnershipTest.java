@@ -16,7 +16,6 @@ import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.ExpectSettings;
-import io.github.ulviar.procwright.internal.LaunchMode;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
@@ -42,6 +41,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -200,6 +202,66 @@ final class SessionOutputOwnershipTest {
         ownership.claim("helper");
 
         assertFalse(ownership.claimLifecycleClose());
+    }
+
+    @Test
+    void cleanupSettlementSelectsHelperResponsibilityAtomically() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership();
+        ownership.claim("helper");
+
+        assertEquals(SessionOutputOwnership.CloseResponsibility.OUTPUT_OWNER, ownership.settleCloseResponsibility());
+
+        assertThrows(IllegalStateException.class, ownership::settleCloseResponsibility);
+    }
+
+    @Test
+    void helperClaimAndCleanupSettlementHaveOneConsistentWinner() throws Exception {
+        ExecutorService competitors = Executors.newFixedThreadPool(2);
+        try {
+            for (int attempt = 0; attempt < 1_000; attempt++) {
+                SessionOutputOwnership ownership = new SessionOutputOwnership();
+                CountDownLatch start = new CountDownLatch(1);
+                Future<Throwable> claim = competitors.submit(() -> {
+                    start.await();
+                    try {
+                        ownership.claim("helper");
+                        return null;
+                    } catch (Throwable failure) {
+                        return failure;
+                    }
+                });
+                Future<SessionOutputOwnership.CloseResponsibility> settlement = competitors.submit(() -> {
+                    start.await();
+                    return ownership.settleCloseResponsibility();
+                });
+
+                start.countDown();
+                Throwable claimFailure = claim.get(1, TimeUnit.SECONDS);
+                boolean helperOwnsClose =
+                        settlement.get(1, TimeUnit.SECONDS) == SessionOutputOwnership.CloseResponsibility.OUTPUT_OWNER;
+
+                assertEquals(
+                        claimFailure == null,
+                        helperOwnsClose,
+                        "claim and settlement selected different close owners at attempt " + attempt);
+                if (claimFailure != null) {
+                    assertTrue(claimFailure instanceof IllegalStateException);
+                }
+            }
+        } finally {
+            competitors.shutdownNow();
+            assertTrue(competitors.awaitTermination(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void cleanupSettlementRejectsALateHelperClaim() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership();
+        assertTrue(ownership.claimLifecycleClose());
+
+        assertEquals(SessionOutputOwnership.CloseResponsibility.LIFECYCLE, ownership.settleCloseResponsibility());
+
+        assertThrows(IllegalStateException.class, () -> ownership.claim("late helper"));
     }
 
     @Test
@@ -513,7 +575,6 @@ final class SessionOutputOwnershipTest {
 
     private static StreamExecutionPlan streamPlan(Duration timeout) {
         LaunchPlan launchPlan = new LaunchPlan(
-                LaunchMode.DIRECT,
                 List.of("stub"),
                 Optional.empty(),
                 EnvironmentPolicy.INHERIT,

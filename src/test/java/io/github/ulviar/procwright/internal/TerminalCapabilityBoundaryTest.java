@@ -55,13 +55,10 @@ final class TerminalCapabilityBoundaryTest {
     void runAndStreamProfilesDoNotRequestTerminalCapability() {
         assertEquals(
                 TerminalPolicy.DISABLED,
-                RunSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
-                        .plan()
-                        .launchPlan()
-                        .terminalPolicy());
+                RunSettings.defaults(CommandSpec.of("tool")).plan().launchPlan().terminalPolicy());
         assertEquals(
                 TerminalPolicy.DISABLED,
-                StreamSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
+                StreamSettings.defaults(CommandSpec.of("tool"))
                         .plan()
                         .sessionPlan()
                         .launchPlan()
@@ -70,8 +67,8 @@ final class TerminalCapabilityBoundaryTest {
 
     @Test
     void streamExecutionPlanKeepsPtyProviderUnavailable() {
-        StreamExecutionPlan plan = StreamSettings.defaults(LaunchSettings.from(CommandSpec.of("tool")))
-                .plan();
+        StreamExecutionPlan plan =
+                StreamSettings.defaults(CommandSpec.of("tool")).plan();
 
         assertEquals(TerminalPolicy.DISABLED, plan.sessionPlan().launchPlan().terminalPolicy());
         assertFalse(plan.sessionPlan().ptyProvider().available());

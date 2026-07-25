@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static io.github.ulviar.procwright.internal.session.WorkerStartup.TerminalDecision.FACTORY_COMPLETED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -16,6 +17,9 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -59,8 +63,9 @@ final class WorkerPoolStateTest {
         try (PoolStateEffects<String> effects = fixture.effects()) {
             acquired = state.awaitAcquire(System.nanoTime() + TimeUnit.SECONDS.toNanos(1), effects);
         }
-        assertSame(WorkerPoolState.AcquireStatus.LEASED, acquired.status());
-        WorkerPoolState.Lease<String> secondLease = acquired.lease();
+        assertTrue(acquired instanceof WorkerPoolState.LeaseAcquired<String>);
+        WorkerPoolState.LeaseAcquired<String> leased = (WorkerPoolState.LeaseAcquired<String>) acquired;
+        WorkerPoolState.Lease<String> secondLease = leased.lease();
         assertSame(PooledWorkerRetireReason.MAX_REQUESTS, state.recordRequestAndRetirementReason(secondLease));
         try (PoolStateEffects<String> effects = fixture.effects()) {
             state.releaseReusable(secondLease, effects);
@@ -88,8 +93,9 @@ final class WorkerPoolStateTest {
             acquisition = fixture.state().awaitAcquire(System.nanoTime() + TimeUnit.SECONDS.toNanos(1), effects);
         }
 
-        assertSame(WorkerPoolState.AcquireStatus.RESERVED, acquisition.status());
-        assertNotNull(acquisition.reservation().preparedLease());
+        assertTrue(acquisition instanceof WorkerPoolState.StartupReserved<String>);
+        WorkerPoolState.StartupReserved<String> reserved = (WorkerPoolState.StartupReserved<String>) acquisition;
+        assertNotNull(reserved.reservation().preparedLease());
         assertMetrics(fixture.state().metrics(), 1, 0, 0, 1, 0, 0, 0);
     }
 
@@ -115,7 +121,9 @@ final class WorkerPoolStateTest {
     void startupTransitionRejectsAnotherEffectsOwnerFromTheSamePool() {
         StateFixture fixture = state(new Options(1, 0, 0, 10));
         WorkerPoolState.ReservationResult<String> result = fixture.state().reserve();
-        WorkerStartupCoordinator.Reservation<String> reservation = result.reservation();
+        assertTrue(result instanceof WorkerPoolState.SlotReserved<String>);
+        WorkerStartupCoordinator.Reservation<String> reservation =
+                ((WorkerPoolState.SlotReserved<String>) result).reservation();
 
         try (PoolStateEffects<String> unrelated = fixture.effects()) {
             assertThrows(IllegalArgumentException.class, () -> fixture.state()
@@ -357,6 +365,64 @@ final class WorkerPoolStateTest {
         assertTrue(result.get());
     }
 
+    @Test
+    void acceptedFailuresPublishAsAStableSnapshotWithoutTouchingTheirMonitors() throws Exception {
+        verifyAcceptedFailurePublicationWhileHolding(true);
+        verifyAcceptedFailurePublicationWhileHolding(false);
+    }
+
+    private static void verifyAcceptedFailurePublicationWhileHolding(boolean holdPrimary) throws Exception {
+        StateFixture fixture = state(new Options(1, 0, 0, 10));
+        WorkerPoolState<String> state = fixture.state();
+        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+        WorkerStartupCoordinator.Reservation<String> reservation =
+                reserveWithAdmission(fixture, admissions, PoolWorker.StartupPurpose.DEMAND);
+        PoolWorker<String> worker = reservation.stateWorker();
+        WorkerPoolState.Lease<String> lease;
+        try (PoolStateEffects<String> effects = reservation.effects()) {
+            lease = state.completeStartup(
+                    reservation, new WorkerStartup.CreatedWorker<>("worker", 1), FACTORY_COMPLETED, effects);
+        }
+        AssertionError primary = new AssertionError("primary");
+        IllegalStateException secondary = new IllegalStateException("secondary");
+        try (PoolStateEffects<String> effects = fixture.effects()) {
+            state.beginClose(primary, effects);
+        }
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try (var monitor = hold(holdPrimary ? primary : secondary)) {
+            monitor.verifyHeld();
+            Future<?> closing = executor.submit(() -> {
+                try (PoolStateEffects<String> effects = fixture.effects()) {
+                    state.beginClose(secondary, effects);
+                }
+            });
+            closing.get(1, TimeUnit.SECONDS);
+
+            executor.submit(state::metrics).get(1, TimeUnit.SECONDS);
+            Future<?> retirement = executor.submit(() -> {
+                try (PoolStateEffects<String> effects = fixture.effects()) {
+                    state.retire(lease, PooledWorkerRetireReason.CLOSED, effects);
+                }
+                try (PoolStateEffects<String> effects = fixture.effects()) {
+                    state.completeRetirement(worker, WorkerRetirement.Outcome.success(), null, effects);
+                }
+            });
+            retirement.get(1, TimeUnit.SECONDS);
+            assertEquals(0, state.metrics().size());
+            ExecutionException terminal = assertThrows(
+                    ExecutionException.class, () -> state.terminationView().get(1, TimeUnit.SECONDS));
+            assertSame(primary, terminal.getCause().getCause());
+            assertEquals(
+                    java.util.List.of(secondary),
+                    java.util.List.of(terminal.getCause().getSuppressed()));
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+        assertEquals(1, admissions.availablePermits());
+        assertEquals(0, primary.getSuppressed().length);
+    }
+
     private static StateFixture state(Options options) {
         return state(options, WorkerPoolStateTest::startingWorker);
     }
@@ -377,8 +443,9 @@ final class WorkerPoolStateTest {
     private static WorkerStartupCoordinator.Reservation<String> reserveWithAdmission(
             StateFixture fixture, PoolLifecycleDispatcher.AdmissionPool admissions, PoolWorker.StartupPurpose purpose) {
         WorkerPoolState.ReservationResult<String> result = fixture.state().reserve();
-        assertSame(WorkerPoolState.ReserveStatus.RESERVED, result.status());
-        WorkerStartupCoordinator.Reservation<String> reservation = result.reservation();
+        assertTrue(result instanceof WorkerPoolState.SlotReserved<String>);
+        WorkerStartupCoordinator.Reservation<String> reservation =
+                ((WorkerPoolState.SlotReserved<String>) result).reservation();
         assertTrue(fixture.state().attachStartupAdmission(reservation, admissions.acquireUninterruptibly(), purpose));
         return reservation;
     }

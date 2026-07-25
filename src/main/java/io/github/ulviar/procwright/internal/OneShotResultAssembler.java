@@ -79,7 +79,7 @@ final class OneShotResultAssembler {
             try {
                 return new String(bytes, charsetPolicy.charset());
             } catch (RuntimeException | Error diagnosticFailure) {
-                SuppressionSupport.attach(decodeFailure, diagnosticFailure);
+                BoundedFailureReporter.reportBestEffort(diagnosticFailure);
             }
         }
         return new String(bytes, StandardCharsets.ISO_8859_1);

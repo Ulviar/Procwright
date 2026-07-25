@@ -2,7 +2,9 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
@@ -60,12 +62,10 @@ final class SessionProcessCleanupTest {
                 CountDownLatch start = new CountDownLatch(1);
                 Future<?> stop = executor.submit(() -> after(start, cleanup::stop));
                 Future<?> force = executor.submit(() -> after(start, () -> {
-                    cleanup.forcePreserving(new AssertionError("force cleanup"));
-                    return null;
+                    return cleanup.forceAfterFailure();
                 }));
                 Future<?> preservingStop = executor.submit(() -> after(start, () -> {
-                    cleanup.stopPreserving(new AssertionError("preserving stop"));
-                    return null;
+                    return cleanup.stopAfterFailure();
                 }));
 
                 start.countDown();
@@ -82,6 +82,30 @@ final class SessionProcessCleanupTest {
         }
     }
 
+    @Test
+    void cleanupFailureIsReturnedWithoutTouchingItsThrowableMonitor() throws Exception {
+        IllegalStateException cleanupFailure = new IllegalStateException("process cleanup failed");
+        FailingTerminationProcess process = new FailingTerminationProcess(cleanupFailure);
+        SessionProcessCleanup cleanup =
+                new SessionProcessCleanup(process, ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Throwable observed;
+        try (var monitor = hold(cleanupFailure)) {
+            monitor.verifyHeld();
+            Future<Throwable> failingCleanup = executor.submit(cleanup::stopAfterFailure);
+
+            observed = failingCleanup.get(1, TimeUnit.SECONDS);
+            assertTrue(executor.submit(cleanup::stop).get(1, TimeUnit.SECONDS).isEmpty());
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+
+        assertTrue(process.isAlive());
+        assertSame(cleanupFailure, observed.getCause());
+        assertEquals(0, cleanupFailure.getSuppressed().length);
+    }
+
     private static <T> T after(CountDownLatch start, java.util.concurrent.Callable<T> action) {
         try {
             start.await();
@@ -91,7 +115,7 @@ final class SessionProcessCleanupTest {
         }
     }
 
-    private static final class ControlledProcess extends Process {
+    private static class ControlledProcess extends Process {
 
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
         private final AtomicBoolean alive = new AtomicBoolean(true);
@@ -180,6 +204,25 @@ final class SessionProcessCleanupTest {
         private void terminate() {
             terminationCalls.incrementAndGet();
             complete(143);
+        }
+    }
+
+    private static final class FailingTerminationProcess extends ControlledProcess {
+
+        private final RuntimeException failure;
+
+        private FailingTerminationProcess(RuntimeException failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void destroy() {
+            throw failure;
+        }
+
+        @Override
+        public Process destroyForcibly() {
+            throw failure;
         }
     }
 }

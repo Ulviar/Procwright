@@ -477,7 +477,7 @@ final class WorkerPoolState<S> {
         return termination.view();
     }
 
-    void publish(PoolTermination.Publication publication) {
+    void publish(PoolDrain.Publication publication) {
         if (publication != null) {
             termination.publish(publication);
         }
@@ -589,7 +589,7 @@ final class WorkerPoolState<S> {
         return true;
     }
 
-    private PoolTermination.Publication claimDrainLocked() {
+    private PoolDrain.Publication claimDrainLocked() {
         return termination.claimDrainIfReady(partition.size());
     }
 
@@ -599,22 +599,6 @@ final class WorkerPoolState<S> {
         }
         revision++;
         monitor.notifyAll();
-    }
-
-    enum AcquireStatus {
-        LEASED,
-        RESERVED,
-        RETRY,
-        CLOSED,
-        TIMED_OUT,
-        INTERRUPTED
-    }
-
-    enum ReserveStatus {
-        RESERVED,
-        CLOSED,
-        FULL,
-        NOT_NEEDED
     }
 
     static final class Lease<S> {
@@ -651,77 +635,93 @@ final class WorkerPoolState<S> {
         }
     }
 
-    record AcquireResult<S>(
-            AcquireStatus status,
-            Lease<S> lease,
-            WorkerStartupCoordinator.Reservation<S> reservation,
-            InterruptedException interruption) {
-
-        AcquireResult {
-            Objects.requireNonNull(status, "status");
-            if ((status == AcquireStatus.LEASED) != (lease != null)) {
-                throw new IllegalArgumentException("only a leased acquisition may carry a lease");
-            }
-            if ((status == AcquireStatus.RESERVED) != (reservation != null)) {
-                throw new IllegalArgumentException("only a reserved acquisition may carry a reservation");
-            }
-            if ((status == AcquireStatus.INTERRUPTED) != (interruption != null)) {
-                throw new IllegalArgumentException("only an interrupted acquisition may carry an interruption");
-            }
-        }
+    sealed interface AcquireResult<S>
+            permits LeaseAcquired, StartupReserved, RetryAcquire, AcquireClosed, AcquireTimedOut, AcquireInterrupted {
 
         private static <S> AcquireResult<S> leased(Lease<S> lease) {
-            return new AcquireResult<>(AcquireStatus.LEASED, Objects.requireNonNull(lease, "lease"), null, null);
+            return new LeaseAcquired<>(lease);
         }
 
         private static <S> AcquireResult<S> reserved(WorkerStartupCoordinator.Reservation<S> reservation) {
-            return new AcquireResult<>(
-                    AcquireStatus.RESERVED, null, Objects.requireNonNull(reservation, "reservation"), null);
+            return new StartupReserved<>(reservation);
         }
 
         private static <S> AcquireResult<S> retry() {
-            return new AcquireResult<>(AcquireStatus.RETRY, null, null, null);
+            return new RetryAcquire<>();
         }
 
         private static <S> AcquireResult<S> closed() {
-            return new AcquireResult<>(AcquireStatus.CLOSED, null, null, null);
+            return new AcquireClosed<>();
         }
 
         private static <S> AcquireResult<S> timedOut() {
-            return new AcquireResult<>(AcquireStatus.TIMED_OUT, null, null, null);
+            return new AcquireTimedOut<>();
         }
 
         private static <S> AcquireResult<S> interrupted(InterruptedException failure) {
-            return new AcquireResult<>(
-                    AcquireStatus.INTERRUPTED, null, null, Objects.requireNonNull(failure, "failure"));
+            return new AcquireInterrupted<>(failure);
         }
     }
 
-    record ReservationResult<S>(ReserveStatus status, WorkerStartupCoordinator.Reservation<S> reservation) {
+    record LeaseAcquired<S>(Lease<S> lease) implements AcquireResult<S> {
 
-        ReservationResult {
-            Objects.requireNonNull(status, "status");
-            if ((status == ReserveStatus.RESERVED) != (reservation != null)) {
-                throw new IllegalArgumentException("only a successful reservation may carry a reservation");
-            }
+        LeaseAcquired {
+            Objects.requireNonNull(lease, "lease");
         }
+    }
+
+    record StartupReserved<S>(WorkerStartupCoordinator.Reservation<S> reservation) implements AcquireResult<S> {
+
+        StartupReserved {
+            Objects.requireNonNull(reservation, "reservation");
+        }
+    }
+
+    record RetryAcquire<S>() implements AcquireResult<S> {}
+
+    record AcquireClosed<S>() implements AcquireResult<S> {}
+
+    record AcquireTimedOut<S>() implements AcquireResult<S> {}
+
+    record AcquireInterrupted<S>(InterruptedException interruption) implements AcquireResult<S> {
+
+        AcquireInterrupted {
+            Objects.requireNonNull(interruption, "interruption");
+        }
+    }
+
+    sealed interface ReservationResult<S>
+            permits SlotReserved, ReservationClosed, ReservationFull, ReplenishmentNotNeeded {
 
         private static <S> ReservationResult<S> reserved(WorkerStartupCoordinator.Reservation<S> reservation) {
-            return new ReservationResult<>(ReserveStatus.RESERVED, Objects.requireNonNull(reservation, "reservation"));
+            return new SlotReserved<>(reservation);
         }
 
         private static <S> ReservationResult<S> closed() {
-            return new ReservationResult<>(ReserveStatus.CLOSED, null);
+            return new ReservationClosed<>();
         }
 
         private static <S> ReservationResult<S> full() {
-            return new ReservationResult<>(ReserveStatus.FULL, null);
+            return new ReservationFull<>();
         }
 
         private static <S> ReservationResult<S> notNeeded() {
-            return new ReservationResult<>(ReserveStatus.NOT_NEEDED, null);
+            return new ReplenishmentNotNeeded<>();
         }
     }
+
+    record SlotReserved<S>(WorkerStartupCoordinator.Reservation<S> reservation) implements ReservationResult<S> {
+
+        SlotReserved {
+            Objects.requireNonNull(reservation, "reservation");
+        }
+    }
+
+    record ReservationClosed<S>() implements ReservationResult<S> {}
+
+    record ReservationFull<S>() implements ReservationResult<S> {}
+
+    record ReplenishmentNotNeeded<S>() implements ReservationResult<S> {}
 
     @FunctionalInterface
     interface StartupReservationFactory<S> {

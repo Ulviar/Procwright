@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright;
 
-import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticListener;
 import io.github.ulviar.procwright.diagnostics.DiagnosticTranscriptSink;
@@ -21,7 +20,7 @@ public final class StreamScenario {
     private StreamScenario() {}
 
     static Draft draft(ScenarioRuntime runtime) {
-        return new ImmutableDraft(runtime, StreamSettings.defaults(runtime.launchSettings()));
+        return new ImmutableDraft(runtime, StreamSettings.defaults(runtime.commandSpec()));
     }
 
     /**
@@ -192,12 +191,12 @@ public final class StreamScenario {
 
         @Override
         public Draft withInheritedEnvironment() {
-            return copy(settings.withLaunch(settings.launch().withEnvironmentPolicy(EnvironmentPolicy.INHERIT)));
+            return copy(settings.withLaunch(settings.launch().withInheritedEnvironment()));
         }
 
         @Override
         public Draft withCleanEnvironment() {
-            return copy(settings.withLaunch(settings.launch().withEnvironmentPolicy(EnvironmentPolicy.CLEAN)));
+            return copy(settings.withLaunch(settings.launch().withCleanEnvironment()));
         }
 
         @Override

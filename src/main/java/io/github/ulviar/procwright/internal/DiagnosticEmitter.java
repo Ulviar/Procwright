@@ -159,7 +159,7 @@ public final class DiagnosticEmitter {
         try {
             emit(DiagnosticEventType.PROCESS_FAILED, failureAttributes(primaryFailure));
         } catch (RuntimeException | Error diagnosticFailure) {
-            SuppressionSupport.attach(primaryFailure, diagnosticFailure);
+            BoundedFailureReporter.reportBestEffort(diagnosticFailure);
         }
     }
 

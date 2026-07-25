@@ -367,6 +367,14 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         }
 
         @Override
+        public Throwable exposeAggregate(RuntimeException primary, Throwable aggregate) {
+            if (primary instanceof PooledLineSessionException failure) {
+                return new PooledLineSessionException(failure.reason(), failure.getMessage(), aggregate);
+            }
+            return aggregate;
+        }
+
+        @Override
         public RuntimeException drainTimeout(Duration timeout) {
             return new PooledLineSessionException(
                     PooledLineSessionException.Reason.DRAIN_TIMEOUT,

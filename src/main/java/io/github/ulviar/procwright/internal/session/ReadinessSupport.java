@@ -3,8 +3,8 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DurationSupport;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
@@ -50,7 +50,7 @@ public final class ReadinessSupport {
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause();
             if (cause instanceof Error error) {
-                closePreserving(close, error);
+                closeAfterFatal(close);
                 throw error;
             }
             throw closePreserving(
@@ -62,12 +62,23 @@ public final class ReadinessSupport {
         }
     }
 
-    private static <T extends Throwable> T closePreserving(Runnable close, T primaryFailure) {
+    private static CommandExecutionException closePreserving(Runnable close, CommandExecutionException primaryFailure) {
         try {
             close.run();
         } catch (Throwable closeFailure) {
-            SuppressionSupport.attach(primaryFailure, closeFailure);
+            CommandExecutionException exposed = new CommandExecutionException(
+                    primaryFailure.reason(), primaryFailure.getMessage(), primaryFailure.getCause());
+            exposed.addSuppressed(closeFailure);
+            return exposed;
         }
         return primaryFailure;
+    }
+
+    private static void closeAfterFatal(Runnable close) {
+        try {
+            close.run();
+        } catch (Throwable closeFailure) {
+            BoundedFailureReporter.reportBestEffort(closeFailure);
+        }
     }
 }

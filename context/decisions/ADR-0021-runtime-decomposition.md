@@ -12,15 +12,18 @@
 
 ## Решение
 
-`CommandService` остается публичным facade-объектом вокруг команды и сценарных entry points. Persistent Draft хранит
-scenario-specific internal settings. `ScenarioRuntime` строит execution/session plans из их snapshot, открывает runtime
-wrappers, применяет readiness и передает diagnostics дальше в runtime.
+`CommandService` остается публичным facade-объектом вокруг команды и сценарных entry points. `CommandSpec` является
+единственным immutable владельцем общей launch-конфигурации. Persistent Draft хранит только scenario-specific settings.
+`LaunchPlan.from(...)` является единственной границей материализации argv, environment, working directory и shell mode.
+`ScenarioRuntime` строит execution/session plans из snapshot этих данных, открывает runtime wrappers, применяет readiness
+и передает diagnostics дальше в runtime.
 
-`ProcessKernel` оркестрирует one-shot run, но не вычисляет OS redirects и конкурентный terminal outcome. Immutable
-`OneShotIoPlan` переводит согласованный `ExecutionPlan` в redirects, stdin action и точное число I/O tasks до launch.
-`OneShotTermination` выбирает первый из process exit, timeout и stdin failure; cleanup, diagnostics и перевод failure в
-public lifecycle exception остаются у kernel. После cleanup `OneShotResultAssembler` декодирует завершенные captures и
-строит success либо typed decode-failure `CommandResult`, сохраняя raw bytes в обоих случаях.
+`ProcessKernel` является stateless service и хранит только зависимости one-shot runtime. Один вызов передается новому
+`OneShotExecution`, который владеет всеми mutable ресурсами и фазами ровно одного запуска: подготовкой I/O, launch,
+ожиданием terminal outcome, cleanup и сборкой результата. Immutable `OneShotIoPlan` переводит согласованный
+`ExecutionPlan` в redirects, stdin action и точное число I/O tasks до launch. `OneShotTermination` выбирает первый из
+process exit, timeout и stdin failure. После cleanup `OneShotResultAssembler` декодирует завершенные captures и строит
+success либо typed decode-failure `CommandResult`, сохраняя raw bytes в обоих случаях.
 
 Общий process runtime также разделен по наблюдаемым инвариантам. `ProcessLauncher` владеет launch обычного pipe process.
 `ProcessLiveness` консервативно определяет, доказан ли выход обычного процесса, а для guarded operations различает
@@ -30,18 +33,20 @@ public lifecycle exception остаются у kernel. После cleanup `OneSh
 descendants. `ProcessLifecycle` является внутренним facade для natural-exit wait и shutdown. Единый
 `ProcessTreeShutdown` оркестрирует graceful-to-forceful или force-only sequence; `ShutdownTreeState` владеет bounded
 discovery, pending descendants и descendant proof state, `ProcessShutdownSignals` — порядком сигналов и bounded JDK
-fallback, а `ShutdownFailureLedger` — failure identity, suppression order и временным снятием/restoration interrupt
+fallback, а `ShutdownFailureLedger` — failure identities, выбором primary и временным снятием/restoration interrupt
 status. Итоговое решение о completion root и всего дерева после stabilization refresh принадлежит
-`ProcessTreeShutdown`.
-Первое interruption становится primary failure; накопленный до него failure и последующие failures сохраняются
-suppressed в порядке наблюдения. Эти части не раскрываются в пользовательском API.
+`ProcessTreeShutdown`. Первое явное interruption становится primary; остальные source identities сохраняются в
+плоском stable aggregate без изменения исходных `Throwable`. Эти части не раскрываются в пользовательском API.
 
 `DefaultProtocolSession` остается владельцем lifecycle протокольной сессии, serialized request lock, transcript snapshot
 и process exit snapshot. Внутренние детали чтения и записи разделены на маленькие владельцы:
 
 - `ProtocolRequestWriter` владеет stdin writes, request deadline и request byte/char limits.
 - `ProtocolOutputQueue` владеет bounded очередью между output pump и protocol reader.
-- `ProtocolResponseReader` владеет deadline-aware чтением, framing helpers и continuous text reads.
+- `ProtocolResponseReader` является request-scoped facade над raw и text operations.
+- `ProtocolReadSource` владеет capability lifetime, deadline, terminal precedence и raw-byte access.
+- `ProtocolTextReader` владеет complete-field и continuous text operations, включая persistent decoder state и
+  транзакцию peek/decode/commit/rollback.
 - `ProtocolTextFieldDecoder` владеет независимым декодированием byte-length-delimited text fields, decoder progress,
   replacement policy и per-field character limit.
 - `ProtocolResponseBudget` владеет global response byte/char limits на один request.
@@ -55,7 +60,10 @@ suppressed в порядке наблюдения. Эти части не рас
 ## Инварианты
 
 - Public scenario API не раскрывает `ScenarioRuntime` или protocol implementation classes.
+- `CommandSpec` является единственным общим launch snapshot, а `LaunchPlan.from(...)` — единственным местом его
+  преобразования в готовую команду; scenario settings не копируют argv, environment или working directory.
 - One-shot I/O topology вычисляется один раз до launch, а первый terminal outcome после выбора не заменяется.
+- Mutable state двух one-shot запусков не может пересекаться: каждый запуск получает отдельный `OneShotExecution`.
 - One-shot result decoding не зависит от process lifecycle и сохраняет исходные captured bytes в success и typed
   decode-failure results.
 - Provider operation timeout остается typed failure, а исчерпание внешнего lifecycle deadline становится `UNKNOWN`;
@@ -92,8 +100,10 @@ suppressed в порядке наблюдения. Эти части не рас
   `KnownDescendants` переносит уже вычисленную identity и исходный guarded owner в shutdown state без повторных
   provider calls. Обычный сбой traversal сохраняет уже обнаруженный prefix как incomplete scan. Fatal traversal
   переносит тот же prefix вместе с исходным `Error` и немедленно прекращает дальнейший graph traversal: cleanup сначала
-  принимает и сигналит handles, затем возвращает Error без замены identity. Если caller успел abandon-нуть provider
-  operation на границе deadline, operation owner публикует embedded Error через тот же bounded late-failure channel.
+  принимает и сигналит handles, затем возвращает одиночный `Error` без замены identity. Если закрытие traversal stream
+  также завершилось ошибкой, scanner возвращает новый detached aggregate: исходный fatal остаётся primary, порядок
+  failures сохраняется, а исходные `Throwable` не изменяются. Если caller успел abandon-нуть provider operation на
+  границе deadline, operation owner публикует embedded Error через тот же bounded late-failure channel.
 - У каждого protocol limit есть один runtime-владелец: request limits у writer, response limits у reader/budget,
   backlog limit у queue.
 - Failure taxonomy остается в публичных scenario-specific exceptions, а внутренние helpers только строят эти failures.
@@ -104,6 +114,7 @@ suppressed в порядке наблюдения. Эти части не рас
 Плюсы:
 
 - `CommandService` читается как API facade, а не как смесь API и runtime.
+- `ProcessKernel` не требует держать в голове lifecycle конкретного запуска: он только создает его владельца.
 - `DefaultProtocolSession` больше не владеет одновременно queueing, decoding, request writing и limit accounting.
 - Тесты могут проверять публичное поведение, не закрепляя внутреннюю форму runtime.
 
@@ -119,6 +130,7 @@ suppressed в порядке наблюдения. Эти части не рас
 - `ApiCompatibilityCheck` фиксирует `ProcwrightException` как часть exact public API baseline.
 - `PackageBoundaryTest` допускает dependency на root package только как public error boundary.
 - `ProcwrightExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
+- `CommandSpecTest` и `LaunchPlanTest` проверяют единый launch snapshot и его материализацию.
 - `OneShotIoPlanTest`, `OneShotTerminationTest` и `OneShotResultAssemblerTest` проверяют one-shot topology, terminal
   arbitration и result assembly напрямую.
 - `ProcessLauncherTest`, `ProcessLivenessTest`, `ProcessExitWaiterTest` и `LiveDescendantSnapshotTest` проверяют

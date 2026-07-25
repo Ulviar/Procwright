@@ -302,6 +302,14 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         }
 
         @Override
+        public Throwable exposeAggregate(RuntimeException primary, Throwable aggregate) {
+            if (primary instanceof PooledProtocolSessionException failure) {
+                return new PooledProtocolSessionException(failure.reason(), failure.getMessage(), aggregate);
+            }
+            return aggregate;
+        }
+
+        @Override
         public RuntimeException drainTimeout(Duration timeout) {
             return new PooledProtocolSessionException(
                     PooledProtocolSessionException.Reason.DRAIN_TIMEOUT,

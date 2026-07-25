@@ -2,8 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
@@ -60,16 +58,6 @@ abstract class OutputPumpTestSupport {
                 () -> {},
                 closeDispatcher,
                 Threading::start);
-    }
-
-    static void assertSuppressedOnce(Throwable primary, Throwable expected) {
-        int matches = 0;
-        for (Throwable suppressed : primary.getSuppressed()) {
-            if (suppressed == expected) {
-                matches++;
-            }
-        }
-        assertEquals(1, matches);
     }
 
     static void awaitSettlement(CompletableFuture<?> future)

@@ -17,10 +17,13 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmissionAndInputTestSupport {
@@ -33,10 +36,10 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
             TerminalProcess process =
                     new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), stdin, true);
             CopyOnWriteArrayList<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-            ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process);
+            ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process);
             FutureTask<Throwable> execution = new FutureTask<>(() -> captureFailure(() -> kernel.run(executionPlan(
                     DiagnosticsSettings.disabled().withListener(events::add),
-                    StdinPolicy.input(CommandInput.bytes(new byte[8 * 1024 * 1024])),
+                    Optional.of(CommandInput.bytes(new byte[8 * 1024 * 1024])),
                     OutputMode.SEPARATE,
                     Duration.ofSeconds(30)))));
             Thread worker = new Thread(execution, "one-shot-early-stdin-failure-test");
@@ -66,7 +69,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
         TerminalProcess first =
                 new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), firstStdin, true);
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(
+        ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> {
                     if (starts.incrementAndGet() == 1) {
@@ -81,7 +84,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
         ExecutionPlan plan = executionPlan(
                 CapturePolicy.discard(),
                 DiagnosticsSettings.disabled(),
-                StdinPolicy.input(CommandInput.bytes(new byte[] {1})),
+                Optional.of(CommandInput.bytes(new byte[] {1})),
                 OutputMode.SEPARATE,
                 Duration.ofMillis(10));
         try {
@@ -113,15 +116,16 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         ExecutionPlan plan = executionPlan(
                 DiagnosticsSettings.disabled().withListener(events::add),
-                StdinPolicy.input(CommandInput.text("payload", StandardCharsets.UTF_8)),
+                Optional.of(CommandInput.text("payload", StandardCharsets.UTF_8)),
                 OutputMode.SEPARATE,
                 Duration.ofSeconds(1));
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process);
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process);
 
-        AssertionError actual = assertThrows(AssertionError.class, () -> kernel.run(plan));
+        Error actual = assertThrows(Error.class, () -> kernel.run(plan));
 
-        assertSame(writeFailure, actual);
-        assertTrue(java.util.Arrays.asList(actual.getSuppressed()).contains(closeFailure));
+        assertSame(writeFailure, FailureAggregation.primary(actual));
+        assertTrue(FailureAggregation.sources(actual).contains(closeFailure));
+        assertEquals(0, writeFailure.getSuppressed().length);
         assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
         assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
         assertEquals(1, stdin.closeCalls());
@@ -133,7 +137,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
         TerminalProcess process =
                 new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), stdin, true);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        ProcessKernel kernel = new ProcessKernel(
+        ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> process,
                 new BoundedCloseDispatcher(3, 3, 6),
@@ -143,7 +147,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
                     CommandExecutionException.class,
                     () -> kernel.run(executionPlan(
                             DiagnosticsSettings.disabled().withListener(events::add),
-                            StdinPolicy.input(CommandInput.bytes(new byte[] {1})),
+                            Optional.of(CommandInput.bytes(new byte[] {1})),
                             OutputMode.SEPARATE,
                             Duration.ofMillis(10))));
 
@@ -156,28 +160,28 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
     }
 
     @Test
-    void executorTerminationFailureIsSuppressedOnceOnAnExistingFatalPrimary() throws Exception {
+    void executorTerminationFailureAppearsOnceInAggregateWithExistingFatalPrimary() throws Exception {
         AssertionError readFailure = new AssertionError("stdout failed while stdin writer remained active");
         NonCooperativeOutputStream stdin = new NonCooperativeOutputStream();
         TerminalProcess process =
                 new TerminalProcess(new ReadErrorInputStream(readFailure), new TrackingInputStream(), stdin, true);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        ProcessKernel kernel = new ProcessKernel(
+        ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> process,
                 new BoundedCloseDispatcher(3, 3, 6),
                 Duration.ofMillis(50));
         try {
-            AssertionError actual = assertThrows(
-                    AssertionError.class,
+            Error actual = assertThrows(
+                    Error.class,
                     () -> kernel.run(executionPlan(
                             DiagnosticsSettings.disabled().withListener(events::add),
-                            StdinPolicy.input(CommandInput.bytes(new byte[] {1})),
+                            Optional.of(CommandInput.bytes(new byte[] {1})),
                             OutputMode.SEPARATE,
                             Duration.ofMillis(10))));
 
-            assertSame(readFailure, actual);
-            List<Throwable> terminationFailures = java.util.Arrays.stream(actual.getSuppressed())
+            assertSame(readFailure, FailureAggregation.primary(actual));
+            List<Throwable> terminationFailures = FailureAggregation.sources(actual).stream()
                     .filter(CommandExecutionException.class::isInstance)
                     .filter(failure -> failure.getMessage().contains("stopping command lifecycle tasks"))
                     .toList();
@@ -186,6 +190,47 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
             assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
         } finally {
             stdin.release.countDown();
+        }
+    }
+
+    @Test
+    void interruptionWhileAwaitingCapturedOutputIsRestoredBeforeRunReturns() throws Exception {
+        BlockingReadInputStream stdout = new BlockingReadInputStream();
+        TerminalProcess process = new TerminalProcess(stdout, new TrackingInputStream(), new TrackingOutputStream());
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean interruptedOnReturn = new AtomicBoolean();
+        Thread execution = new Thread(
+                () -> {
+                    failure.set(captureFailure(() -> kernel.run(executionPlan(
+                            CapturePolicy.bounded(8),
+                            DiagnosticsSettings.disabled(),
+                            Optional.empty(),
+                            OutputMode.SEPARATE,
+                            Duration.ofSeconds(1)))));
+                    interruptedOnReturn.set(Thread.currentThread().isInterrupted());
+                },
+                "one-shot-output-await-interruption-test");
+        execution.setDaemon(true);
+        try {
+            execution.start();
+            assertTrue(stdout.readEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(eventually(() -> java.util.Arrays.stream(execution.getStackTrace())
+                    .anyMatch(frame -> frame.getClassName().equals(OneShotExecution.class.getName())
+                            && frame.getMethodName().equals("awaitCapture"))));
+
+            execution.interrupt();
+            execution.join(TimeUnit.SECONDS.toMillis(2));
+
+            assertFalse(execution.isAlive());
+            CommandExecutionException actual = (CommandExecutionException) failure.get();
+            assertTrue(actual.getMessage().contains("capturing command output"));
+            assertTrue(interruptedOnReturn.get());
+            assertEquals(1, stdout.closeCalls());
+        } finally {
+            stdout.release.countDown();
+            execution.interrupt();
+            execution.join(TimeUnit.SECONDS.toMillis(2));
         }
     }
 }

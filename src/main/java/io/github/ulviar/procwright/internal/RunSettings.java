@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal;
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandInput;
+import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
@@ -15,7 +16,7 @@ import java.util.Optional;
 
 /** Fully normalized immutable state for one-shot execution. */
 public record RunSettings(
-        LaunchSettings launch,
+        CommandSpec launch,
         CapturePolicy capturePolicy,
         ShutdownPolicy shutdownPolicy,
         Duration timeout,
@@ -35,7 +36,7 @@ public record RunSettings(
         Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
-    public static RunSettings defaults(LaunchSettings launch) {
+    public static RunSettings defaults(CommandSpec launch) {
         return new RunSettings(
                 launch,
                 CapturePolicy.bounded(1024 * 1024),
@@ -49,16 +50,16 @@ public record RunSettings(
 
     public ExecutionPlan plan() {
         return new ExecutionPlan(
-                launch.plan(outputMode, TerminalPolicy.DISABLED),
+                LaunchPlan.from(launch, outputMode, TerminalPolicy.DISABLED),
                 capturePolicy,
                 shutdownPolicy,
                 timeout,
                 charsetPolicy,
-                input.map(StdinPolicy::input).orElseGet(StdinPolicy::closed),
+                input,
                 diagnostics);
     }
 
-    public RunSettings withLaunch(LaunchSettings launch) {
+    public RunSettings withLaunch(CommandSpec launch) {
         return new RunSettings(
                 launch, capturePolicy, shutdownPolicy, timeout, charsetPolicy, outputMode, input, diagnostics);
     }

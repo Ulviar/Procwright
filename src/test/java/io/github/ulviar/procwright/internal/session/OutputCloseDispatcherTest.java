@@ -490,7 +490,7 @@ final class BoundedCloseDispatcherTest {
     }
 
     @Test
-    void startThenThrowAndCloseFailureShareOneFallbackFailureGraph() throws Exception {
+    void startThenThrowAndCloseFailureProduceOneStableFallbackResult() throws Exception {
         IllegalStateException startFailure = new IllegalStateException("starter failed after starting worker");
         IOException closeFailure = new IOException("fallback close failed");
         AtomicInteger physicalCloses = new AtomicInteger();
@@ -541,8 +541,9 @@ final class BoundedCloseDispatcherTest {
         assertTrue(rejectedWorkerStopped.await(1, TimeUnit.SECONDS));
         assertTrue(completed.await(1, TimeUnit.SECONDS));
         assertTrue(failureReported.await(1, TimeUnit.SECONDS));
-        assertSame(startFailure, reported.get());
-        assertEquals(List.of(closeFailure), List.of(startFailure.getSuppressed()));
+        assertSame(startFailure, reported.get().getCause());
+        assertEquals(List.of(closeFailure), List.of(reported.get().getSuppressed()));
+        assertEquals(0, startFailure.getSuppressed().length);
         assertFalse(closeThread.get() == dispatchThread.get());
         assertEquals(1, failureReports.get());
         assertEquals(1, physicalCloses.get());
@@ -695,7 +696,7 @@ final class BoundedCloseDispatcherTest {
     }
 
     @Test
-    void callbackFailureIsSuppressedOnTheOriginalCloseFailureAndReportedOnce() throws Exception {
+    void callbackFailureIsReportedWithoutMutatingTheCloseFailure() throws Exception {
         IOException closeFailure = new IOException("close failed");
         IllegalStateException callbackFailure = new IllegalStateException("callback failed");
         AtomicInteger callbackCalls = new AtomicInteger();
@@ -722,8 +723,9 @@ final class BoundedCloseDispatcherTest {
         assertTrue(uncaughtReported.await(1, TimeUnit.SECONDS));
 
         assertEquals(1, callbackCalls.get());
-        assertSame(closeFailure, uncaught.get());
+        assertSame(closeFailure, uncaught.get().getCause());
         assertEquals(List.of(callbackFailure), List.of(uncaught.get().getSuppressed()));
+        assertEquals(0, closeFailure.getSuppressed().length);
     }
 
     private static void runBlockingStarterCase(int activeCapacity, int blockingOrdinal, CloseFailureKind failureKind)

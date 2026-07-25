@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class WorkerRetirementTest {
@@ -40,6 +41,25 @@ final class WorkerRetirementTest {
 
         assertSame(expected, retirement.outcome().join().failure());
         assertSame(expected, retirement.outcome().join().failure());
+    }
+
+    @Test
+    void reentrantObservationCannotInitiateCloseTwice() {
+        AtomicInteger initiations = new AtomicInteger();
+        AtomicReference<WorkerRetirement<String>> owner = new AtomicReference<>();
+        AtomicReference<CompletableFuture<WorkerRetirement.Outcome>> reentrantOutcome = new AtomicReference<>();
+        WorkerRetirement<String> retirement = retirement((worker, admission) -> {
+            initiations.incrementAndGet();
+            reentrantOutcome.set(owner.get().outcome());
+            return () -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
+        });
+        owner.set(retirement);
+
+        CompletableFuture<WorkerRetirement.Outcome> outcome = retirement.outcome();
+
+        assertSame(outcome, reentrantOutcome.get());
+        assertNull(outcome.join().failure());
+        assertEquals(1, initiations.get());
     }
 
     @Test

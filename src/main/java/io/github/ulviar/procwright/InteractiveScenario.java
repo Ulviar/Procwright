@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright;
 
-import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticListener;
 import io.github.ulviar.procwright.diagnostics.DiagnosticTranscriptSink;
@@ -26,7 +25,7 @@ public final class InteractiveScenario {
 
     static Draft draft(ScenarioRuntime runtime) {
         return new ImmutableDraft(
-                runtime, SessionSettings.defaults(runtime.launchSettings()), ReadinessSettings.defaults());
+                runtime, SessionSettings.defaults(runtime.commandSpec()), ReadinessSettings.defaults());
     }
 
     /**
@@ -219,13 +218,12 @@ public final class InteractiveScenario {
 
         @Override
         public Draft withInheritedEnvironment() {
-            return withSettings(
-                    settings.withLaunch(settings.launch().withEnvironmentPolicy(EnvironmentPolicy.INHERIT)));
+            return withSettings(settings.withLaunch(settings.launch().withInheritedEnvironment()));
         }
 
         @Override
         public Draft withCleanEnvironment() {
-            return withSettings(settings.withLaunch(settings.launch().withEnvironmentPolicy(EnvironmentPolicy.CLEAN)));
+            return withSettings(settings.withLaunch(settings.launch().withCleanEnvironment()));
         }
 
         @Override

@@ -142,15 +142,21 @@ final class ProcessLifecycleObservationAndDeadlineTest extends ProcessLifecycleO
         ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofMillis(10));
         DeadlineScriptedProcess delegate = new DeadlineScriptedProcess(true, true, false);
         try {
-            CommandExecutionException failure = assertThrows(
-                    CommandExecutionException.class,
+            RuntimeException failure = assertThrows(
+                    RuntimeException.class,
                     () -> ProcessLifecycle.stop(
                             scanner.guard(delegate),
                             KnownDescendants.empty(),
                             ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofMillis(250))));
 
-            assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
-            assertTrue(failure.getMessage().contains("procwright-provider-liveness-"));
+            CommandExecutionException providerFailure = failureSources(failure).stream()
+                    .filter(CommandExecutionException.class::isInstance)
+                    .map(CommandExecutionException.class::cast)
+                    .filter(ProcessTreeScanner::causedByOperationDeadline)
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(ProcessTreeScanner.causedByOperationDeadline(providerFailure));
+            failureSourceContaining(failure, "procwright-provider-liveness-");
             assertTrue(delegate.gracefulWaitLivenessEntered.await(1, TimeUnit.SECONDS));
         } finally {
             delegate.releaseGracefulWaitLiveness.countDown();

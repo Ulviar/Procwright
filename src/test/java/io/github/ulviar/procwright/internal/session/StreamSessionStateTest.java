@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -11,7 +12,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.session.SessionExit;
 import java.util.OptionalInt;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 final class StreamSessionStateTest {
 
     @Test
-    void failureWinsOnceAndOwnsLaterFailures() {
+    void failureWinsOnceAndExposesLaterFailuresForReporting() {
         StreamSessionState state = new StreamSessionState(2);
         RuntimeException primary = new RuntimeException("primary");
         AssertionError secondary = new AssertionError("secondary");
@@ -31,13 +31,11 @@ final class StreamSessionStateTest {
 
         assertTrue(first.installed());
         assertSame(primary, first.primary());
-        assertNull(first.lateFailure());
+        assertNull(first.reportableFailure());
         assertFalse(second.installed());
         assertSame(primary, second.primary());
-        assertNull(second.lateFailure());
-        assertSame(secondary, second.suppressedFailure());
-        second.attachSuppressedFailure();
-        assertSame(secondary, primary.getSuppressed()[0]);
+        assertSame(secondary, second.reportableFailure());
+        assertEquals(0, primary.getSuppressed().length);
         assertTrue(state.stopping());
     }
 
@@ -51,25 +49,22 @@ final class StreamSessionStateTest {
 
         assertFalse(selection.installed());
         assertNull(selection.primary());
-        assertSame(late, selection.lateFailure());
-        assertNull(selection.suppressedFailure());
+        assertSame(late, selection.reportableFailure());
         assertTrue(state.controlledStop());
     }
 
     @Test
-    void hostileSuppressionCannotHoldTheStateMonitor() throws Exception {
+    void selectingALaterFailureDoesNotWaitForOrMutateTheWinner() throws Exception {
         StreamSessionState state = new StreamSessionState(1);
         RuntimeException primary = new RuntimeException("primary");
-        BlockingCauseFailure secondary = new BlockingCauseFailure();
+        AssertionError secondary = new AssertionError("secondary");
         state.selectFailure(primary);
         ExecutorService executor = Executors.newFixedThreadPool(2);
-        Future<?> suppression = null;
-        try {
-            suppression = executor.submit(() -> {
-                StreamSessionState.FailureSelection selection = state.selectFailure(secondary);
-                selection.attachSuppressedFailure();
-            });
-            assertTrue(secondary.causeAccessed.await(1, TimeUnit.SECONDS));
+        Future<StreamSessionState.FailureSelection> selection = null;
+        try (var monitor = hold(primary)) {
+            monitor.verifyHeld();
+            selection = executor.submit(() -> state.selectFailure(secondary));
+            assertSame(secondary, selection.get(1, TimeUnit.SECONDS).reportableFailure());
 
             Future<StreamSessionState.Completion> completion = executor.submit(() -> {
                 state.outputPumpCompleted();
@@ -79,16 +74,17 @@ final class StreamSessionStateTest {
                     assertInstanceOf(StreamSessionState.FailedCompletion.class, completion.get(1, TimeUnit.SECONDS));
             assertSame(primary, failed.primary());
         } finally {
-            secondary.releaseCause.countDown();
             try {
-                if (suppression != null) {
-                    suppression.get(1, TimeUnit.SECONDS);
+                if (selection != null) {
+                    assertSame(secondary, selection.get(1, TimeUnit.SECONDS).reportableFailure());
                 }
             } finally {
                 executor.shutdownNow();
                 assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
             }
         }
+        assertEquals(0, primary.getSuppressed().length);
+        assertEquals(0, secondary.getSuppressed().length);
     }
 
     @Test
@@ -153,34 +149,5 @@ final class StreamSessionStateTest {
 
         assertNull(state.claimCompletion());
         assertFalse(state.stopping());
-    }
-
-    @SuppressWarnings("serial")
-    private static final class BlockingCauseFailure extends RuntimeException {
-
-        private final CountDownLatch causeAccessed = new CountDownLatch(1);
-        private final CountDownLatch releaseCause = new CountDownLatch(1);
-
-        private BlockingCauseFailure() {
-            super("secondary", null);
-        }
-
-        @Override
-        public synchronized Throwable getCause() {
-            causeAccessed.countDown();
-            boolean interrupted = false;
-            while (true) {
-                try {
-                    releaseCause.await();
-                    break;
-                } catch (InterruptedException exception) {
-                    interrupted = true;
-                }
-            }
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-            return null;
-        }
     }
 }

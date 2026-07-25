@@ -153,6 +153,58 @@ final class ProcessTreeScannerTest {
     }
 
     @Test
+    void traversalAndStreamCloseFailuresProduceADetachedAggregateWithoutMutatingEitherSource() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(50));
+        ProcessHandle observedChild = new StubHandle(701);
+
+        for (Throwable closeFailure :
+                List.of(new IllegalStateException("stream close failed"), new AssertionError("fatal stream close"))) {
+            AssertionError traversalFailure = new AssertionError("fatal enumeration");
+            Process process = new StubProcess() {
+                @Override
+                public Stream<ProcessHandle> descendants() {
+                    return streamFailingAfter(observedChild, traversalFailure).onClose(() -> rethrow(closeFailure));
+                }
+            };
+
+            ProcessTreeScanner.DescendantScan scan = scanner.scanDescendants(process, Duration.ofMillis(50));
+
+            assertEquals(Set.of(observedChild), scan.handles());
+            assertTrue(scan.incomplete());
+            assertTrue(scan.failure() instanceof Error);
+            assertNotSame(traversalFailure, scan.failure());
+            assertSame(traversalFailure, FailureAggregation.primary(scan.failure()));
+            assertEquals(List.of(traversalFailure, closeFailure), FailureAggregation.sources(scan.failure()));
+            assertEquals(0, traversalFailure.getSuppressed().length);
+            assertEquals(0, closeFailure.getSuppressed().length);
+        }
+    }
+
+    @Test
+    void fatalStreamCloseBecomesPrimaryWithoutReorderingOrMutatingTraversalSources() {
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(50));
+        ProcessHandle observedChild = new StubHandle(702);
+        IllegalStateException traversalFailure = new IllegalStateException("enumeration failed");
+        AssertionError closeFailure = new AssertionError("fatal stream close");
+        Process process = new StubProcess() {
+            @Override
+            public Stream<ProcessHandle> descendants() {
+                return streamFailingAfter(observedChild, traversalFailure).onClose(() -> rethrow(closeFailure));
+            }
+        };
+
+        ProcessTreeScanner.DescendantScan scan = scanner.scanDescendants(process, Duration.ofMillis(50));
+
+        assertEquals(Set.of(observedChild), scan.handles());
+        assertTrue(scan.incomplete());
+        assertTrue(scan.failure() instanceof Error);
+        assertSame(closeFailure, FailureAggregation.primary(scan.failure()));
+        assertEquals(List.of(traversalFailure, closeFailure), FailureAggregation.sources(scan.failure()));
+        assertEquals(0, traversalFailure.getSuppressed().length);
+        assertEquals(0, closeFailure.getSuppressed().length);
+    }
+
+    @Test
     void timedOutHostileScanRetainsItsOnlyPermitUntilTheOperationActuallyReturns() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
         BlockingDescendantsProcess blocked = new BlockingDescendantsProcess();
@@ -647,7 +699,7 @@ final class ProcessTreeScannerTest {
             }
         };
 
-        Process started = ProcessTransport.resolve(sessionPlan(provider)).start(sessionPlan(provider));
+        Process started = ProcessTransport.start(sessionPlan(provider));
 
         assertTrue(started instanceof GuardedProcess);
         assertSame(supplied, ((GuardedProcess) started).delegate());
@@ -690,7 +742,7 @@ final class ProcessTreeScannerTest {
             }
         };
         SessionExecutionPlan plan = sessionPlan(provider);
-        Process started = ProcessTransport.resolve(plan).start(plan);
+        Process started = ProcessTransport.start(plan);
 
         assertTrue(started.isAlive());
         assertTrue(started.isAlive());
@@ -699,7 +751,6 @@ final class ProcessTreeScannerTest {
 
     private static SessionExecutionPlan sessionPlan(PtyProvider provider) {
         LaunchPlan launch = new LaunchPlan(
-                LaunchMode.DIRECT,
                 List.of("test"),
                 Optional.empty(),
                 EnvironmentPolicy.INHERIT,
@@ -791,6 +842,13 @@ final class ProcessTreeScannerTest {
         } catch (Throwable failure) {
             return failure;
         }
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeException) {
+            throw runtimeException;
+        }
+        throw (Error) failure;
     }
 
     private static boolean eventually(java.util.function.BooleanSupplier condition) {

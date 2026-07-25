@@ -50,6 +50,15 @@ public final class BoundedFailureReporter {
         return SHARED;
     }
 
+    /** Reports a secondary failure without allowing notification infrastructure to replace the primary outcome. */
+    public static void reportBestEffort(Throwable failure) {
+        try {
+            SHARED.report(captureFailureTarget(), failure);
+        } catch (RuntimeException | Error ignored) {
+            // Best-effort reporting cannot become a lifecycle failure.
+        }
+    }
+
     /** Submits one best-effort uncaught-failure notification without blocking the caller. */
     public boolean report(Thread sourceThread, Throwable failure) {
         Objects.requireNonNull(sourceThread, "sourceThread");

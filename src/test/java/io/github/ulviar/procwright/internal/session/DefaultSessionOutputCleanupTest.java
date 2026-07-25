@@ -2,8 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -147,13 +149,32 @@ final class DefaultSessionOutputCleanupTest {
                     ExecutionException.class,
                     () -> session.physicalOutputCleanup().get(1, TimeUnit.SECONDS));
 
-            assertSame(stderrFailure, cleanupFailure.getCause());
-            assertEquals(1, countIdentity(stderrFailure.getSuppressed(), stdoutFailure));
+            assertInstanceOf(Error.class, cleanupFailure.getCause());
+            assertSame(stderrFailure, cleanupFailure.getCause().getCause());
+            assertEquals(
+                    java.util.List.of(stdoutFailure),
+                    java.util.List.of(cleanupFailure.getCause().getSuppressed()));
+            assertEquals(0, stderrFailure.getSuppressed().length);
+            assertEquals(0, stdoutFailure.getSuppressed().length);
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
         } finally {
             session.close();
         }
+    }
+
+    @Test
+    void physicalOutputCleanupPrefersRuntimeFailureOverCheckedFailure() throws Exception {
+        assertPhysicalOutputFailurePriority(
+                new IOException("stdout close failed"), new IllegalStateException("stderr close failed"), false);
+    }
+
+    @Test
+    void physicalOutputCleanupPreservesFirstFailureWithinOnePriorityCategory() throws Exception {
+        assertPhysicalOutputFailurePriority(
+                new IllegalStateException("stdout close failed"),
+                new IllegalArgumentException("stderr close failed"),
+                true);
     }
 
     @TestFactory
@@ -235,9 +256,14 @@ final class DefaultSessionOutputCleanupTest {
                     .get(1, TimeUnit.SECONDS));
             ExecutionException publicFailure = assertThrows(
                     ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
-            assertSame(startFailure, terminal.getCause());
-            assertSame(startFailure, publicFailure.getCause());
-            assertEquals(java.util.List.of(closeFailure), java.util.List.of(startFailure.getSuppressed()));
+            Throwable physicalCleanupFailure = terminal.getCause();
+            assertSame(startFailure, physicalCleanupFailure.getCause());
+            assertEquals(java.util.List.of(closeFailure), java.util.List.of(physicalCleanupFailure.getSuppressed()));
+            assertSame(startFailure, publicFailure.getCause().getCause());
+            assertEquals(
+                    java.util.List.of(closeFailure),
+                    java.util.List.of(publicFailure.getCause().getSuppressed()));
+            assertEquals(0, startFailure.getSuppressed().length);
             assertEquals(1, stdout.closeCalls());
             assertEquals(0, dispatcher.outstandingCount());
         } finally {
@@ -281,7 +307,7 @@ final class DefaultSessionOutputCleanupTest {
         ImmediateFailingCloseInputStream stderr = new ImmediateFailingCloseInputStream(stderrFailure);
         TrackingOutputStream stdin = new TrackingOutputStream();
         MatrixProcess process = new MatrixProcess(stdin, stdout, stderr);
-        CopyOnWriteFailureHandler reports = new CopyOnWriteFailureHandler(2);
+        CopyOnWriteFailureHandler reports = new CopyOnWriteFailureHandler(1);
         DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3, reports::start));
         try {
             process.complete(0);
@@ -289,8 +315,11 @@ final class DefaultSessionOutputCleanupTest {
             assertTrue(reports.await());
             assertTrue(reports.awaitWorkers());
 
-            assertEquals(1, reports.count(stdoutFailure));
-            assertEquals(1, reports.count(stderrFailure));
+            Throwable reported = reports.onlyFailure();
+            assertSame(stdoutFailure, reported.getCause());
+            assertEquals(java.util.List.of(stderrFailure), java.util.List.of(reported.getSuppressed()));
+            assertEquals(0, stdoutFailure.getSuppressed().length);
+            assertEquals(0, stderrFailure.getSuppressed().length);
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
         } finally {
@@ -310,16 +339,24 @@ final class DefaultSessionOutputCleanupTest {
         CopyOnWriteFailureHandler reports = new CopyOnWriteFailureHandler(0);
         DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3, reports::start));
         try {
-            session.closeStdin();
-            ExecutionException terminal = org.junit.jupiter.api.Assertions.assertThrows(
-                    ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
-            assertSame(stdinFailure, terminal.getCause());
+            ExecutionException terminal;
+            try (var monitor = hold(stdinFailure)) {
+                monitor.verifyHeld();
+                session.closeStdin();
+                terminal = org.junit.jupiter.api.Assertions.assertThrows(
+                        ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
+            }
+            assertSame(stdinFailure, terminal.getCause().getCause());
             assertTrue(stdout.awaitClosed());
             assertTrue(stderr.awaitClosed());
             assertTrue(reports.awaitWorkers());
 
-            assertEquals(1, countIdentity(stdinFailure.getSuppressed(), stdoutFailure));
-            assertEquals(1, countIdentity(stdinFailure.getSuppressed(), stderrFailure));
+            assertEquals(
+                    java.util.List.of(stdoutFailure, stderrFailure),
+                    java.util.List.of(terminal.getCause().getSuppressed()));
+            assertEquals(0, stdinFailure.getSuppressed().length);
+            assertEquals(0, stdoutFailure.getSuppressed().length);
+            assertEquals(0, stderrFailure.getSuppressed().length);
             assertEquals(0, reports.size());
             assertEquals(1, stdin.closeCalls());
             assertEquals(1, stdout.closeCalls());
@@ -523,7 +560,10 @@ final class DefaultSessionOutputCleanupTest {
             ExecutionException observed = assertThrows(
                     ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-            assertSame(expectedPrimary, observed.getCause());
+            Throwable poolFailure = observed.getCause();
+            if (poolFailure != expectedPrimary) {
+                assertSame(expectedPrimary, poolFailure.getCause());
+            }
             assertEquals(1, pool.metrics().failedWorkerCloses());
             assertEquals(1, pool.metrics().retired());
             assertEquals(0, pool.metrics().retiring());
@@ -590,6 +630,31 @@ final class DefaultSessionOutputCleanupTest {
             stream.read();
         } catch (IOException failure) {
             throw new UncheckedIOException(failure);
+        }
+    }
+
+    private static void assertPhysicalOutputFailurePriority(
+            Throwable stdoutFailure, Throwable stderrFailure, boolean stdoutWins) throws Exception {
+        ImmediateFailingCloseInputStream stdout = new ImmediateFailingCloseInputStream(stdoutFailure);
+        ImmediateFailingCloseInputStream stderr = new ImmediateFailingCloseInputStream(stderrFailure);
+        MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
+        try {
+            process.complete(0);
+            session.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);
+
+            ExecutionException cleanupFailure =
+                    assertThrows(ExecutionException.class, () -> session.physicalOutputCleanup()
+                            .get(1, TimeUnit.SECONDS));
+
+            Throwable expectedPrimary = stdoutWins ? stdoutFailure : stderrFailure;
+            Throwable expectedSecondary = stdoutWins ? stderrFailure : stdoutFailure;
+            assertSame(expectedPrimary, cleanupFailure.getCause().getCause());
+            assertEquals(
+                    java.util.List.of(expectedSecondary),
+                    java.util.List.of(cleanupFailure.getCause().getSuppressed()));
+        } finally {
+            session.close();
         }
     }
 
@@ -864,10 +929,9 @@ final class DefaultSessionOutputCleanupTest {
             return expected.await(1, TimeUnit.SECONDS);
         }
 
-        private int count(Throwable expectedFailure) {
-            return Math.toIntExact(failures.stream()
-                    .filter(failure -> failure == expectedFailure)
-                    .count());
+        private Throwable onlyFailure() {
+            assertEquals(1, failures.size());
+            return failures.getFirst();
         }
 
         private boolean awaitWorkers() throws InterruptedException {

@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal;
 
+import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.session.StreamListener;
@@ -15,7 +16,7 @@ import java.util.Objects;
 
 /** Fully normalized immutable state for listen-only streaming. */
 public record StreamSettings(
-        LaunchSettings launch,
+        CommandSpec launch,
         ShutdownPolicy shutdownPolicy,
         Duration timeout,
         Charset charset,
@@ -35,7 +36,7 @@ public record StreamSettings(
         Objects.requireNonNull(diagnostics, "diagnostics");
     }
 
-    public static StreamSettings defaults(LaunchSettings launch) {
+    public static StreamSettings defaults(CommandSpec launch) {
         return new StreamSettings(
                 launch,
                 ShutdownPolicy.interruptThenKill(Duration.ofSeconds(2), Duration.ofSeconds(5)),
@@ -48,7 +49,7 @@ public record StreamSettings(
 
     public StreamExecutionPlan plan() {
         SessionExecutionPlan sessionPlan = new SessionExecutionPlan(
-                launch.plan(OutputMode.SEPARATE, TerminalPolicy.DISABLED),
+                LaunchPlan.from(launch, OutputMode.SEPARATE, TerminalPolicy.DISABLED),
                 shutdownPolicy,
                 Duration.ZERO,
                 charset,
@@ -57,7 +58,7 @@ public record StreamSettings(
         return new StreamExecutionPlan(sessionPlan, timeout, diagnosticLimit, listener, diagnostics);
     }
 
-    public StreamSettings withLaunch(LaunchSettings launch) {
+    public StreamSettings withLaunch(CommandSpec launch) {
         return new StreamSettings(launch, shutdownPolicy, timeout, charset, diagnosticLimit, listener, diagnostics);
     }
 

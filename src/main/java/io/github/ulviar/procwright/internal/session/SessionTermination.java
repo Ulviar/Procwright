@@ -4,9 +4,11 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.session.SessionExit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalInt;
@@ -18,9 +20,10 @@ final class SessionTermination {
 
     private final DiagnosticEmitter diagnostics;
     private final CompletableFuture<SessionExit> terminal = new CompletableFuture<>();
+    private final CompletableFuture<Outcome> outcome = new CompletableFuture<>();
     private final Object lock = new Object();
+    private List<Throwable> failures;
     private State state = State.RUNNING;
-    private Throwable failure;
     private Publication publicationOwner;
     private int pendingFailureCleanups;
     private boolean publicationStarted;
@@ -57,18 +60,16 @@ final class SessionTermination {
         return terminal.isDone();
     }
 
-    Throwable failure() {
-        synchronized (lock) {
-            return failure;
-        }
-    }
-
     void observe(BiConsumer<? super SessionExit, ? super Throwable> observer) {
         terminal.whenComplete(Objects.requireNonNull(observer, "observer"));
     }
 
     CompletableFuture<SessionExit> completion() {
         return terminal;
+    }
+
+    CompletableFuture<Outcome> outcome() {
+        return outcome;
     }
 
     Publication claimNaturalSuccess() {
@@ -93,6 +94,7 @@ final class SessionTermination {
 
     FailureClaim claimFailure(Throwable terminalFailure) {
         Objects.requireNonNull(terminalFailure, "terminalFailure");
+        FailureClaim claim;
         synchronized (lock) {
             if (publicationStarted) {
                 return null;
@@ -104,8 +106,9 @@ final class SessionTermination {
                 state = State.CLOSED;
                 createPublicationLocked();
             }
-            return new FailureClaim(ownsPublication);
+            claim = new FailureClaim(ownsPublication);
         }
+        return claim;
     }
 
     final class Publication {
@@ -127,8 +130,8 @@ final class SessionTermination {
             }
         }
 
-        void publishFailure(Throwable terminalFailure) {
-            request(null, Objects.requireNonNull(terminalFailure, "terminalFailure"));
+        void publishFailure() {
+            request(null, null);
         }
 
         private void request(SessionExit sessionExit, Throwable terminalFailure) {
@@ -142,6 +145,9 @@ final class SessionTermination {
                         throw new IllegalStateException("Terminal publication has already started");
                     }
                     recordFailureLocked(terminalFailure);
+                }
+                if (sessionExit == null && failures == null) {
+                    throw new IllegalStateException("Failure publication has no recorded failure");
                 }
                 requested = true;
                 result = sessionExit;
@@ -162,6 +168,16 @@ final class SessionTermination {
 
         boolean ownsPublication() {
             return ownsPublication;
+        }
+
+        void recordFailure(Throwable cleanupFailure) {
+            Objects.requireNonNull(cleanupFailure, "cleanupFailure");
+            synchronized (lock) {
+                if (cleanupFinished) {
+                    throw new IllegalStateException("Terminal failure cleanup has already finished");
+                }
+                recordFailureLocked(cleanupFailure);
+            }
         }
 
         void finishCleanup() {
@@ -204,16 +220,15 @@ final class SessionTermination {
             return null;
         }
         publicationStarted = true;
-        return new PendingPublication(publicationOwner.result, failure);
+        return new PendingPublication(publicationOwner.result, failures == null ? List.of() : List.copyOf(failures));
     }
 
     private void publish(PendingPublication pending) {
         if (pending == null) {
             return;
         }
-        Throwable canonicalFailure = pending.failure();
-        if (canonicalFailure != null) {
-            publishCanonicalFailure(canonicalFailure);
+        if (!pending.failures().isEmpty()) {
+            publishCanonicalFailure(pending.failures());
             return;
         }
         SessionExit sessionExit = Objects.requireNonNull(pending.result(), "successful session exit");
@@ -221,38 +236,63 @@ final class SessionTermination {
             diagnostics.emit(
                     DiagnosticEventType.PROCESS_EXITED, exitAttributes(sessionExit.exitCode(), sessionExit.timedOut()));
             terminal.complete(sessionExit);
+            outcome.complete(new Outcome(sessionExit, List.of()));
         } catch (RuntimeException | Error publicationFailure) {
             synchronized (lock) {
                 recordFailureLocked(publicationFailure);
             }
             terminal.completeExceptionally(publicationFailure);
+            outcome.complete(new Outcome(null, List.of(publicationFailure)));
             throw publicationFailure;
         }
     }
 
-    private void publishCanonicalFailure(Throwable canonicalFailure) {
-        emitPreserving(
+    private void publishCanonicalFailure(List<Throwable> terminalFailures) {
+        List<Throwable> publicationFailures = new ArrayList<>(terminalFailures);
+        emit(
+                publicationFailures,
                 DiagnosticEventType.SHUTDOWN_REQUESTED,
-                DiagnosticEmitter.attributes("reason", "failure"),
-                canonicalFailure);
-        emitPreserving(
+                DiagnosticEmitter.attributes("reason", "failure"));
+        emit(
+                publicationFailures,
                 DiagnosticEventType.PROCESS_FAILED,
-                DiagnosticEmitter.failureAttributes(canonicalFailure),
-                canonicalFailure);
-        terminal.completeExceptionally(canonicalFailure);
+                DiagnosticEmitter.failureAttributes(terminalFailures.getFirst()));
+        Throwable publishedFailure =
+                FailureAggregation.combine(publicationFailures, "Session termination or diagnostics failed");
+        terminal.completeExceptionally(publishedFailure);
+        outcome.complete(new Outcome(null, publicationFailures));
     }
 
-    private record PendingPublication(SessionExit result, Throwable failure) {}
+    private record PendingPublication(SessionExit result, List<Throwable> failures) {}
+
+    record Outcome(SessionExit result, List<Throwable> failures) {
+
+        Outcome {
+            failures = List.copyOf(failures);
+            if ((result == null) == failures.isEmpty()) {
+                throw new IllegalArgumentException("A terminal outcome must contain either a result or failures");
+            }
+        }
+    }
 
     private void recordFailureLocked(Throwable terminalFailure) {
-        failure = SuppressionSupport.combine(failure, terminalFailure);
+        if (failures != null) {
+            for (Throwable failure : failures) {
+                if (failure == terminalFailure) {
+                    return;
+                }
+            }
+        } else {
+            failures = new ArrayList<>(2);
+        }
+        failures.add(terminalFailure);
     }
 
-    private void emitPreserving(DiagnosticEventType type, Map<String, String> attributes, Throwable primaryFailure) {
+    private void emit(List<Throwable> publicationFailures, DiagnosticEventType type, Map<String, String> attributes) {
         try {
             diagnostics.emit(type, attributes);
         } catch (RuntimeException | Error diagnosticFailure) {
-            SuppressionSupport.attach(primaryFailure, diagnosticFailure);
+            publicationFailures.add(diagnosticFailure);
         }
     }
 

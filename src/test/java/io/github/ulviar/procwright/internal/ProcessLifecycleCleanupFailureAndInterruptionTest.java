@@ -38,18 +38,18 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
                 BlockingDestroyProcess process = new BlockingDestroyProcess();
                 processes.add(process);
                 assertThrows(
-                        CommandExecutionException.class,
+                        RuntimeException.class,
                         () -> ProcessLifecycle.forceStop(process, KnownDescendants.empty(), Duration.ZERO));
             }
 
             assertEquals(0, BoundedDestroyDispatcher.availablePermits());
             BlockingDestroyProcess rejected = new BlockingDestroyProcess();
             processes.add(rejected);
-            CommandExecutionException failure = assertThrows(
-                    CommandExecutionException.class,
+            RuntimeException failure = assertThrows(
+                    RuntimeException.class,
                     () -> ProcessLifecycle.forceStop(rejected, KnownDescendants.empty(), Duration.ZERO));
 
-            assertTrue(failure.getMessage().contains("bounded destroy capacity is exhausted"));
+            failureSourceContaining(failure, "bounded destroy capacity is exhausted");
             assertEquals(0, rejected.startedCalls(), "capacity rejection must not start another fallback thread");
         } finally {
             processes.forEach(BlockingDestroyProcess::release);
@@ -63,10 +63,10 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
         LivenessRestrictedProcess process = new LivenessRestrictedProcess();
 
         assertFalse(ProcessLifecycle.waitFor(process, Duration.ofNanos(1), new LiveDescendantSnapshot()));
-        CommandExecutionException failure = assertThrows(
-                CommandExecutionException.class, () -> ProcessLifecycle.forceStop(process, Duration.ofMillis(100)));
+        RuntimeException failure =
+                assertThrows(RuntimeException.class, () -> ProcessLifecycle.forceStop(process, Duration.ofMillis(100)));
 
-        assertTrue(failure.getMessage().contains("discovery did not complete"));
+        failureSourceContaining(failure, "discovery did not complete");
         assertEquals(1, process.forceDestroyCalls());
     }
 
@@ -75,11 +75,11 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
         IllegalStateException expected = new IllegalStateException("exit observation failed");
         SingleFailingExitValueProcess process = new SingleFailingExitValueProcess(expected);
 
-        IllegalStateException actual = assertThrows(
-                IllegalStateException.class,
+        RuntimeException actual = assertThrows(
+                RuntimeException.class,
                 () -> ProcessLifecycle.forceStop(process, KnownDescendants.empty(), Duration.ZERO));
 
-        assertSame(expected, actual);
+        assertTrue(failureSources(actual).contains(expected));
         assertEquals(1, process.exitValueCalls.get());
     }
 
@@ -100,17 +100,22 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
         descendants.add(process.secondDescendant());
         descendants.add(process.firstDescendant());
 
-        AssertionError thrown = assertThrows(
-                AssertionError.class,
+        Error thrown = assertThrows(
+                Error.class,
                 () -> ProcessLifecycle.stop(
                         process,
                         knownDescendants(descendants),
                         ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ofMillis(100))));
 
-        assertSame(rootGracefulFailure, thrown);
+        assertSame(rootGracefulFailure, thrown.getCause());
         assertEquals(
-                List.of(firstDescendantFailure, secondDescendantFailure, descendantForceFailure, rootForceFailure),
-                List.of(thrown.getSuppressed()));
+                List.of(
+                        rootGracefulFailure,
+                        firstDescendantFailure,
+                        secondDescendantFailure,
+                        descendantForceFailure,
+                        rootForceFailure),
+                failureSources(thrown));
         assertEquals(1, process.firstDescendant().gracefulDestroyCalls());
         assertEquals(1, process.secondDescendant().gracefulDestroyCalls());
         assertEquals(1, process.rootGracefulHandleCalls());
@@ -127,15 +132,17 @@ final class ProcessLifecycleCleanupFailureAndInterruptionTest
         IllegalStateException forceFailure = new IllegalStateException("forceful descendant failure");
         InterruptingCleanupProcess process = new InterruptingCleanupProcess(gracefulFailure, forceFailure);
         try {
-            CommandExecutionException thrown = assertThrows(
-                    CommandExecutionException.class,
+            RuntimeException thrown = assertThrows(
+                    RuntimeException.class,
                     () -> ProcessLifecycle.stop(
                             process,
                             knownDescendants(process.descendant()),
                             ShutdownPolicy.interruptThenKill(Duration.ofSeconds(1), Duration.ofSeconds(5))));
 
-            assertTrue(thrown.getCause() instanceof InterruptedException);
-            assertEquals(List.of(gracefulFailure, forceFailure), List.of(thrown.getSuppressed()));
+            assertTrue(thrown.getCause() instanceof CommandExecutionException);
+            assertTrue(thrown.getCause().getCause() instanceof InterruptedException);
+            assertTrue(failureSources(thrown).contains(gracefulFailure));
+            assertTrue(failureSources(thrown).contains(forceFailure));
             assertEquals(1, process.descendant().gracefulDestroyCalls());
             assertEquals(1, process.descendant().forceDestroyCalls());
             assertEquals(1, process.rootForceFallbackCalls());

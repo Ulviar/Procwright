@@ -14,6 +14,7 @@ import io.github.ulviar.procwright.command.OutputMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -25,7 +26,7 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
     @Test
     void boundedSeparateCaptureWithMemoryInputNeedsThreePipeTasks() {
         CommandInput input = CommandInput.utf8("input");
-        OneShotIoPlan ioPlan = resolve(CapturePolicy.bounded(16), StdinPolicy.input(input), OutputMode.SEPARATE);
+        OneShotIoPlan ioPlan = resolve(CapturePolicy.bounded(16), Optional.of(input), OutputMode.SEPARATE);
 
         assertEquals(ProcessBuilder.Redirect.PIPE, ioPlan.stdio().stdin());
         assertEquals(ProcessBuilder.Redirect.PIPE, ioPlan.stdio().stdout());
@@ -39,7 +40,7 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
 
     @Test
     void boundedMergedCaptureWithClosedInputNeedsOnlyTheMergedOutputTask() {
-        OneShotIoPlan ioPlan = resolve(CapturePolicy.bounded(16), StdinPolicy.closed(), OutputMode.MERGED);
+        OneShotIoPlan ioPlan = resolve(CapturePolicy.bounded(16), Optional.empty(), OutputMode.MERGED);
 
         assertTrue(ioPlan.capturesStdout());
         assertFalse(ioPlan.capturesStderr());
@@ -49,7 +50,7 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
 
     @Test
     void discardedOutputNeedsNoPumpTasks() {
-        OneShotIoPlan ioPlan = resolve(CapturePolicy.discard(), StdinPolicy.closed(), OutputMode.SEPARATE);
+        OneShotIoPlan ioPlan = resolve(CapturePolicy.discard(), Optional.empty(), OutputMode.SEPARATE);
 
         assertEquals(ProcessBuilder.Redirect.DISCARD, ioPlan.stdio().stdout());
         assertEquals(ProcessBuilder.Redirect.DISCARD, ioPlan.stdio().stderr());
@@ -65,9 +66,7 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
         Path stderr = temporaryDirectory.resolve("stderr.txt");
 
         OneShotIoPlan ioPlan = resolve(
-                CapturePolicy.toPath(stdout, stderr),
-                StdinPolicy.input(CommandInput.fromPath(input)),
-                OutputMode.SEPARATE);
+                CapturePolicy.toPath(stdout, stderr), Optional.of(CommandInput.fromPath(input)), OutputMode.SEPARATE);
 
         assertEquals(ProcessBuilder.Redirect.Type.READ, ioPlan.stdio().stdin().type());
         assertEquals(input.toFile(), ioPlan.stdio().stdin().file());
@@ -85,21 +84,15 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
                 CommandExecutionException.class,
                 () -> resolve(
                         CapturePolicy.discard(),
-                        StdinPolicy.input(CommandInput.fromPath(temporaryDirectory.resolve("missing.txt"))),
+                        Optional.of(CommandInput.fromPath(temporaryDirectory.resolve("missing.txt"))),
                         OutputMode.SEPARATE));
 
         assertEquals(CommandExecutionException.Reason.LAUNCH_FAILED, failure.reason());
     }
 
-    @Test
-    void openStdinIsRejectedByTheOneShotPlan() {
-        assertThrows(
-                CommandExecutionException.class,
-                () -> resolve(CapturePolicy.discard(), StdinPolicy.open(), OutputMode.SEPARATE));
-    }
-
-    private static OneShotIoPlan resolve(CapturePolicy capturePolicy, StdinPolicy stdin, OutputMode outputMode) {
+    private static OneShotIoPlan resolve(
+            CapturePolicy capturePolicy, Optional<CommandInput> input, OutputMode outputMode) {
         return OneShotIoPlan.resolve(
-                executionPlan(capturePolicy, DiagnosticsSettings.disabled(), stdin, outputMode, Duration.ofSeconds(1)));
+                executionPlan(capturePolicy, DiagnosticsSettings.disabled(), input, outputMode, Duration.ofSeconds(1)));
     }
 }

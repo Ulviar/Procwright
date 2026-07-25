@@ -4,6 +4,7 @@
 /*/build/
 out/
 *.iml
+*.hprof
 .DS_Store
 __pycache__/
 *.py[cod]

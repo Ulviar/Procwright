@@ -349,5 +349,13 @@ abstract class WorkerPoolControllerTestSupport {
         public RuntimeException retirementFailed(String message, Throwable cause) {
             return new PoolFailure(FailureKind.RETIREMENT_FAILED, message, cause);
         }
+
+        @Override
+        public Throwable exposeAggregate(RuntimeException primary, Throwable aggregate) {
+            if (primary instanceof PoolFailure failure) {
+                return new PoolFailure(failure.kind, failure.getMessage(), aggregate);
+            }
+            return aggregate;
+        }
     }
 }

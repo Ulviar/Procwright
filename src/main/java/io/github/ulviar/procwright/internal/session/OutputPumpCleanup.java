@@ -3,11 +3,9 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Owns process-output close ordering, completion publication, and cleanup-failure settlement. */
@@ -18,10 +16,10 @@ final class OutputPumpCleanup {
     private final AtomicBoolean shutdownStarted = new AtomicBoolean();
     private final Object lock = new Object();
     private final OutputCloseFailures closeFailures = new OutputCloseFailures();
-    private final List<Runnable> pendingPublications = new ArrayList<>(1);
+    private final CompletableFuture<Void> cleanupCompleted = new CompletableFuture<>();
     private boolean failureAttributionSealed;
     private OutputCloseReservation.Reservation closeReservation;
-    private SessionExitBarrier.Registration helperCleanup;
+    private boolean helperCleanupInstalled;
     private boolean processCleanupCompleted;
     private boolean forceOutputClose;
     private boolean stdoutCloseDispatched;
@@ -29,8 +27,7 @@ final class OutputPumpCleanup {
     private int pumpTasksFinished;
     private int outputClosesCompleted;
     private boolean outputCloseFailureRecorded;
-    private boolean closeFailuresFinalized;
-    private boolean closeFailuresFinishCompleted;
+    private FailureSettlement failureSettlement = FailureSettlement.OPEN;
 
     OutputPumpCleanup(
             DefaultSession session, String owner, OutputPumpCoordinator.FailureAttribution failureAttribution) {
@@ -42,11 +39,12 @@ final class OutputPumpCleanup {
     void installHelperCleanup(SessionExitBarrier.Registration registration) {
         Objects.requireNonNull(registration, "registration");
         synchronized (lock) {
-            if (helperCleanup != null) {
+            if (helperCleanupInstalled) {
                 throw new IllegalStateException("Output helper cleanup has already been installed");
             }
-            helperCleanup = registration;
+            helperCleanupInstalled = true;
         }
+        cleanupCompleted.whenComplete((ignored, impossible) -> completeRegistration(registration));
     }
 
     void installCloseReservation(OutputCloseReservation.Reservation reservation) {
@@ -72,7 +70,7 @@ final class OutputPumpCleanup {
         });
     }
 
-    void pumpClosed(OutputCloseReservation.Stream stream) {
+    void pumpClosed() {
         dispatchReadyCloses();
     }
 
@@ -87,11 +85,11 @@ final class OutputPumpCleanup {
     }
 
     void retainPrimaryPreserving(Throwable primary) {
-        try {
-            closeFailures.retainPrimary(primary);
-        } catch (Throwable retainFailure) {
-            attachPreserving(primary, retainFailure);
-        }
+        closeFailures.retainPrimary(primary);
+    }
+
+    void retainFailure(Throwable failure) {
+        closeFailures.retainFallback(Objects.requireNonNull(failure, "failure"));
     }
 
     void sealFailureAttribution(Throwable primary) {
@@ -107,14 +105,13 @@ final class OutputPumpCleanup {
     }
 
     void closeSessionPreserving(Throwable primary) {
-        Objects.requireNonNull(primary, "primary");
-        shutdown(primary, null);
+        sealFailureAttribution(Objects.requireNonNull(primary, "primary"));
+        initiateSessionClose();
     }
 
     void closeSessionPreserving(Throwable primary, Runnable afterOutputCleanup) {
-        Objects.requireNonNull(primary, "primary");
-        Objects.requireNonNull(afterOutputCleanup, "afterOutputCleanup");
-        shutdown(primary, afterOutputCleanup);
+        registerPublication(Objects.requireNonNull(afterOutputCleanup, "afterOutputCleanup"));
+        closeSessionPreserving(primary);
     }
 
     void publishAfterOutputCleanup(Runnable publication) {
@@ -122,7 +119,8 @@ final class OutputPumpCleanup {
     }
 
     void closeSession() {
-        rethrow(shutdown(null, null));
+        sealFailureAttribution();
+        rethrow(initiateSessionClose());
     }
 
     void dispatchUnreservedOutputClosePreserving(Throwable primary) {
@@ -134,19 +132,11 @@ final class OutputPumpCleanup {
                     this::recordOutputCloseFailure,
                     this::outputCloseCompleted);
         } catch (RuntimeException | Error closeFailure) {
-            attachPreserving(primary, closeFailure);
+            closeFailures.retainFallback(closeFailure);
         }
     }
 
-    private Throwable shutdown(Throwable suppliedPrimary, Runnable afterOutputCleanup) {
-        if (suppliedPrimary == null) {
-            sealFailureAttribution();
-        } else {
-            sealFailureAttribution(suppliedPrimary);
-        }
-        if (afterOutputCleanup != null) {
-            registerPublication(afterOutputCleanup);
-        }
+    private Throwable initiateSessionClose() {
         if (!shutdownStarted.compareAndSet(false, true)) {
             return null;
         }
@@ -163,7 +153,7 @@ final class OutputPumpCleanup {
                 processCleanupCompleted();
             }
         }
-        return suppliedPrimary == null ? sessionFailure : null;
+        return sessionFailure;
     }
 
     private void requestForcedOutputClose() {
@@ -197,81 +187,52 @@ final class OutputPumpCleanup {
             finalize = processCleanupCompleted
                     && pumpTasksFinished == 2
                     && (failureAttributionSealed || (outputClosesCompleted == 2 && !outputCloseFailureRecorded))
-                    && !closeFailuresFinalized;
+                    && failureSettlement == FailureSettlement.OPEN;
             if (finalize) {
-                closeFailuresFinalized = true;
+                failureSettlement = FailureSettlement.FINALIZING;
             }
         }
-        if (finalize) {
-            try {
+        try {
+            if (finalize) {
                 closeFailures.finish();
-            } finally {
+            }
+        } finally {
+            if (finalize) {
                 synchronized (lock) {
-                    closeFailuresFinishCompleted = true;
+                    failureSettlement = FailureSettlement.FINISHED;
                 }
             }
+            completeCleanupIfReady();
         }
-        publishReadyPublications();
-        completeHelperCleanupIfReady();
     }
 
     private void registerPublication(Runnable publication) {
-        List<Runnable> ready;
+        cleanupCompleted.whenComplete((ignored, impossible) -> publish(publication));
+    }
+
+    private void completeCleanupIfReady() {
+        boolean complete;
         synchronized (lock) {
-            if (outputCleanupCompletedLocked()) {
-                ready = List.of(publication);
-            } else {
-                pendingPublications.add(publication);
-                ready = List.of();
-            }
+            complete = failureSettlement == FailureSettlement.FINISHED && outputClosesCompleted == 2;
         }
-        publishAll(ready);
-    }
-
-    private void publishReadyPublications() {
-        List<Runnable> ready;
-        synchronized (lock) {
-            if (!outputCleanupCompletedLocked() || pendingPublications.isEmpty()) {
-                return;
-            }
-            ready = List.copyOf(pendingPublications);
-            pendingPublications.clear();
-        }
-        publishAll(ready);
-    }
-
-    private boolean outputCleanupCompletedLocked() {
-        return closeFailuresFinishCompleted && outputClosesCompleted == 2;
-    }
-
-    private void completeHelperCleanupIfReady() {
-        SessionExitBarrier.Registration registration;
-        synchronized (lock) {
-            if (!outputCleanupCompletedLocked()) {
-                return;
-            }
-            registration = helperCleanup;
-        }
-        if (registration != null) {
-            registration.complete();
+        if (complete) {
+            cleanupCompleted.complete(null);
         }
     }
 
-    private static void publishAll(List<Runnable> publications) {
-        for (Runnable publication : publications) {
-            try {
-                publication.run();
-            } catch (Throwable failure) {
-                reportPublicationFailure(failure);
-            }
-        }
-    }
-
-    private static void reportPublicationFailure(Throwable failure) {
+    private static void completeRegistration(SessionExitBarrier.Registration registration) {
         try {
-            BoundedFailureReporter.shared().report(Thread.currentThread(), failure);
-        } catch (Throwable ignored) {
-            // Best-effort reporting must not replace mandatory output cleanup.
+            registration.complete();
+        } catch (Throwable failure) {
+            BoundedFailureReporter.reportBestEffort(failure);
+        }
+    }
+
+    private static void publish(Runnable publication) {
+        try {
+            publication.run();
+        } catch (Throwable failure) {
+            BoundedFailureReporter.reportBestEffort(failure);
         }
     }
 
@@ -345,11 +306,9 @@ final class OutputPumpCleanup {
         }
     }
 
-    private static void attachPreserving(Throwable primary, Throwable secondary) {
-        try {
-            SuppressionSupport.attach(primary, secondary);
-        } catch (Throwable ignored) {
-            // Optional failure bookkeeping must not stop physical cleanup.
-        }
+    private enum FailureSettlement {
+        OPEN,
+        FINALIZING,
+        FINISHED
     }
 }

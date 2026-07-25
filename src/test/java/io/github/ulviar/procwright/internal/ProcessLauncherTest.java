@@ -72,12 +72,6 @@ final class ProcessLauncherTest {
             Map<String, String> environment,
             OutputMode outputMode) {
         return new LaunchPlan(
-                LaunchMode.DIRECT,
-                command,
-                workingDirectory,
-                environmentPolicy,
-                environment,
-                outputMode,
-                TerminalPolicy.DISABLED);
+                command, workingDirectory, environmentPolicy, environment, outputMode, TerminalPolicy.DISABLED);
     }
 }

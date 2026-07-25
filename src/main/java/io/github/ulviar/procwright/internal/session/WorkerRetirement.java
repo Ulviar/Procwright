@@ -10,10 +10,11 @@ import java.util.concurrent.CompletionException;
 final class WorkerRetirement<S> {
 
     private final Action<S> action;
+    private final CompletableFuture<Observation> observation = new CompletableFuture<>();
+    private final CompletableFuture<Outcome> outcome = observation.thenCompose(this::observe);
     private S session;
     private PoolLifecycleDispatcher.Admission admission;
-    private Observation observation;
-    private CompletableFuture<Outcome> outcome;
+    private boolean initiationStarted;
 
     WorkerRetirement(Action<S> action) {
         this.action = Objects.requireNonNull(action, "action");
@@ -43,33 +44,37 @@ final class WorkerRetirement<S> {
         session = Objects.requireNonNull(acceptedSession, "workerFactory returned null");
     }
 
-    synchronized void initiate() {
-        if (observation != null) {
-            return;
+    void initiate() {
+        S acceptedSession;
+        PoolLifecycleDispatcher.Admission acceptedAdmission;
+        synchronized (this) {
+            if (initiationStarted) {
+                return;
+            }
+            initiationStarted = true;
+            acceptedSession = Objects.requireNonNull(session, "worker has no accepted session");
+            acceptedAdmission = Objects.requireNonNull(admission, "worker has no retirement admission");
         }
+        Observation selected;
         try {
-            observation = Objects.requireNonNull(
-                    action.initiate(
-                            Objects.requireNonNull(session, "worker has no accepted session"),
-                            Objects.requireNonNull(admission, "worker has no retirement admission")),
+            selected = Objects.requireNonNull(
+                    action.initiate(acceptedSession, acceptedAdmission),
                     "worker close action returned null observation");
         } catch (Throwable failure) {
-            observation = () -> CompletableFuture.completedFuture(Outcome.failure(failure));
+            selected = () -> CompletableFuture.completedFuture(Outcome.failure(failure));
         }
+        observation.complete(selected);
     }
 
-    synchronized CompletableFuture<Outcome> outcome() {
+    CompletableFuture<Outcome> outcome() {
         initiate();
-        if (outcome == null) {
-            outcome = observe();
-        }
         return outcome;
     }
 
-    private CompletableFuture<Outcome> observe() {
+    private CompletableFuture<Outcome> observe(Observation selected) {
         try {
             CompletableFuture<Outcome> observed =
-                    Objects.requireNonNull(observation.outcome(), "worker close observation returned null future");
+                    Objects.requireNonNull(selected.outcome(), "worker close observation returned null future");
             return observed.handle((closeOutcome, failure) -> {
                 if (failure != null) {
                     return Outcome.failure(unwrap(failure));

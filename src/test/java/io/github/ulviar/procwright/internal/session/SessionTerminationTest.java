@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -13,6 +14,7 @@ import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.session.SessionExit;
+import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -55,7 +57,6 @@ final class SessionTerminationTest {
         ExecutionException observed = assertThrows(
                 ExecutionException.class, () -> termination.completion().get(1, TimeUnit.SECONDS));
         assertSame(expected, observed.getCause());
-        assertSame(expected, termination.failure());
         assertNull(termination.claimFailure(new AssertionError("late")));
     }
 
@@ -75,7 +76,6 @@ final class SessionTerminationTest {
         ExecutionException observed = assertThrows(
                 ExecutionException.class, () -> termination.completion().get(1, TimeUnit.SECONDS));
         assertSame(failure, observed.getCause());
-        assertSame(failure, termination.failure());
     }
 
     @Test
@@ -96,9 +96,43 @@ final class SessionTerminationTest {
 
         ExecutionException observed = assertThrows(
                 ExecutionException.class, () -> termination.completion().get(1, TimeUnit.SECONDS));
-        assertSame(first, observed.getCause());
-        assertEquals(1, first.getSuppressed().length);
-        assertSame(second, first.getSuppressed()[0]);
+        assertSame(first, observed.getCause().getCause());
+        assertEquals(
+                java.util.List.of(second), java.util.List.of(observed.getCause().getSuppressed()));
+        assertEquals(0, first.getSuppressed().length);
+        assertEquals(0, second.getSuppressed().length);
+    }
+
+    @Test
+    void secondaryFailureClaimIsNotBlockedByThePrimaryFailureMonitor() throws Exception {
+        SessionTermination termination = termination();
+        AssertionError primary = new AssertionError("primary");
+        IllegalStateException secondary = new IllegalStateException("secondary");
+        SessionTermination.FailureClaim first = termination.claimFailure(primary);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        SessionTermination.FailureClaim second;
+        try (var monitor = hold(primary)) {
+            monitor.verifyHeld();
+            Future<SessionTermination.FailureClaim> claim = executor.submit(() -> termination.claimFailure(secondary));
+            second = claim.get(1, TimeUnit.SECONDS);
+
+            assertTrue(second != null);
+            assertFalse(second.ownsPublication());
+            first.finishCleanup();
+            second.finishCleanup();
+            ExecutionException observed = assertThrows(
+                    ExecutionException.class, () -> termination.completion().get(1, TimeUnit.SECONDS));
+            assertSame(primary, observed.getCause().getCause());
+            assertEquals(
+                    java.util.List.of(secondary),
+                    java.util.List.of(observed.getCause().getSuppressed()));
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+        assertEquals(0, primary.getSuppressed().length);
+        assertEquals(0, secondary.getSuppressed().length);
     }
 
     @Test
@@ -109,8 +143,28 @@ final class SessionTerminationTest {
 
         publication.recordFailure(failure);
 
-        assertSame(failure, termination.failure());
-        publication.publishFailure(failure);
+        publication.publishFailure();
+        ExecutionException observed = assertThrows(
+                ExecutionException.class, () -> termination.completion().get(1, TimeUnit.SECONDS));
+        assertSame(failure, observed.getCause());
+        assertEquals(List.of(failure), termination.outcome().join().failures());
+    }
+
+    @Test
+    void failureClaimRetainsDistinctCleanupFailuresExactlyOnce() {
+        SessionTermination termination = termination();
+        AssertionError terminalFailure = new AssertionError("terminal");
+        IllegalStateException cleanupFailure = new IllegalStateException("cleanup");
+        SessionTermination.FailureClaim claim = termination.claimFailure(terminalFailure);
+
+        claim.recordFailure(terminalFailure);
+        claim.recordFailure(cleanupFailure);
+        claim.recordFailure(cleanupFailure);
+        claim.finishCleanup();
+
+        assertEquals(
+                List.of(terminalFailure, cleanupFailure),
+                termination.outcome().join().failures());
     }
 
     @Test

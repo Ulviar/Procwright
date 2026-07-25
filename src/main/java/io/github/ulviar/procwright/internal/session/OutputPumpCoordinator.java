@@ -2,7 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.SuppressionSupport;
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import java.io.InputStream;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
@@ -86,6 +86,10 @@ final class OutputPumpCoordinator {
         cleanup.publishAfterOutputCleanup(publication);
     }
 
+    void retainFailure(Throwable failure) {
+        cleanup.retainFailure(failure);
+    }
+
     void sealFailureAttribution(Throwable primary) {
         cleanup.sealFailureAttribution(Objects.requireNonNull(primary, "primary"));
     }
@@ -136,42 +140,42 @@ final class OutputPumpCoordinator {
         private void rollback(Throwable primary) {
             if (outputOwnershipTransferred) {
                 cleanup.retainPrimaryPreserving(primary);
-                abortStatePreserving(primary);
+                abortStatePreserving();
             }
-            abortGatePreserving(primary);
+            abortGatePreserving();
             if (outputOwnershipTransferred) {
-                completePumpSlotPreserving(stdoutSlot, primary);
-                completePumpSlotPreserving(stderrSlot, primary);
+                completePumpSlotPreserving(stdoutSlot);
+                completePumpSlotPreserving(stderrSlot);
                 closeSessionPreserving(primary);
                 if (!cleanup.hasCloseReservation()) {
                     dispatchUnreservedOutputClosePreserving(primary);
                 }
             } else {
-                rollbackRegistrationPreserving(primary);
+                rollbackRegistrationPreserving();
             }
         }
 
-        private void abortStatePreserving(Throwable primary) {
+        private void abortStatePreserving() {
             try {
                 abortState.run();
             } catch (Throwable abortFailure) {
-                attachPreserving(primary, abortFailure);
+                reportRollback(abortFailure);
             }
         }
 
-        private void abortGatePreserving(Throwable primary) {
+        private void abortGatePreserving() {
             try {
                 gate.abort();
             } catch (Throwable abortFailure) {
-                attachPreserving(primary, abortFailure);
+                reportRollback(abortFailure);
             }
         }
 
-        private void completePumpSlotPreserving(PumpSlot slot, Throwable primary) {
+        private void completePumpSlotPreserving(PumpSlot slot) {
             try {
                 slot.complete();
             } catch (Throwable completionFailure) {
-                attachPreserving(primary, completionFailure);
+                reportRollback(completionFailure);
             }
         }
 
@@ -179,7 +183,7 @@ final class OutputPumpCoordinator {
             try {
                 cleanup.closeSessionPreserving(primary);
             } catch (Throwable closeFailure) {
-                attachPreserving(primary, closeFailure);
+                reportRollback(closeFailure);
             }
         }
 
@@ -187,18 +191,18 @@ final class OutputPumpCoordinator {
             try {
                 cleanup.dispatchUnreservedOutputClosePreserving(primary);
             } catch (Throwable closeFailure) {
-                attachPreserving(primary, closeFailure);
+                reportRollback(closeFailure);
             }
         }
 
-        private void rollbackRegistrationPreserving(Throwable primary) {
+        private void rollbackRegistrationPreserving() {
             if (registration == null) {
                 return;
             }
             try {
                 registration.rollback();
             } catch (Throwable rollbackFailure) {
-                attachPreserving(primary, rollbackFailure);
+                reportRollback(rollbackFailure);
             }
         }
     }
@@ -256,11 +260,7 @@ final class OutputPumpCoordinator {
         }
     }
 
-    private static void attachPreserving(Throwable primary, Throwable secondary) {
-        try {
-            SuppressionSupport.attach(primary, secondary);
-        } catch (Throwable ignored) {
-            // Optional failure bookkeeping must not stop construction rollback.
-        }
+    private static void reportRollback(Throwable failure) {
+        BoundedFailureReporter.reportBestEffort(failure);
     }
 }

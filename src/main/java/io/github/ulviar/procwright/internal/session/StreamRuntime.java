@@ -3,10 +3,10 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.CommandEchoSupport;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.session.StreamSession;
 import java.util.Objects;
 
@@ -34,16 +34,16 @@ public final class StreamRuntime {
             return factory.open(session, plan, diagnostics);
         } catch (RuntimeException | Error failure) {
             diagnostics.emitProcessFailure(failure);
-            closePreserving(session, failure);
+            closePreserving(session);
             throw failure;
         }
     }
 
-    static void closePreserving(AutoCloseable resource, Throwable primaryFailure) {
+    static void closePreserving(AutoCloseable resource) {
         try {
             resource.close();
         } catch (Throwable cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
+            BoundedFailureReporter.reportBestEffort(cleanupFailure);
         }
     }
 

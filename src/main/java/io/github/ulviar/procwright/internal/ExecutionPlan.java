@@ -4,13 +4,10 @@ package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
+import io.github.ulviar.procwright.command.CommandInput;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.terminal.TerminalPolicy;
-import java.nio.charset.Charset;
-import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -20,7 +17,7 @@ public record ExecutionPlan(
         ShutdownPolicy shutdownPolicy,
         Duration timeout,
         CharsetPolicy charsetPolicy,
-        StdinPolicy stdin,
+        Optional<CommandInput> input,
         DiagnosticsSettings diagnostics) {
 
     public ExecutionPlan {
@@ -32,7 +29,7 @@ public record ExecutionPlan(
             throw new IllegalArgumentException("timeout must not be negative");
         }
         Objects.requireNonNull(charsetPolicy, "charsetPolicy");
-        Objects.requireNonNull(stdin, "stdin");
+        input = Objects.requireNonNull(input, "input");
         Objects.requireNonNull(diagnostics, "diagnostics");
         requireCaptureCompatibleWithOutputMode(capturePolicy, launchPlan.outputMode());
     }
@@ -51,33 +48,5 @@ public record ExecutionPlan(
                     "two-file capture requires OutputMode.SEPARATE; use CapturePolicy.toPath(merged) for merged"
                             + " output");
         }
-    }
-
-    public Charset charset() {
-        return charsetPolicy.charset();
-    }
-
-    LaunchMode launchMode() {
-        return launchPlan.launchMode();
-    }
-
-    java.util.List<String> command() {
-        return launchPlan.command();
-    }
-
-    Optional<Path> workingDirectory() {
-        return launchPlan.workingDirectory();
-    }
-
-    Map<String, String> environment() {
-        return launchPlan.environment();
-    }
-
-    OutputMode outputMode() {
-        return launchPlan.outputMode();
-    }
-
-    TerminalPolicy terminalPolicy() {
-        return launchPlan.terminalPolicy();
     }
 }

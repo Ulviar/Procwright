@@ -3,6 +3,8 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -43,24 +45,28 @@ final class PoolDrainTest {
     @Test
     void outcomeCanOnlyBePublishedOnce() {
         PoolDrain drain = newDrain();
-        claimAndPublish(drain, null);
+        PoolDrain.Publication publication = drain.claim(null);
+        assertNotNull(publication);
+        publication.publish();
 
-        assertThrows(IllegalStateException.class, () -> drain.publish(null));
+        assertThrows(IllegalStateException.class, publication::publish);
     }
 
     @Test
     void terminalPublicationCanOnlyBeClaimedOnce() throws Exception {
         PoolDrain drain = newDrain();
 
-        assertTrue(drain.tryClaim());
-        assertFalse(drain.tryClaim());
-        drain.publish(null);
+        PoolDrain.Publication publication = drain.claim(null);
+        assertNotNull(publication);
+        assertNull(drain.claim(null));
+        publication.publish();
         drain.view().get(1, TimeUnit.SECONDS);
     }
 
     private static void claimAndPublish(PoolDrain drain, Throwable failure) {
-        assertTrue(drain.tryClaim());
-        drain.publish(failure);
+        PoolDrain.Publication publication = drain.claim(failure);
+        assertNotNull(publication);
+        publication.publish();
     }
 
     private static PoolDrain newDrain() {

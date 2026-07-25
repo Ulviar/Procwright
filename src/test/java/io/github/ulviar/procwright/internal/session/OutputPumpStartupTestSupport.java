@@ -7,7 +7,6 @@ import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.ExpectSettings;
-import io.github.ulviar.procwright.internal.LaunchMode;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
@@ -39,11 +38,23 @@ abstract class OutputPumpStartupTestSupport extends OutputPumpTestSupport {
         ZeroReadBackoff backoff = ZeroReadBackoff.exponential();
         switch (helper) {
             case EXPECT -> new DefaultExpect(session, ExpectSettings.defaults(), backoff, starter);
-            case LINE -> new DefaultLineSession(session, LineSessionSettings.defaults(), backoff, starter);
+            case LINE ->
+                new DefaultLineSession(
+                        session,
+                        LineSessionSettings.defaults(),
+                        LineSessionTestDependencies.withBackoffAndPumpStarter(backoff, starter));
             case PROTOCOL ->
                 new DefaultProtocolSession<>(
-                        session, noOpAdapter(), ProtocolSessionSettings.defaults(), backoff, starter);
-            case STREAM -> new DefaultStreamSession(session, streamPlan(), diagnostics(), backoff, starter);
+                        session,
+                        noOpAdapter(),
+                        ProtocolSessionSettings.defaults(),
+                        ProtocolSessionTestDependencies.withBackoffAndPumpStarter(backoff, starter));
+            case STREAM ->
+                new DefaultStreamSession(
+                        session,
+                        streamPlan(),
+                        diagnostics(),
+                        StreamSessionTestDependencies.withBackoffAndPumpStarter(backoff, starter));
         }
     }
 
@@ -63,7 +74,6 @@ abstract class OutputPumpStartupTestSupport extends OutputPumpTestSupport {
 
     static StreamExecutionPlan streamPlan() {
         LaunchPlan launchPlan = new LaunchPlan(
-                LaunchMode.DIRECT,
                 List.of("stub"),
                 Optional.empty(),
                 EnvironmentPolicy.INHERIT,

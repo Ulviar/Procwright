@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
@@ -42,13 +44,15 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
         assertTrue(process.awaitDescendantObservation());
 
-        IllegalStateException thrown = assertTimeoutPreemptively(
-                Duration.ofSeconds(1), () -> assertThrows(IllegalStateException.class, session::close));
+        CommandExecutionException thrown = assertTimeoutPreemptively(
+                Duration.ofSeconds(1), () -> assertThrows(CommandExecutionException.class, session::close));
         ExecutionException exitFailure =
                 assertThrows(ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
 
-        assertSame(primary, thrown);
-        assertSame(primary, exitFailure.getCause());
+        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, thrown.reason());
+        assertSame(primary, thrown.getCause());
+        assertSame(thrown, exitFailure.getCause());
+        assertEquals(0, primary.getSuppressed().length);
         assertEquals(1, process.rootDestroyCalls());
         assertTrue(process.descendant().gracefulDestroyCalls() >= 1);
         assertTrue(process.descendant().forceDestroyCalls() >= 1);
@@ -141,6 +145,27 @@ final class DefaultSessionWatcherCleanupTest extends DefaultSessionWatcherCleanu
         } finally {
             session.close();
         }
+    }
+
+    @Test
+    void watcherFailurePublicationDoesNotInspectTheFailureGraph() throws Exception {
+        WatcherFailureProcess process = new WatcherFailureProcess();
+        ExecutionException exitFailure;
+        try (var monitor = hold(process.watcherFailure())) {
+            monitor.verifyHeld();
+            DefaultSession session = new DefaultSession(
+                    process,
+                    Duration.ZERO,
+                    ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                    StandardCharsets.UTF_8,
+                    DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+
+            exitFailure = assertThrows(
+                    ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
+
+            assertSame(process.watcherFailure(), exitFailure.getCause());
+        }
+        assertEquals(0, process.watcherFailure().getSuppressed().length);
     }
 
     @Test

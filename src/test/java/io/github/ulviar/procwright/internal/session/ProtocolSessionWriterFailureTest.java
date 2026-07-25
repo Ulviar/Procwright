@@ -416,8 +416,8 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             return new DefaultProtocolSession<>(session(process), adapter, ProtocolSessionSettings.defaults());
         };
 
-        try (DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
-                workerFactory, WorkerPoolSettings.defaults(worker -> {}, worker -> true))) {
+        try (DefaultPooledProtocolSession<String, String> pool =
+                new DefaultPooledProtocolSession<>(workerFactory, WorkerPoolSettings.defaults())) {
             ProtocolSessionException first = assertThrows(ProtocolSessionException.class, () -> pool.request("first"));
 
             assertEquals(ProtocolSessionException.Reason.FAILURE, first.reason());

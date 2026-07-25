@@ -52,7 +52,7 @@
 - `StreamException.Reason` различает `LISTENER_FAILED`, `OUTPUT_READ_FAILED` и `PROCESS_FAILED`; integration adapter
   маппит эти причины без string matching.
 - Failure при создании stream handle после запуска процесса закрывает уже созданную session; ошибка cleanup не заменяет
-  исходную, а добавляется как suppressed.
+  и не изменяет исходную, а отправляется в bounded best-effort reporter.
 - Диагностический transcript ограничен и не хранит весь output.
 
 ## Диагностика
@@ -68,6 +68,9 @@
 - Ошибки diagnostic listener и transcript sink, включая non-runtime failures, не меняют поведение команды.
 - Доставка diagnostic listener и transcript sink асинхронная best-effort, поэтому медленные diagnostic callbacks не
   блокируют runtime path процесса.
+- Проигравшие helper и physical-close failures не изменяют уже опубликованную canonical failure; они отправляются
+  отдельными bounded best-effort reports. Захваченный monitor исходной ошибки не задерживает request, helper или
+  terminal publication, а saturation не создает unbounded work.
 - Test fixtures предоставляют thread-safe diagnostic recorder для assertions.
 
 ## Cookbook и examples
@@ -118,6 +121,9 @@
   сохраняется, но уже полученный response учитывается как completed request, а worker retires с `RESET_FAILED`.
 - `healthCheck` выполняется перед lease; unhealthy worker закрывается и заменяется.
 - `close()` запрещает новые requests, закрывает idle workers сразу и дает leased workers завершить текущий request.
+- Обычные worker cleanup failures при `close()` дают typed `WORKER_FAILED`: одна source failure является cause, а
+  несколько образуют стабильный identity-дедуплицированный aggregate. Единственный `Error` сохраняет identity;
+  несколько failures с `Error` образуют `Error` aggregate с ним в качестве primary. Исходные `Throwable` не изменяются.
 - `metrics()` возвращает snapshot counters для size, idle, leased, created, retired и request counts.
 
 ## Protocol integrations
@@ -154,6 +160,11 @@
 - Все raw-stdin close paths используют одну bounded capacity. Если она исчерпана, `closeStdin()` возвращает typed
   runtime failure и закрывает session; unbounded fallback thread не создается.
 - `onExit` завершается после выхода процесса.
+- Если process outcome и inline raw-output cleanup независимо завершаются ошибками, `onExit()` публикует один плоский
+  aggregate: первая terminal failure является cause, последующие source identities напрямую suppressed ровно один раз,
+  а исходные `Throwable` не изменяются.
+- Единственный asynchronous physical stdout/stderr close failure не заменяет успешный raw process outcome и передается
+  bounded reporter-у best effort. После output ownership claim ответственность за такие failures принадлежит helper-у.
 - Caller-visible idle timeout закрывает зависшую session; активность — успешные записи, закрытие stdin и успешные
   чтения через session streams.
 - После передачи output ownership higher-level helper публичные stdout/stderr wrappers не читают и не закрывают process
@@ -198,6 +209,9 @@
 - Protocol request timeout после adapter admission дает `TIMEOUT`; `onExit()` завершается после cleanup, а следующий
   request возвращает сохраненный `TIMEOUT`, а не generic `CLOSED`. Timeout/interrupt во время ожидания serialized slot
   не допускает adapter к stdin, оставляет session открытой и не уступает уже выбранному terminal/fatal outcome.
+- Если adapter сам ловит typed protocol failure и выбрасывает собственный `Error`, этот `Error` становится terminal
+  outcome. Пойманная ошибка остается ответственностью adapter; runtime не связывает и не изменяет исходные
+  `Throwable`.
 - `ResponseDecoder.Reader`, `ProtocolWriter` и `ProtocolReader` действуют только в одном callback invocation и на его
   thread; retained или cross-thread capability не может затронуть I/O текущего или следующего request.
 - UTF-8 framed examples считают длину тела в bytes и читают exact byte count, поэтому non-ASCII payload не нарушает

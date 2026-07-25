@@ -70,11 +70,11 @@ final class WorkerCloseSupport {
     }
 
     private static WorkerRetirement.Outcome aggregate(Throwable... observedFailures) {
-        WorkerCloseFailureAccumulator failures = new WorkerCloseFailureAccumulator();
+        FailureAccumulator failures = new FailureAccumulator();
         for (Throwable failure : observedFailures) {
             failures.add(unwrapCloseTaskFailure(failure));
         }
-        Throwable failure = failures.failure();
+        Throwable failure = failures.aggregateErrorFirst("Multiple failures occurred while closing a pool worker");
         return failure == null ? WorkerRetirement.Outcome.success() : WorkerRetirement.Outcome.failure(failure);
     }
 

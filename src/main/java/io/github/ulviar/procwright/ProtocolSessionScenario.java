@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
-import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticListener;
 import io.github.ulviar.procwright.diagnostics.DiagnosticTranscriptSink;
@@ -43,7 +42,7 @@ public final class ProtocolSessionScenario {
             SessionScenarioSettings<ProtocolSession<I, O>, ProtocolSessionSettings> initialSettings(
                     ScenarioRuntime runtime) {
         return new SessionScenarioSettings<>(
-                SessionSettings.defaults(runtime.launchSettings()),
+                SessionSettings.defaults(runtime.commandSpec()),
                 ReadinessSettings.defaults(),
                 ProtocolSessionSettings.defaults());
     }
@@ -460,14 +459,14 @@ public final class ProtocolSessionScenario {
 
         @Override
         public Draft<I, O> withInheritedEnvironment() {
-            return withSession(settings.session()
-                    .withLaunch(settings.session().launch().withEnvironmentPolicy(EnvironmentPolicy.INHERIT)));
+            return withSession(
+                    settings.session().withLaunch(settings.session().launch().withInheritedEnvironment()));
         }
 
         @Override
         public Draft<I, O> withCleanEnvironment() {
-            return withSession(settings.session()
-                    .withLaunch(settings.session().launch().withEnvironmentPolicy(EnvironmentPolicy.CLEAN)));
+            return withSession(
+                    settings.session().withLaunch(settings.session().launch().withCleanEnvironment()));
         }
 
         @Override
@@ -550,11 +549,8 @@ public final class ProtocolSessionScenario {
 
         @Override
         public Draft<I, O> withCharsetPolicy(CharsetPolicy charsetPolicy) {
-            Objects.requireNonNull(charsetPolicy, "charsetPolicy");
-            return copy(new SessionScenarioSettings<>(
-                    settings.session().withCharset(charsetPolicy.charset()),
-                    settings.readiness(),
-                    settings.protocol().withCharsetPolicy(charsetPolicy)));
+            return withProtocol(
+                    settings.protocol().withCharsetPolicy(Objects.requireNonNull(charsetPolicy, "charsetPolicy")));
         }
 
         @Override
@@ -571,8 +567,7 @@ public final class ProtocolSessionScenario {
 
         @Override
         public PoolDraft<I, O> pooled() {
-            WorkerPoolSettings<ProtocolSession<I, O>> poolSettings =
-                    WorkerPoolSettings.defaults(worker -> {}, worker -> true);
+            WorkerPoolSettings<ProtocolSession<I, O>> poolSettings = WorkerPoolSettings.defaults();
             return new ImmutablePoolDraft<>(runtime, settings, adapterFactory, poolSettings);
         }
 
@@ -582,15 +577,15 @@ public final class ProtocolSessionScenario {
         }
 
         private Draft<I, O> withSession(SessionSettings session) {
-            return copy(new SessionScenarioSettings<>(session, settings.readiness(), settings.protocol()));
+            return copy(settings.withSession(session));
         }
 
         private Draft<I, O> withReadiness(ReadinessSettings<ProtocolSession<I, O>> readiness) {
-            return copy(new SessionScenarioSettings<>(settings.session(), readiness, settings.protocol()));
+            return copy(settings.withReadiness(readiness));
         }
 
         private Draft<I, O> withProtocol(ProtocolSessionSettings protocol) {
-            return copy(new SessionScenarioSettings<>(settings.session(), settings.readiness(), protocol));
+            return copy(settings.withProtocol(protocol));
         }
 
         private Draft<I, O> copy(SessionScenarioSettings<ProtocolSession<I, O>, ProtocolSessionSettings> updated) {

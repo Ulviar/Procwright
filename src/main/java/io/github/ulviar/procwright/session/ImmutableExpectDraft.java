@@ -3,7 +3,7 @@
 package io.github.ulviar.procwright.session;
 
 import io.github.ulviar.procwright.internal.ExpectSettings;
-import io.github.ulviar.procwright.internal.session.SessionInternals;
+import io.github.ulviar.procwright.internal.session.SessionRuntime;
 import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.Objects;
@@ -50,7 +50,7 @@ final class ImmutableExpectDraft implements Expect.Draft {
 
     @Override
     public Expect open() {
-        return SessionInternals.openExpect(session, settings);
+        return SessionRuntime.openExpect(session, settings);
     }
 
     private Expect.Draft copy(ExpectSettings updated) {

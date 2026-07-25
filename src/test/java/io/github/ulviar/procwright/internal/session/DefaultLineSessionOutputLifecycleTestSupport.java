@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
@@ -483,6 +484,31 @@ abstract class DefaultLineSessionOutputLifecycleTestSupport extends DefaultLineS
         public void close() {
             closeEntered.countDown();
             awaitUninterruptibly(releaseClose);
+        }
+    }
+
+    static final class FailingBlockingPhysicalCloseInputStream extends InputStream {
+
+        final CountDownLatch closeEntered = new CountDownLatch(1);
+        final CountDownLatch releaseClose = new CountDownLatch(1);
+        final AtomicInteger closeCalls = new AtomicInteger();
+        private final IOException failure;
+
+        FailingBlockingPhysicalCloseInputStream(IOException failure) {
+            this.failure = Objects.requireNonNull(failure, "failure");
+        }
+
+        @Override
+        public int read() {
+            return -1;
+        }
+
+        @Override
+        public void close() throws IOException {
+            closeCalls.incrementAndGet();
+            closeEntered.countDown();
+            awaitUninterruptibly(releaseClose);
+            throw failure;
         }
     }
 }

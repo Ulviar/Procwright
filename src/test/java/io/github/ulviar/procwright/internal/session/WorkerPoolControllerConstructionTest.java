@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -203,7 +204,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
     }
 
     @Test
-    void failedWarmupAttachesTypedCleanupFailureToPrimary() {
+    void failedWarmupRetainsTypedCleanupFailureWithoutMutatingThePrimary() {
         AtomicInteger starts = new AtomicInteger();
         IllegalStateException startupFailure = new IllegalStateException("second startup failed");
         IllegalStateException closeFailure = new IllegalStateException("first close failed");
@@ -223,11 +224,16 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                         new Options(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false)));
 
         assertEquals(FailureKind.STARTUP_FAILED, thrown.kind);
-        assertSame(startupFailure, thrown.getCause());
-        assertEquals(1, thrown.getSuppressed().length);
-        PoolFailure cleanup = (PoolFailure) thrown.getSuppressed()[0];
+        Throwable aggregate = thrown.getCause();
+        PoolFailure primary = (PoolFailure) FailureAggregation.primary(aggregate);
+        assertSame(startupFailure, primary.getCause());
+        assertEquals(2, FailureAggregation.sources(aggregate).size());
+        PoolFailure cleanup =
+                (PoolFailure) FailureAggregation.sources(aggregate).get(1);
         assertEquals(FailureKind.RETIREMENT_FAILED, cleanup.kind);
         assertSame(closeFailure, cleanup.getCause());
+        assertEquals(0, primary.getSuppressed().length);
+        assertEquals(0, cleanup.getSuppressed().length);
     }
 
     @Test

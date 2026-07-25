@@ -5,21 +5,16 @@ package io.github.ulviar.procwright.internal.session;
 import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.LineTranscript;
-import io.github.ulviar.procwright.session.ResponseDecoder;
 import io.github.ulviar.procwright.session.SessionExit;
-import java.io.IOException;
 import java.nio.charset.CoderMalfunctionError;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -39,89 +34,30 @@ public final class DefaultLineSession implements LineSession {
     private final OutputPumpCoordinator outputPumps;
     private final LineOutputTransport output;
     private final BoundedTranscriptBuffer transcript;
-    private final WriteTaskRunner writeTaskRunner;
+    private final LineRequestWriter requestWriter;
+    private final LineResponseDecoder responseDecoder;
     private final LongSupplier nanoTime;
     private final SerializedRequestGate requestGate;
     private final LineSessionState state;
     private final BoundedLifecyclePublisher.Permit exitPublication;
     private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private final AtomicBoolean malformed = new AtomicBoolean();
-    private final BoundedTaskRunner.CancellationSignal callbackCancellation =
-            new BoundedTaskRunner.CancellationSignal();
 
     public DefaultLineSession(DefaultSession session, LineSessionSettings options) {
-        this(session, options, ZeroReadBackoff.exponential(), PumpStarter.threading());
+        this(session, options, Dependencies.defaults());
     }
 
-    DefaultLineSession(DefaultSession session, LineSessionSettings options, ZeroReadBackoff zeroReadBackoff) {
-        this(session, options, zeroReadBackoff, PumpStarter.threading());
-    }
-
-    DefaultLineSession(
-            DefaultSession session,
-            LineSessionSettings options,
-            ZeroReadBackoff zeroReadBackoff,
-            PumpStarter pumpStarter) {
-        this(
-                session,
-                options,
-                zeroReadBackoff,
-                pumpStarter,
-                (limiter, threadPrefix, deadlineNanos, handoff, task) ->
-                        BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task),
-                System::nanoTime);
-    }
-
-    DefaultLineSession(
-            DefaultSession session,
-            LineSessionSettings options,
-            ZeroReadBackoff zeroReadBackoff,
-            PumpStarter pumpStarter,
-            WriteTaskRunner writeTaskRunner) {
-        this(
-                session,
-                options,
-                zeroReadBackoff,
-                pumpStarter,
-                writeTaskRunner,
-                System::nanoTime,
-                SerializedRequestGate.Waiter.timed());
-    }
-
-    DefaultLineSession(
-            DefaultSession session,
-            LineSessionSettings options,
-            ZeroReadBackoff zeroReadBackoff,
-            PumpStarter pumpStarter,
-            WriteTaskRunner writeTaskRunner,
-            LongSupplier nanoTime) {
-        this(
-                session,
-                options,
-                zeroReadBackoff,
-                pumpStarter,
-                writeTaskRunner,
-                nanoTime,
-                SerializedRequestGate.Waiter.timed());
-    }
-
-    DefaultLineSession(
-            DefaultSession session,
-            LineSessionSettings options,
-            ZeroReadBackoff zeroReadBackoff,
-            PumpStarter pumpStarter,
-            WriteTaskRunner writeTaskRunner,
-            LongSupplier nanoTime,
-            SerializedRequestGate.Waiter requestLockWaiter) {
+    DefaultLineSession(DefaultSession session, LineSessionSettings options, Dependencies dependencies) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
-        this.writeTaskRunner = Objects.requireNonNull(writeTaskRunner, "writeTaskRunner");
-        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
-        this.requestGate = new SerializedRequestGate(requestLockWaiter);
+        Dependencies runtime = Objects.requireNonNull(dependencies, "dependencies");
+        this.nanoTime = runtime.nanoTime();
+        this.requestGate = new SerializedRequestGate(runtime.requestLockWaiter());
         this.outputPumps = new OutputPumpCoordinator(
                 session, OUTPUT_OWNER, OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
         this.transcript = new BoundedTranscriptBuffer(options.transcriptLimit());
-        this.state = new LineSessionState(this::lineTranscript);
+        this.state = new LineSessionState(
+                this::lineTranscript, outputPumps::retainFailure, outputPumps::sealFailureAttribution);
         IncrementalTextDecoder stdoutTextDecoder;
         IncrementalTextDecoder stderrTextDecoder;
         try {
@@ -141,7 +77,7 @@ public final class DefaultLineSession implements LineSession {
         this.output = new LineOutputTransport(
                 options,
                 state,
-                Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff"),
+                runtime.zeroReadBackoff(),
                 outputPumps,
                 transcript,
                 malformed,
@@ -164,11 +100,13 @@ public final class DefaultLineSession implements LineSession {
                         DefaultLineSession.this.closeQuietly(failure);
                     }
                 });
+        this.requestWriter = new LineRequestWriter(session, state, runtime.writeTaskRunner());
+        this.responseDecoder = new LineResponseDecoder(options, state, output, outputPumps);
         BoundedLifecyclePublisher.Reservation publicationReservation =
                 BoundedLifecyclePublisher.shared().reserve(1);
         this.exitPublication = publicationReservation.takePermit();
         try {
-            output.start(Objects.requireNonNull(pumpStarter, "pumpStarter"));
+            output.start(runtime.pumpStarter());
             observeExitAfterOutputCleanup();
         } catch (RuntimeException | Error failure) {
             exitPublication.release();
@@ -219,35 +157,27 @@ public final class DefaultLineSession implements LineSession {
     }
 
     private LineResponse requestWhileLocked(byte[] encodedLine, long startedNanos, long deadlineNanos) {
-        RequestFailureTracker<LineSessionException> requestFailures = beginRequest();
-        try {
+        try (LineSessionState.Request requestFailures = state.beginRequest()) {
             return executeRequest(encodedLine, startedNanos, deadlineNanos, requestFailures);
-        } finally {
-            endRequest(requestFailures);
         }
     }
 
     private LineResponse executeRequest(
-            byte[] encodedLine,
-            long startedNanos,
-            long deadlineNanos,
-            RequestFailureTracker<LineSessionException> requestFailures) {
+            byte[] encodedLine, long startedNanos, long deadlineNanos, LineSessionState.Request requestFailures) {
         LineSessionException.Reason errorReason = LineSessionException.Reason.FAILURE;
         String errorMessage = "Line-session request writer failed";
         try {
             state.ensureOpen();
-            writeLine(encodedLine, deadlineNanos, requestFailures);
+            requestWriter.write(encodedLine, deadlineNanos, requestFailures);
 
             errorReason = LineSessionException.Reason.DECODER_FAILED;
             errorMessage = "Response decoder failed";
-            RequestCapabilityScope capabilityScope = new RequestCapabilityScope("ResponseDecoder.Reader");
-            ResponseReader reader = new ResponseReader(deadlineNanos, requestFailures, capabilityScope);
-            List<String> lines = decode(reader, capabilityScope, deadlineNanos, requestFailures);
+            List<String> lines = responseDecoder.decode(deadlineNanos, requestFailures);
             recordDeadlineFailure(deadlineNanos, requestFailures);
-            completeRequest(requestFailures);
+            state.completeRequest(requestFailures);
             return new LineResponse(
                     lines, lineTranscript(), DurationSupport.elapsed(startedNanos, nanoTime.getAsLong()));
-        } catch (RetryablePreWriteFailure failure) {
+        } catch (LineRequestWriter.RetryablePreWriteFailure failure) {
             throw failure.failure();
         } catch (LineSessionException exception) {
             LineSessionException primary = state.primaryFailure(requestFailures, exception);
@@ -255,11 +185,9 @@ public final class DefaultLineSession implements LineSession {
             if (primary.reason() != LineSessionException.Reason.CLOSED) {
                 outcome = state.recordTerminalFailure(primary.reason(), primary.getMessage(), primary);
             }
-            Error fatalError = outcome == null ? null : outcome.fatalError();
-            if (fatalError != null) {
-                SuppressionSupport.attach(fatalError, primary);
-                closePreserving(fatalError);
-                throw fatalError;
+            if (outcome instanceof LineSessionState.FatalSnapshot fatal) {
+                closePreserving(fatal.error());
+                throw fatal.error();
             }
             if (primary.reason() != LineSessionException.Reason.CLOSED) {
                 closePreserving(primary);
@@ -273,28 +201,12 @@ public final class DefaultLineSession implements LineSession {
             } else {
                 outcome = state.recordTerminalFailure(primary.reason(), primary.getMessage(), error);
             }
-            Error fatalError = outcome.fatalError();
-            if (fatalError != null) {
-                SuppressionSupport.attach(fatalError, error);
-                closePreserving(fatalError);
-                throw fatalError;
+            if (outcome instanceof LineSessionState.FatalSnapshot fatal) {
+                closePreserving(fatal.error());
+                throw fatal.error();
             }
             closePreserving(error);
             throw error;
-        }
-    }
-
-    private RequestFailureTracker<LineSessionException> beginRequest() {
-        return state.beginRequest();
-    }
-
-    private void completeRequest(RequestFailureTracker<LineSessionException> requestFailures) {
-        state.completeRequest(requestFailures);
-    }
-
-    private void endRequest(RequestFailureTracker<LineSessionException> requestFailures) {
-        if (state.endRequest(requestFailures)) {
-            outputPumps.sealFailureAttribution();
         }
     }
 
@@ -324,8 +236,7 @@ public final class DefaultLineSession implements LineSession {
         return state.arbitrateRequestAdmissionFailure(localFailure);
     }
 
-    private void recordDeadlineFailure(
-            long deadlineNanos, RequestFailureTracker<LineSessionException> requestFailures) {
+    private void recordDeadlineFailure(long deadlineNanos, LineSessionState.Request requestFailures) {
         if (deadlineNanos - System.nanoTime() <= 0) {
             state.recordRequestTimeout(requestFailures);
         }
@@ -384,7 +295,7 @@ public final class DefaultLineSession implements LineSession {
     private void closeWithEvent(boolean publishClosed, Throwable primary) {
         boolean lifecycleOwner = state.claimClose();
         if (lifecycleOwner) {
-            callbackCancellation.cancel();
+            responseDecoder.cancel();
         }
         try {
             if (lifecycleOwner && publishClosed) {
@@ -406,166 +317,11 @@ public final class DefaultLineSession implements LineSession {
                 IncrementalTextDecoder.outputWithoutInputLimitFor(configuredLimit));
     }
 
-    private List<String> decode(
-            ResponseReader reader,
-            RequestCapabilityScope capabilityScope,
-            long deadlineNanos,
-            RequestFailureTracker<LineSessionException> requestFailures) {
-        try {
-            return BoundedTaskRunner.runReportingLateFailure(
-                    BoundedTaskLimits.PROTOCOL_CALLBACKS,
-                    "procwright-line-decoder-",
-                    deadlineNanos,
-                    callbackCancellation,
-                    (thread, failure) -> {
-                        if (failure != requestFailures.failure()) {
-                            BoundedTaskRunner.reportLateFailure(thread, failure);
-                        }
-                    },
-                    failure -> {
-                        capabilityScope.invalidate();
-                        selectCallbackAbandonment(requestFailures, failure);
-                    },
-                    () -> {
-                        capabilityScope.activate();
-                        try {
-                            return List.copyOf(options.responseDecoder().decode(reader));
-                        } finally {
-                            capabilityScope.invalidate();
-                        }
-                    });
-        } catch (TimeoutException exception) {
-            throw state.selectCallbackFailure(requestFailures, state::timeout);
-        } catch (BoundedTaskRunner.TaskCancelledException exception) {
-            throw state.selectCallbackFailure(requestFailures, () -> state.closed(exception));
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw state.selectCallbackFailure(
-                    requestFailures, () -> state.failure("Interrupted while decoding line response", exception));
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            LineSessionState.TerminalSnapshot outcome = state.terminal();
-            Error fatalError = outcome == null ? null : outcome.fatalError();
-            if (fatalError != null) {
-                SuppressionSupport.attach(fatalError, cause);
-                throw fatalError;
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            requestFailures.throwIfFailed();
-            if (cause instanceof LineSessionException lineSessionException) {
-                throw lineSessionException;
-            }
-            throw state.failure(LineSessionException.Reason.DECODER_FAILED, "Response decoder failed", cause);
-        } finally {
-            capabilityScope.invalidate();
-        }
-    }
-
-    private void selectCallbackAbandonment(
-            RequestFailureTracker<LineSessionException> requestFailures, Throwable cause) {
-        if (cause instanceof TimeoutException) {
-            state.recordRequestTimeout(requestFailures);
-        } else if (cause instanceof BoundedTaskRunner.TaskCancelledException cancellation) {
-            state.recordRequestFailure(requestFailures, () -> state.closed(cancellation));
-        } else if (cause instanceof InterruptedException interruption) {
-            state.recordRequestFailure(
-                    requestFailures, () -> state.failure("Interrupted while decoding line response", interruption));
-        } else {
-            throw new IllegalArgumentException("Unsupported callback abandonment", cause);
-        }
-    }
-
-    private void writeLine(
-            byte[] encodedLine, long deadlineNanos, RequestFailureTracker<LineSessionException> requestFailures)
-            throws RetryablePreWriteFailure {
-        BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
-        try {
-            writeTaskRunner.run(
-                    BoundedTaskLimits.BLOCKING_WRITES, "procwright-line-stdin-", deadlineNanos, handoff, () -> {
-                        java.io.OutputStream stdin = session.stdin();
-                        stdin.write(encodedLine);
-                        stdin.flush();
-                        return null;
-                    });
-        } catch (SessionStdinClosedException exception) {
-            throw state.recordRequestFailure(requestFailures, () -> state.closed(exception));
-        } catch (IllegalStateException exception) {
-            throw state.recordRequestFailure(
-                    requestFailures,
-                    () -> state.failure(
-                            LineSessionException.Reason.FAILURE, "Could not write line-session stdin", exception));
-        } catch (TimeoutException exception) {
-            if (handoff.retrySafe()) {
-                throw retryablePreWriteFailure(requestFailures, state.timeout());
-            }
-            throw state.recordRequestTimeout(requestFailures);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            LineSessionException interrupted = state.failure(
-                    LineSessionException.Reason.FAILURE, "Interrupted while writing line-session stdin", exception);
-            if (handoff.retrySafe()) {
-                throw retryablePreWriteFailure(requestFailures, interrupted);
-            }
-            throw state.recordRequestFailure(requestFailures, () -> interrupted);
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            if (handoff.retrySafe()) {
-                throw retryablePreWriteFailure(
-                        requestFailures,
-                        state.failure(
-                                LineSessionException.Reason.FAILURE,
-                                "Could not start line-session stdin writer",
-                                cause));
-            }
-            if (cause instanceof ProcessExitedException processExited) {
-                throw state.recordRequestFailure(
-                        requestFailures,
-                        () -> state.failure(
-                                LineSessionException.Reason.PROCESS_EXITED,
-                                "Line-session process exited before the request could be written",
-                                processExited));
-            }
-            if (cause instanceof SessionStdinClosedException stdinClosed) {
-                throw state.recordRequestFailure(requestFailures, () -> state.closed(stdinClosed));
-            }
-            if (cause instanceof IOException ioException) {
-                throw state.recordRequestFailure(
-                        requestFailures,
-                        () -> state.failure(
-                                LineSessionException.Reason.BROKEN_PIPE,
-                                "Could not write line-session stdin",
-                                ioException));
-            }
-            if (cause instanceof RuntimeException runtimeException) {
-                throw state.recordRequestFailure(
-                        requestFailures,
-                        () -> state.failure(
-                                LineSessionException.Reason.FAILURE,
-                                "Could not write line-session stdin",
-                                runtimeException));
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            throw state.recordRequestFailure(
-                    requestFailures,
-                    () -> state.failure(
-                            LineSessionException.Reason.FAILURE, "Could not write line-session stdin", cause));
-        }
-    }
-
-    private RetryablePreWriteFailure retryablePreWriteFailure(
-            RequestFailureTracker<LineSessionException> requestFailures, LineSessionException candidate) {
-        return new RetryablePreWriteFailure(state.releaseRetryablePreWrite(requestFailures, candidate));
-    }
-
     private void closePreserving(Throwable failure) {
         try {
             closeWithEvent(true, failure);
         } catch (Throwable closeFailure) {
-            SuppressionSupport.attach(failure, closeFailure);
+            outputPumps.retainFailure(closeFailure);
         }
     }
 
@@ -573,7 +329,7 @@ public final class DefaultLineSession implements LineSession {
         try {
             closeWithEvent(false, failure);
         } catch (Throwable closeFailure) {
-            SuppressionSupport.attach(failure, closeFailure);
+            outputPumps.retainFailure(closeFailure);
         }
     }
 
@@ -590,8 +346,8 @@ public final class DefaultLineSession implements LineSession {
     private void failFatalOutput(Error error) {
         LineSessionState.TerminalSnapshot outcome = state.recordFatalError(error);
         Throwable primary = outcome.primary();
-        if (outcome.fatalError() != null) {
-            output.publishFatal(outcome.fatalError());
+        if (outcome instanceof LineSessionState.FatalSnapshot fatal) {
+            output.publishFatal(fatal.error());
         }
         closeTerminalPreserving(primary);
     }
@@ -601,11 +357,11 @@ public final class DefaultLineSession implements LineSession {
         LineSessionState.TerminalSnapshot outcome = state.recordTerminalFailure(reason, message, failure);
         Throwable primary = outcome.primary();
         try {
-            if (publishFailure && outcome.isFailure()) {
-                output.publishFailure(outcome.reason(), message, outcome.primary());
+            if (publishFailure && outcome instanceof LineSessionState.FailureSnapshot failureSnapshot) {
+                output.publishFailure(failureSnapshot.reason(), failureSnapshot.message(), failureSnapshot.primary());
             }
         } catch (Throwable publicationFailure) {
-            SuppressionSupport.attach(primary, publicationFailure);
+            outputPumps.retainFailure(publicationFailure);
         } finally {
             closeTerminalPreserving(primary);
         }
@@ -616,90 +372,29 @@ public final class DefaultLineSession implements LineSession {
         return new LineTranscript(snapshot.text(), snapshot.truncated(), malformed.get());
     }
 
-    private final class ResponseReader implements ResponseDecoder.Reader {
+    record Dependencies(
+            ZeroReadBackoff zeroReadBackoff,
+            PumpStarter pumpStarter,
+            LineRequestWriter.TaskRunner writeTaskRunner,
+            LongSupplier nanoTime,
+            SerializedRequestGate.Waiter requestLockWaiter) {
 
-        private final long deadlineNanos;
-        private final RequestFailureTracker<LineSessionException> requestFailures;
-        private final RequestCapabilityScope capabilityScope;
-        private long linesRead;
-        private long charactersRead;
-
-        private ResponseReader(
-                long deadlineNanos,
-                RequestFailureTracker<LineSessionException> requestFailures,
-                RequestCapabilityScope capabilityScope) {
-            this.deadlineNanos = deadlineNanos;
-            this.requestFailures = requestFailures;
-            this.capabilityScope = Objects.requireNonNull(capabilityScope, "capabilityScope");
+        Dependencies {
+            Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
+            Objects.requireNonNull(pumpStarter, "pumpStarter");
+            Objects.requireNonNull(writeTaskRunner, "writeTaskRunner");
+            Objects.requireNonNull(nanoTime, "nanoTime");
+            Objects.requireNonNull(requestLockWaiter, "requestLockWaiter");
         }
 
-        @Override
-        public String readLine() {
-            capabilityScope.verifyAccess();
-            while (true) {
-                long remainingNanos = deadlineNanos - System.nanoTime();
-                if (remainingNanos <= 0) {
-                    throw state.recordRequestTimeout(requestFailures);
-                }
-
-                LineOutputTransport.Event event = output.take(deadlineNanos, requestFailures);
-
-                switch (event.kind()) {
-                    case LINE -> {
-                        linesRead++;
-                        if (linesRead > options.maxResponseLines()) {
-                            throw track(() -> state.failure(
-                                    LineSessionException.Reason.RESPONSE_TOO_LARGE,
-                                    "Line response exceeds maxResponseLines",
-                                    null));
-                        }
-                        int lineLength = event.line().length();
-                        if (lineLength > options.maxResponseChars() - charactersRead) {
-                            throw track(() -> state.failure(
-                                    LineSessionException.Reason.RESPONSE_TOO_LARGE,
-                                    "Line response exceeds maxResponseChars",
-                                    null));
-                        }
-                        charactersRead += lineLength;
-                        return event.line();
-                    }
-                    case EOF -> throw track(state::eof);
-                    case CLOSED -> throw track(() -> state.closed(null));
-                    case FAILURE -> throw track(() -> state.failure(event.reason(), event.message(), event.failure()));
-                    case FATAL -> throw (Error) event.failure();
-                }
-            }
-        }
-
-        private LineSessionException track(Supplier<LineSessionException> failureFactory) {
-            return state.recordRequestFailure(requestFailures, failureFactory);
-        }
-    }
-
-    @FunctionalInterface
-    interface WriteTaskRunner {
-
-        void run(
-                BoundedTaskLimiter limiter,
-                String threadPrefix,
-                long deadlineNanos,
-                BoundedTaskRunner.TaskHandoff handoff,
-                BoundedTaskRunner.Task<Void> task)
-                throws TimeoutException, InterruptedException, ExecutionException;
-    }
-
-    private static final class RetryablePreWriteFailure extends Exception {
-
-        private static final long serialVersionUID = 1L;
-
-        private final LineSessionException failure;
-
-        private RetryablePreWriteFailure(LineSessionException failure) {
-            this.failure = Objects.requireNonNull(failure, "failure");
-        }
-
-        private LineSessionException failure() {
-            return failure;
+        static Dependencies defaults() {
+            return new Dependencies(
+                    ZeroReadBackoff.exponential(),
+                    PumpStarter.threading(),
+                    (limiter, threadPrefix, deadlineNanos, handoff, task) ->
+                            BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task),
+                    System::nanoTime,
+                    SerializedRequestGate.Waiter.timed());
         }
     }
 }

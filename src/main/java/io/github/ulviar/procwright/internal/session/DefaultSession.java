@@ -8,11 +8,11 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.DurationSupport;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.Expect;
 import io.github.ulviar.procwright.session.LineSession;
@@ -54,7 +54,6 @@ public final class DefaultSession implements Session {
     private final SessionTermination termination;
     private final SessionExitBarrier exitBarrier;
     private final SessionProcessCleanup processCleanup;
-    private final SessionLateFailures lateFailures;
     private final AtomicLong lastActivityNanos;
 
     public DefaultSession(Process process, Duration idleTimeout, ShutdownPolicy shutdownPolicy, Charset charset) {
@@ -144,8 +143,6 @@ public final class DefaultSession implements Session {
             Objects.requireNonNull(exitPublisher, "exitPublisher");
             this.termination = new SessionTermination(diagnostics);
             this.processCleanup = new SessionProcessCleanup(process, shutdownPolicy);
-            this.lateFailures = new SessionLateFailures();
-            termination.observe((ignored, failure) -> lateFailures.terminalCompleted(failure));
             this.lastActivityNanos = new AtomicLong(System.nanoTime());
 
             this.resources = SessionResources.acquire(
@@ -153,8 +150,7 @@ public final class DefaultSession implements Session {
                     closeDispatcher,
                     resourcePublisher,
                     this::markActivity,
-                    this::terminateAfterResourceCloseFailure,
-                    this::observePhysicalOutputCloseFailure);
+                    this::terminateAfterResourceCloseFailure);
             construction.own(resources);
 
             BoundedLifecyclePublisher.Reservation publicationReservation = exitPublisher.reserve(1);
@@ -169,8 +165,7 @@ public final class DefaultSession implements Session {
             Objects.requireNonNull(beforeCommit, "beforeCommit").run();
             construction.commit();
         } catch (RuntimeException | Error failure) {
-            construction.rollback(failure);
-            throw failure;
+            throw SessionConstruction.unchecked(construction.rollback(failure));
         }
     }
 
@@ -179,8 +174,7 @@ public final class DefaultSession implements Session {
         try {
             return DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session", CommandEcho.empty());
         } catch (RuntimeException | Error failure) {
-            SessionConstruction.rollbackUnowned(process, failure);
-            throw failure;
+            throw SessionConstruction.unchecked(SessionConstruction.rollbackUnowned(process, failure));
         }
     }
 
@@ -294,7 +288,11 @@ public final class DefaultSession implements Session {
             try {
                 observer.accept(result, failure);
             } catch (Throwable observerFailure) {
-                Threading.reportUncaught(Thread.currentThread(), observerFailure);
+                try {
+                    BoundedFailureReporter.shared().report(Thread.currentThread(), observerFailure);
+                } catch (Throwable ignored) {
+                    // Reporting is best-effort and must not block or replace terminal publication.
+                }
             }
         });
     }
@@ -362,11 +360,11 @@ public final class DefaultSession implements Session {
     }
 
     private void completeWatcherFailure(Throwable failure) {
-        boolean restoreInterrupt = Thread.interrupted() || SuppressionSupport.containsInterruption(failure);
+        boolean restoreInterrupt = Thread.interrupted();
         SessionTermination.FailureClaim failureClaim = termination.claimFailure(failure);
         try {
-            processCleanup.forcePreserving(failure);
-            resources.closePreserving(failure);
+            retainOrReport(failureClaim, processCleanup.forceAfterFailure());
+            retainOrReport(failureClaim, resources.closeAfterFailure());
         } finally {
             if (failureClaim != null) {
                 failureClaim.finishCleanup();
@@ -424,12 +422,11 @@ public final class DefaultSession implements Session {
             }
         } catch (RuntimeException | Error failure) {
             boolean interruptedDuringStop = Thread.interrupted();
-            restoreInterrupt =
-                    restoreInterrupt || SuppressionSupport.containsInterruption(failure) || interruptedDuringStop;
+            restoreInterrupt = restoreInterrupt || interruptedDuringStop;
             SessionTermination.FailureClaim failureClaim = termination.claimFailure(failure);
             try {
-                processCleanup.forcePreserving(failure);
-                resources.closePreserving(failure);
+                retainOrReport(failureClaim, processCleanup.forceAfterFailure());
+                retainOrReport(failureClaim, resources.closeAfterFailure());
             } finally {
                 if (failureClaim != null) {
                     failureClaim.finishCleanup();
@@ -454,16 +451,16 @@ public final class DefaultSession implements Session {
             resources.close();
         } catch (RuntimeException | Error failure) {
             publication.recordFailure(failure);
-            processCleanup.forcePreserving(failure);
-            resources.closePreserving(failure);
-            publication.publishFailure(failure);
+            retain(publication, processCleanup.forceAfterFailure());
+            retain(publication, resources.closeAfterFailure());
+            publication.publishFailure();
             throw failure;
         }
         publication.publishSuccess(new SessionExit(OptionalInt.of(exitCode), false));
     }
 
     private void observePublicExitCleanup() {
-        exitBarrier.observe(termination.completion(), resources.outputCleanupCompletion());
+        exitBarrier.observe(termination.outcome(), resources.outputCleanupCompletion());
     }
 
     private void markActivity() {
@@ -487,8 +484,7 @@ public final class DefaultSession implements Session {
         return resources.ownedStderr(owner);
     }
 
-    OutputCloseReservation.Reservation reserveOwnedOutputClose(
-            String owner, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
+    OutputCloseReservation.Reservation reserveOwnedOutputClose(String owner, Runnable pumpCloseObserver) {
         return resources.reserveOutputClose(owner, pumpCloseObserver);
     }
 
@@ -508,17 +504,17 @@ public final class DefaultSession implements Session {
 
     private void terminateAfterResourceCloseFailure(SessionResources.CloseFailure resourceFailure) {
         Throwable failure = resourceFailure.failure();
-        boolean restoreInterrupt = Thread.interrupted() || SuppressionSupport.containsInterruption(failure);
+        boolean restoreInterrupt = Thread.interrupted();
         SessionTermination.FailureClaim failureClaim = termination.claimFailure(failure);
         try {
             if (failureClaim != null && failureClaim.ownsPublication()) {
-                processCleanup.stopPreserving(failure);
+                retainOrReport(failureClaim, processCleanup.stopAfterFailure());
             } else {
-                processCleanup.forcePreserving(failure);
+                retainOrReport(failureClaim, processCleanup.forceAfterFailure());
             }
-            resources.closePreserving(failure);
-            if (failureClaim == null) {
-                lateFailures.record(failure, resourceFailure.reportWhenLate());
+            retainOrReport(failureClaim, resources.closeAfterFailure());
+            if (failureClaim == null && resourceFailure.reportWhenLate()) {
+                reportBestEffort(failure);
             }
         } finally {
             if (failureClaim != null) {
@@ -530,8 +526,30 @@ public final class DefaultSession implements Session {
         }
     }
 
-    private void observePhysicalOutputCloseFailure(Throwable failure) {
-        lateFailures.record(failure, true);
+    private static void retainOrReport(SessionTermination.FailureClaim claim, Throwable failure) {
+        if (failure == null) {
+            return;
+        }
+        if (claim == null) {
+            reportBestEffort(failure);
+        } else {
+            claim.recordFailure(failure);
+        }
+    }
+
+    private static void retain(SessionTermination.Publication publication, Throwable failure) {
+        if (failure != null) {
+            publication.recordFailure(failure);
+        }
+    }
+
+    private static void reportBestEffort(Throwable failure) {
+        try {
+            BoundedFailureReporter.FailureTarget target = BoundedFailureReporter.captureFailureTarget();
+            BoundedFailureReporter.shared().report(target, failure);
+        } catch (RuntimeException | Error ignored) {
+            // Mandatory cleanup and publication never depend on late reporting.
+        }
     }
 
     private static Duration requireNonNegative(Duration duration, String name) {

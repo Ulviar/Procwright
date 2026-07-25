@@ -2,7 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.SuppressionSupport;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
@@ -96,12 +96,17 @@ final class WorkerStartupCoordinator<S> {
             try {
                 owner.start(permit);
             } catch (RuntimeException | Error failure) {
+                Throwable terminalFailure = failure;
                 try {
                     poolState.launchFailed(reservation);
                 } catch (RuntimeException | Error cleanupFailure) {
-                    SuppressionSupport.attach(failure, cleanupFailure);
+                    terminalFailure = FailureAggregation.combine(
+                            terminalFailure,
+                            cleanupFailure,
+                            "Worker startup launch and reservation cleanup both failed");
                 }
-                throw failure;
+                rethrow(terminalFailure);
+                throw new AssertionError("unreachable");
             }
             return owner;
         } finally {
@@ -143,8 +148,8 @@ final class WorkerStartupCoordinator<S> {
             }
             if (closed) {
                 RuntimeException closedFailure = failures.closed("Pool is closed");
-                SuppressionSupport.attach(closedFailure, cause);
-                throw closedFailure;
+                throw (RuntimeException) failures.expose(FailureAggregation.combine(
+                        closedFailure, cause, "Pool closed while its worker factory failed"));
             }
             throw failures.startupFailed("Could not start " + workerLabel, cause);
         }
@@ -197,6 +202,16 @@ final class WorkerStartupCoordinator<S> {
         if (admission != null) {
             admission.close();
         }
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new AssertionError("Worker startup produced a checked failure", failure);
     }
 
     interface PoolState<S> {

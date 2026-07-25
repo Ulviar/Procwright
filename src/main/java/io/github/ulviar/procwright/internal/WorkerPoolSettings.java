@@ -37,7 +37,7 @@ public record WorkerPoolSettings<W>(
         Objects.requireNonNull(healthCheck, "healthCheck");
     }
 
-    public static <W> WorkerPoolSettings<W> defaults(Consumer<W> resetHook, Predicate<W> healthCheck) {
+    public static <W> WorkerPoolSettings<W> defaults() {
         return new WorkerPoolSettings<>(
                 1,
                 0,
@@ -48,8 +48,8 @@ public record WorkerPoolSettings<W>(
                 Integer.MAX_VALUE,
                 Duration.ZERO,
                 true,
-                resetHook,
-                healthCheck);
+                worker -> {},
+                worker -> true);
     }
 
     public WorkerPoolSettings<W> validateForOpen() {

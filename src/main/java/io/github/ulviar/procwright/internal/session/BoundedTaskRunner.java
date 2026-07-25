@@ -8,8 +8,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
 /**
@@ -110,28 +108,14 @@ public final class BoundedTaskRunner {
     }
 
     static <T> T runTracked(
-            BoundedTaskLimiter limiter, String threadPrefix, long deadlineNanos, TaskHandoff handoff, Task<T> task)
-            throws TimeoutException, InterruptedException, ExecutionException {
-        return runTracked(
-                limiter, threadPrefix, deadlineNanos, handoff, BoundedTaskOwner.fresh(), System::nanoTime, task);
-    }
-
-    static <T> T runTracked(
             BoundedTaskLimiter limiter,
             String threadPrefix,
             long deadlineNanos,
-            TaskHandoff handoff,
-            TaskThreadFactory threadFactory,
+            BoundedTaskHandoff handoff,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException {
         return runTracked(
-                limiter,
-                threadPrefix,
-                deadlineNanos,
-                handoff,
-                BoundedTaskOwner.fresh(threadFactory),
-                System::nanoTime,
-                task);
+                limiter, threadPrefix, deadlineNanos, handoff, BoundedTaskOwner.fresh(), System::nanoTime, task);
     }
 
     static <T> T runReportingLateFailure(
@@ -190,24 +174,11 @@ public final class BoundedTaskRunner {
                 task);
     }
 
-    static <T> T runTracked(
-            BoundedTaskLimiter limiter,
-            String threadPrefix,
-            long deadlineNanos,
-            TaskHandoff handoff,
-            TaskThreadFactory threadFactory,
-            LongSupplier nanoTime,
-            Task<T> task)
-            throws TimeoutException, InterruptedException, ExecutionException {
-        return runTracked(
-                limiter, threadPrefix, deadlineNanos, handoff, BoundedTaskOwner.fresh(threadFactory), nanoTime, task);
-    }
-
     private static <T> T runTracked(
             BoundedTaskLimiter limiter,
             String threadPrefix,
             long deadlineNanos,
-            TaskHandoff handoff,
+            BoundedTaskHandoff handoff,
             BoundedTaskOwner owner,
             LongSupplier nanoTime,
             Task<T> task)
@@ -272,12 +243,6 @@ public final class BoundedTaskRunner {
     }
 
     @FunctionalInterface
-    interface TaskThreadFactory {
-
-        Thread unstarted(String threadPrefix, Runnable task);
-    }
-
-    @FunctionalInterface
     interface TaskStarter {
 
         /** Accepts either task execution or later rejection as the sole owner of permit settlement. */
@@ -306,51 +271,6 @@ public final class BoundedTaskRunner {
     interface TaskAbandonmentHandler {
 
         void beforeInterrupt(Throwable failure);
-    }
-
-    enum TaskPhase {
-        WAITING_FOR_ADMISSION,
-        REJECTED_BEFORE_ADMISSION,
-        ADMITTED
-    }
-
-    /**
-     * Records the one-way ownership transfer from the capacity waiter to a task thread. Only rejection before admission
-     * proves that no task exists and no later side effect is possible; every phase from {@link TaskPhase#ADMITTED}
-     * onward must be treated as potentially concurrent with the caller's timeout.
-     */
-    static final class TaskHandoff extends BoundedTaskHandoff {
-
-        private final AtomicReference<TaskPhase> phase = new AtomicReference<>(TaskPhase.WAITING_FOR_ADMISSION);
-
-        @Override
-        void rejectBeforeAdmission() {
-            transition(TaskPhase.WAITING_FOR_ADMISSION, TaskPhase.REJECTED_BEFORE_ADMISSION);
-        }
-
-        @Override
-        void rejectIfWaiting() {
-            phase.compareAndSet(TaskPhase.WAITING_FOR_ADMISSION, TaskPhase.REJECTED_BEFORE_ADMISSION);
-        }
-
-        @Override
-        void admit() {
-            transition(TaskPhase.WAITING_FOR_ADMISSION, TaskPhase.ADMITTED);
-        }
-
-        boolean retrySafe() {
-            return phase.get() == TaskPhase.REJECTED_BEFORE_ADMISSION;
-        }
-
-        TaskPhase phase() {
-            return phase.get();
-        }
-
-        private void transition(TaskPhase expected, TaskPhase next) {
-            if (!phase.compareAndSet(expected, next)) {
-                throw new IllegalStateException("task handoff cannot transition from " + phase.get() + " to " + next);
-            }
-        }
     }
 
     static final class CancellationSignal implements BoundedTaskCancellation {
@@ -384,7 +304,7 @@ public final class BoundedTaskRunner {
         }
 
         @Override
-        public CancellationRegistration register(Runnable listener) {
+        public BoundedTaskCancellation.Registration register(Runnable listener) {
             Objects.requireNonNull(listener, "listener");
             boolean runImmediately;
             synchronized (monitor) {
@@ -396,7 +316,7 @@ public final class BoundedTaskRunner {
             if (runImmediately) {
                 listener.run();
             }
-            return new CancellationRegistration(this, listener, !runImmediately);
+            return runImmediately ? () -> {} : () -> unregister(listener);
         }
 
         @Override
@@ -425,26 +345,6 @@ public final class BoundedTaskRunner {
 
         private CancellationToken(CancellationSignal owner) {
             this.owner = owner;
-        }
-    }
-
-    static final class CancellationRegistration implements BoundedTaskCancellation.Registration {
-
-        private final CancellationSignal owner;
-        private final Runnable listener;
-        private final AtomicBoolean registered;
-
-        private CancellationRegistration(CancellationSignal owner, Runnable listener, boolean registered) {
-            this.owner = owner;
-            this.listener = listener;
-            this.registered = new AtomicBoolean(registered);
-        }
-
-        @Override
-        public void close() {
-            if (registered.compareAndSet(true, false)) {
-                owner.unregister(listener);
-            }
         }
     }
 

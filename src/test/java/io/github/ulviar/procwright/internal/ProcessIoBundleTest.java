@@ -103,6 +103,30 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
         }
     }
 
+    @Test
+    void closeAllReportsSeveralDispatchFailuresAsOneFlatStableAggregate() throws Exception {
+        IllegalStateException stdinFailure = new IllegalStateException("stdin starter failed");
+        IllegalStateException stdoutFailure = new IllegalStateException("stdout starter failed");
+        IllegalStateException stderrFailure = new IllegalStateException("stderr starter failed");
+        java.util.List<Throwable> failures = java.util.List.of(stdinFailure, stdoutFailure, stderrFailure);
+        AtomicInteger starts = new AtomicInteger();
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6, (name, task) -> {
+            throw (IllegalStateException) failures.get(starts.getAndIncrement());
+        });
+        TrackingProcess process = new TrackingProcess();
+        ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
+
+        Throwable aggregate = captureFailure(() -> resources.closeAllAsync(ignored -> {}));
+
+        assertSame(stdinFailure, aggregate.getCause());
+        assertEquals(java.util.List.of(stdoutFailure, stderrFailure), java.util.List.of(aggregate.getSuppressed()));
+        failures.forEach(failure -> assertEquals(0, failure.getSuppressed().length));
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+        assertEquals(1, process.stdin.closeCalls.get());
+        assertEquals(1, process.stdout.closeCalls.get());
+        assertEquals(1, process.stderr.closeCalls.get());
+    }
+
     private static void assertInvalidPairLeavesResourcesUsable(InvalidPairArgument invalidArgument) throws Exception {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(6);

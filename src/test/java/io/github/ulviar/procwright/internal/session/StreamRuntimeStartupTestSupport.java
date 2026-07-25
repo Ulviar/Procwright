@@ -6,7 +6,6 @@ import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.LaunchMode;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.SessionExecutionPlan;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
@@ -50,7 +49,6 @@ abstract class StreamRuntimeStartupTestSupport extends StreamRuntimeTestSupport 
             }
         };
         LaunchPlan launchPlan = new LaunchPlan(
-                LaunchMode.DIRECT,
                 List.of("stateful-pid"),
                 Optional.empty(),
                 EnvironmentPolicy.INHERIT,

@@ -64,7 +64,7 @@ public final class BoundedLifecyclePublisher {
             }
             return new Reservation(reserved);
         } catch (RuntimeException | Error constructionFailure) {
-            rollbackReservation(reserved, constructed, permits, constructionFailure);
+            rollbackReservation(reserved, constructed, permits);
             throw constructionFailure;
         }
     }
@@ -99,28 +99,20 @@ public final class BoundedLifecyclePublisher {
         }
     }
 
-    private void rollbackReservation(Owner[] reserved, int constructed, int claimed, Throwable constructionFailure) {
+    private void rollbackReservation(Owner[] reserved, int constructed, int claimed) {
         if (reserved != null) {
             for (int index = 0; index < constructed; index++) {
                 try {
                     reserved[index].abortConstruction();
                 } catch (RuntimeException | Error rollbackFailure) {
-                    attachRollbackFailure(constructionFailure, rollbackFailure);
+                    BoundedFailureReporter.reportBestEffort(rollbackFailure);
                 }
             }
         }
         try {
             releaseCapacity(claimed - constructed);
         } catch (RuntimeException | Error rollbackFailure) {
-            attachRollbackFailure(constructionFailure, rollbackFailure);
-        }
-    }
-
-    private static void attachRollbackFailure(Throwable primary, Throwable secondary) {
-        try {
-            SuppressionSupport.attach(primary, secondary);
-        } catch (Throwable ignored) {
-            // Optional rollback diagnostics must not replace the construction failure.
+            BoundedFailureReporter.reportBestEffort(rollbackFailure);
         }
     }
 

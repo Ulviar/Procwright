@@ -72,7 +72,7 @@ final class LineOutputTransport {
             events.clear();
             pendingLines = 0;
             pendingCharacters = 0;
-            events.addLast(Event.closed());
+            events.addLast(ClosedEvent.INSTANCE);
             closedEventPublished = true;
             eventLock.notifyAll();
         }
@@ -86,37 +86,48 @@ final class LineOutputTransport {
             events.clear();
             pendingLines = 0;
             pendingCharacters = 0;
-            events.addLast(Event.fatal(error));
+            events.addLast(new FatalEvent(error));
             eventLock.notifyAll();
         }
     }
 
     void publishFailure(LineSessionException.Reason reason, String message, Throwable failure) {
-        offerEvent(Event.failure(reason, message, failure));
+        offerFailure(reason, message, failure);
     }
 
-    Event take(long deadlineNanos, RequestFailureTracker<LineSessionException> request) {
+    Event take(long deadlineNanos, LineSessionState.Request request) {
+        InterruptedException interruption = null;
+        Event event = null;
         synchronized (eventLock) {
-            while (events.isEmpty()) {
+            while (events.isEmpty() && interruption == null) {
                 long remainingNanos = deadlineNanos - System.nanoTime();
                 if (remainingNanos <= 0) {
-                    throw state.recordRequestTimeout(request);
+                    break;
                 }
                 try {
                     TimeUnit.NANOSECONDS.timedWait(eventLock, remainingNanos);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
-                    throw state.recordRequestFailure(
-                            request, () -> state.failure("Interrupted while waiting for line response", exception));
+                    interruption = exception;
                 }
             }
-            Event event = events.removeFirst();
-            if (event.kind() == Kind.LINE) {
-                pendingLines--;
-                pendingCharacters -= event.line().length();
+            if (interruption == null && !events.isEmpty()) {
+                event = events.removeFirst();
+                if (event instanceof LineEvent line) {
+                    pendingLines--;
+                    pendingCharacters -= line.value().length();
+                }
             }
+        }
+        if (event != null) {
             return event;
         }
+        if (interruption != null) {
+            InterruptedException failure = interruption;
+            throw state.recordRequestFailure(
+                    request, () -> state.failure("Interrupted while waiting for line response", failure));
+        }
+        throw state.recordRequestTimeout(request);
     }
 
     private void runPump(
@@ -186,16 +197,14 @@ final class LineOutputTransport {
                 }
             }
             if (responseStream) {
-                offerEvent(Event.eof());
-                if (state.recordStdoutEof()) {
-                    outputPumps.sealFailureAttribution();
-                }
+                offerSignal(EofEvent.INSTANCE);
+                state.recordStdoutEof();
             }
         } catch (IOException exception) {
             malformed.compareAndSet(false, decoder.malformed());
             if (!state.isClosed()) {
                 LineSessionException.Reason reason = reasonFor(exception);
-                offerEvent(Event.failure(reason, failureMessage(streamName, reason), exception));
+                offerFailure(reason, failureMessage(streamName, reason), exception);
                 failureHandler.closeQuietly(exception);
             }
         }
@@ -229,31 +238,45 @@ final class LineOutputTransport {
     private void failOversizedLine() {
         CommandExecutionException failure =
                 new CommandExecutionException("Line-session stdout line exceeds maxLineChars");
-        offerEvent(Event.failure(
+        offerFailure(
                 LineSessionException.Reason.RESPONSE_TOO_LARGE,
                 failureMessage("stdout", LineSessionException.Reason.RESPONSE_TOO_LARGE),
-                failure));
+                failure);
         failureHandler.closeQuietly(failure);
     }
 
-    private void offerEvent(Event event) {
-        if (event.kind() == Kind.LINE) {
+    private void offerSignal(Event event) {
+        if (event instanceof LineEvent) {
             throw new IllegalArgumentException("stdout line events must use offerLine");
+        }
+        if (event instanceof FailureEvent) {
+            throw new IllegalArgumentException("failure events must use offerFailure");
         }
         synchronized (eventLock) {
             if (closedEventPublished) {
                 return;
-            }
-            if (event.kind() == Kind.FAILURE) {
-                state.recordTerminalFailure(event.reason(), event.message(), event.failure());
             }
             events.addLast(event);
             eventLock.notifyAll();
         }
     }
 
+    private void offerFailure(LineSessionException.Reason reason, String message, Throwable failure) {
+        LineSessionState.TerminalSelection selection;
+        synchronized (eventLock) {
+            if (closedEventPublished) {
+                return;
+            }
+            selection = state.selectTerminalFailure(reason, message, failure);
+            events.addLast(eventFor(selection.selected()));
+            eventLock.notifyAll();
+        }
+        state.reportDiscarded(selection);
+    }
+
     private boolean offerLine(StringBuilder line) {
         boolean overflow = false;
+        LineSessionState.TerminalSelection overflowSelection = null;
         synchronized (eventLock) {
             if (closedEventPublished) {
                 return false;
@@ -261,33 +284,40 @@ final class LineOutputTransport {
             int lineCharacters = line.length();
             if (pendingLines >= options.stdoutBacklogLines()
                     || lineCharacters > options.stdoutBacklogChars() - pendingCharacters) {
-                CommandExecutionException failure =
+                CommandExecutionException overflowFailure =
                         new CommandExecutionException("Line-session stdout backlog overflow");
-                state.recordTerminalFailure(
-                        LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW,
-                        failureMessage("stdout", LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW),
-                        failure);
                 events.clear();
                 pendingLines = 0;
                 pendingCharacters = 0;
-                events.addLast(Event.failure(
+                overflowSelection = state.selectTerminalFailure(
                         LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW,
                         failureMessage("stdout", LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW),
-                        failure));
+                        overflowFailure);
+                events.addLast(eventFor(overflowSelection.selected()));
                 overflow = true;
             } else {
                 String publishedLine = line.toString();
-                events.addLast(Event.line(publishedLine));
+                events.addLast(new LineEvent(publishedLine));
                 pendingLines++;
                 pendingCharacters += lineCharacters;
             }
             eventLock.notifyAll();
         }
         if (overflow) {
-            failureHandler.closeQuietly(
-                    Objects.requireNonNull(state.terminal(), "terminal outcome").primary());
+            LineSessionState.TerminalSelection selected =
+                    Objects.requireNonNull(overflowSelection, "overflowSelection");
+            state.reportDiscarded(selected);
+            failureHandler.closeQuietly(selected.selected().primary());
         }
         return !overflow;
+    }
+
+    private static Event eventFor(LineSessionState.TerminalSnapshot terminal) {
+        return switch (terminal) {
+            case LineSessionState.FailureSnapshot failure ->
+                new FailureEvent(failure.reason(), failure.message(), failure.primary());
+            case LineSessionState.FatalSnapshot fatal -> new FatalEvent(fatal.error());
+        };
     }
 
     static String failureMessage(String streamName, LineSessionException.Reason reason) {
@@ -318,49 +348,36 @@ final class LineOutputTransport {
         void closeQuietly(Throwable failure);
     }
 
-    record Event(Kind kind, String line, LineSessionException.Reason reason, String message, Throwable failure) {
+    sealed interface Event permits LineEvent, EofEvent, ClosedEvent, FailureEvent, FatalEvent {}
 
-        static Event line(String line) {
-            return new Event(Kind.LINE, line, null, null, null);
-        }
+    record LineEvent(String value) implements Event {
 
-        static Event eof() {
-            return new Event(Kind.EOF, null, null, null, null);
-        }
-
-        static Event failure(LineSessionException.Reason reason, String message, Throwable failure) {
-            return new Event(Kind.FAILURE, null, reason, message, failure);
-        }
-
-        static Event fatal(Error failure) {
-            return new Event(Kind.FATAL, null, null, null, failure);
-        }
-
-        static Event closed() {
-            return new Event(Kind.CLOSED, null, null, null, null);
-        }
-
-        Event {
-            Objects.requireNonNull(kind, "kind");
-            if (kind == Kind.LINE) {
-                Objects.requireNonNull(line, "line");
-            }
-            if (kind == Kind.FAILURE) {
-                Objects.requireNonNull(reason, "reason");
-                Objects.requireNonNull(message, "message");
-                Objects.requireNonNull(failure, "failure");
-            }
-            if (kind == Kind.FATAL && !(failure instanceof Error)) {
-                throw new IllegalArgumentException("fatal stdout event requires an Error");
-            }
+        public LineEvent {
+            Objects.requireNonNull(value, "value");
         }
     }
 
-    enum Kind {
-        LINE,
-        EOF,
-        CLOSED,
-        FAILURE,
-        FATAL
+    enum EofEvent implements Event {
+        INSTANCE
+    }
+
+    enum ClosedEvent implements Event {
+        INSTANCE
+    }
+
+    record FailureEvent(LineSessionException.Reason reason, String message, Throwable failure) implements Event {
+
+        public FailureEvent {
+            Objects.requireNonNull(reason, "reason");
+            Objects.requireNonNull(message, "message");
+            Objects.requireNonNull(failure, "failure");
+        }
+    }
+
+    record FatalEvent(Error error) implements Event {
+
+        public FatalEvent {
+            Objects.requireNonNull(error, "error");
+        }
     }
 }

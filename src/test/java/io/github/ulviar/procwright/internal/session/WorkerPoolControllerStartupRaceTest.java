@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
@@ -222,8 +223,10 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             ExecutionException failure = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
             PoolFailure poolFailure = (PoolFailure) failure.getCause();
             assertEquals(FailureKind.CLOSED, poolFailure.kind);
-            assertEquals(1, poolFailure.getSuppressed().length);
-            assertSame(startupFailure, poolFailure.getSuppressed()[0]);
+            Throwable aggregate = poolFailure.getCause();
+            assertEquals(FailureKind.CLOSED, ((PoolFailure) FailureAggregation.primary(aggregate)).kind);
+            assertTrue(FailureAggregation.sources(aggregate).contains(startupFailure));
+            assertEquals(0, FailureAggregation.primary(aggregate).getSuppressed().length);
             pool.closeAsync().get(1, TimeUnit.SECONDS);
             assertEquals(0, physicalCloses.get(), "a failed factory did not create a worker to close");
             assertEquals(1, pool.metrics().failedStartups());

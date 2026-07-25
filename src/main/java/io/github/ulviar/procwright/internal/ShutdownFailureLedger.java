@@ -3,11 +3,15 @@
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
+import java.util.ArrayList;
+import java.util.List;
 
-/** Preserves cleanup failure identity, suppression order, and interruption state for one shutdown operation. */
+/** Retains cleanup failures and interruption state for one shutdown operation without mutating source failures. */
 final class ShutdownFailureLedger {
 
-    private Throwable primary;
+    private List<Throwable> failures;
+    private Throwable firstPrimary;
+    private CommandExecutionException interruptionFailure;
     private boolean restoreInterrupt;
 
     void attempt(Runnable action) {
@@ -21,12 +25,28 @@ final class ShutdownFailureLedger {
     }
 
     void record(Throwable failure) {
-        if (failure instanceof CommandExecutionException executionFailure
-                && SuppressionSupport.containsInterruption(executionFailure)) {
-            interrupted(executionFailure);
+        if (failure == null) {
             return;
         }
-        primary = SuppressionSupport.combine(primary, failure);
+        if (firstPrimary == null) {
+            firstPrimary = FailureAggregation.primary(failure);
+        }
+        for (Throwable source : FailureAggregation.sources(failure)) {
+            recordSource(source);
+        }
+    }
+
+    private void recordSource(Throwable failure) {
+        if (failures != null) {
+            for (Throwable observed : failures) {
+                if (observed == failure) {
+                    return;
+                }
+            }
+        } else {
+            failures = new ArrayList<>(2);
+        }
+        failures.add(failure);
     }
 
     void recordObserved(Iterable<? extends Throwable> observed) {
@@ -50,7 +70,7 @@ final class ShutdownFailureLedger {
     }
 
     boolean hasFailure() {
-        return primary != null;
+        return failures != null;
     }
 
     boolean wasInterrupted() {
@@ -59,6 +79,7 @@ final class ShutdownFailureLedger {
 
     void rethrowIfPresent() {
         interruptionBoundary();
+        Throwable primary = failure();
         if (primary instanceof RuntimeException runtimeException) {
             throw runtimeException;
         }
@@ -78,13 +99,32 @@ final class ShutdownFailureLedger {
 
     private void interrupted(CommandExecutionException interruptionFailure) {
         if (!restoreInterrupt) {
-            Throwable previousPrimary = primary;
-            primary = interruptionFailure;
-            SuppressionSupport.attach(primary, previousPrimary);
-        } else {
-            SuppressionSupport.attach(primary, interruptionFailure);
+            this.interruptionFailure = interruptionFailure;
         }
+        record(interruptionFailure);
         restoreInterrupt = true;
         Thread.interrupted();
+    }
+
+    private Throwable failure() {
+        if (failures == null) {
+            return null;
+        }
+        Throwable primary = interruptionFailure == null ? firstPrimary : interruptionFailure;
+        if (primary instanceof Error) {
+            return FailureAggregation.combineWithPrimary(
+                    primary, failures, "Multiple process shutdown operations failed");
+        }
+        if (failures.size() == 1 && primary instanceof CommandExecutionException) {
+            return primary;
+        }
+        CommandExecutionException envelope =
+                new CommandExecutionException("One or more process shutdown operations failed", primary);
+        for (Throwable failure : failures) {
+            if (failure != primary) {
+                envelope.addSuppressed(failure);
+            }
+        }
+        return envelope;
     }
 }

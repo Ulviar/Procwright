@@ -22,15 +22,22 @@ final class PoolDrain {
         return terminal.copy();
     }
 
-    boolean tryClaim() {
-        return state.compareAndSet(State.OPEN, State.CLAIMED);
+    boolean claimed() {
+        return state.get() != State.OPEN;
     }
 
-    void publish(Throwable failure) {
+    Publication claim(Throwable failure) {
+        return state.compareAndSet(State.OPEN, State.CLAIMED) ? new Publication(this, failure) : null;
+    }
+
+    private void publish(Publication publication) {
+        if (publication.owner != this) {
+            throw new IllegalArgumentException("pool drain publication belongs to another drain");
+        }
         if (!state.compareAndSet(State.CLAIMED, State.PUBLISHED)) {
             throw new IllegalStateException("pool drain outcome is not exclusively claimed");
         }
-        terminalAction.failure = failure;
+        terminalAction.failure = publication.failure;
         publisher.assign(terminalAction);
     }
 
@@ -49,6 +56,25 @@ final class PoolDrain {
         @Override
         public void run() {
             complete(failure);
+        }
+    }
+
+    static final class Publication {
+
+        private final PoolDrain owner;
+        private final Throwable failure;
+
+        private Publication(PoolDrain owner, Throwable failure) {
+            this.owner = owner;
+            this.failure = failure;
+        }
+
+        Throwable failure() {
+            return failure;
+        }
+
+        void publish() {
+            owner.publish(this);
         }
     }
 

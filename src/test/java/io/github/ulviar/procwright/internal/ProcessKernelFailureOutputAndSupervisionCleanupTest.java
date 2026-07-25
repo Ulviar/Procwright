@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,6 +17,7 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
@@ -34,7 +36,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         AtomicLong nanoTime = new AtomicLong(100);
         TerminalProcess process =
                 new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream());
-        ProcessKernel kernel = new ProcessKernel(
+        ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> process,
                 new BoundedCloseDispatcher(3, 3, 6),
@@ -42,68 +44,9 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
                 () -> nanoTime.getAndSet(50));
 
         CommandResult result = kernel.run(executionPlan(
-                DiagnosticsSettings.disabled(), StdinPolicy.closed(), OutputMode.SEPARATE, Duration.ofSeconds(1)));
+                DiagnosticsSettings.disabled(), Optional.empty(), OutputMode.SEPARATE, Duration.ofSeconds(1)));
 
         assertEquals(Duration.ZERO, result.elapsed());
-    }
-
-    @Test
-    void failureCleanupForceStopsRootWhenLivenessCannotBeObserved() {
-        LivenessRestrictedProcess process = new LivenessRestrictedProcess();
-        IllegalStateException primaryFailure = new IllegalStateException("primary failure");
-
-        ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
-
-        assertEquals(1, process.forceDestroyCalls());
-        assertEquals(1, primaryFailure.getSuppressed().length);
-        assertTrue(primaryFailure.getSuppressed()[0].getMessage().contains("discovery did not complete"));
-    }
-
-    @Test
-    void cleanupContinuesWhenDestroyThrowsThePrimaryFailureItself() throws Exception {
-        AssertionError primaryFailure = new AssertionError("primary failure");
-        SelfFailingCleanupProcess process = new SelfFailingCleanupProcess(primaryFailure);
-
-        ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
-
-        assertTrue(eventually(() -> process.stdoutClosed() && process.stderrClosed()));
-        assertEquals(0, primaryFailure.getSuppressed().length);
-    }
-
-    @Test
-    void failureCleanupDispatchesExactlyOnePhysicalStdinClose() throws Exception {
-        assertTrue(eventually(() -> BoundedCloseDispatcher.shared().outstandingCount() == 0));
-        int baselineOutstanding = BoundedCloseDispatcher.shared().outstandingCount();
-        BlockingCloseOutputStream stdin = new BlockingCloseOutputStream();
-        CleanupProcess process = new CleanupProcess(stdin);
-        AssertionError primaryFailure = new AssertionError("primary failure");
-        try {
-            ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
-
-            assertTrue(stdin.awaitClose());
-            assertEquals(1, stdin.closeCalls());
-            assertTrue(BoundedCloseDispatcher.shared().outstandingCount() >= baselineOutstanding + 1);
-            assertFalse(process.isAlive());
-            assertEquals(0, primaryFailure.getSuppressed().length);
-        } finally {
-            stdin.release();
-        }
-        assertTrue(eventually(() -> BoundedCloseDispatcher.shared().outstandingCount() == baselineOutstanding));
-    }
-
-    @Test
-    void asynchronousStdinCloseFailureIsSuppressedOnTheOperationPrimaryExactlyOnce() throws Exception {
-        AssertionError closeFailure = new AssertionError("stdin close failed");
-        CloseCountingOutputStream stdin = new CloseCountingOutputStream(closeFailure);
-        CleanupProcess process = new CleanupProcess(stdin);
-        AssertionError primaryFailure = new AssertionError("primary failure");
-
-        ProcessKernel.forceStopAfterFailure(process, KnownDescendants.empty(), primaryFailure);
-
-        assertTrue(stdin.awaitClose());
-        assertEquals(1, stdin.closeCalls());
-        assertTrue(eventually(() -> primaryFailure.getSuppressed().length == 1));
-        assertSame(closeFailure, primaryFailure.getSuppressed()[0]);
     }
 
     @Test
@@ -118,7 +61,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
                         failureDelivered.countDown();
                     }
                 }));
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             throw launchFailure;
         });
 
@@ -146,7 +89,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
                         throw new AssertionError("listener failed");
                     }
                 }));
-        ProcessKernel kernel = new ProcessKernel(
+        ProcessKernel kernel = kernel(
                 ignored -> {
                     throw operationFailure;
                 },
@@ -167,7 +110,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         BlockingCleanupInputStream stdout = new BlockingCleanupInputStream(cleanupFinished);
         TerminalProcess process = new TerminalProcess(stdout, new TrackingInputStream(), new TrackingOutputStream());
         AtomicInteger nanoReads = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(
+        ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> process,
                 new BoundedCloseDispatcher(3, 3, 6),
@@ -180,7 +123,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
                         failureObservedAfterCleanup.set(cleanupFinished.get());
                     }
                 }),
-                StdinPolicy.closed(),
+                Optional.empty(),
                 OutputMode.SEPARATE,
                 Duration.ofSeconds(1));
         FutureTask<Throwable> execution = new FutureTask<>(() -> captureFailure(() -> kernel.run(plan)));
@@ -216,15 +159,16 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
             List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
             ExecutionPlan plan = executionPlan(
                     DiagnosticsSettings.disabled().withListener(events::add),
-                    StdinPolicy.closed(),
+                    Optional.empty(),
                     OutputMode.SEPARATE,
                     Duration.ofSeconds(1));
-            ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process);
+            ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process);
 
-            AssertionError actual = assertThrows(AssertionError.class, () -> kernel.run(plan));
+            Error actual = assertThrows(Error.class, () -> kernel.run(plan));
 
-            assertSame(readFailure, actual);
-            assertTrue(java.util.Arrays.asList(actual.getSuppressed()).contains(closeFailure));
+            assertSame(readFailure, FailureAggregation.primary(actual));
+            assertTrue(FailureAggregation.sources(actual).contains(closeFailure));
+            assertEquals(0, readFailure.getSuppressed().length);
             assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
             assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
             assertEquals(
@@ -248,10 +192,10 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
             TrackingInputStream stdout = new TrackingInputStream();
             TrackingInputStream stderr = new TrackingInputStream();
             TerminalProcess process = new TerminalProcess(stdout, stderr, stdin);
-            ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process);
+            ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process);
 
-            kernel.run(executionPlan(
-                    DiagnosticsSettings.disabled(), StdinPolicy.closed(), outputMode, Duration.ofSeconds(1)));
+            kernel.run(
+                    executionPlan(DiagnosticsSettings.disabled(), Optional.empty(), outputMode, Duration.ofSeconds(1)));
 
             assertEquals(1, stdin.closeCalls());
             assertEquals(1, stdout.closeCalls());
@@ -269,14 +213,13 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         TerminalProcess process = new TerminalProcess(
                 new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream(), true);
         CopyOnWriteArrayList<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        ProcessKernel kernel =
-                new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(1));
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(1));
         try {
             assertThrows(
                     RejectedExecutionException.class,
                     () -> kernel.run(executionPlan(
                             DiagnosticsSettings.disabled().withListener(events::add),
-                            StdinPolicy.closed(),
+                            Optional.empty(),
                             OutputMode.SEPARATE,
                             Duration.ofMillis(10))));
 
@@ -297,17 +240,45 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
         TerminalProcess process = new TerminalProcess(
                 new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream(), true);
-        ProcessKernel kernel =
-                new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(1));
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(1));
 
         assertTrue(kernel.run(executionPlan(
-                        DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
-                        OutputMode.SEPARATE,
-                        Duration.ofMillis(10)))
+                        DiagnosticsSettings.disabled(), Optional.empty(), OutputMode.SEPARATE, Duration.ofMillis(10)))
                 .timedOut());
 
         assertEquals(0, dispatcher.outstandingCount());
+        assertEquals(1, process.stdin.closeCalls());
+        assertEquals(1, process.stdout.closeCalls());
+        assertEquals(1, process.stderr.closeCalls());
+    }
+
+    @Test
+    void timeoutCleanupFailureUsesThePublicExecutionExceptionContract() throws Exception {
+        IllegalStateException cleanupFailure = new IllegalStateException("graceful destroy failed");
+        TerminalProcess process =
+                new TerminalProcess(
+                        new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream(), true) {
+                    @Override
+                    public void destroy() {
+                        super.destroy();
+                        throw cleanupFailure;
+                    }
+                };
+        List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process);
+
+        CommandExecutionException failure = assertThrows(
+                CommandExecutionException.class,
+                () -> kernel.run(executionPlan(
+                        DiagnosticsSettings.disabled().withListener(events::add),
+                        Optional.empty(),
+                        OutputMode.SEPARATE,
+                        Duration.ofMillis(10))));
+
+        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, failure.reason());
+        assertSame(cleanupFailure, failure.getCause());
+        assertEquals(1, terminalCount(events, DiagnosticEventType.TIMEOUT_REACHED));
+        assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
         assertEquals(1, process.stdin.closeCalls());
         assertEquals(1, process.stdout.closeCalls());
         assertEquals(1, process.stderr.closeCalls());
@@ -324,8 +295,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
             }
             Threading.start(name, task);
         });
-        ProcessKernel kernel =
-                new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(2));
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(2));
         FutureTask<CommandResult> run = new FutureTask<>(() -> kernel.run(executionPlan(StandardCharsets.UTF_8)));
         Thread caller = new Thread(run, "procwright-kernel-blocked-fallback-test");
         caller.setDaemon(true);
@@ -340,7 +310,9 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
 
         java.util.concurrent.ExecutionException terminal =
                 assertThrows(java.util.concurrent.ExecutionException.class, () -> run.get(1, TimeUnit.SECONDS));
-        assertSame(startFailure, terminal.getCause());
+        CommandExecutionException failure = assertInstanceOf(CommandExecutionException.class, terminal.getCause());
+        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, failure.reason());
+        assertSame(startFailure, failure.getCause());
         assertEquals(1, stdin.closeCalls());
         assertTrue(eventually(() ->
                 dispatcher.activeCount() == 0 && dispatcher.pendingCount() == 0 && dispatcher.outstandingCount() == 0));

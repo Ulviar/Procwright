@@ -292,10 +292,8 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
 
             assertSame(pumpError, reportedError.get());
             assertSame(stdout.readThread(), reportedThread.get());
-            assertIdentitySuppressedOnce(pumpError, stdoutCloseFailure);
-            assertIdentitySuppressedOnce(pumpError, stderrCloseFailure);
-            assertEquals(2, pumpError.getSuppressed().length);
-            assertEquals(2, suppressionsAtReport.get().size());
+            assertEquals(0, pumpError.getSuppressed().length);
+            assertTrue(suppressionsAtReport.get().isEmpty());
             ExpectException terminal = assertThrows(ExpectException.class, () -> expect.expectText("never"));
             assertEquals(ExpectException.Reason.CLOSED, terminal.reason());
             expect.close();
@@ -310,7 +308,7 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
     }
 
     @Test
-    void pumpErrorLosingToEofIsReportedOnceAfterPhysicalCloseFailureIsAttached() throws Exception {
+    void pumpErrorLosingToEofIsReportedOnceAfterPhysicalCloseSettles() throws Exception {
         AssertionError pumpError = new AssertionError("late stderr pump failure");
         AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
         GatedEofInputStream stdout = new GatedEofInputStream();
@@ -374,8 +372,8 @@ final class DefaultExpectOutputLifecycleTest extends ExpectOutputTestSupport {
 
             assertSame(pumpError, reportedError.get());
             assertSame(stderr.readThread(), reportedThread.get());
-            assertIdentitySuppressedOnce(pumpError, stderrCloseFailure);
-            assertEquals(List.of(stderrCloseFailure), suppressionsAtReport.get());
+            assertEquals(0, pumpError.getSuppressed().length);
+            assertTrue(suppressionsAtReport.get().isEmpty());
             expect.close();
             ExpectException terminal = assertThrows(ExpectException.class, () -> expect.expectText("never"));
             assertEquals(ExpectException.Reason.EOF, terminal.reason());

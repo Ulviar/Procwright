@@ -11,10 +11,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class BoundedFailureReporterTest {
+
+    @Test
+    void bestEffortReportingContainsFailureTargetCaptureErrors() throws Exception {
+        AssertionError captureFailure = new AssertionError("context loader unavailable");
+        AtomicBoolean returned = new AtomicBoolean();
+        AtomicReference<Throwable> uncaught = new AtomicReference<>();
+        Thread source =
+                new Thread(
+                        () -> {
+                            BoundedFailureReporter.reportBestEffort(new IllegalStateException("secondary"));
+                            returned.set(true);
+                        },
+                        "hostile-failure-source") {
+                    @Override
+                    public ClassLoader getContextClassLoader() {
+                        throw captureFailure;
+                    }
+                };
+        source.setUncaughtExceptionHandler((thread, failure) -> uncaught.set(failure));
+
+        source.start();
+        source.join(TimeUnit.SECONDS.toMillis(1));
+
+        assertFalse(source.isAlive());
+        assertTrue(returned.get());
+        assertNull(uncaught.get());
+    }
 
     @Test
     void blockedCallbacksConsumeOnlyTheFixedWorkerAndQueueCapacity() throws Exception {

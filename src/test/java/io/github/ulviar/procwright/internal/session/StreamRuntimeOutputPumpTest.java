@@ -129,8 +129,11 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeOutputPumpTestSuppo
             InputStream stderr = zeroStdout ? eofStream : zeroStream;
             ControllableProcess process = new ControllableProcess(stdout, stderr, null);
             DefaultSession rawSession = session(process);
-            StreamSession stream =
-                    new DefaultStreamSession(rawSession, plan(), diagnostics(), backoff, PumpStarter.threading());
+            StreamSession stream = new DefaultStreamSession(
+                    rawSession,
+                    plan(),
+                    diagnostics(),
+                    StreamSessionTestDependencies.withBackoffAndPumpStarter(backoff, PumpStarter.threading()));
             try {
                 assertTrue(backoff.awaitEntered());
                 assertEquals(1, zeroStream.reads());

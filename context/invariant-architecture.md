@@ -91,8 +91,8 @@ Runtime получает только согласованный plan и не у
   локальная close failure одного stream — `ProcessStreamResource`, bundle-level close и rollback —
   `ProcessIoResources`;
 - stdin serialization и logical close, output ownership и session-level close callbacks — `SessionResources`, output
-  failure classification и physical settlement — `SessionOutputCleanup`;
-- арбитрация attach/report для cleanup failures после terminal outcome — `SessionLateFailures`;
+  failure classification и один immutable physical-close outcome — `SessionOutputCleanup`, производный physical view
+  строится из того же outcome, выбор aggregate/report перед public exit — `SessionExitBarrier`;
 - выбор output consumer-а внутри resource owner — `SessionOutputOwnership`;
 - bounded immutable cleanup snapshot — `KnownDescendants`; bounded process/provider traversal — `ProcessTreeScanner`;
   fresh owner каждой provider operation —
@@ -120,8 +120,15 @@ Runtime получает только согласованный plan и не у
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.
 
-Cleanup phases выполняются независимо, а несколько failures объединяются identity-safe suppression owner. Fallback,
-который создает unbounded thread, недопустим.
+Cleanup phases выполняются независимо. Обязательный lifecycle outcome хранит failures как identity-дедуплицированные
+данные; владелец инварианта явно выбирает primary по своему контракту, а общая утилита создает новый стабильный
+aggregate без изменения исходных `Throwable`. Raw-session physical-close failure входит в public aggregate, если уже
+есть process или inline-output failure; одинокий physical failure после process success уходит в bounded best-effort
+report. Проигравшие line/protocol failures и helper-owned close failures не меняют canonical failure и отправляются
+отдельными bounded best-effort reports. Поэтому чужой `Throwable` monitor не задерживает request, helper или terminal
+publication. Ни одна из обязательных lifecycle-моделей не обходит cause/suppressed graph, не использует скрытый общий
+приоритет ошибок или глобальную блокировку между lifecycle owners. Fallback, который создает unbounded thread,
+недопустим.
 
 ### Transport
 

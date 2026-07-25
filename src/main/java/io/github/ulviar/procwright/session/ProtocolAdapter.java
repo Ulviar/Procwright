@@ -24,9 +24,9 @@ package io.github.ulviar.procwright.session;
  * callback-thrown {@code ProtocolSessionException} keeps its reason. These mappings apply when the callback failure
  * wins request arbitration; an already-selected terminal or fatal session outcome remains canonical.
  *
- * <p>A callback-thrown {@link Error} is rethrown as the same object. If a fatal {@code Error} was already selected for
- * the session, that earlier object wins and the callback failure is attached to it as a suppressed exception. Fatal
- * errors preserve object identity.
+ * <p>A callback-thrown {@link Error} is rethrown as the same object when it wins arbitration. If a fatal {@code Error}
+ * was already selected for the session, that earlier object wins and the losing callback failure may be reported
+ * separately through bounded best-effort diagnostics. Neither source failure is mutated.
  *
  * @param <I> request type
  * @param <O> response type

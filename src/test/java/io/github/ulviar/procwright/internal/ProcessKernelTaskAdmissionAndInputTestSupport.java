@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal;
 
+import java.util.concurrent.CountDownLatch;
+
 abstract class ProcessKernelTaskAdmissionAndInputTestSupport extends ProcessKernelProcessFixtureSupport {
 
     static final class ReadErrorInputStream extends TrackingInputStream {
@@ -65,6 +67,36 @@ abstract class ProcessKernelTaskAdmissionAndInputTestSupport extends ProcessKern
                 throw runtimeException;
             }
             throw (Error) failure;
+        }
+    }
+
+    static final class BlockingReadInputStream extends TrackingInputStream {
+
+        final CountDownLatch readEntered = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public int read() {
+            readEntered.countDown();
+            boolean restoreInterrupt = false;
+            while (true) {
+                try {
+                    release.await();
+                    break;
+                } catch (InterruptedException interruption) {
+                    restoreInterrupt = true;
+                }
+            }
+            if (restoreInterrupt) {
+                Thread.currentThread().interrupt();
+            }
+            return -1;
+        }
+
+        @Override
+        public void close() {
+            super.close();
+            release.countDown();
         }
     }
 }

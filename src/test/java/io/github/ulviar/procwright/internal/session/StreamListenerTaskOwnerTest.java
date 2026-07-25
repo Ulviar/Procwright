@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class StreamListenerTaskOwnerTest {
@@ -66,6 +67,69 @@ final class StreamListenerTaskOwnerTest {
         assertSame(firstOwner, createdOwners.get(0));
         assertSame(replacement, createdOwners.get(1));
         failures.assertOnlyUncaught(firstOwner, idleOwnerFailure);
+    }
+
+    @Test
+    void awaitStoppedTracksReplacementCreatedWhileOriginalOwnerExits() throws Exception {
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
+        CountDownLatch firstIdleWait = new CountDownLatch(1);
+        CountDownLatch replacementTaskStarted = new CountDownLatch(1);
+        CountDownLatch releaseReplacementTask = new CountDownLatch(1);
+        AtomicInteger waits = new AtomicInteger();
+        IdleOwnerFailure idleOwnerFailure = new IdleOwnerFailure();
+        FailureCapture failures = new FailureCapture();
+        List<Thread> createdOwners = new CopyOnWriteArrayList<>();
+        StreamListenerTaskOwner owner = new StreamListenerTaskOwner(
+                monitor -> {
+                    if (waits.getAndIncrement() == 0) {
+                        firstIdleWait.countDown();
+                        monitor.wait();
+                        throw idleOwnerFailure;
+                    }
+                    monitor.wait();
+                },
+                (name, task) -> {
+                    Thread thread = ownerThread(name, task, failures);
+                    createdOwners.add(thread);
+                    return thread;
+                });
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        AtomicReference<Thread> waiterThread = new AtomicReference<>();
+        try {
+            invoke(owner, limiter, failures, () -> null);
+            assertTrue(firstIdleWait.await(1, TimeUnit.SECONDS));
+
+            Future<Boolean> stopped = executor.submit(() -> {
+                waiterThread.set(Thread.currentThread());
+                return owner.awaitStopped(Duration.ofSeconds(1));
+            });
+            assertTrue(eventually(() -> {
+                Thread waiter = waiterThread.get();
+                return waiter != null && waiter.getState() == Thread.State.TIMED_WAITING;
+            }));
+            Future<?> replacement = executor.submit(() -> invoke(owner, limiter, failures, () -> {
+                replacementTaskStarted.countDown();
+                awaitIgnoringInterrupts(releaseReplacementTask);
+                return null;
+            }));
+
+            assertTrue(replacementTaskStarted.await(1, TimeUnit.SECONDS));
+            assertThrows(
+                    java.util.concurrent.TimeoutException.class,
+                    () -> stopped.get(50, TimeUnit.MILLISECONDS),
+                    "awaitStopped must continue tracking the replacement owner");
+
+            owner.close();
+            releaseReplacementTask.countDown();
+            replacement.get(1, TimeUnit.SECONDS);
+            assertTrue(stopped.get(1, TimeUnit.SECONDS));
+            failures.assertOnlyUncaught(createdOwners.get(0), idleOwnerFailure);
+        } finally {
+            releaseReplacementTask.countDown();
+            owner.close();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
     }
 
     @Test

@@ -4,17 +4,16 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DurationSupport;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -121,30 +120,25 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                     this::failReplenishmentOwner);
             startups = new WorkerStartupCoordinator<>(failures, workerLabel, retirementAdmissions, this);
         } catch (RuntimeException | Error failure) {
+            Throwable terminalFailure = failure;
             try {
                 terminalPublisher.abort();
             } catch (RuntimeException | Error abortFailure) {
-                SuppressionSupport.attach(failure, abortFailure);
+                terminalFailure = combineErrorFirst(
+                        terminalFailure, abortFailure, "Pool construction and terminal reservation cleanup failed");
             }
-            throw failure;
+            rethrow(failures.expose(terminalFailure));
+            throw new AssertionError("unreachable");
         }
 
-        List<FailureReport> commitReports = List.of();
-        try {
-            warmup();
-            ensureReplenishmentOwner();
-            PoolTermination.ConstructionResult constructionResult = state.finishConstruction();
-            commitReports = constructionResult.reports();
-            if (!constructionResult.successful()) {
-                if (constructionResult.failure() instanceof Error error) {
-                    throw error;
-                }
-                throw failures.retirementFailed("Pool failed during construction", constructionResult.failure());
-            }
-        } catch (RuntimeException | Error failure) {
-            cleanupFailedConstruction(failure);
-            throw failure;
-        }
+        List<FailureReport> commitReports = new WorkerPoolConstruction<>(
+                        state,
+                        policy.closeTimeout(),
+                        failures,
+                        this::failConstructionAndClose,
+                        this::warmup,
+                        this::ensureReplenishmentOwner)
+                .commit();
         failurePublisher.publishAll(commitReports);
     }
 
@@ -158,58 +152,66 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 WorkerPoolState.Lease<S> lease = takeOrStartLease(deadlineNanos);
                 try {
                     ensureReplenishmentOwner();
-                    if (deadlineNanos - System.nanoTime() <= 0) {
-                        throw acquireTimeoutAfterReturning(lease);
-                    }
-                    HealthOutcome healthOutcome;
-                    try {
-                        healthOutcome = Objects.requireNonNull(
-                                healthCheck.test(lease.session(), deadlineNanos), "healthCheck returned null");
-                    } catch (RuntimeException | Error failure) {
-                        retireFailedLease(lease, failure, PooledWorkerRetireReason.HEALTH_FAILED, false);
-                        throw failure;
-                    }
-                    switch (healthOutcome) {
-                        case HEALTHY -> {
-                            if (deadlineNanos - System.nanoTime() <= 0) {
-                                throw acquireTimeoutAfterReturning(lease);
-                            }
-                            acquireWaitRecorded = true;
-                            recordAcquireWait(startedAtNanos);
-                            return lease;
-                        }
-                        case ACQUIRE_TIMEOUT -> throw acquireTimeoutAfterReturning(lease);
-                        case HEALTH_FAILED -> retireLease(lease, PooledWorkerRetireReason.HEALTH_FAILED);
-                        case PROCESS_EXITED -> retireLease(lease, PooledWorkerRetireReason.PROCESS_EXITED);
-                    }
                 } catch (RuntimeException | Error failure) {
-                    retireFailedLease(lease, failure, PooledWorkerRetireReason.WORKER_FAILED, true);
-                    throw failure;
+                    rethrow(retireFailedLease(lease, failure, PooledWorkerRetireReason.WORKER_FAILED, true));
+                    throw new AssertionError("unreachable");
+                }
+                if (deadlineNanos - System.nanoTime() <= 0) {
+                    throw acquireTimeoutAfterReturning(lease);
+                }
+                HealthOutcome healthOutcome;
+                try {
+                    healthOutcome = Objects.requireNonNull(
+                            healthCheck.test(lease.session(), deadlineNanos), "healthCheck returned null");
+                } catch (RuntimeException | Error failure) {
+                    rethrow(retireFailedLease(lease, failure, PooledWorkerRetireReason.HEALTH_FAILED, false));
+                    throw new AssertionError("unreachable");
+                }
+                switch (healthOutcome) {
+                    case HEALTHY -> {
+                        if (deadlineNanos - System.nanoTime() <= 0) {
+                            throw acquireTimeoutAfterReturning(lease);
+                        }
+                        acquireWaitRecorded = true;
+                        try {
+                            recordAcquireWait(startedAtNanos);
+                        } catch (RuntimeException | Error failure) {
+                            rethrow(retireFailedLease(lease, failure, PooledWorkerRetireReason.WORKER_FAILED, true));
+                            throw new AssertionError("unreachable");
+                        }
+                        return lease;
+                    }
+                    case ACQUIRE_TIMEOUT -> throw acquireTimeoutAfterReturning(lease);
+                    case HEALTH_FAILED -> retireLease(lease, PooledWorkerRetireReason.HEALTH_FAILED);
+                    case PROCESS_EXITED -> retireLease(lease, PooledWorkerRetireReason.PROCESS_EXITED);
                 }
             }
         } catch (RuntimeException | Error failure) {
+            Throwable terminalFailure = failure;
             if (!acquireWaitRecorded) {
                 try {
                     recordAcquireWait(startedAtNanos);
                 } catch (RuntimeException | Error metricsFailure) {
-                    SuppressionSupport.attach(failure, metricsFailure);
+                    terminalFailure = combineErrorFirst(
+                            terminalFailure, metricsFailure, "Pool acquisition and metrics recording failed");
                 }
             }
-            throw failure;
+            rethrow(failures.expose(terminalFailure));
+            throw new AssertionError("unreachable");
         }
     }
 
     void releaseReusable(WorkerPoolState.Lease<S> lease) {
-        try (PoolStateEffects<S> effects = newEffects()) {
+        runEffects(newEffects(), effects -> {
             state.releaseReusable(lease, effects);
-        }
+        });
         ensureReplenishmentOwner();
     }
 
     void retire(WorkerPoolState.Lease<S> lease, PooledWorkerRetireReason reason) {
-        try (PoolStateEffects<S> effects = newEffects()) {
+        runEffects(newEffects(), effects -> {
             state.retire(lease, reason, effects);
-        }
+        });
         ensureReplenishmentOwner();
     }
 
@@ -230,9 +232,9 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     CompletableFuture<Void> closeAsync() {
-        try (PoolStateEffects<S> effects = newEffects()) {
+        runEffects(newEffects(), effects -> {
             state.beginClose(null, effects);
-        }
+        });
         return state.terminationView();
     }
 
@@ -248,84 +250,48 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                         PoolWorker.StartupPurpose.WARMUP);
                 returnLease(lease);
             } catch (RuntimeException | Error failure) {
+                Throwable terminalFailure = failure;
                 if (reservation != null) {
-                    failStartupReservation(reservation, failure);
+                    terminalFailure = failStartupReservation(reservation, terminalFailure);
                 }
                 if (lease != null) {
-                    retireFailedLease(lease, failure, PooledWorkerRetireReason.WORKER_FAILED, true);
+                    terminalFailure =
+                            retireFailedLease(lease, terminalFailure, PooledWorkerRetireReason.WORKER_FAILED, true);
                 }
-                throw failure;
+                rethrow(terminalFailure);
+                throw new AssertionError("unreachable");
             }
         }
     }
 
-    private void cleanupFailedConstruction(Throwable primary) {
-        List<FailureReport> completedFailures;
-        try (PoolStateEffects<S> effects = newEffects()) {
-            completedFailures = state.failConstructionAndClose(effects);
-        }
-        awaitFailedConstructionCleanup(primary, completedFailures);
-    }
-
-    private void awaitFailedConstructionCleanup(Throwable primary, List<FailureReport> completedFailures) {
-        WorkerCloseFailureAccumulator cleanupFailures = new WorkerCloseFailureAccumulator();
-        completedFailures.forEach(report -> cleanupFailures.add(report.failure()));
-        long deadlineNanos = DurationSupport.deadlineFromNow(policy.closeTimeout());
-        boolean restoreInterrupt = false;
-        try {
-            long remainingNanos = deadlineNanos - System.nanoTime();
-            if (remainingNanos <= 0) {
-                throw new TimeoutException("pool construction cleanup deadline elapsed");
-            }
-            state.terminationView().get(remainingNanos, TimeUnit.NANOSECONDS);
-        } catch (TimeoutException failure) {
-            cleanupFailures.add(failure);
-        } catch (InterruptedException failure) {
-            restoreInterrupt = true;
-            cleanupFailures.add(failure);
-        } catch (ExecutionException failure) {
-            cleanupFailures.add(PoolFailurePublisher.unwrap(failure.getCause()));
-        } finally {
-            Throwable cleanupFailure = cleanupFailures.failure();
-            if (cleanupFailure != null) {
-                SuppressionSupport.attach(
-                        primary,
-                        failures.retirementFailed(
-                                "Pool construction cleanup did not complete cleanly", cleanupFailure));
-            }
-            if (restoreInterrupt) {
-                Thread.currentThread().interrupt();
-            }
-        }
+    private List<FailureReport> failConstructionAndClose() {
+        return applyEffects(newEffects(), state::failConstructionAndClose);
     }
 
     private WorkerPoolState.Lease<S> takeOrStartLease(long deadlineNanos) {
         while (true) {
             WorkerPoolState.AcquireResult<S> acquisition;
-            try (PoolStateEffects<S> effects = newEffects()) {
-                acquisition = state.awaitAcquire(deadlineNanos, effects);
-            }
-            switch (acquisition.status()) {
-                case LEASED -> {
-                    return acquisition.lease();
+            acquisition = applyEffects(newEffects(), effects -> state.awaitAcquire(deadlineNanos, effects));
+            switch (acquisition) {
+                case WorkerPoolState.LeaseAcquired<S> acquired -> {
+                    return acquired.lease();
                 }
-                case RETRY -> {
+                case WorkerPoolState.RetryAcquire<S> ignored -> {
                     continue;
                 }
-                case CLOSED -> throw failures.closed("Pool is closed");
-                case TIMED_OUT -> throw failures.acquireTimeout("Timed out waiting for " + workerLabel);
-                case INTERRUPTED ->
+                case WorkerPoolState.AcquireClosed<S> ignored -> throw failures.closed("Pool is closed");
+                case WorkerPoolState.AcquireTimedOut<S> ignored ->
+                    throw failures.acquireTimeout("Timed out waiting for " + workerLabel);
+                case WorkerPoolState.AcquireInterrupted<S> interrupted ->
                     throw failures.acquireInterrupted(
-                            "Interrupted while waiting for " + workerLabel,
-                            Objects.requireNonNull(acquisition.interruption(), "interruption"));
-                case RESERVED -> {
-                    WorkerStartupCoordinator.Reservation<S> reservation =
-                            Objects.requireNonNull(acquisition.reservation(), "reservation");
+                            "Interrupted while waiting for " + workerLabel, interrupted.interruption());
+                case WorkerPoolState.StartupReserved<S> reserved -> {
+                    WorkerStartupCoordinator.Reservation<S> reservation = reserved.reservation();
                     try {
                         return openReservedWorker(reservation, deadlineNanos, PoolWorker.StartupPurpose.DEMAND);
                     } catch (RuntimeException | Error failure) {
-                        failStartupReservation(reservation, failure);
-                        throw failure;
+                        rethrow(failStartupReservation(reservation, failure));
+                        throw new AssertionError("unreachable");
                     }
                 }
             }
@@ -334,10 +300,10 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     private WorkerStartupCoordinator.Reservation<S> reserveSlot() {
         WorkerPoolState.ReservationResult<S> result = state.reserve();
-        if (result.status() == WorkerPoolState.ReserveStatus.RESERVED) {
-            return Objects.requireNonNull(result.reservation(), "reservation");
+        if (result instanceof WorkerPoolState.SlotReserved<S> reserved) {
+            return reserved.reservation();
         }
-        if (result.status() == WorkerPoolState.ReserveStatus.CLOSED) {
+        if (result instanceof WorkerPoolState.ReservationClosed<S>) {
             throw failures.closed("Pool is closed");
         }
         throw new IllegalStateException("pool capacity exhausted while reserving startup slot");
@@ -358,10 +324,9 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             PoolWorker.StartupPurpose purpose) {
         WorkerStartupCoordinator.Completion<S> completion = startups.start(reservation, deadlineNanos, purpose);
         WorkerStartup.TerminalDecision decision = completion.decision();
-        WorkerPoolState.Lease<S> lease;
-        try (PoolStateEffects<S> effects = reservation.effects()) {
-            lease = state.completeStartup(reservation, completion.createdWorker(), decision, effects);
-        }
+        WorkerPoolState.Lease<S> lease = applyEffects(
+                reservation.effects(),
+                effects -> state.completeStartup(reservation, completion.createdWorker(), decision, effects));
         if (decision == WorkerStartup.TerminalDecision.FACTORY_COMPLETED) {
             return Objects.requireNonNull(lease, "completed startup lease");
         }
@@ -370,20 +335,24 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     private RuntimeException acquireTimeoutAfterReturning(WorkerPoolState.Lease<S> lease) {
         RuntimeException failure = failures.acquireTimeout("Timed out acquiring " + workerLabel);
+        Throwable terminalFailure = failure;
         try {
             returnLease(lease);
         } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(failure, cleanupFailure);
+            terminalFailure =
+                    combineErrorFirst(failure, cleanupFailure, "Pool acquisition timeout and lease return both failed");
         }
-        return failure;
+        Throwable exposed = failures.expose(terminalFailure);
+        if (exposed instanceof Error error) {
+            throw error;
+        }
+        return (RuntimeException) exposed;
     }
 
     private void finishAbandonedStart(
             WorkerStartupCoordinator.Reservation<S> reservation, WorkerStartup.LateCompletion<S> completion) {
-        boolean present;
-        try (PoolStateEffects<S> effects = reservation.effects()) {
-            present = state.completeAbandonedStartup(reservation, completion, effects);
-        }
+        boolean present = applyEffects(
+                reservation.effects(), effects -> state.completeAbandonedStartup(reservation, completion, effects));
         if (!present) {
             return;
         }
@@ -395,44 +364,47 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     private void retireLease(WorkerPoolState.Lease<S> lease, PooledWorkerRetireReason reason) {
-        try (PoolStateEffects<S> effects = newEffects()) {
+        runEffects(newEffects(), effects -> {
             state.retireLeaseIfOwned(lease, reason, false, effects);
-        }
+        });
         ensureReplenishmentOwner();
     }
 
-    private void retireFailedLease(
+    private Throwable retireFailedLease(
             WorkerPoolState.Lease<S> lease,
             Throwable primaryFailure,
             PooledWorkerRetireReason reason,
             boolean closedTakesPrecedence) {
-        try (PoolStateEffects<S> effects = newEffects()) {
-            try {
+        FailureAccumulator cleanupFailures = new FailureAccumulator();
+        try {
+            runEffects(newEffects(), effects -> {
                 state.retireLeaseIfOwned(lease, reason, closedTakesPrecedence, effects);
-            } catch (RuntimeException | Error cleanupFailure) {
-                SuppressionSupport.attach(primaryFailure, cleanupFailure);
-            }
+            });
         } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
+            cleanupFailures.add(cleanupFailure);
         }
         try {
             ensureReplenishmentOwner();
         } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
+            cleanupFailures.add(cleanupFailure);
         }
+        return combineErrorFirst(
+                primaryFailure,
+                cleanupFailures.aggregateErrorFirst("Multiple failed-lease cleanup operations failed"),
+                "Pool request and failed-lease cleanup both failed");
     }
 
     private void returnLease(WorkerPoolState.Lease<S> lease) {
-        try (PoolStateEffects<S> effects = newEffects()) {
+        runEffects(newEffects(), effects -> {
             state.releaseReusable(lease, effects);
-        }
+        });
     }
 
     private void completeUnexpectedRetirementFailure(PoolWorker<S> worker, Throwable failure) {
         FailureReport failureReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
-        try (PoolStateEffects<S> effects = newEffects()) {
+        runEffects(newEffects(), effects -> {
             state.failRetirementObservation(worker, failure, effects);
-        }
+        });
         failurePublisher.publish(failureReport);
     }
 
@@ -440,10 +412,8 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         FailureReport closeFailureReport = outcome.failure() == null
                 ? null
                 : PoolFailurePublisher.capture(Thread.currentThread(), outcome.failure());
-        FailureReport lateReport;
-        try (PoolStateEffects<S> effects = newEffects()) {
-            lateReport = state.completeRetirement(worker, outcome, closeFailureReport, effects);
-        }
+        FailureReport lateReport = applyEffects(
+                newEffects(), effects -> state.completeRetirement(worker, outcome, closeFailureReport, effects));
         ensureReplenishmentOwner();
         return lateReport;
     }
@@ -461,11 +431,10 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             return PoolReplenisher.Step.STOP;
         }
         WorkerPoolState.ReservationResult<S> reservationResult = state.reserveReplenishment();
-        if (reservationResult.status() != WorkerPoolState.ReserveStatus.RESERVED) {
+        if (!(reservationResult instanceof WorkerPoolState.SlotReserved<S> reserved)) {
             return PoolReplenisher.Step.STOP;
         }
-        WorkerStartupCoordinator.Reservation<S> reservation =
-                Objects.requireNonNull(reservationResult.reservation(), "reservation");
+        WorkerStartupCoordinator.Reservation<S> reservation = reserved.reservation();
         WorkerPoolState.Lease<S> lease = null;
         try {
             lease = openReservedWorker(
@@ -474,49 +443,58 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                     PoolWorker.StartupPurpose.REPLENISHMENT);
             returnLease(lease);
             return PoolReplenisher.Step.SUCCESS;
-        } catch (RuntimeException failure) {
-            failStartupReservation(reservation, failure);
+        } catch (RuntimeException | Error failure) {
+            Throwable terminalFailure = failStartupReservation(reservation, failure);
             if (lease != null) {
-                retireFailedLease(lease, failure, PooledWorkerRetireReason.WORKER_FAILED, true);
+                terminalFailure =
+                        retireFailedLease(lease, terminalFailure, PooledWorkerRetireReason.WORKER_FAILED, true);
             }
+            if (terminalFailure instanceof Error error) {
+                throw error;
+            }
+            reportAdditionalFailures(failure, terminalFailure);
             return PoolReplenisher.Step.RETRY;
-        } catch (Error failure) {
-            failStartupReservation(reservation, failure);
-            if (lease != null) {
-                retireFailedLease(lease, failure, PooledWorkerRetireReason.WORKER_FAILED, true);
-            }
-            throw failure;
         }
     }
 
-    private void failStartupReservation(WorkerStartupCoordinator.Reservation<S> reservation, Throwable primaryFailure) {
+    private Throwable failStartupReservation(
+            WorkerStartupCoordinator.Reservation<S> reservation, Throwable primaryFailure) {
         Objects.requireNonNull(reservation, "reservation");
         Objects.requireNonNull(primaryFailure, "primaryFailure");
         if (!reservation.canRollback()) {
-            return;
+            return primaryFailure;
         }
-        try (PoolStateEffects<S> effects = reservation.effects()) {
-            state.removeFailedStartup(reservation, effects);
+        FailureAccumulator cleanupFailures = new FailureAccumulator();
+        try {
+            runEffects(reservation.effects(), effects -> state.removeFailedStartup(reservation, effects));
         } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
+            cleanupFailures.add(cleanupFailure);
         }
         try {
             ensureReplenishmentOwner();
         } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(primaryFailure, cleanupFailure);
+            cleanupFailures.add(cleanupFailure);
         }
+        return combineErrorFirst(
+                primaryFailure,
+                cleanupFailures.aggregateErrorFirst("Multiple startup reservation cleanup operations failed"),
+                "Worker startup and reservation cleanup both failed");
     }
 
     private void failReplenishmentOwner(Throwable failure) {
         FailureReport lateReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
         PoolTermination.FailureDisposition disposition = null;
-        try (PoolStateEffects<S> effects = newEffects()) {
-            disposition = state.beginClose(failure, effects);
-        } catch (RuntimeException | Error cleanupFailure) {
-            SuppressionSupport.attach(failure, cleanupFailure);
+        Throwable cleanupFailure = null;
+        try {
+            disposition = applyEffects(newEffects(), effects -> state.beginClose(failure, effects));
+        } catch (RuntimeException | Error failureToClose) {
+            cleanupFailure = failureToClose;
         }
         if (disposition == PoolTermination.FailureDisposition.LATE) {
             failurePublisher.publish(lateReport);
+        }
+        if (cleanupFailure != null) {
+            failurePublisher.publish(PoolFailurePublisher.capture(Thread.currentThread(), cleanupFailure));
         }
     }
 
@@ -528,6 +506,19 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     private void reportOrRecordLateError(BoundedFailureReporter.FailureTarget failureTarget, Throwable failure) {
         FailureReport report = state.routeLateFailure(new FailureReport(failureTarget, failure));
         failurePublisher.publish(report);
+    }
+
+    private void reportAdditionalFailures(Throwable primary, Throwable aggregate) {
+        FailureAccumulator additional = new FailureAccumulator();
+        for (Throwable source : FailureAggregation.sources(aggregate)) {
+            if (source != primary) {
+                additional.add(source);
+            }
+        }
+        Throwable failure = additional.aggregateErrorFirst("Multiple pool cleanup operations failed");
+        if (failure != null) {
+            failurePublisher.publish(PoolFailurePublisher.capture(Thread.currentThread(), failure));
+        }
     }
 
     @Override
@@ -546,20 +537,63 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     @Override
     public void launchFailed(WorkerStartupCoordinator.Reservation<S> reservation) {
-        try (PoolStateEffects<S> effects = reservation.effects()) {
+        runEffects(reservation.effects(), effects -> {
             state.launchFailed(reservation, effects);
-        }
+        });
         ensureReplenishmentOwner();
     }
 
     @Override
     public boolean factoryFailed(WorkerStartupCoordinator.Reservation<S> reservation, Throwable failure) {
-        boolean closedStartup;
-        try (PoolStateEffects<S> effects = reservation.effects()) {
-            closedStartup = state.factoryFailed(reservation, failure, effects);
-        }
+        boolean closedStartup =
+                applyEffects(reservation.effects(), effects -> state.factoryFailed(reservation, failure, effects));
         ensureReplenishmentOwner();
         return closedStartup;
+    }
+
+    private <T> T applyEffects(PoolStateEffects<S> effects, Function<PoolStateEffects<S>, T> operation) {
+        Objects.requireNonNull(effects, "effects");
+        Objects.requireNonNull(operation, "operation");
+        T result = null;
+        Throwable failure = null;
+        try {
+            result = operation.apply(effects);
+        } catch (RuntimeException | Error operationFailure) {
+            failure = operationFailure;
+        }
+        try {
+            effects.close();
+        } catch (RuntimeException | Error closeFailure) {
+            failure = combineErrorFirst(failure, closeFailure, "Pool state transition and its effects both failed");
+        }
+        if (failure != null) {
+            rethrow(failure);
+        }
+        return result;
+    }
+
+    private void runEffects(PoolStateEffects<S> effects, Consumer<PoolStateEffects<S>> operation) {
+        applyEffects(effects, selected -> {
+            operation.accept(selected);
+            return null;
+        });
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new AssertionError("Pool lifecycle produced a checked failure", failure);
+    }
+
+    private static Throwable combineErrorFirst(Throwable first, Throwable second, String message) {
+        FailureAccumulator failures = new FailureAccumulator();
+        failures.add(first);
+        failures.add(second);
+        return failures.aggregateErrorFirst(message);
     }
 
     interface FailureFactory {
@@ -573,6 +607,21 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         RuntimeException startupFailed(String message, Throwable cause);
 
         RuntimeException retirementFailed(String message, Throwable cause);
+
+        default Throwable exposeAggregate(RuntimeException primary, Throwable aggregate) {
+            return aggregate;
+        }
+
+        default Throwable expose(Throwable failure) {
+            Throwable aggregate = Objects.requireNonNull(failure, "failure");
+            if (FailureAggregation.sources(aggregate).size() == 1) {
+                return aggregate;
+            }
+            Throwable primary = FailureAggregation.primary(aggregate);
+            return primary instanceof RuntimeException runtimeFailure
+                    ? exposeAggregate(runtimeFailure, aggregate)
+                    : aggregate;
+        }
     }
 
     enum HealthOutcome {

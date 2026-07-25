@@ -122,12 +122,10 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                     assertInstanceOf(ProtocolSessionException.class, request.get(1, TimeUnit.SECONDS));
             assertTrue(eof.reason() == ProtocolSessionException.Reason.EOF
                     || eof.reason() == ProtocolSessionException.Reason.PROCESS_EXITED);
-            assertIdentitySuppressedOnce(eof, stdoutCloseFailure);
-            assertIdentitySuppressedOnce(eof, stderrCloseFailure);
-            assertEquals(2, eof.getSuppressed().length);
+            assertEquals(0, eof.getSuppressed().length);
             protocol.onExit().handle((ignored, failure) -> null).get(1, TimeUnit.SECONDS);
             assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(0, lateReports.get());
+            assertEquals(2, lateReports.get());
             assertEquals(0, dispatcher.outstandingCount());
         } finally {
             releaseDecoder.countDown();
@@ -265,8 +263,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                     rawSession,
                     noOpAdapter(),
                     ProtocolSessionSettings.defaults(),
-                    ZeroReadBackoff.exponential(),
-                    starter)));
+                    ProtocolSessionTestDependencies.withPumpStarter(starter))));
             assertTrue(starterEntered.await(1, TimeUnit.SECONDS));
 
             process.exitNaturally(29);
@@ -290,11 +287,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
         CountDownLatch responseReadStarted = new CountDownLatch(1);
         DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                session(process),
-                byteReadingAdapter(responseReadStarted),
-                ProtocolSessionSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading());
+                session(process), byteReadingAdapter(responseReadStarted), ProtocolSessionSettings.defaults());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -345,11 +338,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                 watcherStarter);
         CountDownLatch responseReadStarted = new CountDownLatch(1);
         DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                rawSession,
-                byteReadingAdapter(responseReadStarted),
-                ProtocolSessionSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading());
+                rawSession, byteReadingAdapter(responseReadStarted), ProtocolSessionSettings.defaults());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -402,11 +391,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                 DefaultSession.WatcherStarter.threading());
         CountDownLatch responseReadStarted = new CountDownLatch(1);
         DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                rawSession,
-                byteReadingAdapter(responseReadStarted),
-                ProtocolSessionSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading());
+                rawSession, byteReadingAdapter(responseReadStarted), ProtocolSessionSettings.defaults());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));

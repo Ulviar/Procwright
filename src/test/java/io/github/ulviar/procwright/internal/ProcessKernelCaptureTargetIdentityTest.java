@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
         Files.writeString(stdout, "unchanged");
         Files.createLink(stderr, stdout);
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -42,7 +43,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -63,7 +64,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
             org.junit.jupiter.api.Assumptions.assumeTrue(false, "symbolic links are unavailable: " + unsupported);
         }
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -73,7 +74,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -95,7 +96,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
         Path stdout = realDirectory.resolve("output.log");
         Path stderr = aliasDirectory.resolve("output.log");
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -105,7 +106,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -118,7 +119,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
         Path stdout = directory.resolve("Capture.log");
         Path stderr = directory.resolve("capture.log");
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -128,7 +129,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -142,7 +143,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
         Path stdout = directory.resolve("\u00e9.log");
         Path stderr = directory.resolve("e\u0301.log");
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -152,7 +153,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -170,7 +171,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
             Path stdout = paths.getPath("/capture.log");
             Path stderr = paths.getPath("/capture.log. ");
             AtomicInteger starts = new AtomicInteger();
-            ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+            ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
                 starts.incrementAndGet();
                 throw new AssertionError("capture validation must run before process launch");
             });
@@ -180,7 +181,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                     () -> kernel.run(executionPlan(
                             CapturePolicy.toPath(stdout, stderr),
                             DiagnosticsSettings.disabled(),
-                            StdinPolicy.closed(),
+                            Optional.empty(),
                             OutputMode.SEPARATE,
                             Duration.ofSeconds(1))));
 
@@ -196,7 +197,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
         Path stderr = directory.resolve("capture.log");
         Files.writeString(stdout, "unchanged");
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -206,7 +207,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -225,7 +226,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 "filesystem does not keep case variants distinct");
         Files.writeString(stderr, "stderr-unchanged");
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -235,7 +236,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -255,7 +256,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
             org.junit.jupiter.api.Assumptions.assumeTrue(false, "symbolic links are unavailable: " + unsupported);
         }
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -265,7 +266,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -284,7 +285,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
         }
         AssertionError marker = new AssertionError("process launch reached");
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw marker;
         });
@@ -294,7 +295,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(realDirectory.resolve("stdout.log"), aliasDirectory.resolve("stderr.log")),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -313,7 +314,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
             org.junit.jupiter.api.Assumptions.assumeTrue(false, "symbolic links are unavailable: " + unsupported);
         }
         AtomicInteger starts = new AtomicInteger();
-        ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
             throw new AssertionError("capture validation must run before process launch");
         });
@@ -323,7 +324,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(first, directory.resolve("stderr.log")),
                         DiagnosticsSettings.disabled(),
-                        StdinPolicy.closed(),
+                        Optional.empty(),
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
@@ -355,7 +356,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
             org.junit.jupiter.api.Assumptions.assumeTrue(
                     identityIsIndeterminate, "test user can still inspect a directory without search permission");
             AtomicInteger starts = new AtomicInteger();
-            ProcessKernel kernel = new ProcessKernel(ignored -> {}, (launchPlan, stdio) -> {
+            ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
                 starts.incrementAndGet();
                 throw new AssertionError("capture validation must run before process launch");
             });
@@ -365,7 +366,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                     () -> kernel.run(executionPlan(
                             CapturePolicy.toPath(stdout, stderr),
                             DiagnosticsSettings.disabled(),
-                            StdinPolicy.closed(),
+                            Optional.empty(),
                             OutputMode.SEPARATE,
                             Duration.ofSeconds(1))));
             assertEquals(0, starts.get());

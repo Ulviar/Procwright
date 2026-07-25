@@ -20,6 +20,7 @@ final class WorkerStartup<S> {
     private final Supplier<S> factory;
     private final String threadPrefix;
     private final Consumer<LateCompletion<S>> lateCompletion;
+    private final ThreadFactory threadFactory;
     private final AtomicReference<TerminalDecision> terminal = new AtomicReference<>(TerminalDecision.UNDECIDED);
     private final CompletableFuture<CreatedWorker<S>> completion = new CompletableFuture<>();
 
@@ -34,16 +35,26 @@ final class WorkerStartup<S> {
     private boolean errorReported;
 
     WorkerStartup(Supplier<S> factory, String threadPrefix, Consumer<LateCompletion<S>> lateCompletion) {
+        this(factory, threadPrefix, lateCompletion, Threading::unstarted);
+    }
+
+    WorkerStartup(
+            Supplier<S> factory,
+            String threadPrefix,
+            Consumer<LateCompletion<S>> lateCompletion,
+            ThreadFactory threadFactory) {
         this.factory = Objects.requireNonNull(factory, "factory");
         this.threadPrefix = Objects.requireNonNull(threadPrefix, "threadPrefix");
         this.lateCompletion = Objects.requireNonNull(lateCompletion, "lateCompletion");
+        this.threadFactory = Objects.requireNonNull(threadFactory, "threadFactory");
     }
 
     void start(BoundedTaskPermit permit) {
         Objects.requireNonNull(permit, "permit");
         try {
             startedAtNanos = System.nanoTime();
-            thread = Threading.unstarted(threadPrefix, () -> run(permit));
+            thread = Objects.requireNonNull(
+                    threadFactory.unstarted(threadPrefix, () -> run(permit)), "threadFactory returned null");
             thread.start();
         } catch (RuntimeException | Error failure) {
             permit.close();
@@ -133,7 +144,7 @@ final class WorkerStartup<S> {
             session = Objects.requireNonNull(factory.get(), "workerFactory returned null");
         } catch (Throwable startupFailure) {
             failure = startupFailure;
-            failureTarget = BoundedFailureReporter.captureFailureTarget();
+            failureTarget = captureFailureTarget();
         } finally {
             permit.close();
         }
@@ -159,7 +170,7 @@ final class WorkerStartup<S> {
             if (state == AttemptState.ABANDONED) {
                 reason = abandonReason;
                 state = AttemptState.FINISHED;
-                reportError = failure instanceof Error && claimErrorReport();
+                reportError = failure instanceof Error && failureTarget != null && claimErrorReport();
             }
         }
         lateCompletion.accept(new LateCompletion<>(
@@ -220,7 +231,7 @@ final class WorkerStartup<S> {
                 return;
             }
             state = AttemptState.FINISHED;
-            reportError = lateFailure instanceof Error && claimErrorReport();
+            reportError = lateFailure instanceof Error && lateFailureTarget != null && claimErrorReport();
         }
         lateCompletion.accept(new LateCompletion<>(
                 lateWorker == null ? null : lateWorker.session(),
@@ -233,6 +244,14 @@ final class WorkerStartup<S> {
     private TerminalDecision decideTerminal(TerminalDecision candidate) {
         terminal.compareAndSet(TerminalDecision.UNDECIDED, Objects.requireNonNull(candidate, "candidate"));
         return terminal.get();
+    }
+
+    private static BoundedFailureReporter.FailureTarget captureFailureTarget() {
+        try {
+            return BoundedFailureReporter.captureFailureTarget();
+        } catch (RuntimeException | Error ignored) {
+            return null;
+        }
     }
 
     private void acceptResult() {
@@ -279,6 +298,12 @@ final class WorkerStartup<S> {
         LateCompletion {
             Objects.requireNonNull(reason, "reason");
         }
+    }
+
+    @FunctionalInterface
+    interface ThreadFactory {
+
+        Thread unstarted(String threadPrefix, Runnable task);
     }
 
     private enum AttemptState {

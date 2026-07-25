@@ -29,23 +29,17 @@ final class BoundedTaskExecution {
         }
 
         boolean permitTransferred = false;
-        BoundedTaskStartGate startGate = null;
         BoundedTaskCancellation.Registration cancellationRegistration = () -> {};
         try {
-            startGate = new BoundedTaskStartGate();
-            CompletableFuture<TaskOutcome<T>> completion = new CompletableFuture<>();
-            CompletableFuture<TaskOutcome<T>> race = new CompletableFuture<>();
-            completion.thenAccept(race::complete);
+            CompletableFuture<TaskOutcome<T>> settlement = new CompletableFuture<>();
             cancellationRegistration =
-                    request.cancellation().register(() -> race.complete(TaskOutcome.cancelledOutcome()));
+                    request.cancellation().register(() -> settlement.complete(TaskOutcome.cancelledOutcome()));
             LateFailurePublication lateFailure = new LateFailurePublication(request.lateFailureHandler());
-            ActiveTask activeTask = new ActiveTask(lateFailure);
-            AtomicBoolean taskClaimed = new AtomicBoolean();
+            ActiveTask activeTask = new ActiveTask();
             try {
                 request.cancellation().throwIfCancelled();
-                BoundedTaskStartGate taskStartGate = startGate;
                 Runnable boundedTask = () -> {
-                    if (!taskClaimed.compareAndSet(false, true) || !taskStartGate.awaitAdmission()) {
+                    if (!request.handoff().claimAndAwaitAdmission()) {
                         return;
                     }
                     Thread current = Thread.currentThread();
@@ -68,13 +62,13 @@ final class BoundedTaskExecution {
                         }
                     }
                     if (taskFailure != null) {
-                        lateFailure.record(taskFailure);
+                        lateFailure.record(current, taskFailure);
                     }
-                    completion.complete(outcome);
+                    settlement.complete(outcome);
                 };
                 BoundedTaskRunner.TaskRejection taskRejection = failure -> {
                     Objects.requireNonNull(failure, "failure");
-                    if (!taskClaimed.compareAndSet(false, true) || !taskStartGate.awaitAdmission()) {
+                    if (!request.handoff().claimAndAwaitAdmission()) {
                         return;
                     }
                     Thread current = Thread.currentThread();
@@ -84,8 +78,8 @@ final class BoundedTaskExecution {
                     } finally {
                         activeTask.unbind(current);
                     }
-                    lateFailure.record(failure);
-                    completion.complete(TaskOutcome.failed(failure));
+                    lateFailure.record(current, failure);
+                    settlement.complete(TaskOutcome.failed(failure));
                 };
                 request.cancellation().throwIfCancelled();
                 if (request.deadlineNanos() - request.nanoTime().getAsLong() <= 0) {
@@ -94,7 +88,6 @@ final class BoundedTaskExecution {
                 start(request, boundedTask, taskRejection, activeTask);
                 request.handoff().admit();
                 permitTransferred = true;
-                startGate.admit();
             } catch (BoundedTaskRunner.TaskCancelledException | TimeoutException failure) {
                 throw failure;
             } catch (RuntimeException failure) {
@@ -103,13 +96,10 @@ final class BoundedTaskExecution {
                 throw failure;
             }
 
-            return awaitOutcome(request, race, lateFailure, activeTask);
+            return awaitOutcome(request, settlement, lateFailure, activeTask);
         } finally {
             cancellationRegistration.close();
             if (!permitTransferred) {
-                if (startGate != null) {
-                    startGate.reject();
-                }
                 request.handoff().rejectIfWaiting();
                 permit.close();
             }
@@ -203,8 +193,7 @@ final class BoundedTaskExecution {
     private static final class LateFailurePublication {
 
         private final BoundedTaskRunner.LateFailureHandler handler;
-        private final AtomicReference<Thread> taskThread = new AtomicReference<>();
-        private final AtomicReference<Throwable> failure = new AtomicReference<>();
+        private final AtomicReference<TaskFailure> failure = new AtomicReference<>();
         private final AtomicBoolean abandoned = new AtomicBoolean();
         private final AtomicBoolean published = new AtomicBoolean();
 
@@ -212,14 +201,12 @@ final class BoundedTaskExecution {
             this.handler = handler;
         }
 
-        private void bind(Thread thread) {
-            if (!taskThread.compareAndSet(null, Objects.requireNonNull(thread, "thread"))) {
-                throw new IllegalStateException("late fatal publication is already bound");
-            }
-        }
-
-        private void record(Throwable taskFailure) {
-            failure.compareAndSet(null, Objects.requireNonNull(taskFailure, "taskFailure"));
+        private void record(Thread taskThread, Throwable taskFailure) {
+            failure.compareAndSet(
+                    null,
+                    new TaskFailure(
+                            Objects.requireNonNull(taskThread, "taskThread"),
+                            Objects.requireNonNull(taskFailure, "taskFailure")));
             publishIfReady();
         }
 
@@ -229,31 +216,26 @@ final class BoundedTaskExecution {
         }
 
         private void publishIfReady() {
-            Thread thread = taskThread.get();
-            Throwable taskFailure = failure.get();
-            if (thread != null && taskFailure != null && abandoned.get() && published.compareAndSet(false, true)) {
+            TaskFailure taskFailure = failure.get();
+            if (taskFailure != null && abandoned.get() && published.compareAndSet(false, true)) {
                 try {
-                    handler.handle(thread, taskFailure);
+                    handler.handle(taskFailure.thread(), taskFailure.failure());
                 } catch (Throwable reportingFailure) {
-                    BoundedFailureReporter.shared().report(thread, reportingFailure);
+                    BoundedFailureReporter.shared().report(taskFailure.thread(), reportingFailure);
                 }
             }
         }
+
+        private record TaskFailure(Thread thread, Throwable failure) {}
     }
 
     private static final class ActiveTask {
 
-        private final LateFailurePublication lateFailure;
         private Thread activeThread;
         private boolean interruptRequested;
 
-        private ActiveTask(LateFailurePublication lateFailure) {
-            this.lateFailure = lateFailure;
-        }
-
         private synchronized void bind(Thread thread) {
             activeThread = Objects.requireNonNull(thread, "thread");
-            lateFailure.bind(thread);
             if (interruptRequested) {
                 thread.interrupt();
             }

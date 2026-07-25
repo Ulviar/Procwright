@@ -44,28 +44,36 @@ public final class LiveDescendantSnapshot {
         return observed;
     }
 
-    synchronized void refreshWithFreshLivenessBudget(Process process, Duration scanBudget) throws InterruptedException {
-        if (sealed) {
-            return;
+    void refreshWithFreshLivenessBudget(Process process, Duration scanBudget) throws InterruptedException {
+        RefreshFailure failure;
+        synchronized (this) {
+            if (sealed) {
+                return;
+            }
+            ProcessTreeScanner.DescendantScan current = scan(process, scanBudget);
+            if (observationInterrupted(current)) {
+                publishWithoutPruning(current);
+                return;
+            }
+            failure = replaceWithMerged(current, DurationSupport.deadlineFromNow(scanBudget));
         }
-        ProcessTreeScanner.DescendantScan current = scan(process, scanBudget);
-        if (observationInterrupted(current)) {
-            publishWithoutPruning(current);
-            return;
-        }
-        replaceWithMerged(current, DurationSupport.deadlineFromNow(scanBudget));
+        rethrow(failure);
     }
 
-    synchronized void refresh(Process process, Duration scanBudget, long livenessDeadline) throws InterruptedException {
-        if (sealed) {
-            return;
+    void refresh(Process process, Duration scanBudget, long livenessDeadline) throws InterruptedException {
+        RefreshFailure failure;
+        synchronized (this) {
+            if (sealed) {
+                return;
+            }
+            ProcessTreeScanner.DescendantScan current = scan(process, scanBudget);
+            if (observationInterrupted(current)) {
+                publishWithoutPruning(current);
+                return;
+            }
+            failure = replaceWithMerged(current, livenessDeadline);
         }
-        ProcessTreeScanner.DescendantScan current = scan(process, scanBudget);
-        if (observationInterrupted(current)) {
-            publishWithoutPruning(current);
-            return;
-        }
-        replaceWithMerged(current, livenessDeadline);
+        rethrow(failure);
     }
 
     private static ProcessTreeScanner.DescendantScan scan(Process process, Duration scanBudget) {
@@ -74,8 +82,7 @@ public final class LiveDescendantSnapshot {
         return PROCESS_TREE_SCANNER.scanDescendants(process, scanBudget);
     }
 
-    private void replaceWithMerged(ProcessTreeScanner.DescendantScan current, long livenessDeadline)
-            throws InterruptedException {
+    private RefreshFailure replaceWithMerged(ProcessTreeScanner.DescendantScan current, long livenessDeadline) {
         try {
             Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> merged = new LinkedHashMap<>();
             boolean mergeOverflow = addLiveBounded(merged, observed.handlesByIdentity(), livenessDeadline);
@@ -83,17 +90,33 @@ public final class LiveDescendantSnapshot {
             publish(current, merged, mergeOverflow);
         } catch (InterruptedException interruption) {
             publishWithoutPruning(current);
-            SuppressionSupport.attach(interruption, current.failure());
-            throw interruption;
+            return new RefreshFailure(interruption, current.failure());
         } catch (RuntimeException | Error failure) {
             publishWithoutPruning(current);
             if (current.failure() != null) {
-                SuppressionSupport.attach(current.failure(), failure);
-                throw current.failure();
+                return new RefreshFailure(current.failure(), failure);
             }
-            throw failure;
+            return new RefreshFailure(failure, null);
         }
-        current.rethrowFailure();
+        return current.failure() == null ? null : new RefreshFailure(current.failure(), null);
+    }
+
+    private static void rethrow(RefreshFailure failure) throws InterruptedException {
+        if (failure == null) {
+            return;
+        }
+        if (failure.primary() instanceof InterruptedException interruption) {
+            if (failure.secondary() != null) {
+                BoundedFailureReporter.reportBestEffort(failure.secondary());
+            }
+            throw interruption;
+        }
+        Throwable combined = FailureAggregation.combine(
+                failure.primary(), failure.secondary(), "Descendant scan and liveness pruning both failed");
+        if (combined instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        throw (Error) combined;
     }
 
     private void publishWithoutPruning(ProcessTreeScanner.DescendantScan current) {
@@ -120,6 +143,8 @@ public final class LiveDescendantSnapshot {
     private static boolean observationInterrupted(ProcessTreeScanner.DescendantScan scan) {
         return scan.incompleteReason() == ProcessTreeScanner.IncompleteReason.INTERRUPTED;
     }
+
+    private record RefreshFailure(Throwable primary, Throwable secondary) {}
 
     private static boolean addBounded(
             Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> target,

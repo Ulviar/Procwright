@@ -18,6 +18,7 @@ final class SessionOutputOwnership {
     private String owner;
     private CloseResponsibility closeResponsibility = CloseResponsibility.LIFECYCLE;
     private boolean lifecycleCloseClaimed;
+    private boolean outputCleanupSettled;
 
     InputStream publicStream(InputStream stream) {
         return new OutputGuardInputStream(stream, this);
@@ -26,7 +27,7 @@ final class SessionOutputOwnership {
     void claim(String requestedOwner) {
         CommandValidation.requireText(requestedOwner, "owner");
         synchronized (lock) {
-            if (lifecycleCloseClaimed) {
+            if (lifecycleCloseClaimed || outputCleanupSettled) {
                 throw new IllegalStateException("Session output is closed by the session lifecycle");
             }
             if (owner != null) {
@@ -52,11 +53,23 @@ final class SessionOutputOwnership {
 
     boolean claimLifecycleClose() {
         synchronized (lock) {
-            if (lifecycleCloseClaimed || closeResponsibility == CloseResponsibility.OUTPUT_OWNER) {
+            if (lifecycleCloseClaimed
+                    || outputCleanupSettled
+                    || closeResponsibility == CloseResponsibility.OUTPUT_OWNER) {
                 return false;
             }
             lifecycleCloseClaimed = true;
             return true;
+        }
+    }
+
+    CloseResponsibility settleCloseResponsibility() {
+        synchronized (lock) {
+            if (outputCleanupSettled) {
+                throw new IllegalStateException("Session output cleanup was already settled");
+            }
+            outputCleanupSettled = true;
+            return closeResponsibility;
         }
     }
 
@@ -93,7 +106,7 @@ final class SessionOutputOwnership {
         void run() throws IOException;
     }
 
-    private enum CloseResponsibility {
+    enum CloseResponsibility {
         LIFECYCLE,
         OUTPUT_OWNER
     }

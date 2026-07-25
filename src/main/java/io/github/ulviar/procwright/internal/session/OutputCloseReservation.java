@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright.internal.session;
 
 import java.util.Objects;
-import java.util.function.Consumer;
 
 /** Atomically reserves physical close of both helper-owned process output streams. */
 final class OutputCloseReservation {
@@ -11,7 +10,7 @@ final class OutputCloseReservation {
     private final Object lock = new Object();
     private Reservation reservation;
 
-    Reservation reserve(CloseOnceInputStream stdout, CloseOnceInputStream stderr, Consumer<Stream> pumpCloseObserver) {
+    Reservation reserve(CloseOnceInputStream stdout, CloseOnceInputStream stderr, Runnable pumpCloseObserver) {
         Objects.requireNonNull(stdout, "stdout");
         Objects.requireNonNull(stderr, "stderr");
         Objects.requireNonNull(pumpCloseObserver, "pumpCloseObserver");
@@ -31,7 +30,7 @@ final class OutputCloseReservation {
     }
 
     boolean claimOrdinaryClose(Stream stream, CloseOnceInputStream input) {
-        Consumer<Stream> observer = null;
+        Runnable observer = null;
         synchronized (lock) {
             if (reservation == null) {
                 return true;
@@ -42,7 +41,7 @@ final class OutputCloseReservation {
             }
         }
         if (observer != null) {
-            observer.accept(stream);
+            observer.run();
         }
         return false;
     }
@@ -57,7 +56,7 @@ final class OutputCloseReservation {
         private final OutputCloseReservation owner;
         private final CloseOnceInputStream stdout;
         private final CloseOnceInputStream stderr;
-        private final Consumer<Stream> pumpCloseObserver;
+        private final Runnable pumpCloseObserver;
         private boolean stdoutPumpClosed;
         private boolean stderrPumpClosed;
 
@@ -65,7 +64,7 @@ final class OutputCloseReservation {
                 OutputCloseReservation owner,
                 CloseOnceInputStream stdout,
                 CloseOnceInputStream stderr,
-                Consumer<Stream> pumpCloseObserver) {
+                Runnable pumpCloseObserver) {
             this.owner = owner;
             this.stdout = stdout;
             this.stderr = stderr;

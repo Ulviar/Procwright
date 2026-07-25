@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.session.SessionExit;
 import java.util.Objects;
 import java.util.OptionalInt;
@@ -56,12 +55,13 @@ final class StreamSessionState {
         if (outcome == null) {
             outcome = new FailureOutcome(candidate);
             stopping = true;
-            return new FailureSelection(true, candidate, null, null);
+            return new FailureSelection(true, candidate, null);
         }
         if (outcome instanceof FailureOutcome failureOutcome) {
-            return new FailureSelection(false, failureOutcome.primary(), candidate, null);
+            Throwable reportable = failureOutcome.primary() == candidate ? null : candidate;
+            return new FailureSelection(false, failureOutcome.primary(), reportable);
         }
-        return new FailureSelection(false, null, null, candidate);
+        return new FailureSelection(false, null, candidate);
     }
 
     synchronized void nestedSucceeded(SessionExit exit) {
@@ -137,25 +137,19 @@ final class StreamSessionState {
         }
     }
 
-    record FailureSelection(boolean installed, Throwable primary, Throwable suppressedFailure, Throwable lateFailure) {
+    record FailureSelection(boolean installed, Throwable primary, Throwable reportableFailure) {
 
         FailureSelection {
             if (installed) {
-                if (primary == null || suppressedFailure != null || lateFailure != null) {
+                if (primary == null || reportableFailure != null) {
                     throw new IllegalArgumentException("an installed failure must be the sole primary");
                 }
             } else if (primary != null) {
-                if (suppressedFailure == null || lateFailure != null) {
-                    throw new IllegalArgumentException("a canonical failure must own one suppressed failure");
+                if (reportableFailure == primary) {
+                    throw new IllegalArgumentException("the selected primary cannot be reported as discarded");
                 }
-            } else if (suppressedFailure != null || lateFailure == null) {
+            } else if (reportableFailure == null) {
                 throw new IllegalArgumentException("a control outcome must expose one late failure");
-            }
-        }
-
-        void attachSuppressedFailure() {
-            if (suppressedFailure != null) {
-                SuppressionSupport.attach(primary, suppressedFailure);
             }
         }
     }

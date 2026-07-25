@@ -5,10 +5,10 @@ package io.github.ulviar.procwright;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.CommandEchoSupport;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.LaunchSettings;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProcessKernel;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
@@ -18,11 +18,9 @@ import io.github.ulviar.procwright.internal.SessionExecutionPlan;
 import io.github.ulviar.procwright.internal.SessionScenarioSettings;
 import io.github.ulviar.procwright.internal.SessionSettings;
 import io.github.ulviar.procwright.internal.StreamSettings;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.internal.session.ReadinessSupport;
 import io.github.ulviar.procwright.internal.session.SessionRuntime;
-import io.github.ulviar.procwright.internal.session.SessionScenarioSupport;
 import io.github.ulviar.procwright.internal.session.StreamRuntime;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
@@ -37,16 +35,16 @@ import java.util.function.Supplier;
 /** Package-private terminal-operation boundary for immutable scenario drafts. */
 final class ScenarioRuntime {
 
-    private final LaunchSettings launchSettings;
+    private final CommandSpec commandSpec;
     private final ProcessKernel processKernel;
 
     ScenarioRuntime(CommandSpec commandSpec, ProcessKernel processKernel) {
-        launchSettings = LaunchSettings.from(Objects.requireNonNull(commandSpec, "commandSpec"));
+        this.commandSpec = Objects.requireNonNull(commandSpec, "commandSpec");
         this.processKernel = Objects.requireNonNull(processKernel, "processKernel");
     }
 
-    LaunchSettings launchSettings() {
-        return launchSettings;
+    CommandSpec commandSpec() {
+        return commandSpec;
     }
 
     CommandResult run(RunSettings settings) {
@@ -81,8 +79,7 @@ final class ScenarioRuntime {
             SessionScenarioSettings<LineSession, LineSessionSettings> worker, WorkerPoolSettings<LineSession> pool) {
         Objects.requireNonNull(worker, "worker");
         Objects.requireNonNull(pool, "pool");
-        return SessionScenarioSupport.openPooledLineSession(
-                () -> openLineSession("pooled", worker), worker.protocol(), pool);
+        return SessionRuntime.openPooledLineSession(() -> openLineSession("pooled", worker), worker.protocol(), pool);
     }
 
     <I extends Object, O extends Object> ProtocolSession<I, O> openProtocolSession(
@@ -98,7 +95,7 @@ final class ScenarioRuntime {
         Objects.requireNonNull(adapterFactory, "adapterFactory");
         Objects.requireNonNull(worker, "worker");
         Objects.requireNonNull(pool, "pool");
-        return SessionScenarioSupport.openPooledProtocolSession(
+        return SessionRuntime.openPooledProtocolSession(
                 () -> openProtocolSession("pooledProtocol", createProtocolAdapter(adapterFactory), worker), pool);
     }
 
@@ -117,10 +114,7 @@ final class ScenarioRuntime {
             return new OpenedSession(SessionRuntime.open(plan, diagnostics), diagnostics);
         } catch (RuntimeException | Error exception) {
             emitPreserving(
-                    diagnostics,
-                    DiagnosticEventType.PROCESS_FAILED,
-                    DiagnosticEmitter.failureAttributes(exception),
-                    exception);
+                    diagnostics, DiagnosticEventType.PROCESS_FAILED, DiagnosticEmitter.failureAttributes(exception));
             throw exception;
         }
     }
@@ -131,7 +125,7 @@ final class ScenarioRuntime {
         OpenedSession opened = openSession(
                 scenario, settings.session().plan(), settings.session().diagnostics());
         try {
-            LineSession lineSession = SessionScenarioSupport.openLineSession(opened.session(), settings.protocol());
+            LineSession lineSession = SessionRuntime.openLineSession(opened.session(), settings.protocol());
             settings.readiness()
                     .probe()
                     .ifPresent(probe -> ReadinessSupport.check(
@@ -153,7 +147,7 @@ final class ScenarioRuntime {
                 scenario, settings.session().plan(), settings.session().diagnostics());
         try {
             ProtocolSession<I, O> protocolSession =
-                    SessionScenarioSupport.openProtocolSession(opened.session(), adapter, settings.protocol());
+                    SessionRuntime.openProtocolSession(opened.session(), adapter, settings.protocol());
             settings.readiness()
                     .probe()
                     .ifPresent(probe -> ReadinessSupport.check(
@@ -169,28 +163,24 @@ final class ScenarioRuntime {
         emitPreserving(
                 opened.diagnostics(),
                 DiagnosticEventType.PROCESS_FAILED,
-                DiagnosticEmitter.failureAttributes(primaryFailure),
-                primaryFailure);
-        closePreserving(opened.session(), primaryFailure);
+                DiagnosticEmitter.failureAttributes(primaryFailure));
+        closePreserving(opened.session());
     }
 
-    private static void closePreserving(Session session, Throwable primaryFailure) {
+    private static void closePreserving(Session session) {
         try {
             session.close();
         } catch (RuntimeException | Error closeFailure) {
-            SuppressionSupport.attach(primaryFailure, closeFailure);
+            BoundedFailureReporter.reportBestEffort(closeFailure);
         }
     }
 
     private static void emitPreserving(
-            DiagnosticEmitter diagnostics,
-            DiagnosticEventType type,
-            java.util.Map<String, String> attributes,
-            Throwable primaryFailure) {
+            DiagnosticEmitter diagnostics, DiagnosticEventType type, java.util.Map<String, String> attributes) {
         try {
             diagnostics.emit(type, attributes);
         } catch (RuntimeException | Error diagnosticFailure) {
-            SuppressionSupport.attach(primaryFailure, diagnosticFailure);
+            BoundedFailureReporter.reportBestEffort(diagnosticFailure);
         }
     }
 

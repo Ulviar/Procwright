@@ -76,6 +76,7 @@ final class CloseOnceInputStream extends FilterInputStream {
             String threadPrefix,
             java.util.function.Consumer<? super Throwable> failureHandler,
             Runnable completionHandler) {
-        resource.closeOwnedAsync(threadPrefix, failureHandler, completionHandler);
+        resource.closeOwnedAsync(threadPrefix, failureHandler, completionHandler)
+                .rethrowStartFailure();
     }
 }

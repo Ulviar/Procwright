@@ -16,7 +16,6 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticEmitterTestSupport;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.LaunchMode;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.SessionExecutionPlan;
 import io.github.ulviar.procwright.terminal.PtyProvider;
@@ -91,7 +90,6 @@ final class SessionRuntimeTest {
         };
         return new SessionExecutionPlan(
                 new LaunchPlan(
-                        LaunchMode.DIRECT,
                         List.of("controlled-pty"),
                         Optional.empty(),
                         EnvironmentPolicy.INHERIT,

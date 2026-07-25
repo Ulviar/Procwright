@@ -3,8 +3,8 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.ProcessLifecycle;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
@@ -29,13 +29,12 @@ final class SessionConstruction {
         try {
             return new SessionConstruction(process);
         } catch (RuntimeException | Error failure) {
-            stopProcessPreserving(process, failure);
-            throw failure;
+            throw unchecked(stopProcessPreserving(process, failure));
         }
     }
 
-    static void rollbackUnowned(Process process, Throwable primaryFailure) {
-        stopProcessPreserving(Objects.requireNonNull(process, "process"), primaryFailure);
+    static Throwable rollbackUnowned(Process process, Throwable primaryFailure) {
+        return stopProcessPreserving(Objects.requireNonNull(process, "process"), primaryFailure);
     }
 
     Gate gate() {
@@ -59,37 +58,50 @@ final class SessionConstruction {
         gate.commit();
     }
 
-    void rollback(Throwable primaryFailure) {
+    Throwable rollback(Throwable primaryFailure) {
         if (committed) {
-            return;
+            return primaryFailure;
         }
-        preserving(primaryFailure, gate::abort);
+        Throwable failure = combine(primaryFailure, attempt(gate::abort));
         if (exitPublication != null) {
-            preserving(primaryFailure, exitPublication::release);
+            failure = combine(failure, attempt(exitPublication::release));
         }
         if (exitReservation != null) {
-            preserving(primaryFailure, exitReservation::release);
+            failure = combine(failure, attempt(exitReservation::release));
         }
-        stopProcessPreserving(process, primaryFailure);
+        failure = stopProcessPreserving(process, failure);
         if (resources != null) {
-            preserving(primaryFailure, () -> resources.rollbackConstruction(primaryFailure));
+            failure = combine(failure, resources.rollbackConstruction());
         }
+        return failure;
     }
 
-    private static void stopProcessPreserving(Process process, Throwable primaryFailure) {
-        preserving(primaryFailure, () -> ProcessLifecycle.forceStop(process, PROCESS_CLEANUP_TIMEOUT));
+    private static Throwable stopProcessPreserving(Process process, Throwable primaryFailure) {
+        return combine(primaryFailure, attempt(() -> ProcessLifecycle.forceStop(process, PROCESS_CLEANUP_TIMEOUT)));
     }
 
-    private static void preserving(Throwable primaryFailure, Runnable cleanup) {
+    private static Throwable attempt(Runnable cleanup) {
         try {
             cleanup.run();
+            return null;
         } catch (Throwable cleanupFailure) {
-            try {
-                SuppressionSupport.attach(primaryFailure, cleanupFailure);
-            } catch (Throwable ignored) {
-                // Failure bookkeeping must not interrupt the remaining rollback.
-            }
+            return cleanupFailure;
         }
+    }
+
+    private static Throwable combine(Throwable primaryFailure, Throwable cleanupFailure) {
+        return FailureAggregation.combine(
+                primaryFailure, cleanupFailure, "Session construction and rollback both failed");
+    }
+
+    static RuntimeException unchecked(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            return runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new AssertionError("session construction failure must be unchecked", failure);
     }
 
     static final class Gate {

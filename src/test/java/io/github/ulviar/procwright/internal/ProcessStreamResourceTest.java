@@ -2,8 +2,11 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,39 +66,45 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
     }
 
     @Test
-    void blockedFailureGraphCannotHoldTheSharedCloseClaim() throws Exception {
+    void callbackFailureCannotDelayAnIndependentStreamClose() throws Exception {
         IOException physicalFailure = new IOException("stdout physical close failed");
-        BlockingCauseError callbackFailure = new BlockingCauseError();
+        AssertionError callbackFailure = new AssertionError("stdout failure callback failed");
         TrackingInputStream stdout = failingInput(physicalFailure);
         TrackingProcess process = new TrackingProcess(stdout, new TrackingInputStream());
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3);
-        ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<?> stderrClose = null;
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        CountDownLatch callbackEntered = new CountDownLatch(1);
+        CountDownLatch releaseCallback = new CountDownLatch(1);
+        ProcessIoResources resources = ProcessIoResources.acquire(
+                process,
+                dispatcher,
+                new BoundedLifecyclePublisher(3),
+                ignored -> {},
+                (target, failure) -> reported.set(failure));
+
         try {
             resources
                     .stdout()
                     .closeOwnedAsync(
-                            "procwright-blocked-failure-graph-",
+                            "procwright-callback-failure-",
                             failure -> {
+                                callbackEntered.countDown();
+                                BlockingReadInputStream.awaitUninterruptibly(releaseCallback);
                                 throw callbackFailure;
                             },
                             () -> {});
-            assertTrue(callbackFailure.causeAccessed.await(1, TimeUnit.SECONDS));
+            assertTrue(callbackEntered.await(1, TimeUnit.SECONDS));
 
-            stderrClose = executor.submit(
-                    () -> resources.stderr().closeAsync("procwright-independent-stderr-close-", ignored -> {}));
-            stderrClose.get(1, TimeUnit.SECONDS);
+            resources.stderr().closeAsync("procwright-independent-stderr-close-", ignored -> {});
+            resources.stderr().closeCompletion().get(1, TimeUnit.SECONDS);
         } finally {
-            callbackFailure.releaseCause.countDown();
-            if (stderrClose != null) {
-                stderrClose.get(1, TimeUnit.SECONDS);
-            }
-            resources.closeAllAsync(ignored -> {});
-            assertSame(physicalFailure, resources.awaitClose(Duration.ofSeconds(1)));
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            releaseCallback.countDown();
         }
+
+        assertTrue(eventually(() -> reported.get() == callbackFailure));
+        resources.closeAllAsync(ignored -> {});
+        assertSame(physicalFailure, resources.awaitClose(Duration.ofSeconds(1)));
+        assertEquals(0, physicalFailure.getSuppressed().length);
     }
 
     @Test
@@ -125,19 +134,23 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             CompletableFuture<Void> completeFailureGraphObservation = resources
                     .stdout()
                     .closeCompletion()
-                    .thenRun(() ->
-                            completeFailureGraphObserved.set(resources.stdout().closeResult() == startFailure
-                                    && java.util.List.of(closeFailure)
-                                            .equals(java.util.List.of(startFailure.getSuppressed()))));
+                    .thenRun(() -> {
+                        Throwable result = resources.stdout().closeResult();
+                        completeFailureGraphObserved.set(result != null
+                                && result.getCause() == startFailure
+                                && java.util.List.of(closeFailure).equals(java.util.List.of(result.getSuppressed())));
+                    });
             Future<Throwable> awaitClose = waiter.submit(() -> resources.awaitClose(Duration.ofSeconds(2)));
 
             assertFalse(resources.stdout().closeCompletion().isDone());
             assertFalse(awaitClose.isDone());
 
             stdout.releaseClose.countDown();
-            assertSame(startFailure, awaitClose.get(1, TimeUnit.SECONDS));
-            assertSame(startFailure, resources.stdout().closeResult());
-            assertEquals(java.util.List.of(closeFailure), java.util.List.of(startFailure.getSuppressed()));
+            Throwable result = awaitClose.get(1, TimeUnit.SECONDS);
+            assertSame(result, resources.stdout().closeResult());
+            assertSame(startFailure, result.getCause());
+            assertEquals(java.util.List.of(closeFailure), java.util.List.of(result.getSuppressed()));
+            assertEquals(0, startFailure.getSuppressed().length);
             completeFailureGraphObservation.get(1, TimeUnit.SECONDS);
             assertTrue(completeFailureGraphObserved.get());
             assertEquals(1, stdout.closeCalls.get());
@@ -184,6 +197,33 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
     }
 
     @Test
+    void failureTargetCaptureCannotStrandOwnedCloseCallbacksOrCompletion() throws Exception {
+        AssertionError captureFailure = new AssertionError("context loader unavailable");
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3, (name, task) -> {
+            Thread owner = new Thread(task, name) {
+                @Override
+                public ClassLoader getContextClassLoader() {
+                    throw captureFailure;
+                }
+            };
+            owner.start();
+        });
+        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
+        ProcessIoResources resources = ProcessIoResources.acquire(new TrackingProcess(), dispatcher, publisher);
+        CountDownLatch callbackCompleted = new CountDownLatch(1);
+
+        resources
+                .stdout()
+                .closeOwnedAsync("procwright-hostile-target-close-", ignored -> {}, callbackCompleted::countDown);
+
+        assertTrue(callbackCompleted.await(1, TimeUnit.SECONDS));
+        resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
+        assertNull(resources.stdout().closeResult());
+        resources.closeAllAsync(ignored -> {});
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
+    }
+
+    @Test
     void reporterOwnerStartFailureCannotStrandMandatoryCloseSettlement() throws Exception {
         IOException physicalFailure = new IOException("stdout close failed");
         AssertionError failureCallbackFailure = new AssertionError("failure callback failed");
@@ -222,17 +262,86 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
         assertSame(physicalFailure, resources.awaitClose(Duration.ofSeconds(1)));
         assertTrue(uncaughtReported.await(1, TimeUnit.SECONDS));
-        assertSame(failureCallbackFailure, uncaught.get());
+        Throwable reportedFailure = uncaught.get();
+        assertInstanceOf(Error.class, reportedFailure);
+        assertSame(failureCallbackFailure, FailureAggregation.primary(reportedFailure));
         assertSame(physicalFailure, resources.stdout().closeResult());
-        assertEquals(java.util.List.of(failureCallbackFailure), java.util.List.of(physicalFailure.getSuppressed()));
-        assertEquals(2, failureCallbackFailure.getSuppressed().length);
-        assertSame(completionCallbackFailure, failureCallbackFailure.getSuppressed()[0]);
-        Throwable reporterStartFailure = failureCallbackFailure.getSuppressed()[1];
+        assertEquals(java.util.List.of(), java.util.List.of(physicalFailure.getSuppressed()));
+        assertEquals(0, failureCallbackFailure.getSuppressed().length);
+        assertEquals(0, completionCallbackFailure.getSuppressed().length);
+        java.util.List<Throwable> reportedSources = FailureAggregation.sources(reportedFailure);
+        assertEquals(3, reportedSources.size());
+        assertSame(failureCallbackFailure, reportedSources.get(0));
+        assertSame(completionCallbackFailure, reportedSources.get(1));
+        Throwable reporterStartFailure = reportedSources.get(2);
         assertTrue(reporterStartFailure instanceof IllegalThreadStateException);
         assertEquals(Thread.class.getName(), reporterStartFailure.getStackTrace()[0].getClassName());
         assertEquals("start", reporterStartFailure.getStackTrace()[0].getMethodName());
         assertEquals(1, stdout.closeCalls.get());
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
+    }
+
+    @Test
+    void callbackFailureAggregationDoesNotAcquireTheSourceMonitorBeforeSettlement() throws Exception {
+        IOException physicalFailure = new IOException("stdout close failed");
+        AssertionError failureCallbackFailure = new AssertionError("failure callback failed");
+        IllegalStateException completionCallbackFailure = new IllegalStateException("completion callback failed");
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        TrackingProcess process = new TrackingProcess(failingInput(physicalFailure), new TrackingInputStream());
+        ProcessIoResources resources = ProcessIoResources.acquire(
+                process,
+                new BoundedCloseDispatcher(1, 2, 3),
+                new BoundedLifecyclePublisher(3),
+                ignored -> {},
+                (target, failure) -> reported.set(failure));
+
+        try (var monitor = hold(failureCallbackFailure)) {
+            monitor.verifyHeld();
+            resources
+                    .stdout()
+                    .closeOwnedAsync(
+                            "procwright-detached-close-failure-",
+                            ignored -> {
+                                throw failureCallbackFailure;
+                            },
+                            () -> {
+                                throw completionCallbackFailure;
+                            });
+
+            resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
+            assertSame(physicalFailure, resources.stdout().closeResult());
+            assertTrue(eventually(() -> reported.get() != null));
+            assertEquals(
+                    java.util.List.of(failureCallbackFailure, completionCallbackFailure),
+                    FailureAggregation.sources(reported.get()));
+        } finally {
+            resources.closeAllAsync(ignored -> {});
+        }
+    }
+
+    @Test
+    void callbackFailureIsDiagnosticAndCannotMutateACompletedCloseResult() throws Exception {
+        AssertionError callbackFailure = new AssertionError("completion callback failed");
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        TrackingProcess process = new TrackingProcess(new TrackingInputStream(), new TrackingInputStream());
+        ProcessIoResources resources = ProcessIoResources.acquire(
+                process,
+                new BoundedCloseDispatcher(1, 2, 3),
+                new BoundedLifecyclePublisher(3),
+                ignored -> {},
+                (target, failure) -> reported.set(failure));
+        AtomicReference<Throwable> observedAtCompletion = new AtomicReference<>();
+        CompletableFuture<Void> completion = resources.stdout().closeCompletion();
+        completion.thenRun(() -> observedAtCompletion.set(resources.stdout().closeResult()));
+
+        resources.stdout().closeOwnedAsync("procwright-callback-diagnostic-", ignored -> {}, () -> {
+            throw callbackFailure;
+        });
+
+        completion.get(1, TimeUnit.SECONDS);
+        assertTrue(eventually(() -> reported.get() == callbackFailure));
+        assertNull(observedAtCompletion.get());
+        assertNull(resources.stdout().closeResult());
     }
 
     @Test
@@ -289,12 +398,16 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             secondCompletion.get(1, TimeUnit.SECONDS);
             firstContinuation.get(1, TimeUnit.SECONDS);
             assertTrue(reports.await(1, TimeUnit.SECONDS));
-            assertSame(firstStartFailure, resources.stdout().closeResult());
-            assertSame(secondStartFailure, resources.stderr().closeResult());
-            assertSame(firstStartFailure, firstReported.get());
-            assertSame(secondStartFailure, secondReported.get());
-            assertEquals(java.util.List.of(firstCloseFailure), java.util.List.of(firstStartFailure.getSuppressed()));
-            assertEquals(java.util.List.of(secondCloseFailure), java.util.List.of(secondStartFailure.getSuppressed()));
+            Throwable firstResult = resources.stdout().closeResult();
+            Throwable secondResult = resources.stderr().closeResult();
+            assertSame(firstResult, firstReported.get());
+            assertSame(secondResult, secondReported.get());
+            assertSame(firstStartFailure, firstResult.getCause());
+            assertSame(secondStartFailure, secondResult.getCause());
+            assertEquals(java.util.List.of(firstCloseFailure), java.util.List.of(firstResult.getSuppressed()));
+            assertEquals(java.util.List.of(secondCloseFailure), java.util.List.of(secondResult.getSuppressed()));
+            assertEquals(0, firstStartFailure.getSuppressed().length);
+            assertEquals(0, secondStartFailure.getSuppressed().length);
             assertEquals(0, firstCloseFailure.getSuppressed().length);
             assertEquals(0, secondCloseFailure.getSuppressed().length);
             assertEquals(1, firstReports.get());
@@ -419,24 +532,6 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             if (interrupted) {
                 Thread.currentThread().interrupt();
             }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    private static final class BlockingCauseError extends AssertionError {
-
-        private final CountDownLatch causeAccessed = new CountDownLatch(1);
-        private final CountDownLatch releaseCause = new CountDownLatch(1);
-
-        private BlockingCauseError() {
-            super("stdout failure callback failed", null);
-        }
-
-        @Override
-        public synchronized Throwable getCause() {
-            causeAccessed.countDown();
-            BlockingReadInputStream.awaitUninterruptibly(releaseCause);
-            return null;
         }
     }
 }

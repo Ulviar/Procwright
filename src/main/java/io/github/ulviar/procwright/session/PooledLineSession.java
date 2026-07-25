@@ -63,7 +63,9 @@ public sealed interface PooledLineSession extends AutoCloseable permits DefaultP
      *
      * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. The
      * returned future completes exceptionally with reason {@link PooledLineSessionException.Reason#WORKER_FAILED} when
-     * worker cleanup fails. Cancelling or completing the returned future does not cancel or alter internal cleanup.
+     * ordinary worker cleanup fails. A single cleanup {@link Error} is preserved by identity; multiple failures with an
+     * {@code Error} primary produce an {@code Error} aggregate whose cause is that primary. Cancelling or completing the
+     * returned future does not cancel or alter internal cleanup.
      * Repeated calls return independent views of the same terminal cleanup. One of 256 process-wide terminal slots is
      * reserved during {@code open()}, so an accepted pool does not wait for terminal admission here. A blocking
      * synchronous continuation attached before completion retains only this pool's slot: it cannot delay another
@@ -88,6 +90,8 @@ public sealed interface PooledLineSession extends AutoCloseable permits DefaultP
      *     waiting thread is interrupted
      * @throws PooledLineSessionException with reason {@link PooledLineSessionException.Reason#WORKER_FAILED} when worker
      *     cleanup fails
+     * @throws Error when worker cleanup observes an {@code Error}; multiple cleanup failures may be represented by an
+     *     {@code Error} aggregate
      */
     @Override
     void close();

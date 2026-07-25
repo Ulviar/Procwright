@@ -71,7 +71,7 @@ abstract class ProcessKernelProcessFixtureSupport extends ProcessKernelTestSuppo
         }
     }
 
-    static final class TerminalProcess extends Process {
+    static class TerminalProcess extends Process {
 
         final TrackingInputStream stdout;
         final TrackingInputStream stderr;

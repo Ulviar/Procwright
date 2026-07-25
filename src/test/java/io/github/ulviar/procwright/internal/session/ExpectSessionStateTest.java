@@ -45,7 +45,7 @@ final class ExpectSessionStateTest {
     }
 
     @Test
-    void outputFailureOwnsTerminalAndSuppressesLosingRegexError() {
+    void outputFailureOwnsTerminalWithoutMutatingItsCause() {
         AtomicInteger reports = new AtomicInteger();
         ExpectSessionState state = state((thread, error) -> reports.incrementAndGet());
         IllegalStateException outputFailure = new IllegalStateException("output failed first");
@@ -58,8 +58,9 @@ final class ExpectSessionStateTest {
         assertTrue(decision.first());
         assertEquals(ExpectException.Reason.FAILURE, failure.reason());
         assertSame(outputFailure, failure.getCause());
-        assertEquals(1, outputFailure.getSuppressed().length);
-        assertSame(evaluatorError, outputFailure.getSuppressed()[0]);
+        assertEquals(0, outputFailure.getSuppressed().length);
+        assertEquals(1, failure.getSuppressed().length);
+        assertSame(evaluatorError, failure.getSuppressed()[0]);
         assertEquals(0, reports.get());
     }
 

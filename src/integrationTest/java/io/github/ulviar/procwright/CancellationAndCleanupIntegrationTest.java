@@ -4,6 +4,7 @@ package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -384,23 +385,24 @@ final class CancellationAndCleanupIntegrationTest extends OneShotCancellationInt
     }
 
     @Test
-    void postStartFailureStopsStartedProcessAndPreservesPrimaryException() throws Exception {
+    void postStartFailureStopsStartedProcessAndPreservesPrimaryCause() throws Exception {
         AtomicLong childPid = new AtomicLong(-1);
         IllegalStateException failure = new IllegalStateException("synthetic post-start failure");
 
         java.time.Instant started = java.time.Instant.now();
-        IllegalStateException exception;
+        CommandExecutionException exception;
         CommandService service = fixtureService(ProcessKernel.withPostStartHook(process -> {
             childPid.set(process.pid());
             throw failure;
         }));
-        exception = assertThrows(IllegalStateException.class, () -> service.run()
+        exception = assertThrows(CommandExecutionException.class, () -> service.run()
                 .withArgs("sleep", "--millis=5000", "--finished=false")
                 .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
                 .execute());
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
-        assertEquals(failure, exception);
+        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, exception.reason());
+        assertSame(failure, exception.getCause());
         assertTrue(childPid.get() > 0);
         assertFalse(ProcessHandle.of(childPid.get()).map(ProcessHandle::isAlive).orElse(false));
         assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
@@ -474,7 +476,10 @@ final class CancellationAndCleanupIntegrationTest extends OneShotCancellationInt
                         "cyclic post-start cleanup exceeded its composed budget: " + diagnostic, timeout);
             }
 
-            assertSame(primary, thrown);
+            CommandExecutionException commandFailure = assertInstanceOf(CommandExecutionException.class, thrown);
+            assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, commandFailure.reason());
+            assertSame(primary, commandFailure.getCause());
+            assertEquals(0, primary.getSuppressed().length);
             assertTrue(rootPid.get() > 0, "root pid was not captured");
             assertTrue(childPid.get() > 0, "descendant pid was not captured");
             assertProcessEventuallyStops(rootPid.get());

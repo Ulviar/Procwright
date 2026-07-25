@@ -43,7 +43,7 @@ final class DefaultPooledLineSessionTest {
                     throw startupFailure;
                 },
                 LineSessionSettings.defaults().withCharsetPolicy(CharsetPolicy.replace(encodingClock)),
-                WorkerPoolSettings.defaults(worker -> {}, worker -> true),
+                WorkerPoolSettings.defaults(),
                 clock::get);
         try {
             PooledLineSessionException failure =

@@ -6,7 +6,6 @@ import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.CommandInput;
 import io.github.ulviar.procwright.command.CommandResult;
-import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticListener;
@@ -24,7 +23,7 @@ public final class RunScenario {
     private RunScenario() {}
 
     static Draft draft(ScenarioRuntime runtime) {
-        return new ImmutableDraft(runtime, RunSettings.defaults(runtime.launchSettings()));
+        return new ImmutableDraft(runtime, RunSettings.defaults(runtime.commandSpec()));
     }
 
     /**
@@ -221,12 +220,12 @@ public final class RunScenario {
 
         @Override
         public Draft withInheritedEnvironment() {
-            return copy(settings.withLaunch(settings.launch().withEnvironmentPolicy(EnvironmentPolicy.INHERIT)));
+            return copy(settings.withLaunch(settings.launch().withInheritedEnvironment()));
         }
 
         @Override
         public Draft withCleanEnvironment() {
-            return copy(settings.withLaunch(settings.launch().withEnvironmentPolicy(EnvironmentPolicy.CLEAN)));
+            return copy(settings.withLaunch(settings.launch().withCleanEnvironment()));
         }
 
         @Override

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -22,12 +23,16 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderMalfunctionError;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -100,9 +105,7 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
                             return readers.stdout().readByte();
                         }
                     },
-                    ProtocolSessionSettings.defaults(),
-                    ZeroReadBackoff.exponential(),
-                    PumpStarter.threading());
+                    ProtocolSessionSettings.defaults());
             DefaultProtocolSession<String, Byte> activeProtocol = protocol;
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> activeProtocol.request("request")));
             assertTrue(responseReadStarted.await(1, TimeUnit.SECONDS));
@@ -216,14 +219,93 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
             ProtocolSessionException responseFailure = caughtFailure.get();
             assertSame(callbackError, current);
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
-            assertIdentitySuppressedOnce(callbackError, responseFailure);
             assertFailureGraphDoesNotContain(responseFailure, callbackError);
-            assertEquals(1, callbackError.getSuppressed().length);
+            assertEquals(0, callbackError.getSuppressed().length);
+            assertEquals(0, responseFailure.getSuppressed().length);
 
             AssertionError followUp = assertThrows(AssertionError.class, () -> protocol.request("retry"));
             assertSame(callbackError, followUp);
         } finally {
             protocol.close();
+        }
+    }
+
+    @Test
+    void callbackErrorLosingToConcurrentPumpErrorIsReportedSeparately() throws Exception {
+        AssertionError pumpError = new AssertionError("stdout pump failed");
+        AssertionError callbackError = new AssertionError("response callback failed");
+        GatedErrorInputStream stdout = new GatedErrorInputStream(pumpError);
+        CountDownLatch callbackStarted = new CountDownLatch(1);
+        CountDownLatch releaseCallback = new CountDownLatch(1);
+        ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
+            @Override
+            public void writeRequest(String request, ProtocolWriter writer) {
+                writer.flush();
+            }
+
+            @Override
+            public String readResponse(ProtocolReaders readers) {
+                callbackStarted.countDown();
+                awaitUninterruptibly(releaseCallback);
+                throw callbackError;
+            }
+        };
+        ControllableProcess process =
+                new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
+        List<Throwable> reported = new CopyOnWriteArrayList<>();
+        ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "protocol-callback-race-test");
+            thread.setUncaughtExceptionHandler((ignored, failure) -> reported.add(failure));
+            return thread;
+        });
+        DefaultProtocolSession<String, String> protocol = null;
+        try {
+            protocol = new DefaultProtocolSession<>(
+                    session(process),
+                    adapter,
+                    ProtocolSessionSettings.defaults(),
+                    ProtocolSessionTestDependencies.withCallbackRunner(new DirectProtocolCallbackRunner()));
+            DefaultProtocolSession<String, String> activeProtocol = protocol;
+            Future<Throwable> request = executor.submit(() -> captureFailure(() -> activeProtocol.request("request")));
+            assertTrue(callbackStarted.await(1, TimeUnit.SECONDS));
+
+            stdout.releaseFailure();
+            protocol.onExit().handle((ignored, failure) -> null).get(1, TimeUnit.SECONDS);
+            releaseCallback.countDown();
+
+            assertSame(pumpError, request.get(1, TimeUnit.SECONDS));
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(
+                    1,
+                    reported.stream()
+                            .filter(failure -> failure == callbackError)
+                            .count());
+        } finally {
+            releaseCallback.countDown();
+            if (protocol != null) {
+                protocol.close();
+            }
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+    }
+
+    private static final class DirectProtocolCallbackRunner implements DefaultProtocolSession.ProtocolCallbackRunner {
+
+        @Override
+        public <T> T run(
+                String threadPrefix,
+                long deadlineNanos,
+                BoundedTaskRunner.CancellationSignal cancellation,
+                BoundedTaskRunner.LateFailureHandler lateFailureHandler,
+                BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
+                BoundedTaskRunner.Task<T> task)
+                throws TimeoutException, InterruptedException, ExecutionException {
+            try {
+                return task.run();
+            } catch (Throwable failure) {
+                throw new ExecutionException(failure);
+            }
         }
     }
 

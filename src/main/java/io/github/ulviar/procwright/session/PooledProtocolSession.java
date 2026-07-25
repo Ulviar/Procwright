@@ -54,11 +54,13 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      *
      * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. The
      * returned future completes exceptionally with reason
-     * {@link PooledProtocolSessionException.Reason#WORKER_FAILED} when worker cleanup fails. Cancelling or completing
-     * the returned future does not cancel or alter internal cleanup. Repeated calls return independent views of the same
-     * terminal cleanup. One of 256 process-wide terminal slots is reserved during {@code open()}, so an accepted pool
-     * does not wait for terminal admission here. A blocking synchronous continuation attached before completion retains
-     * only this pool's slot: it cannot delay another accepted pool's close, but new pool openings fail with
+     * {@link PooledProtocolSessionException.Reason#WORKER_FAILED} when ordinary worker cleanup fails. A single cleanup
+     * {@link Error} is preserved by identity; multiple failures with an {@code Error} primary produce an {@code Error}
+     * aggregate whose cause is that primary. Cancelling or completing the returned future does not cancel or alter
+     * internal cleanup. Repeated calls return independent views of the same terminal cleanup. One of 256 process-wide
+     * terminal slots is reserved during {@code open()}, so an accepted pool does not wait for terminal admission here. A
+     * blocking synchronous continuation attached before completion retains only this pool's slot: it cannot delay
+     * another accepted pool's close, but new pool openings fail with
      * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED} while all slots remain occupied.
      *
      * @return cancellation-isolated close completion view
@@ -79,6 +81,8 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      *     the waiting thread is interrupted
      * @throws PooledProtocolSessionException with reason {@link PooledProtocolSessionException.Reason#WORKER_FAILED}
      *     when worker cleanup fails
+     * @throws Error when worker cleanup observes an {@code Error}; multiple cleanup failures may be represented by an
+     *     {@code Error} aggregate
      */
     @Override
     void close();

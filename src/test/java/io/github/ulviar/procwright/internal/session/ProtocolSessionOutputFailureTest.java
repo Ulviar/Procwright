@@ -91,7 +91,10 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
             return thread;
         };
         DefaultProtocolSession<String, String> protocolSession = new DefaultProtocolSession<>(
-                rawSession, noOpAdapter(), ProtocolSessionSettings.defaults(), ZeroReadBackoff.exponential(), starter);
+                rawSession,
+                noOpAdapter(),
+                ProtocolSessionSettings.defaults(),
+                ProtocolSessionTestDependencies.withPumpStarter(starter));
         try {
             assertTrue(stdout.awaitReadEntered());
 
@@ -113,11 +116,14 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
             ExecutionException cleanupFailure = assertThrows(
                     ExecutionException.class,
                     () -> rawSession.physicalOutputCleanup().get(1, TimeUnit.SECONDS));
-            assertSame(stdoutCloseFailure, cleanupFailure.getCause());
+            assertSame(stdoutCloseFailure, cleanupFailure.getCause().getCause());
+            assertEquals(
+                    java.util.List.of(stderrCloseFailure),
+                    java.util.List.of(cleanupFailure.getCause().getSuppressed()));
+            assertEquals(0, stdoutCloseFailure.getSuppressed().length);
+            assertEquals(0, stderrCloseFailure.getSuppressed().length);
 
-            assertIdentitySuppressedOnce(pumpError, stdoutCloseFailure);
-            assertIdentitySuppressedOnce(pumpError, stderrCloseFailure);
-            assertEquals(2, pumpError.getSuppressed().length);
+            assertEquals(0, pumpError.getSuppressed().length);
             AssertionError followUp = assertThrows(AssertionError.class, () -> protocolSession.request("after-close"));
             assertSame(pumpError, followUp);
         } finally {
@@ -270,7 +276,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
                 rawSession,
                 adapter,
                 ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofMillis(50)),
-                backoff);
+                ProtocolSessionTestDependencies.withBackoff(backoff));
         try {
             assertTrue(backoff.awaitEntered());
             assertEquals(1, stdout.reads(), "the pump must enter backoff before attempting another read");
@@ -332,8 +338,11 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), InputStream.nullInputStream(), stderr);
         DefaultSession rawSession = session(process);
-        DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, noOpAdapter(), ProtocolSessionSettings.defaults(), backoff);
+        DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
+                rawSession,
+                noOpAdapter(),
+                ProtocolSessionSettings.defaults(),
+                ProtocolSessionTestDependencies.withBackoff(backoff));
         try {
             assertTrue(backoff.awaitEntered());
             assertEquals(1, stderr.reads(), "the pump must enter backoff before attempting another read");

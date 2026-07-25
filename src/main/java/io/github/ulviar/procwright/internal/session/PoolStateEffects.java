@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.SuppressionSupport;
 import java.util.ArrayList;
 import java.util.Objects;
 
@@ -16,11 +15,10 @@ final class PoolStateEffects<S> implements AutoCloseable {
 
     private final WorkerPoolState<S> state;
     private final WorkerRetirementCoordinator<S> retirements;
+    private FailureAccumulator failures;
     private ArrayList<PoolWorker<S>> workersToRetire;
     private ArrayList<PoolLifecycleDispatcher.Admission> admissionsToRelease;
-    private PoolTermination.Publication publication;
-    private RuntimeException runtimeFailure;
-    private Error fatalFailure;
+    private PoolDrain.Publication publication;
     private boolean closed;
 
     PoolStateEffects(WorkerPoolState<S> state, WorkerRetirementCoordinator<S> retirements) {
@@ -54,7 +52,7 @@ final class PoolStateEffects<S> implements AutoCloseable {
         admissionsToRelease.add(admission);
     }
 
-    void publish(PoolTermination.Publication selected) {
+    void publish(PoolDrain.Publication selected) {
         requireOpen();
         if (selected == null) {
             return;
@@ -100,43 +98,28 @@ final class PoolStateEffects<S> implements AutoCloseable {
     }
 
     private void record(Throwable failure) {
-        if (failure instanceof Error error) {
-            if (fatalFailure == null) {
-                fatalFailure = error;
-            } else {
-                suppress(fatalFailure, error);
-            }
-        } else if (runtimeFailure == null) {
-            runtimeFailure = (RuntimeException) failure;
-        } else {
-            suppress(runtimeFailure, failure);
+        if (failures == null) {
+            failures = new FailureAccumulator();
         }
+        failures.add(failure);
     }
 
     private void throwRecordedFailure() {
-        if (fatalFailure != null) {
-            suppress(fatalFailure, runtimeFailure);
-            throw fatalFailure;
+        if (failures == null) {
+            return;
         }
-        if (runtimeFailure != null) {
-            throw runtimeFailure;
+        Throwable failure = failures.aggregateErrorFirst("Multiple pool state effects failed");
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        if (failure != null) {
+            throw (RuntimeException) failure;
         }
     }
 
     private void requireOpen() {
         if (closed) {
             throw new IllegalStateException("pool state effects are already closed");
-        }
-    }
-
-    private static void suppress(Throwable primary, Throwable secondary) {
-        if (secondary == null || primary == secondary) {
-            return;
-        }
-        try {
-            SuppressionSupport.attach(primary, secondary);
-        } catch (RuntimeException | Error ignored) {
-            // Cleanup must continue even when optional failure bookkeeping is unavailable.
         }
     }
 }

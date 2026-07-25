@@ -135,8 +135,8 @@ final class ShutdownTreeStateTest extends ProcessLifecycleSharedSupport {
 
         state.initialize(KnownDescendants.empty(), Duration.ofSeconds(1));
 
-        AssertionError actual = assertThrows(AssertionError.class, failures::rethrowIfPresent);
-        assertSame(expected, actual);
+        Error actual = assertThrows(Error.class, failures::rethrowIfPresent);
+        assertTrue(failureSources(actual).contains(expected));
     }
 
     @Test
@@ -150,8 +150,8 @@ final class ShutdownTreeStateTest extends ProcessLifecycleSharedSupport {
         state.initialize(KnownDescendants.empty(), Duration.ofSeconds(1));
 
         assertEquals(List.of(observed), state.takeAllDescendants());
-        AssertionError actual = assertThrows(AssertionError.class, failures::rethrowIfPresent);
-        assertSame(expected, actual);
+        Error actual = assertThrows(Error.class, failures::rethrowIfPresent);
+        assertTrue(failureSources(actual).contains(expected));
     }
 
     @Test

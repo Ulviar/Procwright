@@ -99,7 +99,7 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
                 () -> ProcessLifecycle.stop(
                         process, ShutdownPolicy.interruptThenKill(Duration.ofMillis(100), Duration.ofMillis(100))));
 
-        assertTrue(failure.getMessage().contains("discovery did not complete"));
+        failureSourceContaining(failure, "discovery did not complete");
         assertFalse(process.isAlive());
         assertEquals(1, process.destroyCalls());
         assertEquals(0, process.forceDestroyCalls());
@@ -112,7 +112,7 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
         CommandExecutionException failure = assertThrows(
                 CommandExecutionException.class, () -> ProcessLifecycle.forceStop(process, Duration.ofMillis(100)));
 
-        assertTrue(failure.getMessage().contains("discovery did not complete"));
+        failureSourceContaining(failure, "discovery did not complete");
         assertFalse(process.isAlive());
         assertEquals(0, process.destroyCalls());
         assertEquals(1, process.forceDestroyCalls());
@@ -123,10 +123,10 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
         AssertionError expected = new AssertionError("fatal discovery after prefix");
         FatalPrefixProcess process = new FatalPrefixProcess(expected);
 
-        AssertionError actual =
-                assertThrows(AssertionError.class, () -> ProcessLifecycle.forceStop(process, Duration.ofMillis(100)));
+        Error actual = assertThrows(Error.class, () -> ProcessLifecycle.forceStop(process, Duration.ofMillis(100)));
 
-        assertSame(expected, actual);
+        assertSame(expected, actual.getCause());
+        assertTrue(failureSources(actual).contains(expected));
         assertFalse(process.isAlive());
         assertFalse(process.descendant().isAlive());
         assertEquals(1, process.descendant().forceDestroyCalls());
@@ -149,12 +149,13 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
             }
         };
 
-        AssertionError actual = assertThrows(
-                AssertionError.class,
+        Error actual = assertThrows(
+                Error.class,
                 () -> ProcessLifecycle.forceStop(
                         new CompletedProcess(), knownDescendants(firstRoot, failingRoot), Duration.ofMillis(100)));
 
-        assertSame(expected, actual);
+        assertSame(expected, actual.getCause());
+        assertTrue(failureSources(actual).contains(expected));
         assertFalse(child.isAlive());
         assertEquals(1, child.forceDestroyCalls());
     }
@@ -174,14 +175,14 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
                 CommandExecutionException.class,
                 () -> ProcessLifecycle.stop(
                         graceful, ShutdownPolicy.interruptThenKill(Duration.ofMillis(100), Duration.ofMillis(100))));
-        assertTrue(gracefulFailure.getMessage().contains("discovery did not complete"));
+        failureSourceContaining(gracefulFailure, "discovery did not complete");
         assertFalse(graceful.isAlive());
         assertEquals(1, graceful.destroyCalls());
 
         SecurityRestrictedProcess forceful = new SecurityRestrictedProcess(enumerationFailure);
         CommandExecutionException forcefulFailure = assertThrows(
                 CommandExecutionException.class, () -> ProcessLifecycle.forceStop(forceful, Duration.ofMillis(100)));
-        assertTrue(forcefulFailure.getMessage().contains("discovery did not complete"));
+        failureSourceContaining(forcefulFailure, "discovery did not complete");
         assertFalse(forceful.isAlive());
         assertEquals(1, forceful.forceDestroyCalls());
     }
@@ -194,7 +195,7 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
                 CommandExecutionException.class,
                 () -> ProcessLifecycle.forceStop(new CompletedProcess(), unavailable, Duration.ofMillis(100)));
 
-        assertTrue(failure.getMessage().contains("discovery did not complete"));
+        failureSourceContaining(failure, "discovery did not complete");
     }
 
     @Test
@@ -286,7 +287,7 @@ final class ProcessLifecycleProcessTreeDiscoveryAndShutdownTest
                 CommandExecutionException.class,
                 () -> ProcessLifecycle.forceStop(process, knownDescendants(known), Duration.ofSeconds(2)));
 
-        assertTrue(failure.getMessage().contains("bounded descendant limit"));
+        failureSourceContaining(failure, "bounded descendant limit");
         assertEquals(0, process.overflow().forceDestroyCalls());
     }
 

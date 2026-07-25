@@ -62,8 +62,4 @@ public record CommandEcho(
     public static CommandEcho empty() {
         return EMPTY;
     }
-
-    String redactedSummary() {
-        return "executable=" + executable + ", argumentCount=" + argumentCount;
-    }
 }

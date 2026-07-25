@@ -2,9 +2,9 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static io.github.ulviar.procwright.internal.session.ProtocolResponseReaderCharsetFixtures.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -18,6 +18,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.OptionalInt;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -103,9 +107,8 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
         ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> reader.readLine(1));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
-        assertEquals(1, failure.getSuppressed().length);
-        ProtocolSessionException terminal =
-                assertInstanceOf(ProtocolSessionException.class, failure.getSuppressed()[0]);
+        assertEquals(0, failure.getSuppressed().length);
+        ProtocolSessionException terminal = assertThrows(ProtocolSessionException.class, () -> reader.readLine(1));
         assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, terminal.reason());
         assertSame(terminalCause, terminal.getCause());
     }
@@ -152,8 +155,8 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
                 .withMaxResponseChars(2_000_000);
         ProtocolSessionSettings maximum = options.withMaxResponseChars(Integer.MAX_VALUE);
 
-        assertEquals(2_000_001, ProtocolResponseReader.outputWithoutInputLimit(options));
-        assertEquals(Integer.MAX_VALUE, ProtocolResponseReader.outputWithoutInputLimit(maximum));
+        assertEquals(2_000_001, ProtocolTextReader.outputWithoutInputLimit(options));
+        assertEquals(Integer.MAX_VALUE, ProtocolTextReader.outputWithoutInputLimit(maximum));
     }
 
     @Test
@@ -323,8 +326,8 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
                 .withOutputBacklogLimit(frame.length);
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
                 options.charsetPolicy(),
-                ProtocolResponseReader.pendingByteLimit(options),
-                ProtocolResponseReader.outputWithoutInputLimit(options),
+                ProtocolTextReader.pendingByteLimit(options),
+                ProtocolTextReader.outputWithoutInputLimit(options),
                 length -> {
                     stagingAllocations.incrementAndGet();
                     return new char[length];
@@ -411,8 +414,37 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
         AssertionError observed = assertThrows(AssertionError.class, () -> reader.readTextUntil((byte) '|', 2));
 
         assertSame(fatal, observed);
-        assertEquals(1, fatal.getSuppressed().length);
-        ProtocolSessionException terminal = assertInstanceOf(ProtocolSessionException.class, fatal.getSuppressed()[0]);
+        assertEquals(0, fatal.getSuppressed().length);
+        ProtocolSessionException terminal =
+                assertThrows(ProtocolSessionException.class, () -> reader.readTextUntil((byte) '|', 2));
+        assertSame(terminalCause, terminal.getCause());
+    }
+
+    @Test
+    void decoderFailureDoesNotWaitForTheTerminalFailureMonitorDuringWindowCommit() throws Exception {
+        ProtocolOutputQueue queue = new ProtocolOutputQueue(2, ProtocolOutputQueue.OverflowPolicy.STRICT);
+        AssertionError decoderFailure = new AssertionError("fatal decoder failure");
+        IllegalStateException terminalCause = new IllegalStateException("terminal output failure");
+        CharsetPolicy policy = CharsetPolicy.report(new FatalTerminalRaceCharset(() -> {
+            queue.failAndClear(ProtocolSessionException.Reason.DECODE_ERROR, terminalCause);
+            throw decoderFailure;
+        }));
+        queue.offer(new byte[] {1, '|'});
+        ProtocolResponseReader reader = reader(queue, 2, 2, Duration.ofSeconds(2), policy);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (var monitor = hold(decoderFailure)) {
+            monitor.verifyHeld();
+            Future<Throwable> outcome = executor.submit(
+                    () -> assertThrows(AssertionError.class, () -> reader.readTextUntil((byte) '|', 2)));
+
+            assertSame(decoderFailure, outcome.get(1, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+        assertEquals(0, decoderFailure.getSuppressed().length);
+        ProtocolSessionException terminal =
+                assertThrows(ProtocolSessionException.class, () -> reader.readTextUntil((byte) '|', 2));
         assertSame(terminalCause, terminal.getCause());
     }
 

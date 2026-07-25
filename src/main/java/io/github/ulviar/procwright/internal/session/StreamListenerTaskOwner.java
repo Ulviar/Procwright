@@ -142,26 +142,17 @@ final class StreamListenerTaskOwner implements BoundedTaskRunner.TaskStarter, Au
         notifyAll();
     }
 
-    boolean awaitStopped(Duration timeout) throws InterruptedException {
-        Objects.requireNonNull(timeout, "timeout");
-        if (timeout.isNegative()) {
-            throw new IllegalArgumentException("timeout must not be negative");
+    synchronized boolean awaitStopped(Duration timeout) throws InterruptedException {
+        Duration checkedTimeout = DurationSupport.requireNonNegative(timeout, "timeout");
+        long deadlineNanos = DurationSupport.deadlineFromNow(checkedTimeout);
+        while (owner != null && owner != Thread.currentThread()) {
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0) {
+                return false;
+            }
+            TimeUnit.NANOSECONDS.timedWait(this, remainingNanos);
         }
-        Thread currentOwner;
-        synchronized (this) {
-            currentOwner = owner;
-        }
-        if (currentOwner == null || currentOwner == Thread.currentThread()) {
-            return currentOwner == null || !currentOwner.isAlive();
-        }
-        long timeoutNanos = DurationSupport.saturatedNanos(timeout);
-        if (timeoutNanos <= 0) {
-            return !currentOwner.isAlive();
-        }
-        long timeoutMillis = TimeUnit.NANOSECONDS.toMillis(timeoutNanos);
-        int remainderNanos = (int) (timeoutNanos - TimeUnit.MILLISECONDS.toNanos(timeoutMillis));
-        currentOwner.join(timeoutMillis, remainderNanos);
-        return !currentOwner.isAlive();
+        return owner == null || !owner.isAlive();
     }
 
     @FunctionalInterface

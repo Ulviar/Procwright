@@ -16,7 +16,7 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.LaunchMode;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.SessionExecutionPlan;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
@@ -28,7 +28,6 @@ import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import io.github.ulviar.procwright.terminal.TerminalSize;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -45,8 +44,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
@@ -102,9 +99,7 @@ final class DefaultStreamSessionTest {
                 session(process),
                 plan(chunk -> {}),
                 diagnostics(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                () -> nanoTime.getAndSet(50));
+                StreamSessionTestDependencies.withNanoTime(() -> nanoTime.getAndSet(50)));
         try {
             process.complete(0);
 
@@ -391,7 +386,10 @@ final class DefaultStreamSessionTest {
                 "stream-late-session-failure-test",
                 CommandEcho.empty());
         DefaultStreamSession stream = new DefaultStreamSession(
-                session(process), plan(chunk -> {}), eventDiagnostics, ZeroReadBackoff.exponential(), pumpStarter);
+                session(process),
+                plan(chunk -> {}),
+                eventDiagnostics,
+                StreamSessionTestDependencies.withPumpStarter(pumpStarter));
         CompletableFuture<StreamExit> observedExit = stream.onExit();
         AtomicInteger exitCompletions = new AtomicInteger();
         CompletableFuture<StreamExit> observedExitContinuation =
@@ -439,7 +437,7 @@ final class DefaultStreamSessionTest {
             assertEquals(control == ControlAction.CLOSE, result.closed());
             assertTrue(result.exitCode().isEmpty());
             assertEquals(1, exitCompletions.get());
-            assertSame(expected, controlTask.get(1, TimeUnit.SECONDS));
+            assertTrue(retainsDirectFailure(controlTask.get(1, TimeUnit.SECONDS), expected));
 
             releaseLateReport.countDown();
             assertTrue(eventually(() -> stdout.closeCalls() == 1 && stderr.closeCalls() == 1));
@@ -477,13 +475,20 @@ final class DefaultStreamSessionTest {
 
     private static void assertLateReport(NestedFailureKind kind, Throwable expected, Throwable reported) {
         if (kind == NestedFailureKind.ERROR) {
-            assertSame(expected, reported);
+            assertTrue(FailureAggregation.sources(reported).contains(expected));
             return;
         }
         assertTrue(reported instanceof StreamException);
         StreamException streamFailure = (StreamException) reported;
         assertEquals(StreamException.Reason.PROCESS_FAILED, streamFailure.reason());
-        assertSame(expected, streamFailure.getCause());
+        assertTrue(retainsDirectFailure(streamFailure.getCause(), expected));
+    }
+
+    private static boolean retainsDirectFailure(Throwable container, Throwable expected) {
+        return container == expected
+                || container.getCause() == expected
+                || FailureAggregation.sources(container).contains(expected)
+                || java.util.Arrays.asList(container.getSuppressed()).contains(expected);
     }
 
     private static Throwable captureFailure(Runnable action) {
@@ -516,8 +521,6 @@ final class DefaultStreamSessionTest {
         AtomicInteger maxActiveCallbacks = new AtomicInteger();
         AtomicReference<StreamSource> firstSource = new AtomicReference<>();
         AtomicReference<StreamSource> secondSource = new AtomicReference<>();
-        AtomicReference<DefaultStreamSession> openedSession = new AtomicReference<>();
-        AtomicBoolean firstCallbackHeldDeliveryLock = new AtomicBoolean();
 
         DefaultSession rawSession = session(process);
         DefaultStreamSession stream = new DefaultStreamSession(
@@ -529,8 +532,6 @@ final class DefaultStreamSessionTest {
                     try {
                         if (entry == 1) {
                             firstSource.set(chunk.source());
-                            firstCallbackHeldDeliveryLock.set(
-                                    deliveryLock(openedSession.get()).isHeldByCurrentThread());
                             firstCallbackEntered.countDown();
                             awaitUninterruptibly(releaseFirstCallback);
                         } else {
@@ -543,7 +544,6 @@ final class DefaultStreamSessionTest {
                     }
                 }),
                 diagnostics());
-        openedSession.set(stream);
 
         try {
             assertTrue(stdout.awaitReadStarted());
@@ -552,15 +552,9 @@ final class DefaultStreamSessionTest {
             stdout.release();
             assertTrue(firstCallbackEntered.await(1, TimeUnit.SECONDS));
             assertEquals(StreamSource.STDOUT, firstSource.get());
-            assertFalse(firstCallbackHeldDeliveryLock.get(), "user callbacks must not own terminal coordination state");
 
             stderr.release();
             assertTrue(stderr.awaitChunkReturned());
-            assertTrue(
-                    awaitQueuedAtDeliveryBoundary(deliveryLock(stream), stderr.readerThread()),
-                    "stderr pump did not reach the shared delivery lock");
-            assertEquals(1L, secondCallbackEntered.getCount(), "stderr callback entered while stdout held the lock");
-            assertEquals(1, maxActiveCallbacks.get());
 
             releaseFirstCallback.countDown();
             assertTrue(secondCallbackEntered.await(1, TimeUnit.SECONDS));
@@ -580,20 +574,6 @@ final class DefaultStreamSessionTest {
             process.complete(0);
             stream.close();
         }
-    }
-
-    private static boolean awaitQueuedAtDeliveryBoundary(ReentrantLock lock, Thread pump) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        while (!lock.hasQueuedThread(pump)) {
-            if (!pump.isAlive() || deadline - System.nanoTime() <= 0) {
-                return false;
-            }
-            LockSupport.parkNanos(100_000L);
-            if (Thread.interrupted()) {
-                throw new InterruptedException("interrupted while observing the delivery boundary");
-            }
-        }
-        return true;
     }
 
     private static int count(List<DiagnosticEvent> events, DiagnosticEventType type) {
@@ -621,16 +601,6 @@ final class DefaultStreamSessionTest {
             Thread.sleep(5);
         }
         return true;
-    }
-
-    private static ReentrantLock deliveryLock(DefaultStreamSession stream) {
-        try {
-            Field field = DefaultStreamSession.class.getDeclaredField("deliveryLock");
-            assertTrue(field.trySetAccessible());
-            return (ReentrantLock) field.get(stream);
-        } catch (ReflectiveOperationException failure) {
-            throw new AssertionError("could not inspect the stream delivery boundary", failure);
-        }
     }
 
     private static DefaultSession session(Process process) {
@@ -678,7 +648,6 @@ final class DefaultStreamSessionTest {
     private static StreamExecutionPlan plan(
             io.github.ulviar.procwright.session.StreamListener listener, Duration timeout) {
         LaunchPlan launchPlan = new LaunchPlan(
-                LaunchMode.DIRECT,
                 List.of("stub"),
                 Optional.empty(),
                 EnvironmentPolicy.INHERIT,

@@ -2,11 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import java.util.Collections;
-import java.util.IdentityHashMap;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -17,17 +16,14 @@ import java.util.concurrent.CompletableFuture;
  */
 final class PoolTermination {
 
-    private final ConstructionLedger construction = new ConstructionLedger();
-    private final WorkerCloseFailureAccumulator failures = new WorkerCloseFailureAccumulator();
-    private final Set<Throwable> observedFailures = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final ArrayDeque<FailureReport> constructionReports = new ArrayDeque<>();
+    private final FailureAccumulator failures = new FailureAccumulator();
     private final PoolDrain drain;
-    private final Publication publication;
+    private ConstructionPhase construction = ConstructionPhase.CONSTRUCTING;
     private boolean closing;
-    private boolean drainClaimed;
 
     PoolTermination(PoolTerminalPublisher publisher) {
         drain = new PoolDrain(Objects.requireNonNull(publisher, "publisher"));
-        publication = new Publication(drain);
     }
 
     boolean closing() {
@@ -36,101 +32,99 @@ final class PoolTermination {
 
     FailureDisposition beginClosing(Throwable failure) {
         closing = true;
-        if (failure == null || !observedFailures.add(failure)) {
+        if (!failures.add(failure)) {
             return FailureDisposition.NONE;
         }
-        if (drainClaimed) {
+        if (drain.claimed()) {
             return FailureDisposition.LATE;
         }
-        failures.add(failure);
         return FailureDisposition.TERMINAL;
     }
 
     ConstructionResult finishConstruction() {
+        requireConstructing();
         if (closing) {
-            return new ConstructionResult(false, List.of(), failures.failure());
+            construction = ConstructionPhase.FAILED;
+            return new ConstructionFailed(
+                    failures.aggregateErrorFirst("Multiple failures occurred while constructing the pool"),
+                    drainConstructionReports());
         }
-        return new ConstructionResult(true, construction.commit(), null);
+        construction = ConstructionPhase.COMMITTED;
+        return new ConstructionSucceeded(drainConstructionReports());
     }
 
     List<FailureReport> failConstruction() {
-        return construction.fail();
+        if (construction == ConstructionPhase.CONSTRUCTING) {
+            construction = ConstructionPhase.FAILED;
+            return drainConstructionReports();
+        }
+        if (construction == ConstructionPhase.FAILED) {
+            return List.of();
+        }
+        throw new IllegalStateException("committed construction cannot fail");
     }
 
     FailureReport routeLateFailure(FailureReport report) {
-        return construction.route(Objects.requireNonNull(report, "report"));
+        FailureReport observed = Objects.requireNonNull(report, "report");
+        if (construction == ConstructionPhase.CONSTRUCTING) {
+            constructionReports.addLast(observed);
+            return null;
+        }
+        return observed;
     }
 
     FailureReport routeWorkerCloseFailure(FailureReport report) {
         FailureReport observed = Objects.requireNonNull(report, "report");
-        if (construction.constructing()) {
-            construction.record(observed);
+        if (construction == ConstructionPhase.CONSTRUCTING) {
+            constructionReports.addLast(observed);
             return null;
         }
-        return construction.failed() ? observed : null;
+        return construction == ConstructionPhase.FAILED ? observed : null;
     }
 
-    Publication claimDrainIfReady(int liveWorkers) {
+    PoolDrain.Publication claimDrainIfReady(int liveWorkers) {
         if (liveWorkers < 0) {
             throw new IllegalArgumentException("liveWorkers must not be negative");
         }
-        if (!closing || liveWorkers != 0 || !drain.tryClaim()) {
+        if (!closing || liveWorkers != 0) {
             return null;
         }
-        drainClaimed = true;
-        publication.prepare(failures.failure());
-        return publication;
+        return drain.claim(failures.aggregateErrorFirst("Multiple failures occurred while closing the pool"));
     }
 
     CompletableFuture<Void> view() {
         return drain.view();
     }
 
-    void publish(Publication publication) {
-        PoolTermination.Publication claimed = Objects.requireNonNull(publication, "publication");
-        if (claimed != this.publication) {
-            throw new IllegalArgumentException("terminal publication belongs to another pool");
-        }
-        claimed.publish();
+    void publish(PoolDrain.Publication publication) {
+        Objects.requireNonNull(publication, "publication").publish();
     }
 
-    record ConstructionResult(boolean successful, List<FailureReport> reports, Throwable failure) {
+    private List<FailureReport> drainConstructionReports() {
+        List<FailureReport> reports = new ArrayList<>(constructionReports);
+        constructionReports.clear();
+        return List.copyOf(reports);
+    }
 
-        ConstructionResult {
+    private void requireConstructing() {
+        if (construction != ConstructionPhase.CONSTRUCTING) {
+            throw new IllegalStateException("pool construction is already resolved");
+        }
+    }
+
+    sealed interface ConstructionResult permits ConstructionSucceeded, ConstructionFailed {}
+
+    record ConstructionSucceeded(List<FailureReport> reports) implements ConstructionResult {
+
+        ConstructionSucceeded {
             reports = List.copyOf(reports);
-            if (successful && failure != null) {
-                throw new IllegalArgumentException("successful construction cannot carry a failure");
-            }
         }
     }
 
-    static final class Publication {
+    record ConstructionFailed(Throwable failure, List<FailureReport> reports) implements ConstructionResult {
 
-        private final PoolDrain drain;
-        private Throwable failure;
-        private boolean prepared;
-
-        private Publication(PoolDrain drain) {
-            this.drain = Objects.requireNonNull(drain, "drain");
-        }
-
-        Throwable failure() {
-            if (!prepared) {
-                throw new IllegalStateException("terminal publication is not prepared");
-            }
-            return failure;
-        }
-
-        private void prepare(Throwable selectedFailure) {
-            if (prepared) {
-                throw new IllegalStateException("terminal publication is already prepared");
-            }
-            failure = selectedFailure;
-            prepared = true;
-        }
-
-        private void publish() {
-            drain.publish(failure());
+        ConstructionFailed {
+            reports = List.copyOf(reports);
         }
     }
 
@@ -138,5 +132,11 @@ final class PoolTermination {
         NONE,
         TERMINAL,
         LATE
+    }
+
+    private enum ConstructionPhase {
+        CONSTRUCTING,
+        COMMITTED,
+        FAILED
     }
 }

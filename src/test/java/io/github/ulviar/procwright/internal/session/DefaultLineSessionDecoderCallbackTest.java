@@ -123,11 +123,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
         DefaultLineSession lineSession = new DefaultLineSession(
                 session(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
                 LineSessionSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                (limiter, threadPrefix, deadlineNanos, handoff, task) ->
-                        BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task),
-                () -> nanoTime.getAndSet(50));
+                LineSessionTestDependencies.withNanoTime(() -> nanoTime.getAndSet(50)));
         try {
             LineResponse response = lineSession.request("request", Duration.ofSeconds(1));
 

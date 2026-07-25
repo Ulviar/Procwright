@@ -8,13 +8,11 @@ import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DurationSupport;
+import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
-import io.github.ulviar.procwright.internal.SuppressionSupport;
-import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.StreamChunk;
 import io.github.ulviar.procwright.session.StreamException;
 import io.github.ulviar.procwright.session.StreamExit;
-import io.github.ulviar.procwright.session.StreamListener;
 import io.github.ulviar.procwright.session.StreamSession;
 import io.github.ulviar.procwright.session.StreamSource;
 import io.github.ulviar.procwright.session.StreamTranscript;
@@ -27,11 +25,8 @@ import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 
 /**
@@ -43,14 +38,12 @@ import java.util.function.LongSupplier;
 public final class DefaultStreamSession implements StreamSession {
 
     private static final String OUTPUT_OWNER = "StreamSession";
-    private static final int ZERO_READ_BACKOFF_STEPS = 8;
 
     private final DefaultSession session;
     private final Duration timeout;
-    private final CharsetPolicy charsetPolicy;
-    private final ZeroReadBackoff zeroReadBackoff;
     private final OutputPumpCoordinator outputPumps;
-    private final StreamListener listener;
+    private final StreamOutputReader outputReader;
+    private final StreamListenerDispatcher listenerDispatcher;
     private final DiagnosticEmitter eventDiagnostics;
     private final BoundedTranscriptBuffer diagnostics;
     private final LongSupplier nanoTime;
@@ -58,43 +51,27 @@ public final class DefaultStreamSession implements StreamSession {
     private final CompletableFuture<StreamExit> exit = new CompletableFuture<>();
     private final BoundedLifecyclePublisher.Permit exitPublication;
     private final StreamSessionState state = new StreamSessionState(2);
-    private final AtomicBoolean truncationEmitted = new AtomicBoolean();
-    private final ReentrantLock deliveryLock = new ReentrantLock();
-    private final BoundedTaskRunner.CancellationSignal listenerCancellation =
-            new BoundedTaskRunner.CancellationSignal();
-    private final StreamListenerTaskOwner listenerOwner = new StreamListenerTaskOwner();
-    private final AtomicReference<Thread> timeoutWatcher = new AtomicReference<>();
-    private final CompletableFuture<Void> timeoutWatcherStopped = new CompletableFuture<>();
+    private final StreamTimeoutWatcher timeoutWatcher = new StreamTimeoutWatcher();
 
     DefaultStreamSession(DefaultSession session, StreamExecutionPlan plan, DiagnosticEmitter eventDiagnostics) {
-        this(session, plan, eventDiagnostics, ZeroReadBackoff.exponential(), PumpStarter.threading(), System::nanoTime);
+        this(session, plan, eventDiagnostics, Dependencies.defaults());
     }
 
     DefaultStreamSession(
             DefaultSession session,
             StreamExecutionPlan plan,
             DiagnosticEmitter eventDiagnostics,
-            ZeroReadBackoff zeroReadBackoff,
-            PumpStarter pumpStarter) {
-        this(session, plan, eventDiagnostics, zeroReadBackoff, pumpStarter, System::nanoTime);
-    }
-
-    DefaultStreamSession(
-            DefaultSession session,
-            StreamExecutionPlan plan,
-            DiagnosticEmitter eventDiagnostics,
-            ZeroReadBackoff zeroReadBackoff,
-            PumpStarter pumpStarter,
-            LongSupplier nanoTime) {
+            Dependencies dependencies) {
         this.session = Objects.requireNonNull(session, "session");
         Objects.requireNonNull(plan, "plan");
+        Dependencies runtime = Objects.requireNonNull(dependencies, "dependencies");
         this.timeout = plan.timeout();
-        this.charsetPolicy = CharsetPolicy.replace(plan.sessionPlan().charset());
-        this.zeroReadBackoff = Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
         this.outputPumps = new OutputPumpCoordinator(session, OUTPUT_OWNER);
-        this.listener = plan.listener();
+        this.outputReader = new StreamOutputReader(
+                CharsetPolicy.replace(plan.sessionPlan().charset()), plan.diagnosticLimit(), runtime.zeroReadBackoff());
+        this.listenerDispatcher = new StreamListenerDispatcher(plan.listener());
         this.eventDiagnostics = Objects.requireNonNull(eventDiagnostics, "eventDiagnostics");
-        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
+        this.nanoTime = runtime.nanoTime();
         this.startedNanos = nanoTime.getAsLong();
         this.diagnostics = new BoundedTranscriptBuffer(plan.diagnosticLimit());
         BoundedLifecyclePublisher.Reservation publicationReservation =
@@ -102,7 +79,7 @@ public final class DefaultStreamSession implements StreamSession {
         this.exitPublication = publicationReservation.takePermit();
         boolean pumpsCommitted = false;
         try {
-            startPumps(Objects.requireNonNull(pumpStarter, "pumpStarter"));
+            startPumps(runtime.pumpStarter());
             pumpsCommitted = true;
             startTimeoutWatcher();
             startExitWatcher();
@@ -137,7 +114,7 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     CompletableFuture<Void> timeoutWatcherStopped() {
-        return timeoutWatcherStopped.copy();
+        return timeoutWatcher.stopped();
     }
 
     CompletableFuture<Void> physicalOutputCleanup() {
@@ -176,40 +153,12 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private void pump(StreamSource source, InputStream stream) {
-        IncrementalTextDecoder decoder = null;
         AtomicReference<Throwable> lateFailure = new AtomicReference<>();
-        try (stream) {
-            int configuredLimit = diagnostics.limit();
-            decoder = new IncrementalTextDecoder(
-                    charsetPolicy,
-                    IncrementalTextDecoder.pendingByteLimitFor(configuredLimit),
-                    IncrementalTextDecoder.outputWithoutInputLimitFor(configuredLimit));
-            IncrementalTextDecoder activeDecoder = decoder;
-            IncrementalTextDecoder.Sink sink =
-                    (chars, count) -> recordLate(lateFailure, publishDecoded(source, chars, count));
-            byte[] buffer = new byte[1024];
-            int consecutiveZeroReads = 0;
-            while (!state.stopping()) {
-                int count = stream.read(buffer);
-                if (count < 0) {
-                    break;
-                }
-                if (count == 0) {
-                    consecutiveZeroReads = Math.min(consecutiveZeroReads + 1, ZERO_READ_BACKOFF_STEPS);
-                    if (!zeroReadBackoff.pause(consecutiveZeroReads, state::stopping)) {
-                        return;
-                    }
-                    continue;
-                }
-                consecutiveZeroReads = 0;
-                if (state.stopping()) {
-                    return;
-                }
-                activeDecoder.decode(buffer, count, sink);
-            }
-            if (!state.stopping()) {
-                activeDecoder.end(sink);
-            }
+        try {
+            outputReader.read(
+                    stream,
+                    state::stopping,
+                    (chars, count) -> recordLate(lateFailure, publishDecoded(source, chars, count)));
         } catch (IOException exception) {
             if (!isControlledStop()) {
                 recordLate(lateFailure, failOutputRead(exception));
@@ -224,7 +173,7 @@ public final class DefaultStreamSession implements StreamSession {
             recordLate(lateFailure, failFatal(error));
         } finally {
             if (state.outputPumpCompleted()) {
-                listenerOwner.close();
+                listenerDispatcher.stop();
                 maybeComplete();
             }
             reportLate(lateFailure.get());
@@ -237,7 +186,7 @@ public final class DefaultStreamSession implements StreamSession {
         }
         String text = new String(chars, 0, count);
         boolean truncated = diagnostics.appendStream(source.label(), text);
-        if (truncated && truncationEmitted.compareAndSet(false, true)) {
+        if (truncated) {
             eventDiagnostics.emit(
                     DiagnosticEventType.OUTPUT_TRUNCATED,
                     DiagnosticEmitter.attributes(
@@ -251,54 +200,34 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private Throwable deliver(StreamChunk chunk) {
-        deliveryLock.lock();
         try {
-            if (state.stopping() || state.hasOutcome()) {
+            listenerDispatcher.deliver(chunk, () -> !state.stopping() && !state.hasOutcome(), this::reportLate);
+            return null;
+        } catch (InterruptedException interruption) {
+            Thread.currentThread().interrupt();
+            if (isControlledStop()) {
                 return null;
             }
-            try {
-                BoundedTaskRunner.runReportingLateFailure(
-                        BoundedTaskLimits.STREAM_LISTENERS,
-                        "procwright-stream-listener-",
-                        Long.MAX_VALUE,
-                        listenerCancellation,
-                        this::reportLate,
-                        listenerOwner,
-                        () -> {
-                            listener.onChunk(chunk);
-                            return null;
-                        });
-                return null;
-            } catch (BoundedTaskRunner.TaskCancelledException cancelled) {
-                return null;
-            } catch (InterruptedException interruption) {
-                Thread.currentThread().interrupt();
-                if (isControlledStop()) {
-                    return null;
-                }
-                return recordFailure(
-                        StreamException.Reason.LISTENER_FAILED,
-                        "Interrupted while delivering streaming output",
-                        interruption);
-            } catch (TimeoutException timeoutFailure) {
-                return recordFailure(
-                        StreamException.Reason.LISTENER_FAILED,
-                        "Streaming listener capacity was unavailable",
-                        timeoutFailure);
-            } catch (ExecutionException listenerFailure) {
-                Throwable cause = listenerFailure.getCause();
-                if (cause instanceof Error error) {
-                    return failFatal(error);
-                }
-                return recordFailure(StreamException.Reason.LISTENER_FAILED, "Streaming listener failed", cause);
-            } catch (RuntimeException failure) {
-                return recordFailure(
-                        StreamException.Reason.LISTENER_FAILED, "Could not invoke streaming listener", failure);
-            } catch (Error error) {
+            return recordFailure(
+                    StreamException.Reason.LISTENER_FAILED,
+                    "Interrupted while delivering streaming output",
+                    interruption);
+        } catch (TimeoutException timeoutFailure) {
+            return recordFailure(
+                    StreamException.Reason.LISTENER_FAILED,
+                    "Streaming listener capacity was unavailable",
+                    timeoutFailure);
+        } catch (ExecutionException listenerFailure) {
+            Throwable cause = listenerFailure.getCause();
+            if (cause instanceof Error error) {
                 return failFatal(error);
             }
-        } finally {
-            deliveryLock.unlock();
+            return recordFailure(StreamException.Reason.LISTENER_FAILED, "Streaming listener failed", cause);
+        } catch (RuntimeException failure) {
+            return recordFailure(
+                    StreamException.Reason.LISTENER_FAILED, "Could not invoke streaming listener", failure);
+        } catch (Error error) {
+            return failFatal(error);
         }
     }
 
@@ -321,33 +250,7 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private void startTimeoutWatcher() {
-        if (timeout.isZero()) {
-            timeoutWatcherStopped.complete(null);
-            return;
-        }
-        Thread watcher = Threading.unstarted("procwright-stream-timeout-", () -> {
-            boolean expired = false;
-            try {
-                expired = sleep(timeout);
-            } finally {
-                timeoutWatcher.compareAndSet(Thread.currentThread(), null);
-                timeoutWatcherStopped.complete(null);
-            }
-            if (expired) {
-                expireTimeout();
-            }
-        });
-        timeoutWatcher.set(watcher);
-        try {
-            watcher.start();
-        } catch (RuntimeException | Error startFailure) {
-            timeoutWatcher.compareAndSet(watcher, null);
-            timeoutWatcherStopped.complete(null);
-            throw startFailure;
-        }
-        if (state.hasOutcome()) {
-            stopTimeoutWatcher();
-        }
+        timeoutWatcher.start(timeout, state::hasOutcome, this::expireTimeout);
     }
 
     void expireTimeout() {
@@ -369,18 +272,17 @@ public final class DefaultStreamSession implements StreamSession {
             emitPreserving(DiagnosticEventType.LISTENER_FAILED, exception);
         }
         activate(selection);
-        return selection.lateFailure();
+        return selection.reportableFailure();
     }
 
     private Throwable failFatal(Error error) {
         StreamSessionState.FailureSelection selection = selectFailure(error);
         activate(selection);
-        return selection.lateFailure();
+        return selection.reportableFailure();
     }
 
     private StreamSessionState.FailureSelection selectFailure(Throwable candidate) {
         StreamSessionState.FailureSelection selection = state.selectFailure(candidate);
-        selection.attachSuppressedFailure();
         if (selection.installed()) {
             beginStopping();
         }
@@ -448,20 +350,11 @@ public final class DefaultStreamSession implements StreamSession {
     }
 
     private void stopTimeoutWatcher() {
-        Thread watcher = timeoutWatcher.getAndSet(null);
-        if (watcher != null) {
-            watcher.interrupt();
-        }
+        timeoutWatcher.stop();
     }
 
     private void stopTimeoutWatcherBeforePublication() {
-        Thread watcher = timeoutWatcher.getAndSet(null);
-        if (watcher != null && watcher != Thread.currentThread()) {
-            watcher.interrupt();
-        }
-        if (watcher != Thread.currentThread()) {
-            timeoutWatcherStopped.join();
-        }
+        timeoutWatcher.stopAndAwait();
     }
 
     private void abortStartup() {
@@ -483,7 +376,7 @@ public final class DefaultStreamSession implements StreamSession {
             eventDiagnostics.emit(type, attributes);
             return primary;
         } catch (RuntimeException | Error diagnosticFailure) {
-            return SuppressionSupport.combine(primary, diagnosticFailure);
+            return FailureAggregation.combine(primary, diagnosticFailure, "Multiple stream diagnostic failures");
         }
     }
 
@@ -506,14 +399,16 @@ public final class DefaultStreamSession implements StreamSession {
 
     private static void recordLate(AtomicReference<Throwable> target, Throwable failure) {
         if (failure != null) {
-            target.accumulateAndGet(failure, SuppressionSupport::combine);
+            target.accumulateAndGet(
+                    failure,
+                    (current, next) ->
+                            FailureAggregation.combine(current, next, "Multiple late stream-session failures"));
         }
     }
 
     private void beginStopping() {
         state.stop();
-        listenerCancellation.cancel();
-        listenerOwner.close();
+        listenerDispatcher.stop();
     }
 
     private Throwable closeOutputPumpsCollecting(Throwable primary) {
@@ -525,7 +420,7 @@ public final class DefaultStreamSession implements StreamSession {
             }
             return primary;
         } catch (RuntimeException | Error closeFailure) {
-            return SuppressionSupport.combine(primary, closeFailure);
+            return FailureAggregation.combine(primary, closeFailure, "Multiple stream-session shutdown failures");
         }
     }
 
@@ -535,16 +430,6 @@ public final class DefaultStreamSession implements StreamSession {
         }
         if (failure instanceof Error error) {
             throw error;
-        }
-    }
-
-    private static boolean sleep(Duration duration) {
-        try {
-            TimeUnit.NANOSECONDS.sleep(DurationSupport.saturatedNanos(duration));
-            return true;
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            return false;
         }
     }
 
@@ -570,5 +455,18 @@ public final class DefaultStreamSession implements StreamSession {
     private StreamTranscript streamTranscript() {
         BoundedTranscriptBuffer.Snapshot snapshot = diagnostics.snapshot();
         return new StreamTranscript(snapshot.text(), snapshot.truncated());
+    }
+
+    record Dependencies(ZeroReadBackoff zeroReadBackoff, PumpStarter pumpStarter, LongSupplier nanoTime) {
+
+        Dependencies {
+            Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
+            Objects.requireNonNull(pumpStarter, "pumpStarter");
+            Objects.requireNonNull(nanoTime, "nanoTime");
+        }
+
+        static Dependencies defaults() {
+            return new Dependencies(ZeroReadBackoff.exponential(), PumpStarter.threading(), System::nanoTime);
+        }
     }
 }

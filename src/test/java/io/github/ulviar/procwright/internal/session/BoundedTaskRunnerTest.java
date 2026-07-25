@@ -87,11 +87,11 @@ final class BoundedTaskRunnerTest {
         AtomicInteger attempts = new AtomicInteger();
         SecurityException rejection = new SecurityException("owner start denied");
         BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
-        BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
+        BoundedTaskHandoff handoff = new BoundedTaskHandoff();
 
         ExecutionException failure = assertThrows(
                 ExecutionException.class,
-                () -> BoundedTaskRunner.runTracked(
+                () -> BoundedTaskTestSupport.runTracked(
                         limiter,
                         "procwright-rejected-owner-task-",
                         deadline(Duration.ofSeconds(1)),
@@ -103,7 +103,7 @@ final class BoundedTaskRunnerTest {
                         () -> "unreachable"));
 
         assertSame(rejection, failure.getCause());
-        assertEquals(BoundedTaskRunner.TaskPhase.REJECTED_BEFORE_ADMISSION, handoff.phase());
+        assertEquals(BoundedTaskHandoff.Phase.REJECTED_BEFORE_ADMISSION, handoff.phase());
         assertEquals(1, attempts.get());
         assertEquals(1, limiter.availablePermits());
         assertEquals(
@@ -126,11 +126,11 @@ final class BoundedTaskRunnerTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
 
         try {
-            Future<Throwable> attempt = executor.submit(() -> captureFailure(() -> BoundedTaskRunner.runTracked(
+            Future<Throwable> attempt = executor.submit(() -> captureFailure(() -> BoundedTaskTestSupport.runTracked(
                     limiter,
                     "procwright-bounded-task-test-",
                     operationDeadline,
-                    new BoundedTaskRunner.TaskHandoff(),
+                    new BoundedTaskHandoff(),
                     (threadPrefix, task) -> {
                         Thread thread = new Thread(task, threadPrefix + "timeout-interrupt");
                         thread.setDaemon(true);
@@ -175,11 +175,11 @@ final class BoundedTaskRunnerTest {
         try {
             assertThrows(
                     TimeoutException.class,
-                    () -> BoundedTaskRunner.runTracked(
+                    () -> BoundedTaskTestSupport.runTracked(
                             limiter,
                             "procwright-bounded-task-test-",
                             operationDeadline,
-                            new BoundedTaskRunner.TaskHandoff(),
+                            new BoundedTaskHandoff(),
                             (threadPrefix, task) -> {
                                 Thread thread = new Thread(task, threadPrefix + "non-cooperative");
                                 thread.setDaemon(true);
@@ -199,11 +199,11 @@ final class BoundedTaskRunnerTest {
 
             assertThrows(
                     TimeoutException.class,
-                    () -> BoundedTaskRunner.runTracked(
+                    () -> BoundedTaskTestSupport.runTracked(
                             limiter,
                             "procwright-bounded-task-test-",
                             operationDeadline,
-                            new BoundedTaskRunner.TaskHandoff(),
+                            new BoundedTaskHandoff(),
                             (threadPrefix, task) -> {
                                 Thread thread = new Thread(task, threadPrefix + "must-not-start");
                                 thread.setDaemon(true);
@@ -242,11 +242,11 @@ final class BoundedTaskRunnerTest {
         });
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<Throwable> attempt = executor.submit(() -> captureFailure(() -> BoundedTaskRunner.runTracked(
+            Future<Throwable> attempt = executor.submit(() -> captureFailure(() -> BoundedTaskTestSupport.runTracked(
                     limiter,
                     "procwright-late-error-test-",
                     TimeUnit.SECONDS.toNanos(30),
-                    new BoundedTaskRunner.TaskHandoff(),
+                    new BoundedTaskHandoff(),
                     (threadPrefix, task) -> {
                         Thread thread = new Thread(task, threadPrefix + "late-error");
                         thread.setDaemon(true);
@@ -538,11 +538,11 @@ final class BoundedTaskRunnerTest {
         for (Throwable rejection : List.of(
                 new SecurityException("thread start denied"), new AssertionError("fatal thread start failure"))) {
             BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
-            BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
+            BoundedTaskHandoff handoff = new BoundedTaskHandoff();
             AtomicBoolean taskStarted = new AtomicBoolean();
             AtomicReference<Thread> rejectedThread = new AtomicReference<>();
 
-            Throwable observed = captureFailure(() -> BoundedTaskRunner.runTracked(
+            Throwable observed = captureFailure(() -> BoundedTaskTestSupport.runTracked(
                     limiter,
                     "procwright-rejected-start-test-",
                     deadline(Duration.ofSeconds(10)),
@@ -573,7 +573,7 @@ final class BoundedTaskRunnerTest {
             } else {
                 assertSame(rejection, observed);
             }
-            assertEquals(BoundedTaskRunner.TaskPhase.REJECTED_BEFORE_ADMISSION, handoff.phase());
+            assertEquals(BoundedTaskHandoff.Phase.REJECTED_BEFORE_ADMISSION, handoff.phase());
             assertTrue(handoff.retrySafe());
             rejectedThread.get().join(TimeUnit.SECONDS.toMillis(1));
             assertFalse(rejectedThread.get().isAlive());
@@ -585,13 +585,13 @@ final class BoundedTaskRunnerTest {
     @Test
     void fatalThreadCreationFailureCannotLeakPermitOrHandoffOwnership() {
         BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
-        BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
+        BoundedTaskHandoff handoff = new BoundedTaskHandoff();
         AssertionError injected = new AssertionError("thread creation failed");
         AtomicBoolean taskStarted = new AtomicBoolean();
 
         AssertionError failure = assertThrows(
                 AssertionError.class,
-                () -> BoundedTaskRunner.runTracked(
+                () -> BoundedTaskTestSupport.runTracked(
                         limiter,
                         "procwright-fatal-thread-creation-test-",
                         deadline(Duration.ofSeconds(10)),
@@ -605,7 +605,7 @@ final class BoundedTaskRunnerTest {
                         }));
 
         assertSame(injected, failure);
-        assertEquals(BoundedTaskRunner.TaskPhase.REJECTED_BEFORE_ADMISSION, handoff.phase());
+        assertEquals(BoundedTaskHandoff.Phase.REJECTED_BEFORE_ADMISSION, handoff.phase());
         assertTrue(handoff.retrySafe());
         assertFalse(taskStarted.get());
         assertEquals(1, limiter.availablePermits());
@@ -621,12 +621,12 @@ final class BoundedTaskRunnerTest {
         long operationDeadline = TimeUnit.SECONDS.toNanos(30);
         BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskPermit occupied = limiter.acquire(deadline(Duration.ofSeconds(1)));
-        BoundedTaskRunner.TaskHandoff handoff = new BoundedTaskRunner.TaskHandoff();
+        BoundedTaskHandoff handoff = new BoundedTaskHandoff();
         ControlledNanoClock clock = new ControlledNanoClock();
         AtomicBoolean taskStarted = new AtomicBoolean();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<Throwable> attempt = executor.submit(() -> captureFailure(() -> BoundedTaskRunner.runTracked(
+            Future<Throwable> attempt = executor.submit(() -> captureFailure(() -> BoundedTaskTestSupport.runTracked(
                     limiter,
                     "procwright-admission-deadline-test-",
                     operationDeadline,
@@ -650,12 +650,12 @@ final class BoundedTaskRunnerTest {
             Throwable observed = attempt.get(1, TimeUnit.SECONDS);
             if (deadlineElapsed) {
                 assertInstanceOf(TimeoutException.class, observed);
-                assertEquals(BoundedTaskRunner.TaskPhase.REJECTED_BEFORE_ADMISSION, handoff.phase());
+                assertEquals(BoundedTaskHandoff.Phase.REJECTED_BEFORE_ADMISSION, handoff.phase());
                 assertTrue(handoff.retrySafe());
                 assertFalse(taskStarted.get(), "an expired pre-start deadline released a late task");
             } else {
                 assertNull(observed);
-                assertEquals(BoundedTaskRunner.TaskPhase.ADMITTED, handoff.phase());
+                assertEquals(BoundedTaskHandoff.Phase.ADMITTED, handoff.phase());
                 assertFalse(handoff.retrySafe());
                 assertTrue(taskStarted.get());
             }
