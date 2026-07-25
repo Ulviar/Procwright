@@ -192,6 +192,39 @@ final class PolicyValueTest {
     }
 
     @Test
+    void workerPoolCrossFieldValidationIsIndependentOfSetterOrder() {
+        WorkerPoolSettings<Object> limitsLast =
+                poolSettings().withWarmupSize(2).withMinIdle(2).withMaxSize(2).validateForOpen();
+        WorkerPoolSettings<Object> limitsFirst =
+                poolSettings().withMaxSize(2).withMinIdle(2).withWarmupSize(2).validateForOpen();
+
+        assertEquals(2, limitsLast.maxSize());
+        assertEquals(2, limitsLast.warmupSize());
+        assertEquals(2, limitsLast.minIdle());
+        assertEquals(2, limitsFirst.maxSize());
+        assertEquals(2, limitsFirst.warmupSize());
+        assertEquals(2, limitsFirst.minIdle());
+
+        IllegalArgumentException warmupThenMax = assertThrows(
+                IllegalArgumentException.class,
+                () -> poolSettings().withWarmupSize(2).withMaxSize(1).validateForOpen());
+        IllegalArgumentException maxThenWarmup = assertThrows(
+                IllegalArgumentException.class,
+                () -> poolSettings().withMaxSize(1).withWarmupSize(2).validateForOpen());
+        IllegalArgumentException minIdleThenMax = assertThrows(
+                IllegalArgumentException.class,
+                () -> poolSettings().withMinIdle(2).withMaxSize(1).validateForOpen());
+        IllegalArgumentException maxThenMinIdle = assertThrows(
+                IllegalArgumentException.class,
+                () -> poolSettings().withMaxSize(1).withMinIdle(2).validateForOpen());
+
+        assertEquals("warmupSize must not exceed maxSize", warmupThenMax.getMessage());
+        assertEquals(warmupThenMax.getMessage(), maxThenWarmup.getMessage());
+        assertEquals("minIdle must not exceed maxSize", minIdleThenMax.getMessage());
+        assertEquals(minIdleThenMax.getMessage(), maxThenMinIdle.getMessage());
+    }
+
+    @Test
     void pooledLineSessionMetricsRejectImpossibleSnapshots() {
         assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 1, 1, 1, 0, 0, 0));
         assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 2, 0, 2, 0, 0, 0));
