@@ -182,9 +182,9 @@
 - Параллельные вызовы не перемешивают stdin/stdout.
 - Validation, charset encoding, write и response decoding входят в один request deadline; пользовательский
   `CharsetEncoder`, который игнорирует interrupt, не может удерживать caller thread за пределами deadline.
-- Если bounded readiness/worker-hook callback завершается с `RuntimeException` или `Error` уже после timeout или
-  interruption caller-а, ошибка не теряется: она ровно один раз передается через bounded failure reporter после
-  перехода task в abandoned state. Ожидаемый `InterruptedException` от отмены не считается поздней runtime-ошибкой.
+- Если bounded callback возвращает результат или failure уже после timeout, cancellation или interruption caller-а,
+  поздний outcome не меняет выбранный результат operation и отдельно не публикуется; admission освобождается только
+  после фактического возврата callback.
 - Incremental stdout/stderr decoder ограничивает retained undecoded bytes и output без input consumption; decoder,
   который сообщает overflow без progress или перемещает input position назад, закрывает session с `DECODE_ERROR`.
 - При `CodingErrorAction.REPLACE` decoder не может опубликовать replacement, если заявленная error length не помещается

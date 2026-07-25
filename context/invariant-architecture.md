@@ -199,11 +199,10 @@ scenario flags.
 - nullable комбинации execution owners не входят в bounded-task state machine: каждый accepted вызов заранее получает
   ровно одного task-scoped adaptive или session-affine owner-а, явную cancellation policy и явный tracked/untracked
   handoff;
-- late `RuntimeException` и `Error` readiness/worker hook после timeout или interruption отправляются ровно один раз
-  через bounded failure reporter; ожидаемый `InterruptedException` от отмены отдельно не публикуется;
-- late `RuntimeException` и `Error` line/protocol callback публикуются через bounded failure reporter только после
-  возврата callback admission; ожидаемый checked interruption scanner operation после owner timeout/interruption не
-  публикуется;
+- после abandonment поздний результат или failure callback не меняет уже выбранный timeout/cancellation outcome и не
+  публикуется отдельно; callback по-прежнему удерживает admission до фактического возврата;
+- асинхронный отказ injected `TaskStarter` до abandonment возвращается как execution failure; после abandonment это
+  поздний execution outcome, который только завершает permit settlement и не заменяет выбранный outcome;
 - diagnostics сохраняют порядок для одного destination, но отдают dispatcher после bounded batch и продолжают с
   конца общей FIFO-очереди, поэтому непрерывный producer не удерживает dispatcher slots бесконечно;
 - interrupt синхронного caller-а восстанавливает interrupt status и не обходит cleanup;

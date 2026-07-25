@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 abstract class ProtocolSessionContractSupport {
@@ -200,38 +199,6 @@ abstract class ProtocolSessionContractSupport {
 
         void releaseEof() {
             releaseEof.countDown();
-        }
-    }
-
-    static final class LateCallbackFailurePublication {
-
-        final BoundedTaskRunner.LateFailureHandler handler;
-        final AtomicReference<Thread> callbackThread = new AtomicReference<>();
-        final AtomicReference<Throwable> failure = new AtomicReference<>();
-        final AtomicBoolean abandoned = new AtomicBoolean();
-        final AtomicBoolean published = new AtomicBoolean();
-
-        LateCallbackFailurePublication(BoundedTaskRunner.LateFailureHandler handler) {
-            this.handler = Objects.requireNonNull(handler, "handler");
-        }
-
-        void record(Thread thread, Throwable taskFailure) {
-            callbackThread.set(thread);
-            failure.set(taskFailure);
-            publishIfReady();
-        }
-
-        void abandon() {
-            abandoned.set(true);
-            publishIfReady();
-        }
-
-        void publishIfReady() {
-            Thread thread = callbackThread.get();
-            Throwable taskFailure = failure.get();
-            if (abandoned.get() && thread != null && taskFailure != null && published.compareAndSet(false, true)) {
-                handler.handle(thread, taskFailure);
-            }
         }
     }
 

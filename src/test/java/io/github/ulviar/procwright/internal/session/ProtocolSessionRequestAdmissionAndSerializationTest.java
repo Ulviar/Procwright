@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -38,7 +37,7 @@ import org.junit.jupiter.api.Test;
 final class ProtocolSessionRequestAdmissionAndSerializationTest extends ProtocolSessionContractSupport {
 
     @Test
-    void abandonedProtocolRuntimeAndErrorAreReportedOnceAfterCallbackCapacityIsReleased() throws Exception {
+    void abandonedProtocolFailureDoesNotChangeTimeoutAndReleasesCallbackCapacity() throws Exception {
         for (Throwable lateFailure : List.of(
                 new IllegalStateException("late protocol runtime failure"),
                 new AssertionError("late protocol error"))) {
@@ -50,17 +49,6 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
         int initialCapacity = BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits();
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
-        CountDownLatch handlerEntered = new CountDownLatch(1);
-        CountDownLatch releaseHandler = new CountDownLatch(1);
-        AtomicInteger handlerCalls = new AtomicInteger();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            if (failure == lateFailure) {
-                handlerCalls.incrementAndGet();
-                handlerEntered.countDown();
-                awaitUninterruptibly(releaseHandler);
-            }
-        });
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {
@@ -95,19 +83,15 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             assertEquals(initialCapacity - 1, BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits());
 
             releaseDecoder.countDown();
-            assertTrue(handlerEntered.await(1, TimeUnit.SECONDS));
             assertTrue(eventuallyProtocolCapacity(initialCapacity));
-            assertEquals(1, handlerCalls.get());
-            releaseHandler.countDown();
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, handlerCalls.get());
+            ProtocolSessionException persisted =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("after-timeout"));
+            assertEquals(ProtocolSessionException.Reason.TIMEOUT, persisted.reason());
         } finally {
             releaseDecoder.countDown();
-            releaseHandler.countDown();
             protocol.close();
             caller.shutdownNow();
             assertTrue(caller.awaitTermination(1, TimeUnit.SECONDS));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
         assertTrue(eventuallyProtocolCapacity(initialCapacity));
     }
@@ -534,7 +518,6 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
                 String threadPrefix,
                 long deadlineNanos,
                 BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.LateFailureHandler lateFailureHandler,
                 BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
                 BoundedTaskRunner.Task<T> task)
                 throws TimeoutException, InterruptedException, ExecutionException {

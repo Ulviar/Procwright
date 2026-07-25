@@ -201,7 +201,7 @@ public final class DefaultStreamSession implements StreamSession {
 
     private Throwable deliver(StreamChunk chunk) {
         try {
-            listenerDispatcher.deliver(chunk, () -> !state.stopping() && !state.hasOutcome(), this::reportLate);
+            listenerDispatcher.deliver(chunk, () -> !state.stopping() && !state.hasOutcome());
             return null;
         } catch (InterruptedException interruption) {
             Thread.currentThread().interrupt();
@@ -383,15 +383,6 @@ public final class DefaultStreamSession implements StreamSession {
     private void reportLate(Throwable failure) {
         if (failure != null) {
             BoundedFailureReporter.FailureTarget failureTarget = BoundedFailureReporter.captureFailureTarget();
-            exit.whenComplete((ignored, terminalFailure) ->
-                    BoundedFailureReporter.shared().report(failureTarget, failure));
-        }
-    }
-
-    private void reportLate(Thread sourceThread, Throwable failure) {
-        if (failure != null) {
-            BoundedFailureReporter.FailureTarget failureTarget =
-                    BoundedFailureReporter.captureFailureTarget(sourceThread);
             exit.whenComplete((ignored, terminalFailure) ->
                     BoundedFailureReporter.shared().report(failureTarget, failure));
         }

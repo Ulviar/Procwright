@@ -25,8 +25,8 @@ package io.github.ulviar.procwright.session;
  * wins request arbitration; an already-selected terminal or fatal session outcome remains canonical.
  *
  * <p>A callback-thrown {@link Error} is rethrown as the same object when it wins arbitration. If a fatal {@code Error}
- * was already selected for the session, that earlier object wins and the losing callback failure may be reported
- * separately through bounded best-effort diagnostics. Neither source failure is mutated.
+ * was already selected for the session, that earlier object wins; the losing callback failure does not replace the
+ * canonical outcome. Neither source failure is mutated.
  *
  * @param <I> request type
  * @param <O> response type

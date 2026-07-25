@@ -233,58 +233,6 @@ final class BoundedTaskRunnerTest {
     }
 
     @Test
-    void lateErrorAfterTimeoutIsReportedToTheUncaughtHandler() throws Exception {
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        AssertionError lateError = new AssertionError("late callback failure");
-        AtomicReference<Throwable> reportedFailure = new AtomicReference<>();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            reportedFailure.compareAndSet(null, failure);
-            reported.countDown();
-        });
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<Throwable> attempt = executor.submit(() -> captureFailure(() -> BoundedTaskTestSupport.runTracked(
-                    limiter,
-                    "procwright-late-error-test-",
-                    TimeUnit.SECONDS.toNanos(30),
-                    new BoundedTaskHandoff(),
-                    (threadPrefix, task) -> {
-                        Thread thread = new Thread(task, threadPrefix + "late-error");
-                        thread.setDaemon(true);
-                        return thread;
-                    },
-                    new DeadlineAfterTaskStartsClock(TimeUnit.SECONDS.toNanos(30), started),
-                    () -> {
-                        started.countDown();
-                        awaitIgnoringInterrupts(release);
-                        throw lateError;
-                    })));
-            assertInstanceOf(TimeoutException.class, attempt.get(1, TimeUnit.SECONDS));
-
-            release.countDown();
-            assertTrue(reported.await(1, TimeUnit.SECONDS), "late Error must reach the uncaught handler");
-            assertSame(lateError, reportedFailure.get());
-            assertEquals(
-                    "released",
-                    BoundedTaskRunner.run(
-                            limiter,
-                            "procwright-late-error-release-test-",
-                            deadline(Duration.ofSeconds(1)),
-                            () -> "released"));
-            assertEquals(1, limiter.availablePermits());
-        } finally {
-            release.countDown();
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
-    }
-
-    @Test
     void cancellationWakesCallerAndRetainsPermitUntilNonCooperativeTaskStops() throws Exception {
         BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
@@ -324,25 +272,19 @@ final class BoundedTaskRunnerTest {
         BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         CountDownLatch taskStarted = new CountDownLatch(1);
         CountDownLatch blockTask = new CountDownLatch(1);
-        CountDownLatch lateFailureHandled = new CountDownLatch(1);
-        IllegalStateException callbackFailure = new IllegalStateException("callback failed after interruption");
+        CountDownLatch taskObservedInterrupt = new CountDownLatch(1);
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicReference<Throwable> abandonmentFailure = new AtomicReference<>();
-        AtomicReference<Throwable> lateFailure = new AtomicReference<>();
         AtomicBoolean selectionObservedByTask = new AtomicBoolean();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> running = executor.submit(() -> {
                 callerThread.set(Thread.currentThread());
-                return captureFailure(() -> BoundedTaskRunner.runReportingLateFailure(
+                return captureFailure(() -> BoundedTaskRunner.runWithAbandonment(
                         limiter,
                         "procwright-interrupted-task-test-",
                         deadline(Duration.ofHours(1)),
-                        null,
-                        (thread, failure) -> {
-                            lateFailure.set(failure);
-                            lateFailureHandled.countDown();
-                        },
+                        new BoundedTaskRunner.CancellationSignal(),
                         failure -> assertTrue(abandonmentFailure.compareAndSet(null, failure)),
                         () -> {
                             taskStarted.countDown();
@@ -351,7 +293,8 @@ final class BoundedTaskRunnerTest {
                                 return null;
                             } catch (InterruptedException interruption) {
                                 selectionObservedByTask.set(abandonmentFailure.get() != null);
-                                throw callbackFailure;
+                                taskObservedInterrupt.countDown();
+                                throw interruption;
                             }
                         }));
             });
@@ -362,128 +305,10 @@ final class BoundedTaskRunnerTest {
 
             assertInstanceOf(InterruptedException.class, observed);
             assertSame(observed, abandonmentFailure.get());
-            assertTrue(lateFailureHandled.await(1, TimeUnit.SECONDS));
-            assertSame(callbackFailure, lateFailure.get());
+            assertTrue(taskObservedInterrupt.await(1, TimeUnit.SECONDS));
             assertTrue(selectionObservedByTask.get());
         } finally {
             blockTask.countDown();
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-    }
-
-    @Test
-    void cancellationRoutesLateErrorToTheTerminalAwareHandlerExactlyOnce() throws Exception {
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
-        BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch handled = new CountDownLatch(1);
-        AssertionError lateError = new AssertionError("late terminal-aware failure");
-        AtomicReference<Thread> taskThread = new AtomicReference<>();
-        AtomicReference<Thread> handledThread = new AtomicReference<>();
-        AtomicReference<Error> handledError = new AtomicReference<>();
-        AtomicReference<Throwable> abandonmentFailure = new AtomicReference<>();
-        AtomicInteger handlerCalls = new AtomicInteger();
-        AtomicInteger permitsDuringHandler = new AtomicInteger(-1);
-        AtomicInteger uncaughtCalls = new AtomicInteger();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> uncaughtCalls.incrementAndGet());
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<?> running = executor.submit(() -> BoundedTaskRunner.runReportingLateFailure(
-                    limiter,
-                    "procwright-terminal-aware-task-test-",
-                    deadline(Duration.ofHours(1)),
-                    cancellation,
-                    (thread, failure) -> {
-                        assertTrue(abandonmentFailure.get() != null, "abandonment must precede late publication");
-                        handlerCalls.incrementAndGet();
-                        handledThread.set(thread);
-                        handledError.set((Error) failure);
-                        permitsDuringHandler.set(limiter.availablePermits());
-                        handled.countDown();
-                    },
-                    failure -> assertTrue(abandonmentFailure.compareAndSet(null, failure)),
-                    () -> {
-                        taskThread.set(Thread.currentThread());
-                        started.countDown();
-                        awaitIgnoringInterrupts(release);
-                        throw lateError;
-                    }));
-            assertTrue(started.await(1, TimeUnit.SECONDS));
-
-            cancellation.cancel();
-
-            ExecutionException wrapper = assertThrows(ExecutionException.class, () -> running.get(1, TimeUnit.SECONDS));
-            assertInstanceOf(BoundedTaskRunner.TaskCancelledException.class, wrapper.getCause());
-            assertSame(wrapper.getCause(), abandonmentFailure.get());
-            assertEquals(0, limiter.availablePermits());
-
-            release.countDown();
-            assertTrue(handled.await(1, TimeUnit.SECONDS));
-            assertSame(taskThread.get(), handledThread.get());
-            assertSame(lateError, handledError.get());
-            assertEquals(1, handlerCalls.get());
-            assertEquals(
-                    1, permitsDuringHandler.get(), "late publication must run only after callback capacity returns");
-            assertEquals(0, uncaughtCalls.get());
-            try (BoundedTaskPermit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
-                assertNotNull(permit);
-                assertEquals(0, limiter.availablePermits());
-            }
-            assertEquals(1, limiter.availablePermits());
-            assertEquals(1, handlerCalls.get());
-        } finally {
-            release.countDown();
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
-    }
-
-    @Test
-    void cancellationCanRouteLateRuntimeFailureWithoutRetainingTheCaller() throws Exception {
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
-        BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch handled = new CountDownLatch(1);
-        IllegalStateException lateFailure = new IllegalStateException("late callback failure");
-        AtomicReference<Throwable> observed = new AtomicReference<>();
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<?> running = executor.submit(() -> BoundedTaskRunner.runReportingLateFailure(
-                    limiter,
-                    "procwright-late-runtime-test-",
-                    deadline(Duration.ofHours(1)),
-                    cancellation,
-                    (thread, failure) -> {
-                        observed.set(failure);
-                        handled.countDown();
-                    },
-                    () -> {
-                        started.countDown();
-                        awaitIgnoringInterrupts(release);
-                        throw lateFailure;
-                    }));
-            assertTrue(started.await(1, TimeUnit.SECONDS));
-
-            cancellation.cancel();
-
-            ExecutionException wrapper = assertThrows(ExecutionException.class, () -> running.get(1, TimeUnit.SECONDS));
-            assertInstanceOf(BoundedTaskRunner.TaskCancelledException.class, wrapper.getCause());
-            assertEquals(0, limiter.availablePermits());
-            release.countDown();
-            assertTrue(handled.await(1, TimeUnit.SECONDS));
-            assertSame(lateFailure, observed.get());
-            try (BoundedTaskPermit permit = limiter.acquire(deadline(Duration.ofSeconds(1)))) {
-                assertNotNull(permit);
-                assertEquals(0, limiter.availablePermits());
-            }
-            assertEquals(1, limiter.availablePermits());
-        } finally {
-            release.countDown();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }

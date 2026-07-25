@@ -218,101 +218,6 @@ final class ReadinessSupportTest {
         }
     }
 
-    @Test
-    void lateRuntimeFailureAfterTimeoutIsReportedExactlyOnce() throws Exception {
-        IllegalStateException lateFailure = new IllegalStateException("late readiness failure");
-        CountDownLatch probeStarted = new CountDownLatch(1);
-        CountDownLatch releaseProbe = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicInteger matchingReports = new AtomicInteger();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            if (failure == lateFailure) {
-                matchingReports.incrementAndGet();
-                reported.countDown();
-            }
-        });
-        try {
-            CommandExecutionException timeout = assertThrows(
-                    CommandExecutionException.class,
-                    () -> ReadinessSupport.check(
-                            "target",
-                            ignored -> {
-                                probeStarted.countDown();
-                                awaitIgnoringInterrupts(releaseProbe);
-                                throw lateFailure;
-                            },
-                            Duration.ofMillis(25),
-                            () -> {}));
-
-            assertEquals(CommandExecutionException.Reason.READINESS_TIMEOUT, timeout.reason());
-            assertTrue(probeStarted.await(1, TimeUnit.SECONDS));
-            releaseProbe.countDown();
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertTrue(eventually(() -> BoundedTaskLimits.READINESS_PROBES.availablePermits()
-                    == BoundedTaskLimits.READINESS_PROBES.capacity()));
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, matchingReports.get());
-        } finally {
-            releaseProbe.countDown();
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
-    }
-
-    @Test
-    void lateRuntimeFailureAfterCallerInterruptionIsReportedExactlyOnce() throws Exception {
-        IllegalStateException lateFailure = new IllegalStateException("late interrupted readiness failure");
-        CountDownLatch probeStarted = new CountDownLatch(1);
-        CountDownLatch releaseProbe = new CountDownLatch(1);
-        CountDownLatch callerExited = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicInteger matchingReports = new AtomicInteger();
-        AtomicReference<Throwable> outcome = new AtomicReference<>();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            if (failure == lateFailure) {
-                matchingReports.incrementAndGet();
-                reported.countDown();
-            }
-        });
-        Thread caller = new Thread(() -> {
-            try {
-                ReadinessSupport.check(
-                        "target",
-                        ignored -> {
-                            probeStarted.countDown();
-                            awaitIgnoringInterrupts(releaseProbe);
-                            throw lateFailure;
-                        },
-                        Duration.ofSeconds(5),
-                        () -> {});
-            } catch (Throwable failure) {
-                outcome.set(failure);
-            } finally {
-                callerExited.countDown();
-            }
-        });
-        try {
-            caller.start();
-            assertTrue(probeStarted.await(1, TimeUnit.SECONDS));
-            caller.interrupt();
-            assertTrue(callerExited.await(1, TimeUnit.SECONDS));
-            assertTrue(outcome.get() instanceof CommandExecutionException);
-
-            releaseProbe.countDown();
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertTrue(eventually(() -> BoundedTaskLimits.READINESS_PROBES.availablePermits()
-                    == BoundedTaskLimits.READINESS_PROBES.capacity()));
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, matchingReports.get());
-        } finally {
-            releaseProbe.countDown();
-            caller.interrupt();
-            caller.join(TimeUnit.SECONDS.toMillis(1));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
-    }
-
     private static Throwable captureFailure(Runnable operation) {
         try {
             operation.run();
@@ -337,11 +242,4 @@ final class ReadinessSupportTest {
         }
     }
 
-    private static boolean eventually(java.util.function.BooleanSupplier condition) {
-        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        while (!condition.getAsBoolean() && deadline - System.nanoTime() > 0) {
-            Thread.onSpinWait();
-        }
-        return condition.getAsBoolean();
-    }
 }

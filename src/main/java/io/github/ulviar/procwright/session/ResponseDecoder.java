@@ -17,8 +17,8 @@ import java.util.List;
  * {@code LineSessionException} keeps its reason. The mapping applies when the callback failure wins request
  * arbitration; an already-selected terminal or fatal session outcome remains canonical. A callback-thrown
  * {@link Error} is rethrown as the same object when it wins arbitration. If a fatal {@code Error} was already selected,
- * that earlier object wins and the losing callback failure may be reported separately through bounded best-effort
- * diagnostics. Neither source failure is mutated.
+ * that earlier object wins; the losing callback failure does not replace the canonical outcome. Neither source failure
+ * is mutated.
  */
 @FunctionalInterface
 public interface ResponseDecoder {

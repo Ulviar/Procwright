@@ -53,7 +53,6 @@ final class BoundedTaskTestSupport {
                     threadPrefix,
                     deadlineNanos,
                     BoundedTaskCancellation.none(),
-                    BoundedTaskRunner::reportLateFailure,
                     failure -> {},
                     handoff,
                     taskStarter,

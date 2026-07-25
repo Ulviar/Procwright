@@ -268,7 +268,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                     "procwright-protocol-stdin-",
                     deadlineNanos,
                     callbackCancellation,
-                    this::failLateCallbackFailure,
                     failure -> {
                         capabilityScope.invalidate();
                         state.selectCallbackAbandonment(
@@ -339,7 +338,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                     "procwright-protocol-decoder-",
                     deadlineNanos,
                     callbackCancellation,
-                    this::failLateCallbackFailure,
                     failure -> {
                         capabilityScope.invalidate();
                         state.selectCallbackAbandonment(
@@ -428,18 +426,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
         }
     }
 
-    private void failFatalOutput(Error error) {
-        output.failFatal(error);
-    }
-
-    private void failLateCallbackFailure(Thread sourceThread, Throwable failure) {
-        if (failure instanceof Error error) {
-            failFatalOutput(error);
-            return;
-        }
-        BoundedTaskRunner.reportLateFailure(sourceThread, failure);
-    }
-
     private static Throwable terminalPrimaryOr(ProtocolSessionState.TerminalSnapshot outcome, Throwable fallback) {
         if (outcome instanceof ProtocolSessionState.FailureSnapshot failure) {
             return failure.primary();
@@ -481,7 +467,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                 String threadPrefix,
                 long deadlineNanos,
                 BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.LateFailureHandler lateFailureHandler,
                 BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
                 BoundedTaskRunner.Task<T> task)
                 throws TimeoutException, InterruptedException, ExecutionException,
@@ -500,17 +485,15 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                 String threadPrefix,
                 long deadlineNanos,
                 BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.LateFailureHandler lateFailureHandler,
                 BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
                 BoundedTaskRunner.Task<T> task)
                 throws TimeoutException, InterruptedException, ExecutionException,
                         BoundedTaskRunner.TaskCancelledException {
-            return BoundedTaskRunner.runReportingLateFailure(
+            return BoundedTaskRunner.runWithAbandonment(
                     BoundedTaskLimits.PROTOCOL_CALLBACKS,
                     threadPrefix,
                     deadlineNanos,
                     cancellation,
-                    lateFailureHandler,
                     abandonmentHandler,
                     task);
         }

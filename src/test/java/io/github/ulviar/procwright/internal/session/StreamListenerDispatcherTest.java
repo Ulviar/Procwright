@@ -70,7 +70,7 @@ final class StreamListenerDispatcherTest {
             StreamListenerDispatcher dispatcher, StreamChunk chunk, AtomicReference<Throwable> failure) {
         return Thread.ofPlatform().start(() -> {
             try {
-                dispatcher.deliver(chunk, () -> true, (thread, fatal) -> failure.compareAndSet(null, fatal));
+                dispatcher.deliver(chunk, () -> true);
             } catch (Throwable deliveryFailure) {
                 failure.compareAndSet(null, deliveryFailure);
             }

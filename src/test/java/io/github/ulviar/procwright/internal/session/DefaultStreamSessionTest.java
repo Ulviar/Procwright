@@ -309,19 +309,18 @@ final class DefaultStreamSessionTest {
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         CountDownLatch listenerEntered = new CountDownLatch(1);
         CountDownLatch releaseListener = new CountDownLatch(1);
-        CountDownLatch lateReported = new CountDownLatch(1);
-        AtomicReference<Throwable> reported = new AtomicReference<>();
+        CountDownLatch listenerExited = new CountDownLatch(1);
         Throwable expected = failureKind.newFailure();
         DefaultStreamSession stream = new DefaultStreamSession(
                 session(process),
                 plan(chunk -> {
-                    Thread.currentThread().setUncaughtExceptionHandler((ignored, failure) -> {
-                        reported.compareAndSet(null, failure);
-                        lateReported.countDown();
-                    });
                     listenerEntered.countDown();
-                    awaitUninterruptibly(releaseListener);
-                    throwUnchecked(expected);
+                    try {
+                        awaitUninterruptibly(releaseListener);
+                        throwUnchecked(expected);
+                    } finally {
+                        listenerExited.countDown();
+                    }
                 }),
                 diagnostics());
         FutureTask<Throwable> controlTask = new FutureTask<>(() -> captureFailure(() -> control.terminate(stream)));
@@ -338,12 +337,10 @@ final class DefaultStreamSessionTest {
             StreamExit result = stream.onExit().get(1, TimeUnit.SECONDS);
             assertEquals(control == ControlAction.CLOSE, result.closed());
             assertEquals(control == ControlAction.TIMEOUT, result.timedOut());
-            assertEquals(1L, lateReported.getCount(), "late listener failure preceded callback completion");
             assertTrue(eventually(() -> stdout.closeCalls() == 1 && stderr.closeCalls() == 1));
 
             releaseListener.countDown();
-            assertTrue(lateReported.await(1, TimeUnit.SECONDS));
-            assertSame(expected, reported.get());
+            assertTrue(listenerExited.await(1, TimeUnit.SECONDS));
             assertEquals(result, stream.onExit().get(1, TimeUnit.SECONDS));
         } finally {
             releaseListener.countDown();

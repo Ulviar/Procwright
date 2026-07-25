@@ -38,7 +38,6 @@ final class ExpectRegexMatcher {
                         "procwright-expect-regex-",
                         deadlineNanos,
                         state.terminalCancellationToken(),
-                        state::handleLateRegexError,
                         () -> {
                             evaluatorThread.set(Thread.currentThread());
                             ExpectSessionState.RegexSnapshot snapshot = state.regexSnapshot();

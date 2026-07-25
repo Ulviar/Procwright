@@ -8,12 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class WorkerHookSupportTest {
@@ -127,104 +124,6 @@ final class WorkerHookSupportTest {
                         failure -> new IllegalStateException("failure", failure)));
 
         assertSame(error, thrown);
-    }
-
-    @Test
-    void lateRuntimeFailureAfterTimeoutIsReportedExactlyOnce() throws Exception {
-        IllegalStateException lateFailure = new IllegalStateException("late hook failure");
-        CountDownLatch hookStarted = new CountDownLatch(1);
-        CountDownLatch releaseHook = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicInteger matchingReports = new AtomicInteger();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            if (failure == lateFailure) {
-                matchingReports.incrementAndGet();
-                reported.countDown();
-            }
-        });
-        try {
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> WorkerHookSupport.run(
-                            "procwright-late-hook-test-",
-                            Duration.ofMillis(25),
-                            () -> {
-                                hookStarted.countDown();
-                                awaitIgnoringInterrupt(releaseHook);
-                                throw lateFailure;
-                            },
-                            () -> new IllegalStateException("timeout"),
-                            interruption -> new IllegalStateException("interrupted", interruption),
-                            failure -> new IllegalStateException("failed", failure)));
-
-            assertTrue(hookStarted.await(1, TimeUnit.SECONDS));
-            releaseHook.countDown();
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertTrue(eventuallyTrue(() ->
-                    BoundedTaskLimits.WORKER_HOOKS.availablePermits() == BoundedTaskLimits.WORKER_HOOKS.capacity()));
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, matchingReports.get());
-        } finally {
-            releaseHook.countDown();
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
-    }
-
-    @Test
-    void lateRuntimeFailureAfterCallerInterruptionIsReportedExactlyOnce() throws Exception {
-        IllegalStateException lateFailure = new IllegalStateException("late interrupted hook failure");
-        CountDownLatch hookStarted = new CountDownLatch(1);
-        CountDownLatch releaseHook = new CountDownLatch(1);
-        CountDownLatch callerExited = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicInteger matchingReports = new AtomicInteger();
-        AtomicReference<Throwable> outcome = new AtomicReference<>();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            if (failure == lateFailure) {
-                matchingReports.incrementAndGet();
-                reported.countDown();
-            }
-        });
-        Thread caller = new Thread(() -> {
-            try {
-                WorkerHookSupport.run(
-                        "procwright-interrupted-hook-test-",
-                        Duration.ofSeconds(5),
-                        () -> {
-                            hookStarted.countDown();
-                            awaitIgnoringInterrupt(releaseHook);
-                            throw lateFailure;
-                        },
-                        () -> new IllegalStateException("timeout"),
-                        interruption -> new IllegalStateException("interrupted", interruption),
-                        failure -> new IllegalStateException("failed", failure));
-            } catch (Throwable failure) {
-                outcome.set(failure);
-            } finally {
-                callerExited.countDown();
-            }
-        });
-        try {
-            caller.start();
-            assertTrue(hookStarted.await(1, TimeUnit.SECONDS));
-            caller.interrupt();
-            assertTrue(callerExited.await(1, TimeUnit.SECONDS));
-            assertTrue(outcome.get() instanceof IllegalStateException);
-
-            releaseHook.countDown();
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertTrue(eventuallyTrue(() ->
-                    BoundedTaskLimits.WORKER_HOOKS.availablePermits() == BoundedTaskLimits.WORKER_HOOKS.capacity()));
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, matchingReports.get());
-        } finally {
-            releaseHook.countDown();
-            caller.interrupt();
-            caller.join(TimeUnit.SECONDS.toMillis(1));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
     }
 
     @Test

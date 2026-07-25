@@ -12,6 +12,7 @@ import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 
 /**
  * Owns expect output, cursor, transcript, and terminal-state arbitration.
@@ -23,7 +24,7 @@ final class ExpectSessionState {
 
     private final BoundedTranscriptBuffer transcript;
     private final BoundedMatchBuffer output;
-    private final BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter;
+    private final BiConsumer<Thread, Error> lateFatalFailureReporter;
     private final BoundedTaskRunner.CancellationSignal terminalCancellation =
             new BoundedTaskRunner.CancellationSignal();
     private final BoundedTaskRunner.CancellationToken terminalCancellationToken = terminalCancellation.token();
@@ -38,7 +39,7 @@ final class ExpectSessionState {
     private Throwable outputFailure;
 
     ExpectSessionState(
-            int transcriptLimit, int matchBufferLimit, BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter) {
+            int transcriptLimit, int matchBufferLimit, BiConsumer<Thread, Error> lateFatalFailureReporter) {
         this(
                 new BoundedTranscriptBuffer(transcriptLimit),
                 new BoundedMatchBuffer(matchBufferLimit),
@@ -48,7 +49,7 @@ final class ExpectSessionState {
     ExpectSessionState(
             BoundedTranscriptBuffer transcript,
             BoundedMatchBuffer output,
-            BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter) {
+            BiConsumer<Thread, Error> lateFatalFailureReporter) {
         this.transcript = Objects.requireNonNull(transcript, "transcript");
         this.output = Objects.requireNonNull(output, "output");
         this.lateFatalFailureReporter = Objects.requireNonNull(lateFatalFailureReporter, "lateFatalFailureReporter");
@@ -233,13 +234,9 @@ final class ExpectSessionState {
         return resolution.selectedFailure();
     }
 
-    void handleLateRegexError(Thread evaluatorThread, Error failure) {
-        lateFatalFailureReporter.handle(evaluatorThread, failure);
-    }
-
     void reportLateFatal(Thread failureThread, Error failure) {
         BoundedFailureReporter.shared()
-                .execute(failureThread, () -> lateFatalFailureReporter.handle(failureThread, failure));
+                .execute(failureThread, () -> lateFatalFailureReporter.accept(failureThread, failure));
     }
 
     ExpectException failure(String message, Throwable cause) {
@@ -349,11 +346,11 @@ final class ExpectSessionState {
             return new RegexFailureResolution(selectedFailure, null, reportThread, reportedError);
         }
 
-        private void apply(BoundedTaskRunner.LateFatalHandler reporter) {
+        private void apply(BiConsumer<Thread, Error> reporter) {
             if (retainedFailure != null) {
                 selectedFailure.addSuppressed(retainedFailure);
             } else {
-                reporter.handle(reportThread, reportedError);
+                reporter.accept(reportThread, reportedError);
             }
         }
     }

@@ -28,7 +28,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -39,7 +38,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDecoderCallbackTestSupport {
 
     @Test
-    void abandonedDecoderRuntimeAndErrorAreReportedOnceAfterProtocolCapacityIsReleased() throws Exception {
+    void abandonedDecoderFailureDoesNotChangeTimeoutAndReleasesProtocolCapacity() throws Exception {
         for (Throwable lateFailure : List.of(
                 new IllegalStateException("late line decoder runtime failure"),
                 new AssertionError("late line decoder error"))) {
@@ -51,17 +50,6 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
         int initialCapacity = BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits();
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
-        CountDownLatch handlerEntered = new CountDownLatch(1);
-        CountDownLatch releaseHandler = new CountDownLatch(1);
-        AtomicInteger handlerCalls = new AtomicInteger();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            if (failure == lateFailure) {
-                handlerCalls.incrementAndGet();
-                handlerEntered.countDown();
-                awaitUninterruptibly(releaseHandler);
-            }
-        });
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         DefaultLineSession lineSession = new DefaultLineSession(
@@ -86,18 +74,16 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
             assertEquals(initialCapacity - 1, BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits());
 
             releaseDecoder.countDown();
-            assertTrue(handlerEntered.await(1, TimeUnit.SECONDS));
             assertTrue(eventually(() -> BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
-            assertEquals(1, handlerCalls.get());
-            Thread.sleep(25);
-            assertEquals(1, handlerCalls.get());
+            LineSessionException persisted = assertThrows(
+                    LineSessionException.class,
+                    () -> lineSession.request("after-timeout", Duration.ofSeconds(1)));
+            assertEquals(LineSessionException.Reason.TIMEOUT, persisted.reason());
         } finally {
             releaseDecoder.countDown();
-            releaseHandler.countDown();
             lineSession.close();
             caller.shutdownNow();
             assertTrue(caller.awaitTermination(1, TimeUnit.SECONDS));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
         assertTrue(eventually(() -> BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
     }

@@ -183,6 +183,70 @@ final class StreamListenerTaskOwnerTest {
     }
 
     @Test
+    void cancellationWinsLateFatalReplacementRejectionAndPermitStillSettles() throws Exception {
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
+        BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
+        CountDownLatch firstIdleWait = new CountDownLatch(1);
+        CountDownLatch replacementAttempted = new CountDownLatch(1);
+        CountDownLatch releaseReplacement = new CountDownLatch(1);
+        AtomicInteger waits = new AtomicInteger();
+        AtomicInteger threadCreations = new AtomicInteger();
+        AssertionError replacementFailure = new AssertionError("replacement owner denied");
+        IdleOwnerFailure idleOwnerFailure = new IdleOwnerFailure();
+        FailureCapture failures = new FailureCapture();
+        StreamListenerTaskOwner owner = new StreamListenerTaskOwner(
+                monitor -> {
+                    if (waits.getAndIncrement() == 0) {
+                        firstIdleWait.countDown();
+                        monitor.wait();
+                        throw idleOwnerFailure;
+                    }
+                    monitor.wait();
+                },
+                (name, task) -> {
+                    if (threadCreations.incrementAndGet() > 1) {
+                        replacementAttempted.countDown();
+                        awaitIgnoringInterrupts(releaseReplacement);
+                        throw replacementFailure;
+                    }
+                    return ownerThread(name, task, failures);
+                });
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        Thread firstOwner;
+        try {
+            firstOwner = invoke(owner, limiter, failures, Thread::currentThread);
+            assertTrue(firstIdleWait.await(1, TimeUnit.SECONDS));
+
+            Future<?> running = caller.submit(() -> BoundedTaskRunner.runWithStarter(
+                    limiter,
+                    "procwright-stream-affinity-test-",
+                    Long.MAX_VALUE,
+                    cancellation,
+                    owner,
+                    () -> null));
+            assertTrue(replacementAttempted.await(1, TimeUnit.SECONDS));
+
+            cancellation.cancel();
+
+            ExecutionException wrapper = assertThrows(ExecutionException.class, () -> running.get(1, TimeUnit.SECONDS));
+            assertTrue(wrapper.getCause() instanceof BoundedTaskRunner.TaskCancelledException);
+            assertEquals(0, limiter.availablePermits(), "pending rejection still owns the admitted permit");
+
+            releaseReplacement.countDown();
+            assertTrue(eventually(() -> limiter.availablePermits() == 1));
+            assertTrue(owner.awaitStopped(Duration.ofSeconds(1)));
+            assertTrue(failures.awaitFirst(Duration.ofSeconds(1)));
+            failures.assertOnlyUncaught(firstOwner, idleOwnerFailure);
+        } finally {
+            releaseReplacement.countDown();
+            cancellation.cancel();
+            owner.close();
+            caller.shutdownNow();
+            assertTrue(caller.awaitTermination(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void closeAndSubmitRaceAlwaysSettlesAcceptedAdmissionExactlyOnce() throws Exception {
         for (int run = 0; run < 200; run++) {
             BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
@@ -288,12 +352,11 @@ final class StreamListenerTaskOwnerTest {
         CountDownLatch release = new CountDownLatch(1);
         ExecutorService caller = Executors.newSingleThreadExecutor();
         try {
-            Future<?> running = caller.submit(() -> BoundedTaskRunner.runReportingLateFailure(
+            Future<?> running = caller.submit(() -> BoundedTaskRunner.runWithStarter(
                     limiter,
                     "procwright-stream-affinity-test-",
                     Long.MAX_VALUE,
                     cancellation,
-                    failures::recordLate,
                     owner,
                     () -> {
                         started.countDown();
@@ -356,12 +419,11 @@ final class StreamListenerTaskOwnerTest {
             FailureCapture failures,
             BoundedTaskRunner.Task<T> task)
             throws Exception {
-        return BoundedTaskRunner.runReportingLateFailure(
+        return BoundedTaskRunner.runWithStarter(
                 limiter,
                 "procwright-stream-affinity-test-",
                 deadline(Duration.ofSeconds(1)),
-                null,
-                failures::recordLate,
+                new BoundedTaskRunner.CancellationSignal(),
                 owner,
                 task);
     }
@@ -408,10 +470,6 @@ final class StreamListenerTaskOwnerTest {
             record(FailureChannel.UNCAUGHT, thread, failure);
         }
 
-        private void recordLate(Thread thread, Throwable failure) {
-            record(FailureChannel.LATE, thread, failure);
-        }
-
         private void recordRejection(Throwable failure) {
             record(FailureChannel.REJECTION, Thread.currentThread(), failure);
         }
@@ -440,7 +498,6 @@ final class StreamListenerTaskOwnerTest {
 
     private enum FailureChannel {
         UNCAUGHT,
-        LATE,
         REJECTION
     }
 

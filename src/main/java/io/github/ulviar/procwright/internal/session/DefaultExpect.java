@@ -11,6 +11,7 @@ import io.github.ulviar.procwright.session.ExpectTranscriptValues;
 import io.github.ulviar.procwright.session.LineTranscript;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 /**
@@ -59,7 +60,7 @@ public final class DefaultExpect implements Expect {
             PumpStarter pumpStarter,
             BoundedTaskLimiter regexLimiter,
             ExpectRegexMatcher.Evaluator regexEvaluator,
-            BoundedTaskRunner.LateFatalHandler lateFatalFailureReporter) {
+            BiConsumer<Thread, Error> lateFatalFailureReporter) {
         this.session = Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
         state = new ExpectSessionState(

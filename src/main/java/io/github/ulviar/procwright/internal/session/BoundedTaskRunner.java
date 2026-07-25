@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.Threading;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +35,6 @@ public final class BoundedTaskRunner {
                     threadPrefix,
                     deadlineNanos,
                     BoundedTaskCancellation.none(),
-                    BoundedTaskRunner::reportLateFailure,
                     NO_OP_ABANDONMENT,
                     BoundedTaskHandoff.untracked(),
                     DEFAULT_TASK_STARTER,
@@ -58,34 +56,7 @@ public final class BoundedTaskRunner {
                 limiter,
                 threadPrefix,
                 deadlineNanos,
-                cancellation(cancellation),
-                BoundedTaskRunner::reportLateFailure,
-                NO_OP_ABANDONMENT,
-                BoundedTaskHandoff.untracked(),
-                DEFAULT_TASK_STARTER,
-                System::nanoTime,
-                task);
-    }
-
-    static <T> T run(
-            BoundedTaskLimiter limiter,
-            String threadPrefix,
-            long deadlineNanos,
-            CancellationSignal cancellation,
-            LateFatalHandler lateFatalHandler,
-            Task<T> task)
-            throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
-        Objects.requireNonNull(lateFatalHandler, "lateFatalHandler");
-        return execute(
-                limiter,
-                threadPrefix,
-                deadlineNanos,
-                cancellation(cancellation),
-                (thread, failure) -> {
-                    if (failure instanceof Error error) {
-                        lateFatalHandler.handle(thread, error);
-                    }
-                },
+                Objects.requireNonNull(cancellation, "cancellation"),
                 NO_OP_ABANDONMENT,
                 BoundedTaskHandoff.untracked(),
                 DEFAULT_TASK_STARTER,
@@ -98,15 +69,17 @@ public final class BoundedTaskRunner {
             String threadPrefix,
             long deadlineNanos,
             CancellationToken cancellation,
-            LateFatalHandler lateFatalHandler,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
-        return run(
+        return execute(
                 limiter,
                 threadPrefix,
                 deadlineNanos,
                 Objects.requireNonNull(cancellation, "cancellation").owner,
-                lateFatalHandler,
+                NO_OP_ABANDONMENT,
+                BoundedTaskHandoff.untracked(),
+                DEFAULT_TASK_STARTER,
+                System::nanoTime,
                 task);
     }
 
@@ -120,24 +93,11 @@ public final class BoundedTaskRunner {
         return runTracked(limiter, threadPrefix, deadlineNanos, handoff, DEFAULT_TASK_STARTER, System::nanoTime, task);
     }
 
-    static <T> T runReportingLateFailure(
+    static <T> T runWithAbandonment(
             BoundedTaskLimiter limiter,
             String threadPrefix,
             long deadlineNanos,
             CancellationSignal cancellation,
-            LateFailureHandler lateFailureHandler,
-            Task<T> task)
-            throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
-        return runReportingLateFailure(
-                limiter, threadPrefix, deadlineNanos, cancellation, lateFailureHandler, NO_OP_ABANDONMENT, task);
-    }
-
-    static <T> T runReportingLateFailure(
-            BoundedTaskLimiter limiter,
-            String threadPrefix,
-            long deadlineNanos,
-            CancellationSignal cancellation,
-            LateFailureHandler lateFailureHandler,
             TaskAbandonmentHandler abandonmentHandler,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
@@ -145,8 +105,7 @@ public final class BoundedTaskRunner {
                 limiter,
                 threadPrefix,
                 deadlineNanos,
-                cancellation(cancellation),
-                lateFailureHandler,
+                Objects.requireNonNull(cancellation, "cancellation"),
                 abandonmentHandler,
                 BoundedTaskHandoff.untracked(),
                 DEFAULT_TASK_STARTER,
@@ -154,12 +113,11 @@ public final class BoundedTaskRunner {
                 task);
     }
 
-    static <T> T runReportingLateFailure(
+    static <T> T runWithStarter(
             BoundedTaskLimiter limiter,
             String threadPrefix,
             long deadlineNanos,
             CancellationSignal cancellation,
-            LateFailureHandler lateFailureHandler,
             TaskStarter taskStarter,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
@@ -167,8 +125,7 @@ public final class BoundedTaskRunner {
                 limiter,
                 threadPrefix,
                 deadlineNanos,
-                cancellation(cancellation),
-                lateFailureHandler,
+                Objects.requireNonNull(cancellation, "cancellation"),
                 NO_OP_ABANDONMENT,
                 BoundedTaskHandoff.untracked(),
                 taskStarter,
@@ -192,7 +149,6 @@ public final class BoundedTaskRunner {
                     threadPrefix,
                     deadlineNanos,
                     BoundedTaskCancellation.none(),
-                    BoundedTaskRunner::reportLateFailure,
                     NO_OP_ABANDONMENT,
                     handoff,
                     taskStarter,
@@ -208,7 +164,6 @@ public final class BoundedTaskRunner {
             String threadPrefix,
             long deadlineNanos,
             BoundedTaskCancellation cancellation,
-            LateFailureHandler lateFailureHandler,
             TaskAbandonmentHandler abandonmentHandler,
             BoundedTaskHandoff handoff,
             TaskStarter taskStarter,
@@ -220,22 +175,11 @@ public final class BoundedTaskRunner {
                 threadPrefix,
                 deadlineNanos,
                 cancellation,
-                lateFailureHandler,
                 abandonmentHandler,
                 handoff,
                 taskStarter,
                 nanoTime,
                 task));
-    }
-
-    private static BoundedTaskCancellation cancellation(CancellationSignal signal) {
-        return signal == null ? BoundedTaskCancellation.none() : signal;
-    }
-
-    static void reportLateFailure(Thread sourceThread, Throwable failure) {
-        if (failure instanceof RuntimeException || failure instanceof Error) {
-            BoundedFailureReporter.shared().report(sourceThread, failure);
-        }
     }
 
     @FunctionalInterface
@@ -255,18 +199,6 @@ public final class BoundedTaskRunner {
     interface TaskRejection {
 
         void reject(Throwable failure);
-    }
-
-    @FunctionalInterface
-    interface LateFatalHandler {
-
-        void handle(Thread thread, Error failure);
-    }
-
-    @FunctionalInterface
-    interface LateFailureHandler {
-
-        void handle(Thread thread, Throwable failure);
     }
 
     @FunctionalInterface

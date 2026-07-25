@@ -101,7 +101,7 @@ final class ExpectSessionStateTest {
         assertNull(repeated.fatalToPublish());
     }
 
-    private static ExpectSessionState state(BoundedTaskRunner.LateFatalHandler reporter) {
+    private static ExpectSessionState state(java.util.function.BiConsumer<Thread, Error> reporter) {
         return new ExpectSessionState(256, 256, reporter);
     }
 }

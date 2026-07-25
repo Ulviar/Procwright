@@ -297,7 +297,6 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
                 String threadPrefix,
                 long deadlineNanos,
                 BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.LateFailureHandler lateFailureHandler,
                 BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
                 BoundedTaskRunner.Task<T> task)
                 throws TimeoutException, InterruptedException, ExecutionException {

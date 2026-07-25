@@ -40,16 +40,11 @@ final class LineResponseDecoder {
         RequestCapabilityScope capability = new RequestCapabilityScope("ResponseDecoder.Reader");
         ResponseReader reader = new ResponseReader(deadlineNanos, request, capability);
         try {
-            return BoundedTaskRunner.runReportingLateFailure(
+            return BoundedTaskRunner.runWithAbandonment(
                     BoundedTaskLimits.PROTOCOL_CALLBACKS,
                     "procwright-line-decoder-",
                     deadlineNanos,
                     cancellation,
-                    (thread, failure) -> {
-                        if (failure != request.failure()) {
-                            BoundedTaskRunner.reportLateFailure(thread, failure);
-                        }
-                    },
                     failure -> {
                         capability.invalidate();
                         selectAbandonment(request, failure);

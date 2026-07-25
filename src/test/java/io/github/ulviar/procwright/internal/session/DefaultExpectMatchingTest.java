@@ -295,7 +295,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
     }
 
     @Test
-    void regexErrorAfterOutputFailureCancellationIsReportedWithoutMutatingTheSelectedFailure() throws Exception {
+    void regexErrorAfterOutputFailureCancellationIsIgnoredWithoutMutatingTheSelectedFailure() throws Exception {
         IllegalStateException outputFailure = new IllegalStateException("output failed first");
         AssertionError evaluatorError = new AssertionError("late regex evaluator failure");
         GatedFailureInputStream stdout = new GatedFailureInputStream(outputFailure);
@@ -331,7 +331,7 @@ final class DefaultExpectMatchingTest extends ExpectMatchingTestSupport {
             evaluator.awaitInvocationStopped();
             assertTrue(eventually(() -> limiter.availablePermits() == 1));
             assertEquals(0, outputFailure.getSuppressed().length);
-            assertEquals(1, lateReports.get());
+            assertEquals(0, lateReports.get());
             assertEquals(0, uncaughtReports.get());
         } finally {
             evaluator.release();

@@ -22,24 +22,21 @@ final class StreamListenerDispatcher {
         this.listener = Objects.requireNonNull(listener, "listener");
     }
 
-    void deliver(
-            StreamChunk chunk, BooleanSupplier deliveryAllowed, BoundedTaskRunner.LateFailureHandler lateFailureHandler)
+    void deliver(StreamChunk chunk, BooleanSupplier deliveryAllowed)
             throws InterruptedException, TimeoutException, ExecutionException {
         Objects.requireNonNull(chunk, "chunk");
         BooleanSupplier allowed = Objects.requireNonNull(deliveryAllowed, "deliveryAllowed");
-        Objects.requireNonNull(lateFailureHandler, "lateFailureHandler");
         deliveryLock.lock();
         try {
             if (!allowed.getAsBoolean()) {
                 return;
             }
             try {
-                BoundedTaskRunner.runReportingLateFailure(
+                BoundedTaskRunner.runWithStarter(
                         BoundedTaskLimits.STREAM_LISTENERS,
                         "procwright-stream-listener-",
                         Long.MAX_VALUE,
                         cancellation,
-                        lateFailureHandler,
                         taskOwner,
                         () -> {
                             listener.onChunk(chunk);
