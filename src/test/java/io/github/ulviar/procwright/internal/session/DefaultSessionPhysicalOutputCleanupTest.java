@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -16,31 +15,24 @@ import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DynamicTest;
-import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
-final class DefaultSessionOutputCleanupTest {
+final class DefaultSessionPhysicalOutputCleanupTest extends DefaultSessionOutputCleanupTestSupport {
 
     @Test
     void publicExitPublicationFollowsBothPhysicalOutputClosesRepeatedly() throws Exception {
@@ -72,34 +64,6 @@ final class DefaultSessionOutputCleanupTest {
                 session.close();
             }
         }
-    }
-
-    @TestFactory
-    Stream<DynamicTest> poolRetirementPreservesEitherOutputCloseFailure() {
-        return Stream.of(OutputSource.values())
-                .map(source -> DynamicTest.dynamicTest(
-                        source + " pool retirement failure", () -> verifyPoolRetirementFailure(source)));
-    }
-
-    @Test
-    void poolRetirementSuppressesDuplicatePhysicalFailureIdentity() throws Exception {
-        AssertionError sharedFailure = new AssertionError("shared output close failed");
-        verifyPoolFailureAggregation(sharedFailure, sharedFailure, sharedFailure);
-
-        assertEquals(0, countIdentity(sharedFailure.getSuppressed(), sharedFailure));
-    }
-
-    @Test
-    void poolRetirementDoesNotExpandCyclicPhysicalFailureGraph() throws Exception {
-        IllegalStateException stdoutFailure = new IllegalStateException("stdout close failed");
-        IllegalArgumentException stderrFailure = new IllegalArgumentException("stderr close failed");
-        stdoutFailure.addSuppressed(stderrFailure);
-        stderrFailure.addSuppressed(stdoutFailure);
-
-        verifyPoolFailureAggregation(stdoutFailure, stderrFailure, stdoutFailure);
-
-        assertEquals(1, countIdentity(stdoutFailure.getSuppressed(), stderrFailure));
-        assertEquals(1, countIdentity(stderrFailure.getSuppressed(), stdoutFailure));
     }
 
     @Test
@@ -178,57 +142,6 @@ final class DefaultSessionOutputCleanupTest {
                 true);
     }
 
-    @TestFactory
-    Stream<DynamicTest> inlinePublicOutputCloseFailureBecomesTheTerminalSessionFailureByIdentity() {
-        return Stream.of(OutputSource.values()).flatMap(source -> Stream.of(
-                        new IOException(source + " close failed"),
-                        new IllegalStateException(source + " close failed"),
-                        new AssertionError(source + " close failed"))
-                .map(expected -> DynamicTest.dynamicTest(
-                        source + " / " + expected.getClass().getSimpleName(),
-                        () -> verifyInlinePublicCloseFailure(source, expected))));
-    }
-
-    @Test
-    void blockedInlineOutputCloseFailureOverridesAlreadySelectedNaturalProcessSuccess() throws Exception {
-        AssertionError expected = new AssertionError("blocked stdout close failed");
-        BlockingPhysicalCloseInputStream stdout = new BlockingPhysicalCloseInputStream(expected);
-        TrackingInputStream stderr = new TrackingInputStream();
-        MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
-        ExecutorService closer = Executors.newSingleThreadExecutor();
-        try {
-            Future<Throwable> closeResult = closer.submit(() -> {
-                try {
-                    session.stdout().close();
-                    return null;
-                } catch (Throwable failure) {
-                    return failure;
-                }
-            });
-            assertTrue(stdout.closeEntered.await(1, TimeUnit.SECONDS));
-
-            process.complete(0);
-            assertTrue(eventually(session::terminationPublished));
-            assertFalse(session.onExit().isDone());
-
-            stdout.releaseClose.countDown();
-            assertSame(expected, closeResult.get(1, TimeUnit.SECONDS));
-            ExecutionException terminal = assertThrows(
-                    ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
-
-            assertSame(expected, terminal.getCause());
-            assertEquals(1, stdout.closeCalls());
-            assertEquals(1, stderr.closeCalls());
-        } finally {
-            stdout.releaseClose.countDown();
-            process.complete(143);
-            session.close();
-            closer.shutdownNow();
-            assertTrue(closer.awaitTermination(1, TimeUnit.SECONDS));
-        }
-    }
-
     @Test
     void physicalOutputCleanupWaitsForAcceptedFallbackSettlementAndItsCloseFailure() throws Exception {
         IllegalStateException startFailure = new IllegalStateException("stdout close starter failed");
@@ -296,73 +209,6 @@ final class DefaultSessionOutputCleanupTest {
             assertEquals(1, stderr.closeCalls());
         } finally {
             process.complete(143);
-            session.close();
-        }
-    }
-
-    @Test
-    void everyDistinctLateOutputCloseFailureIsReportedExactlyOnce() throws Exception {
-        AssertionError stdoutFailure = new AssertionError("stdout close failed");
-        AssertionError stderrFailure = new AssertionError("stderr close failed");
-        ImmediateFailingCloseInputStream stdout = new ImmediateFailingCloseInputStream(stdoutFailure);
-        ImmediateFailingCloseInputStream stderr = new ImmediateFailingCloseInputStream(stderrFailure);
-        TrackingOutputStream stdin = new TrackingOutputStream();
-        MatrixProcess process = new MatrixProcess(stdin, stdout, stderr);
-        CopyOnWriteFailureHandler reports = new CopyOnWriteFailureHandler(1);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, reports::start));
-        try {
-            process.complete(0);
-            assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
-            assertTrue(reports.await());
-            assertTrue(reports.awaitWorkers());
-
-            Throwable reported = reports.onlyFailure();
-            assertSame(stdoutFailure, reported.getCause());
-            assertEquals(java.util.List.of(stderrFailure), java.util.List.of(reported.getSuppressed()));
-            assertEquals(0, stdoutFailure.getSuppressed().length);
-            assertEquals(0, stderrFailure.getSuppressed().length);
-            assertEquals(1, stdout.closeCalls());
-            assertEquals(1, stderr.closeCalls());
-        } finally {
-            session.close();
-        }
-    }
-
-    @RepeatedTest(25)
-    void terminalStdinFailureOwnsBothLaterOutputCloseFailures() throws Exception {
-        AssertionError stdinFailure = new AssertionError("stdin close failed");
-        AssertionError stdoutFailure = new AssertionError("stdout close failed");
-        AssertionError stderrFailure = new AssertionError("stderr close failed");
-        ImmediateFailingCloseOutputStream stdin = new ImmediateFailingCloseOutputStream(stdinFailure);
-        ImmediateFailingCloseInputStream stdout = new ImmediateFailingCloseInputStream(stdoutFailure);
-        ImmediateFailingCloseInputStream stderr = new ImmediateFailingCloseInputStream(stderrFailure);
-        MatrixProcess process = new MatrixProcess(stdin, stdout, stderr);
-        CopyOnWriteFailureHandler reports = new CopyOnWriteFailureHandler(0);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, reports::start));
-        try {
-            ExecutionException terminal;
-            try (var monitor = hold(stdinFailure)) {
-                monitor.verifyHeld();
-                session.closeStdin();
-                terminal = org.junit.jupiter.api.Assertions.assertThrows(
-                        ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
-            }
-            assertSame(stdinFailure, terminal.getCause().getCause());
-            assertTrue(stdout.awaitClosed());
-            assertTrue(stderr.awaitClosed());
-            assertTrue(reports.awaitWorkers());
-
-            assertEquals(
-                    java.util.List.of(stdoutFailure, stderrFailure),
-                    java.util.List.of(terminal.getCause().getSuppressed()));
-            assertEquals(0, stdinFailure.getSuppressed().length);
-            assertEquals(0, stdoutFailure.getSuppressed().length);
-            assertEquals(0, stderrFailure.getSuppressed().length);
-            assertEquals(0, reports.size());
-            assertEquals(1, stdin.closeCalls());
-            assertEquals(1, stdout.closeCalls());
-            assertEquals(1, stderr.closeCalls());
-        } finally {
             session.close();
         }
     }
@@ -480,117 +326,6 @@ final class DefaultSessionOutputCleanupTest {
                 readinessCaller.join(TimeUnit.SECONDS.toMillis(1));
             }
         }
-    }
-
-    private static DefaultSession openSession(Process process, BoundedCloseDispatcher dispatcher) {
-        return DefaultSession.openTransactionally(
-                process,
-                Duration.ZERO,
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8,
-                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "output-cleanup-test", CommandEcho.empty()),
-                () -> {},
-                dispatcher,
-                io.github.ulviar.procwright.internal.Threading::start);
-    }
-
-    private static void verifyInlinePublicCloseFailure(OutputSource source, Throwable expected) throws Exception {
-        InputStream stdout = source == OutputSource.STDOUT
-                ? new ImmediateFailingCloseInputStream(expected)
-                : new TrackingInputStream();
-        InputStream stderr = source == OutputSource.STDERR
-                ? new ImmediateFailingCloseInputStream(expected)
-                : new TrackingInputStream();
-        MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
-        try {
-            Throwable closeFailure;
-            try {
-                source.stream(session).close();
-                closeFailure = null;
-            } catch (Throwable failure) {
-                closeFailure = failure;
-            }
-            assertSame(expected, closeFailure);
-            process.complete(0);
-
-            ExecutionException terminal = assertThrows(
-                    ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
-
-            assertSame(expected, terminal.getCause());
-            assertTrue(session.physicalOutputCleanup().isDone());
-        } finally {
-            process.complete(143);
-            session.close();
-        }
-    }
-
-    private static void verifyPoolRetirementFailure(OutputSource source) throws Exception {
-        AssertionError closeFailure = new AssertionError(source + " close failed");
-        InputStream stdout = source == OutputSource.STDOUT
-                ? new ImmediateFailingCloseInputStream(closeFailure)
-                : new TrackingInputStream();
-        InputStream stderr = source == OutputSource.STDERR
-                ? new ImmediateFailingCloseInputStream(closeFailure)
-                : new TrackingInputStream();
-
-        verifyPoolFailureAggregation(stdout, stderr, closeFailure);
-    }
-
-    private static void verifyPoolFailureAggregation(
-            Throwable stdoutFailure, Throwable stderrFailure, Throwable expectedPrimary) throws Exception {
-        verifyPoolFailureAggregation(
-                new ImmediateFailingCloseInputStream(stdoutFailure),
-                new ImmediateFailingCloseInputStream(stderrFailure),
-                expectedPrimary);
-    }
-
-    private static void verifyPoolFailureAggregation(InputStream stdout, InputStream stderr, Throwable expectedPrimary)
-            throws Exception {
-        MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
-        WorkerPoolController<DefaultSession> pool = WorkerPoolController.fromSettings(
-                () -> session,
-                worker -> WorkerCloseSupport.closeOutcome(worker, worker.onExit(), worker.physicalOutputCleanup()),
-                WorkerPoolSettings.defaults().withWarmupSize(1).withBackgroundReplenishment(false),
-                PoolTestFailures.INSTANCE,
-                "default session",
-                "output-cleanup-pool-",
-                System::nanoTime);
-        try {
-            ExecutionException observed = assertThrows(
-                    ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
-
-            Throwable poolFailure = observed.getCause();
-            if (poolFailure != expectedPrimary) {
-                assertSame(expectedPrimary, poolFailure.getCause());
-            }
-            assertEquals(1, pool.metrics().failedWorkerCloses());
-            assertEquals(1, pool.metrics().retired());
-            assertEquals(0, pool.metrics().retiring());
-            assertEquals(0, pool.metrics().size());
-        } finally {
-            process.complete(143);
-            session.close();
-            pool.closeAsync();
-        }
-    }
-
-    private static int countIdentity(Throwable[] failures, Throwable expected) {
-        return Math.toIntExact(java.util.Arrays.stream(failures)
-                .filter(failure -> failure == expected)
-                .count());
-    }
-
-    private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        while (!condition.getAsBoolean()) {
-            if (deadline - System.nanoTime() <= 0) {
-                return false;
-            }
-            Thread.sleep(5);
-        }
-        return true;
     }
 
     private static Thread startRawRead(
@@ -794,77 +529,6 @@ final class DefaultSessionOutputCleanupTest {
         }
     }
 
-    private static final class TrackingInputStream extends InputStream {
-
-        private final CountDownLatch closed = new CountDownLatch(1);
-        private final AtomicInteger closeCalls = new AtomicInteger();
-
-        @Override
-        public int read() {
-            return -1;
-        }
-
-        @Override
-        public void close() {
-            closeCalls.incrementAndGet();
-            closed.countDown();
-        }
-
-        private boolean awaitClosed() throws InterruptedException {
-            return closed.await(1, TimeUnit.SECONDS);
-        }
-
-        private int closeCalls() {
-            return closeCalls.get();
-        }
-    }
-
-    private static final class TrackingOutputStream extends OutputStream {
-
-        private final CountDownLatch closed = new CountDownLatch(1);
-        private final AtomicInteger closeCalls = new AtomicInteger();
-
-        @Override
-        public void write(int value) {}
-
-        @Override
-        public void close() {
-            closeCalls.incrementAndGet();
-            closed.countDown();
-        }
-
-        private boolean awaitClosed() throws InterruptedException {
-            return closed.await(1, TimeUnit.SECONDS);
-        }
-
-        private int closeCalls() {
-            return closeCalls.get();
-        }
-    }
-
-    private static final class ImmediateFailingCloseOutputStream extends OutputStream {
-
-        private final Error failure;
-        private final AtomicInteger closeCalls = new AtomicInteger();
-
-        private ImmediateFailingCloseOutputStream(Error failure) {
-            this.failure = failure;
-        }
-
-        @Override
-        public void write(int value) {}
-
-        @Override
-        public void close() {
-            closeCalls.incrementAndGet();
-            throw failure;
-        }
-
-        private int closeCalls() {
-            return closeCalls.get();
-        }
-    }
-
     private static final class ImmediateFailingCloseInputStream extends InputStream {
 
         private final Throwable failure;
@@ -893,185 +557,6 @@ final class DefaultSessionOutputCleanupTest {
 
         private int closeCalls() {
             return closeCalls.get();
-        }
-    }
-
-    private static final class CopyOnWriteFailureHandler {
-
-        private final java.util.concurrent.CopyOnWriteArrayList<Throwable> failures =
-                new java.util.concurrent.CopyOnWriteArrayList<>();
-        private final CountDownLatch expected;
-        private final CountDownLatch workersFinished = new CountDownLatch(3);
-
-        private CopyOnWriteFailureHandler(int expectedFailures) {
-            expected = new CountDownLatch(expectedFailures);
-        }
-
-        private Thread start(String name, Runnable task) {
-            Thread worker = new Thread(
-                    () -> {
-                        try {
-                            task.run();
-                        } finally {
-                            workersFinished.countDown();
-                        }
-                    },
-                    name);
-            worker.setDaemon(true);
-            worker.setUncaughtExceptionHandler((ignored, failure) -> {
-                failures.add(failure);
-                expected.countDown();
-            });
-            worker.start();
-            return worker;
-        }
-
-        private boolean await() throws InterruptedException {
-            return expected.await(1, TimeUnit.SECONDS);
-        }
-
-        private Throwable onlyFailure() {
-            assertEquals(1, failures.size());
-            return failures.get(0);
-        }
-
-        private boolean awaitWorkers() throws InterruptedException {
-            return workersFinished.await(1, TimeUnit.SECONDS);
-        }
-
-        private int size() {
-            return failures.size();
-        }
-    }
-
-    private static final class MatrixProcess extends Process {
-
-        private final OutputStream stdin;
-        private final InputStream stdout;
-        private final InputStream stderr;
-        private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicInteger stdinGetterCalls = new AtomicInteger();
-        private final AtomicInteger stdoutGetterCalls = new AtomicInteger();
-        private final AtomicInteger stderrGetterCalls = new AtomicInteger();
-
-        private MatrixProcess(OutputStream stdin, InputStream stdout, InputStream stderr) {
-            this.stdin = stdin;
-            this.stdout = stdout;
-            this.stderr = stderr;
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            stdinGetterCalls.incrementAndGet();
-            return stdin;
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            stdoutGetterCalls.incrementAndGet();
-            return stdout;
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            stderrGetterCalls.incrementAndGet();
-            return stderr;
-        }
-
-        @Override
-        public int waitFor() throws InterruptedException {
-            try {
-                return exit.get();
-            } catch (ExecutionException failure) {
-                throw new AssertionError(failure.getCause());
-            }
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
-            try {
-                exit.get(timeout, unit);
-                return true;
-            } catch (TimeoutException ignored) {
-                return false;
-            } catch (ExecutionException failure) {
-                throw new AssertionError(failure.getCause());
-            }
-        }
-
-        @Override
-        public int exitValue() {
-            Integer value = exit.getNow(null);
-            if (value == null) {
-                throw new IllegalThreadStateException("process is still running");
-            }
-            return value;
-        }
-
-        @Override
-        public void destroy() {
-            complete(143);
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            destroy();
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return !exit.isDone();
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
-        }
-
-        private void complete(int exitCode) {
-            exit.complete(exitCode);
-        }
-
-        private int stdinGetterCalls() {
-            return stdinGetterCalls.get();
-        }
-
-        private int stdoutGetterCalls() {
-            return stdoutGetterCalls.get();
-        }
-
-        private int stderrGetterCalls() {
-            return stderrGetterCalls.get();
-        }
-    }
-
-    private enum PoolTestFailures implements WorkerPoolController.FailureFactory {
-        INSTANCE;
-
-        @Override
-        public RuntimeException closed(String message) {
-            return new IllegalStateException(message);
-        }
-
-        @Override
-        public RuntimeException acquireTimeout(String message) {
-            return new IllegalStateException(message);
-        }
-
-        @Override
-        public RuntimeException acquireInterrupted(String message, InterruptedException cause) {
-            return new IllegalStateException(message, cause);
-        }
-
-        @Override
-        public RuntimeException startupFailed(String message, Throwable cause) {
-            return new IllegalStateException(message, cause);
-        }
-
-        @Override
-        public RuntimeException retirementFailed(String message, Throwable cause) {
-            return new IllegalStateException(message, cause);
         }
     }
 
