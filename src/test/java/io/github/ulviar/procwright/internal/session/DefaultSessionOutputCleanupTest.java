@@ -550,7 +550,7 @@ final class DefaultSessionOutputCleanupTest {
         DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
         WorkerPoolController<DefaultSession> pool = new WorkerPoolController<>(
                 () -> session,
-                (worker, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (worker, admission) -> WorkerCloseSupport.closeOutcome(
                         worker, worker.onExit(), worker.physicalOutputCleanup(), admission),
                 PoolTestOptions.INSTANCE,
                 PoolTestFailures.INSTANCE,

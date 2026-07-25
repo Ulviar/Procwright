@@ -13,6 +13,7 @@ import io.github.ulviar.procwright.internal.Threading;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -280,7 +281,7 @@ final class PoolLifecycleDispatcherTest {
         PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
         AtomicInteger taskRuns = new AtomicInteger();
 
-        WorkerRetirement.Observation observation = WorkerCloseSupport.initiateCloseAndObserve(
+        CompletableFuture<WorkerRetirement.Outcome> retirement = WorkerCloseSupport.closeOutcome(
                 taskRuns::incrementAndGet,
                 java.util.concurrent.CompletableFuture.completedFuture(null),
                 java.util.concurrent.CompletableFuture.completedFuture(null),
@@ -288,7 +289,7 @@ final class PoolLifecycleDispatcherTest {
                 (ownedAdmission, task) -> PoolLifecycleDispatcher.executeWorkerClose(
                         ownedAdmission, task, (prefix, owner) -> throwUnchecked(expected)));
 
-        WorkerRetirement.Outcome outcome = observation.outcome().get(1, TimeUnit.SECONDS);
+        WorkerRetirement.Outcome outcome = retirement.get(1, TimeUnit.SECONDS);
         assertSame(expected, outcome.failure());
         assertEquals(0, taskRuns.get());
         assertEquals(0, admissions.availablePermits(), "the worker still owns its admitted close after failure");

@@ -53,7 +53,7 @@ final class WorkerPoolPolicyTest {
 
     private static PoolWorker<String> worker() {
         return new PoolWorker<>(
-                (session, admission) -> () -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
+                (session, admission) -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
     }
 
     private record Options(int maxSize, int warmupSize, int minIdle, boolean background, int maxRequests)

@@ -32,8 +32,8 @@ Pool runtime перестраивается вокруг следующих вл
   либо инвалидирует его и запрещает повторный доступ к worker/effects; узкий state port выражает только startup events;
 - `WorkerRetirement` создаётся вместе с reservation до регистрации slot, затем принимает admission и factory session
   без аллокации, атомарно заявляет начало close, выполняет потенциально реентрантный close action вне monitor и
-  нормализует один опубликованный observation в стабильный outcome;
-- `WorkerRetirementCoordinator` владеет post-monitor batch: сначала инициирует все closes, затем наблюдает outcomes и
+  нормализует один возвращённый future в стабильный outcome;
+- `WorkerRetirementCoordinator` владеет post-monitor batch: сначала инициирует все closes, затем обрабатывает outcomes и
   включает все outcomes в state и только после этого публикует late failures;
 - `PoolStateEffects` является одноразовым `AutoCloseable`: накапливает выбранные state-транзакцией retirement,
   admission-release и terminal-publication effects и при закрытии пытается выполнить их все вне monitor, даже если

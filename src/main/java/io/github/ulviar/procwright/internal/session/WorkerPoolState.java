@@ -377,7 +377,7 @@ final class WorkerPoolState<S> {
         }
     }
 
-    void failRetirementObservation(PoolWorker<S> worker, Throwable failure, PoolStateEffects<S> effects) {
+    void failRetirementCompletion(PoolWorker<S> worker, Throwable failure, PoolStateEffects<S> effects) {
         Objects.requireNonNull(worker, "worker");
         Objects.requireNonNull(failure, "failure");
         requireEffects(effects);

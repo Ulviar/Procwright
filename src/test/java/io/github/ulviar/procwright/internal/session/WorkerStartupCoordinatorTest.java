@@ -191,7 +191,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
     private static PoolWorker<String> worker(java.util.function.Supplier<String> factory) {
         PoolWorker<String> worker = new PoolWorker<>(
-                (session, admission) -> () -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
+                (session, admission) -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
         worker.startup(new WorkerStartup<>(factory, "test-startup-coordinator-", completion -> {}));
         return worker;
     }

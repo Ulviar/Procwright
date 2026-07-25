@@ -234,7 +234,7 @@ final class PooledWorkerPhysicalCleanupTest {
                 WorkerPoolSettings.<LineSession>defaults().withWarmupSize(1),
                 System::nanoTime,
                 PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (session, admission) -> WorkerCloseSupport.closeOutcome(
                         () -> {
                             closeStarted.countDown();
                             session.close();
@@ -290,7 +290,7 @@ final class PooledWorkerPhysicalCleanupTest {
         };
         WorkerPoolController<DefaultLineSession> pool = new WorkerPoolController<>(
                 () -> worker,
-                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (session, admission) -> WorkerCloseSupport.closeOutcome(
                         () -> {
                             try {
                                 session.close();
@@ -372,7 +372,7 @@ final class PooledWorkerPhysicalCleanupTest {
                 () -> worker,
                 WorkerPoolSettings.<ProtocolSession<String, String>>defaults().withWarmupSize(1),
                 PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (session, admission) -> WorkerCloseSupport.closeOutcome(
                         () -> {
                             closeStarted.countDown();
                             session.close();

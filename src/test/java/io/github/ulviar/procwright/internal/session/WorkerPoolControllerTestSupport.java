@@ -144,7 +144,7 @@ abstract class WorkerPoolControllerTestSupport {
                 outcome = WorkerRetirement.Outcome.failure(failure);
             }
             WorkerRetirement.Outcome completed = outcome;
-            return () -> CompletableFuture.completedFuture(completed);
+            return CompletableFuture.completedFuture(completed);
         };
     }
 

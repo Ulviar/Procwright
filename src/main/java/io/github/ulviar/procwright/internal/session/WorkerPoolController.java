@@ -423,7 +423,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     private void completeUnexpectedRetirementFailure(PoolWorker<S> worker, Throwable failure) {
         FailureReport failureReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
         runEffects(newEffects(), effects -> {
-            state.failRetirementObservation(worker, failure, effects);
+            state.failRetirementCompletion(worker, failure, effects);
         });
         failurePublisher.publish(failureReport);
     }

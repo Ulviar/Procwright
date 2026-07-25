@@ -10,12 +10,12 @@ final class WorkerCloseSupport {
 
     private WorkerCloseSupport() {}
 
-    static WorkerRetirement.Observation initiateCloseAndObserve(
+    static CompletableFuture<WorkerRetirement.Outcome> closeOutcome(
             AutoCloseable session,
             CompletableFuture<?> terminalOutcome,
             CompletableFuture<?> physicalOutputCleanup,
             PoolLifecycleDispatcher.Admission admission) {
-        return initiateCloseAndObserve(
+        return closeOutcome(
                 session,
                 terminalOutcome,
                 physicalOutputCleanup,
@@ -23,7 +23,7 @@ final class WorkerCloseSupport {
                 PoolLifecycleDispatcher::executeWorkerClose);
     }
 
-    static WorkerRetirement.Observation initiateCloseAndObserve(
+    static CompletableFuture<WorkerRetirement.Outcome> closeOutcome(
             AutoCloseable session,
             CompletableFuture<?> terminalOutcome,
             CompletableFuture<?> physicalOutputCleanup,
@@ -43,7 +43,7 @@ final class WorkerCloseSupport {
                         closeFailure, terminalFailure, physicalCleanupFailure)
                 .thenApply(ignored ->
                         aggregate(closeFailure.join(), terminalFailure.join(), physicalCleanupFailure.join()));
-        return () -> cleanupOutcome;
+        return cleanupOutcome;
     }
 
     private static PoolLifecycleDispatcher.Ownership initiateClose(

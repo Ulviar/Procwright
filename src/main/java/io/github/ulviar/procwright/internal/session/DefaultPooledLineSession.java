@@ -51,7 +51,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 options,
                 metricsClock,
                 PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (session, admission) -> WorkerCloseSupport.closeOutcome(
                         session, session.onExit(), session.physicalOutputCleanup(), admission));
     }
 
@@ -67,7 +67,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 options,
                 metricsClock,
                 terminalDispatcher,
-                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (session, admission) -> WorkerCloseSupport.closeOutcome(
                         session, session.onExit(), session.physicalOutputCleanup(), admission, terminalDispatcher));
     }
 

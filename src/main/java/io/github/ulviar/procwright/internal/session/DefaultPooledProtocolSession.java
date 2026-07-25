@@ -34,7 +34,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
                 workerFactory,
                 options,
                 PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (session, admission) -> WorkerCloseSupport.closeOutcome(
                         session, session.onExit(), session.physicalOutputCleanup(), admission));
     }
 
@@ -46,7 +46,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
                 workerFactory,
                 options,
                 terminalDispatcher,
-                (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                (session, admission) -> WorkerCloseSupport.closeOutcome(
                         session, session.onExit(), session.physicalOutputCleanup(), admission, terminalDispatcher));
     }
 

@@ -226,7 +226,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 workers.add(worker);
                 pools.add(new WorkerPoolController<>(
                         () -> worker,
-                        (session, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
+                        (session, admission) -> WorkerCloseSupport.closeOutcome(
                                 session, session.onExit(), session.physicalCleanup(), admission),
                         new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                         Failures.INSTANCE,
@@ -393,10 +393,10 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 (worker, admission) -> {
                     if (worker.id() == 1) {
                         firstInitiated.countDown();
-                        return () -> firstOutcome;
+                        return firstOutcome;
                     }
                     secondInitiated.countDown();
-                    return () -> secondOutcome;
+                    return secondOutcome;
                 },
                 new Options(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 Failures.INSTANCE,
@@ -566,8 +566,8 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         CloseAwareWorker session = new CloseAwareWorker();
         WorkerPoolController<CloseAwareWorker> pool = new WorkerPoolController<>(
                 () -> session,
-                (worker, admission) -> WorkerCloseSupport.initiateCloseAndObserve(
-                        worker, worker.terminal, worker.physicalCleanup, admission),
+                (worker, admission) ->
+                        WorkerCloseSupport.closeOutcome(worker, worker.terminal, worker.physicalCleanup, admission),
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 Failures.INSTANCE,
                 "close-aware worker",

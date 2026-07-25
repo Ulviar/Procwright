@@ -10,7 +10,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
-/** Owns post-monitor retirement batches, close observation, and late failure publication. */
+/** Owns post-monitor retirement batches, close completion, and late failure publication. */
 final class WorkerRetirementCoordinator<S> {
 
     private final Consumer<Runnable> dispatcher;

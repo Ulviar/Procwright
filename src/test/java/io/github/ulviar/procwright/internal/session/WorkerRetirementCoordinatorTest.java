@@ -86,7 +86,7 @@ final class WorkerRetirementCoordinatorTest {
         PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
         PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
         CompletableFuture<WorkerRetirement.Outcome> outcome = new CompletableFuture<>();
-        PoolWorker<String> worker = new PoolWorker<>((session, ignored) -> () -> outcome);
+        PoolWorker<String> worker = new PoolWorker<>((session, ignored) -> outcome);
         worker.retirementAdmission(admission);
         worker.accept("worker");
         AtomicReference<Throwable> observed = new AtomicReference<>();
@@ -104,12 +104,40 @@ final class WorkerRetirementCoordinatorTest {
                 report -> {});
         PoolStateEffects<String> effects = effects(coordinator);
         effects.retire(worker);
-        IllegalStateException failure = new IllegalStateException("close observation failed");
+        IllegalStateException failure = new IllegalStateException("close completion failed");
 
         effects.close();
         outcome.completeExceptionally(failure);
 
         assertSame(failure, observed.get());
+        assertEquals(1, admissions.availablePermits());
+    }
+
+    @Test
+    void nullCloseOutcomeReleasesAdmission() {
+        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+        PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
+        PoolWorker<String> worker = new PoolWorker<>((session, ignored) -> CompletableFuture.completedFuture(null));
+        worker.retirementAdmission(admission);
+        worker.accept("worker");
+        AtomicReference<Throwable> observed = new AtomicReference<>();
+        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
+                Runnable::run,
+                (completedWorker, completedOutcome) -> {
+                    releaseAdmission(completedWorker);
+                    observed.set(completedOutcome.failure());
+                    return null;
+                },
+                (failedWorker, failure) -> {
+                    throw new AssertionError(failure);
+                },
+                report -> {});
+        PoolStateEffects<String> effects = effects(coordinator);
+        effects.retire(worker);
+
+        effects.close();
+
+        assertEquals("worker close future returned null", observed.get().getMessage());
         assertEquals(1, admissions.availablePermits());
     }
 
@@ -143,7 +171,7 @@ final class WorkerRetirementCoordinatorTest {
         PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
         PoolWorker<String> worker = new PoolWorker<>((session, ignored) -> {
             initiated.incrementAndGet();
-            return () -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
+            return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
         });
         worker.retirementAdmission(admission);
         worker.accept("worker");

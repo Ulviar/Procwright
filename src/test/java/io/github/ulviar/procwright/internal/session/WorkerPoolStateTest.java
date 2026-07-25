@@ -455,7 +455,7 @@ final class WorkerPoolStateTest {
     }
 
     private static WorkerRetirement.Action<String> noOpClose() {
-        return (session, admission) -> () -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
+        return (session, admission) -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
     }
 
     private static void assertMetrics(

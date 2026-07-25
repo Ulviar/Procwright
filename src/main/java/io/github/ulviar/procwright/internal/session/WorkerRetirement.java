@@ -6,12 +6,11 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
-/** Owns exact-once initiation and normalized observation of one worker retirement. */
+/** Owns exact-once initiation and one stable outcome for a worker retirement. */
 final class WorkerRetirement<S> {
 
     private final Action<S> action;
-    private final CompletableFuture<Observation> observation = new CompletableFuture<>();
-    private final CompletableFuture<Outcome> outcome = observation.thenCompose(this::observe);
+    private final CompletableFuture<Outcome> outcome = new CompletableFuture<>();
     private S session;
     private PoolLifecycleDispatcher.Admission admission;
     private boolean initiationStarted;
@@ -51,19 +50,19 @@ final class WorkerRetirement<S> {
             if (initiationStarted) {
                 return;
             }
-            initiationStarted = true;
             acceptedSession = Objects.requireNonNull(session, "worker has no accepted session");
             acceptedAdmission = Objects.requireNonNull(admission, "worker has no retirement admission");
+            initiationStarted = true;
         }
-        Observation selected;
+        CompletableFuture<Outcome> selected;
         try {
             selected = Objects.requireNonNull(
-                    action.initiate(acceptedSession, acceptedAdmission),
-                    "worker close action returned null observation");
+                    action.initiate(acceptedSession, acceptedAdmission), "worker close action returned null future");
         } catch (Throwable failure) {
-            selected = () -> CompletableFuture.completedFuture(Outcome.failure(failure));
+            outcome.complete(Outcome.failure(failure));
+            return;
         }
-        observation.complete(selected);
+        observe(selected);
     }
 
     CompletableFuture<Outcome> outcome() {
@@ -71,21 +70,19 @@ final class WorkerRetirement<S> {
         return outcome;
     }
 
-    private CompletableFuture<Outcome> observe(Observation selected) {
+    private void observe(CompletableFuture<Outcome> selected) {
         try {
-            CompletableFuture<Outcome> observed =
-                    Objects.requireNonNull(selected.outcome(), "worker close observation returned null future");
-            return observed.handle((closeOutcome, failure) -> {
+            selected.whenComplete((closeOutcome, failure) -> {
                 if (failure != null) {
-                    return Outcome.failure(unwrap(failure));
+                    outcome.complete(Outcome.failure(unwrap(failure)));
+                } else if (closeOutcome == null) {
+                    outcome.complete(Outcome.failure(new NullPointerException("worker close future returned null")));
+                } else {
+                    outcome.complete(closeOutcome);
                 }
-                if (closeOutcome == null) {
-                    return Outcome.failure(new NullPointerException("worker close observation returned null"));
-                }
-                return closeOutcome;
             });
         } catch (Throwable failure) {
-            return CompletableFuture.completedFuture(WorkerRetirement.Outcome.failure(failure));
+            outcome.complete(Outcome.failure(failure));
         }
     }
 
@@ -98,13 +95,7 @@ final class WorkerRetirement<S> {
     @FunctionalInterface
     interface Action<S> {
 
-        Observation initiate(S session, PoolLifecycleDispatcher.Admission admission);
-    }
-
-    @FunctionalInterface
-    interface Observation {
-
-        CompletableFuture<Outcome> outcome();
+        CompletableFuture<Outcome> initiate(S session, PoolLifecycleDispatcher.Admission admission);
     }
 
     record Outcome(Throwable failure) {
