@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -17,17 +16,15 @@ import java.util.function.LongSupplier;
  *
  * <p>Java cannot forcibly terminate arbitrary callback code. A timed-out task therefore retains its permit until the
  * task actually returns. This lets the caller observe its deadline while putting a hard upper bound on abandoned
- * library-managed threads. By default each admitted invocation receives a fresh daemon platform thread that does not
- * inherit thread-local state. A caller may supply a narrower lifecycle owner only when callback ownership itself
- * provides the isolation boundary.
+ * library-managed tasks. Each default invocation uses a non-inheriting virtual thread where available and a fresh
+ * non-inheriting daemon platform thread on Java 17. A caller may supply a narrower lifecycle owner only when callback
+ * ownership itself provides the isolation boundary.
  */
 public final class BoundedTaskRunner {
 
     private static final TaskAbandonmentHandler NO_OP_ABANDONMENT = failure -> {};
-    private static final AtomicLong TASK_SEQUENCE = new AtomicLong();
-    private static final TaskStarter FRESH_TASK_STARTER = (threadPrefix, task, rejection) ->
-            Threading.unstartedPlatformNonInheriting(threadPrefix + TASK_SEQUENCE.getAndIncrement(), task)
-                    .start();
+    private static final TaskStarter DEFAULT_TASK_STARTER =
+            (threadPrefix, task, rejection) -> Threading.start(threadPrefix, task);
 
     private BoundedTaskRunner() {}
 
@@ -42,7 +39,7 @@ public final class BoundedTaskRunner {
                     BoundedTaskRunner::reportLateFailure,
                     NO_OP_ABANDONMENT,
                     BoundedTaskHandoff.untracked(),
-                    FRESH_TASK_STARTER,
+                    DEFAULT_TASK_STARTER,
                     System::nanoTime,
                     task);
         } catch (TaskCancelledException impossible) {
@@ -65,7 +62,7 @@ public final class BoundedTaskRunner {
                 BoundedTaskRunner::reportLateFailure,
                 NO_OP_ABANDONMENT,
                 BoundedTaskHandoff.untracked(),
-                FRESH_TASK_STARTER,
+                DEFAULT_TASK_STARTER,
                 System::nanoTime,
                 task);
     }
@@ -91,7 +88,7 @@ public final class BoundedTaskRunner {
                 },
                 NO_OP_ABANDONMENT,
                 BoundedTaskHandoff.untracked(),
-                FRESH_TASK_STARTER,
+                DEFAULT_TASK_STARTER,
                 System::nanoTime,
                 task);
     }
@@ -120,7 +117,7 @@ public final class BoundedTaskRunner {
             BoundedTaskHandoff handoff,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException {
-        return runTracked(limiter, threadPrefix, deadlineNanos, handoff, FRESH_TASK_STARTER, System::nanoTime, task);
+        return runTracked(limiter, threadPrefix, deadlineNanos, handoff, DEFAULT_TASK_STARTER, System::nanoTime, task);
     }
 
     static <T> T runReportingLateFailure(
@@ -152,7 +149,7 @@ public final class BoundedTaskRunner {
                 lateFailureHandler,
                 abandonmentHandler,
                 BoundedTaskHandoff.untracked(),
-                FRESH_TASK_STARTER,
+                DEFAULT_TASK_STARTER,
                 System::nanoTime,
                 task);
     }

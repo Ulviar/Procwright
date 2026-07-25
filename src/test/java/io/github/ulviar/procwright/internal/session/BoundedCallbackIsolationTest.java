@@ -73,7 +73,7 @@ final class BoundedCallbackIsolationTest {
         InheritableThreadLocal<String> inherited = new InheritableThreadLocal<>();
         inherited.set("caller-state");
         try {
-            assertFreshLane(BoundedTaskLimits.READINESS_PROBES.capacity() + 1, contamination, inherited, () -> {
+            assertTaskScopedLane(BoundedTaskLimits.READINESS_PROBES.capacity() + 1, contamination, inherited, () -> {
                 AtomicReference<Thread> callbackThread = new AtomicReference<>();
                 ReadinessSupport.check(
                         "target",
@@ -82,7 +82,7 @@ final class BoundedCallbackIsolationTest {
                         () -> {});
                 return callbackThread.get();
             });
-            assertFreshLane(
+            assertTaskScopedLane(
                     BoundedTaskLimits.WORKER_HOOKS.capacity() + 1,
                     contamination,
                     inherited,
@@ -94,7 +94,7 @@ final class BoundedCallbackIsolationTest {
                             interruption -> new IllegalStateException("worker hook interrupted", interruption),
                             failure -> new IllegalStateException("worker hook failed", failure)),
                     "worker hook");
-            assertFreshLane(
+            assertTaskScopedLane(
                     BoundedTaskLimits.PROTOCOL_CALLBACKS.capacity() + 1,
                     contamination,
                     inherited,
@@ -109,16 +109,16 @@ final class BoundedCallbackIsolationTest {
         }
     }
 
-    private static void assertFreshLane(
+    private static void assertTaskScopedLane(
             int invocations,
             ThreadLocal<String> contamination,
             InheritableThreadLocal<String> inherited,
             ThreadCall call)
             throws Exception {
-        assertFreshLane(invocations, contamination, inherited, call, "readiness probe");
+        assertTaskScopedLane(invocations, contamination, inherited, call, "readiness probe");
     }
 
-    private static void assertFreshLane(
+    private static void assertTaskScopedLane(
             int invocations,
             ThreadLocal<String> contamination,
             InheritableThreadLocal<String> inherited,

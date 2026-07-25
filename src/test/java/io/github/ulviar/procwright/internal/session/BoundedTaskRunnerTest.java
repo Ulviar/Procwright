@@ -55,7 +55,7 @@ final class BoundedTaskRunnerTest {
     }
 
     @Test
-    void arbitraryCallbacksUseFreshNonInheritingDaemonThreads() throws Exception {
+    void arbitraryCallbacksUseAdaptiveNonInheritingDaemonOwners() throws Exception {
         int taskCount = 64;
         BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         ThreadLocal<String> contamination = new ThreadLocal<>();
@@ -65,15 +65,20 @@ final class BoundedTaskRunnerTest {
         try {
             for (int index = 0; index < taskCount; index++) {
                 Thread callbackThread = BoundedTaskRunner.run(
-                        limiter, "procwright-fresh-callback-test-", deadline(Duration.ofSeconds(1)), () -> {
+                        limiter, "procwright-adaptive-callback-test-", deadline(Duration.ofSeconds(1)), () -> {
                             assertNull(contamination.get(), "callback ThreadLocal state crossed invocation ownership");
                             assertNull(inherited.get(), "callback inherited caller ThreadLocal state");
                             assertTrue(Thread.currentThread().isDaemon());
-                            assertTrue(Thread.currentThread().getName().startsWith("procwright-fresh-callback-test-"));
+                            assertTrue(Thread.currentThread()
+                                    .getName()
+                                    .startsWith("procwright-adaptive-callback-test-"));
+                            if (virtualThreadsAvailable()) {
+                                assertTrue(isVirtual(Thread.currentThread()), "Java 21+ should use a virtual owner");
+                            }
                             contamination.set("must-die-with-thread");
                             return Thread.currentThread();
                         });
-                assertTrue(threads.add(callbackThread), "a user callback thread was reused across invocations");
+                assertTrue(threads.add(callbackThread), "a callback owner was reused across invocations");
             }
         } finally {
             inherited.remove();
@@ -670,6 +675,23 @@ final class BoundedTaskRunnerTest {
 
     private static long deadline(Duration duration) {
         return System.nanoTime() + duration.toNanos();
+    }
+
+    private static boolean virtualThreadsAvailable() {
+        try {
+            Thread.class.getMethod("ofVirtual");
+            return true;
+        } catch (NoSuchMethodException unavailable) {
+            return false;
+        }
+    }
+
+    private static boolean isVirtual(Thread thread) {
+        try {
+            return (boolean) Thread.class.getMethod("isVirtual").invoke(thread);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("Could not inspect callback thread kind", failure);
+        }
     }
 
     private static Throwable captureFailure(ThrowingOperation operation) {

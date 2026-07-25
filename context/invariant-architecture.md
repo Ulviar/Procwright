@@ -85,7 +85,7 @@ Runtime получает только согласованный plan и не у
   `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessTreeShutdown`, bounded tree state —
   `ShutdownTreeState`, signals и JDK fallback — `ProcessShutdownSignals`, failure/interruption policy —
   `ShutdownFailureLedger`; facade — `ProcessLifecycle`, exact-once session cleanup — `SessionProcessCleanup`;
-- bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; запуск fresh или
+- bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; запуск adaptive или
   session-affine execution owner-а задает `BoundedTaskRunner.TaskStarter`, lifecycle одного accepted вызова —
   `BoundedTaskExecution`;
 - транзакционное приобретение process streams и permits — `ProcessIoAcquisition`, exact-once physical close и
@@ -184,11 +184,9 @@ scenario flags.
 - позднее raw чтение после helper claim и поздний helper claim после raw operation отклоняются;
 - stream listeners, readiness probes и worker hooks имеют независимые process-wide capacity partitions; зависший
   callback удерживает разрешение только своей категории до фактического возврата;
-- readiness, worker hooks и protocol callbacks получают fresh non-inheriting daemon thread на invocation: Java 17 не
-  дает поддерживаемого способа очистить произвольный `ThreadLocal`, поэтому callback thread не переходит другому owner;
-- тот же conservative fresh-thread контракт намеренно остается для custom charset encoding, provider writes, worker
-  startup factories и regex evaluation; их invocation rate ограничен отдельными admissions, а безопасный общий
-  lifecycle owner для произвольной реализации не доказан;
+- readiness, worker hooks, protocol callbacks, custom charset encoding, blocking stdin writes и regex evaluation
+  используют task-scoped adaptive owner: Java 21+ дает каждому invocation non-inheriting virtual thread, Java 17 —
+  fresh non-inheriting daemon platform thread; callback thread не переходит другому invocation;
 - stream listener использует lazy session-affine daemon owner: chunks одной session не создают новые потоки, owner не
   переходит другой session и закрывается после pump completion либо начала остановки; аварийный выход owner либо
   запускает replacement для уже принятой доставки, либо завершает admission ошибкой с точным возвратом разрешения;
@@ -199,7 +197,8 @@ scenario flags.
   operations;
 - admission ограничивает выполняющиеся и abandoned operations; callback queues не растут без границы;
 - nullable комбинации execution owners не входят в bounded-task state machine: каждый accepted вызов заранее получает
-  ровно одного fresh или session-affine owner-а, явную cancellation policy и явный tracked/untracked handoff;
+  ровно одного task-scoped adaptive или session-affine owner-а, явную cancellation policy и явный tracked/untracked
+  handoff;
 - late `RuntimeException` и `Error` readiness/worker hook после timeout или interruption отправляются ровно один раз
   через bounded failure reporter; ожидаемый `InterruptedException` от отмены отдельно не публикуется;
 - late `RuntimeException` и `Error` line/protocol callback публикуются через bounded failure reporter только после
