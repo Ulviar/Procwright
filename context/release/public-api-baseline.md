@@ -56,11 +56,9 @@ Session.expect() -> Expect.Draft -> open()
 - process/resource создается только `execute()` или `open()`;
 - protocol entry point принимает factory, создающую adapter на каждый session/worker;
 - pooled configuration вложена в line/protocol scenario и не раскрывает lease;
-- process-wide worker admission и accepted pool terminal lifecycles имеют независимые limits по 256; terminal slot
-  резервируется во время `open()` до worker/adapter factory, а отсутствие slot дает `STARTUP_FAILED`;
+- process-wide worker admission ограничивает суммарно 256 starting/live/retiring workers всех pools;
 - pool Draft задает bounded close timeout; pool handle предоставляет только synchronous `close()` и cancellation-isolated
-  `closeAsync()` одного terminal cleanup; accepted pool не ожидает terminal admission во время `closeAsync()`, а
-  blocking synchronous continuation удерживает только terminal slot этого pool;
+  `closeAsync()` одного terminal cleanup; outcome выбирается под pool monitor и публикуется после его освобождения;
 - public scenario configuration carriers вне Draft, root pool shortcuts и второй protocol builder dialect отсутствуют;
 - public handles sealed и принадлежат Procwright, а не являются SPI;
 - exact baseline фиксирует `PermittedSubclasses` этих handles: реализации остаются неэкспортируемыми, но изменение их

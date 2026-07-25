@@ -308,11 +308,6 @@ public final class LineSessionScenario {
      * a non-cooperative retirement therefore continues to consume it. Saturated warmup fails with
      * {@link PooledLineSessionException.Reason#STARTUP_FAILED}; saturated demand acquisition fails with
      * {@link PooledLineSessionException.Reason#ACQUIRE_TIMEOUT}. Released capacity has no specified inter-pool ordering.
-     *
-     * <p>Opening also reserves one of 256 process-wide pool terminal-publication slots before any worker factory is
-     * invoked. The slot is retained until the pool's terminal future and its synchronous completion actions have
-     * physically returned. Saturation fails opening with {@link PooledLineSessionException.Reason#STARTUP_FAILED}
-     * without launching a worker.
      */
     public interface PoolDraft {
         /**
@@ -416,7 +411,7 @@ public final class LineSessionScenario {
          *
          * @return newly opened worker pool
          * @throws PooledLineSessionException with reason {@link PooledLineSessionException.Reason#STARTUP_FAILED} when
-         *     terminal publication cannot be reserved or synchronous warmup fails
+         *     synchronous warmup fails
          */
         PooledLineSession open();
     }

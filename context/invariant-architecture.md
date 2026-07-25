@@ -111,12 +111,11 @@ Runtime получает только согласованный plan и не у
 - startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
 - обязательные post-monitor retirement, admission release и terminal publication — одноразовый `PoolStateEffects`;
-- pool commit — заранее подготовленные startup/terminal owners, bounded capacity `PoolPartition`, target-first
-  переходы и post-monitor `PoolStateEffects`;
+- pool commit — заранее подготовленный startup owner, bounded capacity `PoolPartition`, target-first переходы и
+  post-monitor `PoolStateEffects`;
 - pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
 - construction/closing/failure/drain decision внутри state owner — `PoolTermination`, terminal outcome и
   cancellation-isolated views — `PoolDrain`;
-- pool terminal reservation и disposable publication owner — `PoolTerminalPublisher`;
 - bounded retirement/report/replenishment domains — `PoolLifecycleDispatcher`, late failures — `PoolFailurePublisher`;
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.
@@ -227,11 +226,8 @@ scenario flags.
 - pool использует существующий line/protocol runtime и не раскрывает lease;
 - каждый worker всегда принадлежит ровно одному состоянию: starting, idle, leased или retiring;
 - `maxSize` ограничивает live slots, включая starting/retiring;
-- process-wide limits на workers и accepted pool terminal lifecycles независимы и равны 256;
-- terminal slot резервируется во время `open()` до worker/adapter factory; accepted pool не ожидает terminal admission
-  во время `closeAsync()`;
-- blocking synchronous continuation удерживает terminal slot только своего pool и препятствует новым открытиям лишь при
-  насыщении всех 256 slots;
+- process-wide worker admission ограничивает суммарно 256 starting/live/retiring workers всех pools;
+- pool terminal outcome выбирается под monitor и публикуется после его освобождения без отдельной lifetime reservation;
 - acquire timeout и request timeout различаются;
 - failed request/timeout/decoder/process exit retire worker;
 - reset/health hooks bounded и не выполняются одновременно с пользовательским request;

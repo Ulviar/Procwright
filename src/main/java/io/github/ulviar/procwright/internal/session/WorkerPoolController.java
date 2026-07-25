@@ -135,38 +135,18 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 this::processRetirement,
                 this::completeUnexpectedRetirementFailure,
                 failurePublisher::publish);
-        PoolTerminalPublisher terminalPublisher;
-        try {
-            terminalPublisher = configuredDependencies.terminalPublications().reserve();
-        } catch (RuntimeException failure) {
-            throw Objects.requireNonNull(
-                    failures.startupFailed("Could not reserve pool terminal publication capacity", failure),
-                    "startup failure");
-        }
-        try {
-            state = new WorkerPoolState<>(policy, new PoolTermination(terminalPublisher), this::newStartupReservation);
-            PoolReplenisher.Waiter configuredWaiter = configuredDependencies.backoffWaiter() == null
-                    ? state::awaitBackoff
-                    : configuredDependencies.backoffWaiter();
-            replenisher = new PoolReplenisher(
-                    policy.replenishmentEnabled(),
-                    configuredDependencies.replenishmentStarter(),
-                    state::replenishmentNeeded,
-                    this::replenishOne,
-                    configuredWaiter,
-                    this::failReplenishmentOwner);
-            startups = new WorkerStartupCoordinator<>(failures, workerLabel, retirementAdmissions, this);
-        } catch (RuntimeException | Error failure) {
-            Throwable terminalFailure = failure;
-            try {
-                terminalPublisher.abort();
-            } catch (RuntimeException | Error abortFailure) {
-                terminalFailure = combineErrorFirst(
-                        terminalFailure, abortFailure, "Pool construction and terminal reservation cleanup failed");
-            }
-            rethrow(failures.expose(terminalFailure));
-            throw new AssertionError("unreachable");
-        }
+        state = new WorkerPoolState<>(policy, new PoolTermination(), this::newStartupReservation);
+        PoolReplenisher.Waiter configuredWaiter = configuredDependencies.backoffWaiter() == null
+                ? state::awaitBackoff
+                : configuredDependencies.backoffWaiter();
+        replenisher = new PoolReplenisher(
+                policy.replenishmentEnabled(),
+                configuredDependencies.replenishmentStarter(),
+                state::replenishmentNeeded,
+                this::replenishOne,
+                configuredWaiter,
+                this::failReplenishmentOwner);
+        startups = new WorkerStartupCoordinator<>(failures, workerLabel, retirementAdmissions, this);
 
         List<FailureReport> commitReports = new WorkerPoolConstruction<>(
                         state,
@@ -681,14 +661,12 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             BiConsumer<Thread, Throwable> lateFailureReporter,
             LongSupplier metricsClock,
             PoolReplenisher.Waiter backoffWaiter,
-            PoolTerminalPublisher.Capacity terminalPublications,
             RetirementAdmissionProvider retirementAdmissions) {
 
         Dependencies {
             Objects.requireNonNull(replenishmentStarter, "replenishmentStarter");
             Objects.requireNonNull(lateFailureReporter, "lateFailureReporter");
             Objects.requireNonNull(metricsClock, "metricsClock");
-            Objects.requireNonNull(terminalPublications, "terminalPublications");
             Objects.requireNonNull(retirementAdmissions, "retirementAdmissions");
         }
 
@@ -698,7 +676,6 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                     PoolFailurePublisher::reportBounded,
                     metricsClock,
                     null,
-                    PoolTerminalPublisher.sharedCapacity(),
                     PoolLifecycleDispatcher::admit);
         }
     }

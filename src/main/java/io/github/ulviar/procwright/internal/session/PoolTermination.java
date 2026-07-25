@@ -22,8 +22,8 @@ final class PoolTermination {
     private ConstructionPhase construction = ConstructionPhase.CONSTRUCTING;
     private boolean closing;
 
-    PoolTermination(PoolTerminalPublisher publisher) {
-        drain = new PoolDrain(Objects.requireNonNull(publisher, "publisher"));
+    PoolTermination() {
+        drain = new PoolDrain();
     }
 
     boolean closing() {

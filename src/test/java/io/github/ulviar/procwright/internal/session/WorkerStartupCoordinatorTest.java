@@ -199,10 +199,8 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
     private static WorkerStartupCoordinator.Reservation<String> reservation(PoolWorker<String> worker) {
         WorkerRetirementCoordinator<String> retirements = new WorkerRetirementCoordinator<>(
                 Runnable::run, (retired, outcome) -> null, (retired, failure) -> {}, report -> {});
-        WorkerPoolState<String> state = new WorkerPoolState<>(
-                new WorkerPoolPolicy(TestOptions.INSTANCE),
-                new PoolTermination(new PoolTerminalPublisher.Capacity(1).reserve()),
-                () -> {
+        WorkerPoolState<String> state =
+                new WorkerPoolState<>(new WorkerPoolPolicy(TestOptions.INSTANCE), new PoolTermination(), () -> {
                     throw new AssertionError("unused reservation factory");
                 });
         return new WorkerStartupCoordinator.Reservation<>(worker, new PoolStateEffects<>(state, retirements));

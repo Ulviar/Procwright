@@ -103,10 +103,8 @@ final class WorkerPoolStateTest {
     void reservationOwnerPreparationFailureCannotConsumePoolCapacity() {
         AssertionError failure = new AssertionError("reservation allocation failed");
         AtomicBoolean retirementOwnerPrepared = new AtomicBoolean();
-        WorkerPoolState<String> state = new WorkerPoolState<>(
-                new WorkerPoolPolicy(new Options(1, 0, 0, 10)),
-                new PoolTermination(new PoolTerminalPublisher.Capacity(1).reserve()),
-                () -> {
+        WorkerPoolState<String> state =
+                new WorkerPoolState<>(new WorkerPoolPolicy(new Options(1, 0, 0, 10)), new PoolTermination(), () -> {
                     new PoolWorker<>(noOpClose());
                     retirementOwnerPrepared.set(true);
                     throw failure;
@@ -433,7 +431,7 @@ final class WorkerPoolStateTest {
                 Runnable::run, (worker, outcome) -> null, (worker, failure) -> {}, report -> {});
         WorkerPoolState<String> state = new WorkerPoolState<>(
                 new WorkerPoolPolicy(options),
-                new PoolTermination(new PoolTerminalPublisher.Capacity(1).reserve()),
+                new PoolTermination(),
                 () -> new WorkerStartupCoordinator.Reservation<>(
                         workers.get(), new PoolStateEffects<>(stateRef.get(), retirements)));
         stateRef.set(state);

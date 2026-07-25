@@ -81,29 +81,7 @@ abstract class WorkerPoolControllerTestSupport {
                         (thread, failure) -> {},
                         System::nanoTime,
                         null,
-                        PoolTerminalPublisher.sharedCapacity(),
                         immediateAdmissions(workerAdmissions)));
-    }
-
-    static WorkerPoolController<TestWorker> controllerWithTerminalCapacity(
-            java.util.function.Supplier<TestWorker> factory,
-            java.util.function.Consumer<TestWorker> closer,
-            Options options,
-            PoolTerminalPublisher.Capacity terminalCapacity) {
-        return new WorkerPoolController<>(
-                factory,
-                closeAction(closer),
-                options,
-                Failures.INSTANCE,
-                "terminal-capacity worker",
-                "test-terminal-capacity-",
-                new WorkerPoolController.Dependencies(
-                        Runnable::run,
-                        (thread, failure) -> {},
-                        System::nanoTime,
-                        null,
-                        terminalCapacity,
-                        PoolLifecycleDispatcher::admit));
     }
 
     static WorkerPoolController<TestWorker> inlineController(
@@ -133,7 +111,6 @@ abstract class WorkerPoolControllerTestSupport {
                         lateFailureReporter,
                         clock,
                         backoffWaiter,
-                        PoolTerminalPublisher.sharedCapacity(),
                         PoolLifecycleDispatcher::admit));
     }
 
@@ -154,7 +131,6 @@ abstract class WorkerPoolControllerTestSupport {
                         (thread, failure) -> {},
                         System::nanoTime,
                         null,
-                        PoolTerminalPublisher.sharedCapacity(),
                         PoolLifecycleDispatcher::admit));
     }
 

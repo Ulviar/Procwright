@@ -312,7 +312,6 @@ final class PooledWorkerPhysicalCleanupTest {
                         (thread, failure) -> {},
                         System::nanoTime,
                         null,
-                        PoolTerminalPublisher.sharedCapacity(),
                         admissionProvider));
         try {
             assertEquals(0, admissions.availablePermits());

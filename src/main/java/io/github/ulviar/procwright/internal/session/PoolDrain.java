@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -11,12 +10,6 @@ final class PoolDrain {
 
     private final AtomicReference<State> state = new AtomicReference<>(State.OPEN);
     private final CompletableFuture<Void> terminal = new CompletableFuture<>();
-    private final PoolTerminalPublisher publisher;
-    private final TerminalAction terminalAction = new TerminalAction();
-
-    PoolDrain(PoolTerminalPublisher publisher) {
-        this.publisher = Objects.requireNonNull(publisher, "publisher");
-    }
 
     CompletableFuture<Void> view() {
         return terminal.copy();
@@ -37,8 +30,7 @@ final class PoolDrain {
         if (!state.compareAndSet(State.CLAIMED, State.PUBLISHED)) {
             throw new IllegalStateException("pool drain outcome is not exclusively claimed");
         }
-        terminalAction.failure = publication.failure;
-        publisher.assign(terminalAction);
+        complete(publication.failure);
     }
 
     private void complete(Throwable failure) {
@@ -46,16 +38,6 @@ final class PoolDrain {
             terminal.complete(null);
         } else {
             terminal.completeExceptionally(failure);
-        }
-    }
-
-    private final class TerminalAction implements Runnable {
-
-        private Throwable failure;
-
-        @Override
-        public void run() {
-            complete(failure);
         }
     }
 

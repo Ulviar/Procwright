@@ -49,10 +49,8 @@ Pool runtime перестраивается вокруг следующих вл
   `PoolWorker`;
 - `PoolTermination` владеет решением construction, состоянием closing, приоритетом terminal failures и готовностью к
   drain; принятые failures хранятся как ordered identity-дедуплицированные данные. `PoolDrain` атомарно выдает
-  единственный publication token, публикует зафиксированный outcome и сохраняет cancellation-isolated views;
-- `PoolTerminalPublisher` до запуска worker/adapter factory резервирует один из 256 process-wide terminal slots,
-  предоставляет pool отдельного disposable non-inheriting owner-а и освобождает slot только после возврата synchronous
-  continuations terminal future; construction guard отправляет owner-у abort action, если controller не был создан;
+  единственный publication token, публикует зафиксированный outcome после освобождения pool monitor и сохраняет
+  cancellation-isolated views;
 - `PoolMetrics` владеет накопительными счетчиками и snapshot type, а текущие state counts получает от `PoolPartition`;
 - `PoolFailurePublisher` владеет bounded late-failure publication;
 - `PoolLifecycleDispatcher` предоставляет независимые process-wide bounded domains для retirement, reporting и
@@ -86,17 +84,13 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - startup reservation до launch и startup attempt после launch не имеют совместного ownership;
 - terminal startup reservation больше не раскрывает worker, prepared lease или effects; state transition принимает
   только effects, принадлежащие этой reservation;
-- process-wide worker admission и accepted pool terminal lifecycles имеют независимые limits по 256;
-- terminal slot резервируется во время `open()` до worker/adapter factory; отсутствие slot дает typed `STARTUP_FAILED`;
-- accepted pool не получает terminal admission во время `closeAsync()`; его disposable owner публикует outcome после
-  освобождения worker slots и admissions;
+- process-wide worker admission допускает суммарно не более 256 starting/live/retiring workers всех pools;
+- pool не резервирует отдельный thread или process-wide slot для terminal future во время `open()`;
 - closing во время construction является явным неуспешным результатом даже без attached cause;
 - construction либо commit-ится один раз, либо проходит bounded rollback до возврата failure пользователю; controller
   не дублирует этот протокол;
 - fatal background startup входит в terminal outcome до освобождения последнего startup slot; новая failure после drain
   claim публикуется ровно один раз как bounded late failure, а не меняет уже выбранный outcome;
-- блокирующая synchronous continuation удерживает только terminal slot своего pool: она не задерживает closes других
-  accepted pools, но при занятых 256 slots не позволяет открыть новый pool;
 - ни один внешний callback и ни одно завершение public future не выполняются под pool monitor;
 - terminal failures фиксируются под pool monitor как ordered identity-дедуплицированные данные; стабильный aggregate
   создается без обхода cause/suppressed graph, вызова пользовательских accessors или изменения исходных `Throwable`, а
@@ -104,8 +98,8 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - перед выходом через public pooled API aggregate с runtime primary разворачивается в свежую scenario-specific
   exception с сохраненными reason и message; aggregate с `Error` primary раскрывается напрямую, чтобы сохранить fatal
   type. Только свежая оболочка получает дополнительные diagnostics, пользовательские failures не изменяются;
-- startup reservation и terminal publication owner создаются до регистрации worker или claim drain; post-monitor
-  effects выбираются под pool monitor и выполняются после его освобождения;
+- startup reservation создается до регистрации worker; terminal publication capability выбирается под pool monitor, а
+  post-monitor effects выполняют её после освобождения monitor;
 - controller не содержит `synchronized` и не получает ссылку на monitor или partition;
 - тестовые seams находятся на границах владельцев и не добавляют test-only переходы в production lifecycle.
 
@@ -123,8 +117,8 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 
 State owners проверяются прямыми unit tests. `WorkerPoolStateTest` проверяет составной lifecycle, close-транзакцию и
 revision wakeup; `PoolTerminationTest` проверяет construction/closing/drain как локальный инвариант,
-`PoolTerminalPublisherTest` — изоляцию owners и удержание terminal slot synchronous continuation, а
-`WorkerPoolControllerLifecycleTest` — construction rollback, отказ до factory и восстановление capacity.
+а `WorkerPoolControllerLifecycleTest` — construction rollback, независимое закрытие pools и восстановление worker
+capacity.
 Orchestration collaborators дополнительно доказываются через controller и pooled-wrapper contracts; line и protocol
 integration tests проверяют пользовательские сценарии. `publicationReadinessCheck` включает unit, integration, bounded
 stress, API/ABI, документацию, publication structure и consumer examples.

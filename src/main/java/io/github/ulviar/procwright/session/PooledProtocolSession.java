@@ -57,11 +57,8 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      * {@link PooledProtocolSessionException.Reason#WORKER_FAILED} when ordinary worker cleanup fails. A single cleanup
      * {@link Error} is preserved by identity; multiple failures with an {@code Error} primary produce an {@code Error}
      * aggregate whose cause is that primary. Cancelling or completing the returned future does not cancel or alter
-     * internal cleanup. Repeated calls return independent views of the same terminal cleanup. One of 256 process-wide
-     * terminal slots is reserved during {@code open()}, so an accepted pool does not wait for terminal admission here. A
-     * blocking synchronous continuation attached before completion retains only this pool's slot: it cannot delay
-     * another accepted pool's close, but new pool openings fail with
-     * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED} while all slots remain occupied.
+     * internal cleanup. Repeated calls return independent views of the same terminal cleanup. Completion actions never
+     * run while the pool state is locked.
      *
      * @return cancellation-isolated close completion view
      */

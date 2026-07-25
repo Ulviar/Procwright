@@ -146,7 +146,7 @@ final class PoolTerminationTest {
     }
 
     private static PoolTermination termination() {
-        return new PoolTermination(new PoolTerminalPublisher.Capacity(1).reserve());
+        return new PoolTermination();
     }
 
     private static FailureReport report(String message) {

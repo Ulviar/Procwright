@@ -70,6 +70,6 @@ final class PoolDrainTest {
     }
 
     private static PoolDrain newDrain() {
-        return new PoolDrain(new PoolTerminalPublisher.Capacity(1).reserve());
+        return new PoolDrain();
     }
 }

@@ -299,11 +299,6 @@ public final class ProtocolSessionScenario {
      * {@link PooledProtocolSessionException.Reason#ACQUIRE_TIMEOUT}. Released capacity has no specified inter-pool
      * ordering.
      *
-     * <p>Opening also reserves one of 256 process-wide pool terminal-publication slots before any worker factory or
-     * adapter factory is invoked. The slot is retained until the pool's terminal future and its synchronous completion
-     * actions have physically returned. Saturation fails opening with
-     * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED} without launching a worker.
-     *
      * @param <I> request type
      * @param <O> response type
      */
@@ -409,8 +404,7 @@ public final class ProtocolSessionScenario {
          *
          * @return newly opened typed worker pool
          * @throws PooledProtocolSessionException with reason
-         *     {@link PooledProtocolSessionException.Reason#STARTUP_FAILED} when terminal publication cannot be reserved
-         *     or synchronous warmup fails
+         *     {@link PooledProtocolSessionException.Reason#STARTUP_FAILED} when synchronous warmup fails
          */
         PooledProtocolSession<I, O> open();
     }

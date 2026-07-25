@@ -22,7 +22,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,63 +51,32 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
     }
 
     @Test
-    void terminalCapacitySaturationFailsBeforeWorkerFactoryAndRecoversAfterClose() throws Exception {
-        PoolTerminalPublisher.Capacity terminalCapacity = new PoolTerminalPublisher.Capacity(1);
-        AtomicInteger rejectedFactoryCalls = new AtomicInteger();
-        WorkerPoolController<TestWorker> accepted = controllerWithTerminalCapacity(
-                () -> new TestWorker(1),
-                worker -> {},
-                new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                terminalCapacity);
-        try {
-            PoolFailure rejected = assertThrows(
-                    PoolFailure.class,
-                    () -> controllerWithTerminalCapacity(
-                            () -> new TestWorker(rejectedFactoryCalls.incrementAndGet()),
-                            worker -> {},
-                            new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                            terminalCapacity));
-
-            assertEquals(FailureKind.STARTUP_FAILED, rejected.kind);
-            assertTrue(rejected.getCause() instanceof RejectedExecutionException);
-            assertEquals(0, rejectedFactoryCalls.get());
-        } finally {
-            accepted.closeAsync().get(1, TimeUnit.SECONDS);
-        }
-
-        WorkerPoolController<TestWorker> recovered = controllerEventuallyWithTerminalCapacity(
-                () -> new TestWorker(rejectedFactoryCalls.incrementAndGet()),
-                worker -> {},
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                terminalCapacity);
-        recovered.closeAsync().get(1, TimeUnit.SECONDS);
-        assertEquals(1, rejectedFactoryCalls.get());
-    }
-
-    @Test
-    void warmupFailureEventuallyReleasesTerminalReservation() throws Exception {
-        PoolTerminalPublisher.Capacity terminalCapacity = new PoolTerminalPublisher.Capacity(1);
+    void warmupFailureDoesNotPoisonLaterPoolConstruction() throws Exception {
+        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
         IllegalStateException startupFailure = new IllegalStateException("warmup failed");
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
-                () -> controllerWithTerminalCapacity(
+                () -> controllerWithAdmissions(
                         () -> {
                             throw startupFailure;
                         },
                         worker -> {},
                         new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                        terminalCapacity));
+                        admissions));
 
         assertEquals(FailureKind.STARTUP_FAILED, observed.kind);
         assertSame(startupFailure, observed.getCause());
+        assertEquals(1, admissions.availablePermits());
 
-        WorkerPoolController<TestWorker> recovered = controllerEventuallyWithTerminalCapacity(
+        WorkerPoolController<TestWorker> recovered = controllerWithAdmissions(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                terminalCapacity);
+                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                admissions);
+        assertEquals(0, admissions.availablePermits());
         recovered.closeAsync().get(1, TimeUnit.SECONDS);
+        assertEquals(1, admissions.availablePermits());
     }
 
     @Test
@@ -144,24 +112,21 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
 
     @Test
     void blockedPublicCloseContinuationDoesNotDelayAnotherAcceptedPool() throws Exception {
-        PoolTerminalPublisher.Capacity terminalCapacity = new PoolTerminalPublisher.Capacity(2);
         CountDownLatch firstWorkerCloseEntered = new CountDownLatch(1);
         CountDownLatch releaseFirstWorkerClose = new CountDownLatch(1);
         CountDownLatch callbackEntered = new CountDownLatch(1);
         CountDownLatch releaseCallback = new CountDownLatch(1);
-        WorkerPoolController<TestWorker> first = controllerWithTerminalCapacity(
+        WorkerPoolController<TestWorker> first = controller(
                 () -> new TestWorker(1),
                 worker -> {
                     firstWorkerCloseEntered.countDown();
                     awaitIgnoringInterrupt(releaseFirstWorkerClose);
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                terminalCapacity);
-        WorkerPoolController<TestWorker> second = controllerWithTerminalCapacity(
+                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+        WorkerPoolController<TestWorker> second = controller(
                 () -> new TestWorker(2),
                 worker -> {},
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                terminalCapacity);
+                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         CompletableFuture<Void> callback = null;
         try {
             CompletableFuture<Void> firstClose = publicCloseView(first);
@@ -186,6 +151,55 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 callback.get(1, TimeUnit.SECONDS);
             }
         }
+    }
+
+    @Test
+    void blockedPublicCloseContinuationDoesNotRetainWorkerAdmission() throws Exception {
+        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+        CountDownLatch firstWorkerCloseEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstWorkerClose = new CountDownLatch(1);
+        CountDownLatch callbackEntered = new CountDownLatch(1);
+        CountDownLatch releaseCallback = new CountDownLatch(1);
+        WorkerPoolController<TestWorker> first = controllerWithAdmissions(
+                () -> new TestWorker(1),
+                worker -> {
+                    firstWorkerCloseEntered.countDown();
+                    awaitIgnoringInterrupt(releaseFirstWorkerClose);
+                },
+                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                admissions);
+        WorkerPoolController<TestWorker> second = null;
+        CompletableFuture<Void> callback = null;
+        try {
+            CompletableFuture<Void> firstClose = publicCloseView(first);
+            assertTrue(firstWorkerCloseEntered.await(1, TimeUnit.SECONDS));
+            callback = firstClose.thenRun(() -> {
+                callbackEntered.countDown();
+                awaitIgnoringInterrupt(releaseCallback);
+            });
+            releaseFirstWorkerClose.countDown();
+            assertTrue(callbackEntered.await(1, TimeUnit.SECONDS));
+            assertEquals(1, admissions.availablePermits());
+
+            second = controllerWithAdmissions(
+                    () -> new TestWorker(2),
+                    worker -> {},
+                    new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                    admissions);
+            assertEquals(0, admissions.availablePermits());
+            assertFalse(callback.isDone());
+        } finally {
+            releaseFirstWorkerClose.countDown();
+            releaseCallback.countDown();
+            first.closeAsync().get(1, TimeUnit.SECONDS);
+            if (second != null) {
+                second.closeAsync().get(1, TimeUnit.SECONDS);
+            }
+            if (callback != null) {
+                callback.get(1, TimeUnit.SECONDS);
+            }
+        }
+        assertEquals(1, admissions.availablePermits());
     }
 
     @Test
@@ -223,7 +237,6 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                                 (thread, failure) -> {},
                                 System::nanoTime,
                                 null,
-                                PoolTerminalPublisher.sharedCapacity(),
                                 admissionProvider)));
             }
             assertEquals(0, admissions.availablePermits(), "all workers must be admitted up front");
@@ -637,27 +650,6 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         } finally {
             metricsExecutor.shutdownNow();
             assertTrue(metricsExecutor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-    }
-
-    private static WorkerPoolController<TestWorker> controllerEventuallyWithTerminalCapacity(
-            java.util.function.Supplier<TestWorker> factory,
-            java.util.function.Consumer<TestWorker> closer,
-            Options options,
-            PoolTerminalPublisher.Capacity capacity)
-            throws InterruptedException {
-        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        while (true) {
-            try {
-                return controllerWithTerminalCapacity(factory, closer, options, capacity);
-            } catch (PoolFailure failure) {
-                if (failure.kind != FailureKind.STARTUP_FAILED
-                        || !(failure.getCause() instanceof RejectedExecutionException)
-                        || System.nanoTime() >= deadlineNanos) {
-                    throw failure;
-                }
-                Thread.sleep(1);
-            }
         }
     }
 }

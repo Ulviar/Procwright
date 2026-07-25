@@ -105,12 +105,9 @@
 
 - `lineSession().pooled()` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
 - `warmupSize` заранее создает workers, а `maxSize` ограничивает общий live worker count.
-- Process-wide worker admission и accepted pool terminal lifecycles имеют независимые limits по 256.
-- Terminal slot резервируется во время `open()` до worker/adapter factory; отсутствие slot дает `STARTUP_FAILED` и не
-  запускает factory.
-- Accepted pool не ожидает terminal admission во время `closeAsync()`. Blocking synchronous continuation удерживает
-  только terminal slot своего pool, не задерживает close другого accepted pool и препятствует новым открытиям только при
-  занятых 256 slots.
+- Process-wide worker admission ограничивает суммарно 256 starting/live/retiring workers всех pools.
+- Открытие pool не резервирует отдельный thread или process-wide slot для terminal future.
+- Terminal outcome выбирается под pool monitor и публикуется после его освобождения.
 - Если создание pool падает после частичного warmup или при запуске replenishment, уже созданные workers закрываются.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
 - Acquire timeout отличается от request timeout и дает pool-level failure.

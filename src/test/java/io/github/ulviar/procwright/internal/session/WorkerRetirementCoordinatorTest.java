@@ -162,12 +162,9 @@ final class WorkerRetirementCoordinatorTest {
     }
 
     private static WorkerPoolState<String> state() {
-        return new WorkerPoolState<>(
-                new WorkerPoolPolicy(TestOptions.INSTANCE),
-                new PoolTermination(new PoolTerminalPublisher.Capacity(1).reserve()),
-                () -> {
-                    throw new AssertionError("unused reservation factory");
-                });
+        return new WorkerPoolState<>(new WorkerPoolPolicy(TestOptions.INSTANCE), new PoolTermination(), () -> {
+            throw new AssertionError("unused reservation factory");
+        });
     }
 
     private enum TestOptions implements WorkerPoolPolicy.Options {

@@ -62,7 +62,7 @@ exceptions или bounded diagnostics; точная форма их графа �
 2. Свести timed callbacks к одному понятному bounded execution protocol.
 3. Упростить lifecycle publication без выполнения continuations на process watcher или под state monitor.
 4. Упростить session cleanup, сохранив output ownership и terminal barrier.
-5. Удалить pool terminal reservation и затем сократить pool coordinators вокруг одного state owner.
+5. Pool terminal reservation удалена; далее сократить pool coordinators вокруг одного state owner.
 6. После каждого шага обновлять public Javadoc/docs одновременно с изменением наблюдаемого поведения.
 
 Line/protocol framing и scenario-first Draft API не объединяются в универсальный набор flags. Упрощение internal
