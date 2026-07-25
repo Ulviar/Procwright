@@ -337,7 +337,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderCannotAccumulateUndecodedBytesAcrossRequests() throws Exception {
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults()
-                .withCharsetPolicy(CharsetPolicy.report(new IncrementalTextDecoderTest.NoProgressCharset()));
+                .withCharsetPolicy(CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.NoProgressCharset()));
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(options.charsetPolicy(), 4);
         StringBuilder firstRequest = new StringBuilder();
         decoder.decode((byte) 1, firstRequest);
@@ -362,7 +362,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderBoundsOutputOnlyOverflowBeforeAppendingIt() {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.report(new IncrementalTextDecoderTest.OutputOnlyOverflowCharset()), 64, 256);
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.OutputOnlyOverflowCharset()), 64, 256);
         StringBuilder target = new StringBuilder();
 
         CharacterCodingException exception =
@@ -375,7 +375,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderBoundsOutputOnlyFlushBeforeAppendingIt() throws Exception {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.report(new IncrementalTextDecoderTest.OutputOnlyFlushCharset()), 64, 256);
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.OutputOnlyFlushCharset()), 64, 256);
         StringBuilder target = new StringBuilder();
         decoder.decode((byte) 1, target);
 
@@ -388,7 +388,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderAllowsOutputBufferBeforeLaterInputConsumption() throws Exception {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.report(new IncrementalTextDecoderTest.OneOutputBufferBeforeConsumptionCharset()),
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.OneOutputBufferBeforeConsumptionCharset()),
                 64,
                 128);
         StringBuilder target = new StringBuilder();
@@ -402,7 +402,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderRejectsInputRewindBeforeAppendingMoreOutput() {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.report(new IncrementalTextDecoderTest.FiniteRewindingCharset()), 64, 1024);
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.FiniteRewindingCharset()), 64, 1024);
         StringBuilder target = new StringBuilder();
 
         IncrementalTextDecoder.DecoderStateException exception = assertThrows(
@@ -415,7 +415,9 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderNormalizesInvalidReplacementLengthBeforeAppendingOutput() {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.replace(new IncrementalTextDecoderTest.FiniteErrorAfterExhaustionCharset()), 64, 1024);
+                CharsetPolicy.replace(new IncrementalTextDecoderTestCharsets.FiniteErrorAfterExhaustionCharset()),
+                64,
+                1024);
         StringBuilder target = new StringBuilder();
 
         IncrementalTextDecoder.DecoderStateException exception = assertThrows(
@@ -485,7 +487,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderDoesNotAppendPrefixProducedWithMalformedResult() {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.report(new IncrementalTextDecoderTest.OutputThenMalformedCharset()), 64, 1024);
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.OutputThenMalformedCharset()), 64, 1024);
         StringBuilder target = new StringBuilder();
 
         assertThrows(CharacterCodingException.class, () -> decoder.decode((byte) 1, target));
@@ -509,7 +511,9 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderDoesNotAppendFlushOutputProducedWithMalformedResult() throws Exception {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.report(new IncrementalTextDecoderTest.OutputThenMalformedFlushCharset()), 64, 1024);
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.OutputThenMalformedFlushCharset()),
+                64,
+                1024);
         StringBuilder target = new StringBuilder();
         decoder.decode((byte) 1, target);
 
@@ -521,7 +525,9 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void persistentTextDecoderDoesNotPublishFlushOverflowBeforeLaterMalformedResult() throws Exception {
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
-                CharsetPolicy.report(new IncrementalTextDecoderTest.OverflowThenMalformedFlushCharset()), 64, 1024);
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.OverflowThenMalformedFlushCharset()),
+                64,
+                1024);
         StringBuilder target = new StringBuilder();
         decoder.decode((byte) 1, target);
 

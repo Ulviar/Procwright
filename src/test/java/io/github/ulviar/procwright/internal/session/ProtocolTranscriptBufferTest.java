@@ -87,7 +87,7 @@ final class ProtocolTranscriptBufferTest {
     @Test
     void eachTranscriptStreamHasBoundedUndecodedState() throws Exception {
         ProtocolTranscriptBuffer buffer = new ProtocolTranscriptBuffer(
-                4, CharsetPolicy.report(new IncrementalTextDecoderTest.NoProgressCharset()));
+                4, CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.NoProgressCharset()));
         byte[] atLimit = new byte[64];
 
         buffer.appendStream("stdout", atLimit, atLimit.length);

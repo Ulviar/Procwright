@@ -127,7 +127,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
         ProtocolOutputQueue queue = new ProtocolOutputQueue(1, ProtocolOutputQueue.OverflowPolicy.STRICT);
         queue.offer(new byte[] {1});
         CharsetPolicy policy =
-                CharsetPolicy.report(new IncrementalTextDecoderTest.FiniteLargeOutputCharset(outputChars));
+                CharsetPolicy.report(new IncrementalTextDecoderTestCharsets.FiniteLargeOutputCharset(outputChars));
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults()
                 .withCharsetPolicy(policy)
                 .withMaxResponseBytes(1)

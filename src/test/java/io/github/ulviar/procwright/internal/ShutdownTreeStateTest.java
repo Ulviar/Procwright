@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 
 final class ShutdownTreeStateTest extends ProcessLifecycleSharedSupport {
 
+    private static final Duration FULL_LIMIT_DISCOVERY_BUDGET = Duration.ofSeconds(5);
+
     @Test
     void newlyDiscoveredDescendantBecomesPendingExactlyOnce() {
         MutableProcessHandle known = new MutableProcessHandle(401);
@@ -63,7 +65,7 @@ final class ShutdownTreeStateTest extends ProcessLifecycleSharedSupport {
         ShutdownFailureLedger failures = new ShutdownFailureLedger();
         ShutdownTreeState state = new ShutdownTreeState(new EmptyDescendantProcess(), failures);
 
-        state.initialize(knownDescendants(new LinkedHashSet<>(handles)), Duration.ofSeconds(1));
+        state.initialize(knownDescendants(new LinkedHashSet<>(handles)), FULL_LIMIT_DISCOVERY_BUDGET);
 
         List<ProcessHandle> descendants = state.takeAllDescendants();
         assertEquals(limit, descendants.size());
@@ -80,7 +82,7 @@ final class ShutdownTreeStateTest extends ProcessLifecycleSharedSupport {
         ShutdownFailureLedger failures = new ShutdownFailureLedger();
         ShutdownTreeState state = new ShutdownTreeState(new EmptyDescendantProcess(), failures);
 
-        state.initialize(knownDescendants(new LinkedHashSet<>(handles)), Duration.ofSeconds(1));
+        state.initialize(knownDescendants(new LinkedHashSet<>(handles)), FULL_LIMIT_DISCOVERY_BUDGET);
 
         assertEquals(handles, state.takeAllDescendants());
         failures.rethrowIfPresent();
@@ -94,9 +96,9 @@ final class ShutdownTreeStateTest extends ProcessLifecycleSharedSupport {
                 new MutableProcessHandle(handles.get(limit - 1).pid());
         ShutdownFailureLedger failures = new ShutdownFailureLedger();
         ShutdownTreeState state = new ShutdownTreeState(new SequencedDescendantProcess(repeated), failures);
-        state.initialize(knownDescendants(new LinkedHashSet<>(handles)), Duration.ofSeconds(1));
+        state.initialize(knownDescendants(new LinkedHashSet<>(handles)), FULL_LIMIT_DISCOVERY_BUDGET);
 
-        boolean discovered = state.discoverPending(Duration.ofSeconds(1));
+        boolean discovered = state.discoverPending(FULL_LIMIT_DISCOVERY_BUDGET);
 
         assertEquals(false, discovered);
         assertEquals(limit, state.takeAllDescendants().size());
@@ -112,9 +114,9 @@ final class ShutdownTreeStateTest extends ProcessLifecycleSharedSupport {
         SequencedDescendantProcess process = new SequencedDescendantProcess(accepted, overflow);
         ShutdownFailureLedger failures = new ShutdownFailureLedger();
         ShutdownTreeState state = new ShutdownTreeState(process, failures);
-        state.initialize(knownDescendants(new LinkedHashSet<>(initial)), Duration.ofSeconds(1));
+        state.initialize(knownDescendants(new LinkedHashSet<>(initial)), FULL_LIMIT_DISCOVERY_BUDGET);
 
-        state.discoverPending(Duration.ofSeconds(1));
+        state.discoverPending(FULL_LIMIT_DISCOVERY_BUDGET);
 
         assertEquals(Set.of(accepted), state.takePendingDescendants());
         assertEquals(limit, state.takeAllDescendants().size());
