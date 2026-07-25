@@ -162,7 +162,7 @@ final class PooledWorkerPhysicalCleanupTest {
             }
             return workerPermit;
         };
-        WorkerPoolController<DefaultLineSession> pool = new WorkerPoolController<>(
+        WorkerPoolController<DefaultLineSession> pool = WorkerPoolController.fromSettings(
                 () -> worker,
                 session -> WorkerCloseSupport.closeOutcome(
                         () -> {
@@ -176,7 +176,7 @@ final class PooledWorkerPhysicalCleanupTest {
                         },
                         delayedTerminal,
                         session.physicalOutputCleanup()),
-                SingleWorkerPoolOptions.INSTANCE,
+                WorkerPoolSettings.defaults().withWarmupSize(1).withBackgroundReplenishment(false),
                 TestPoolFailures.INSTANCE,
                 "delayed-terminal line worker",
                 "test-delayed-terminal-",
@@ -697,45 +697,6 @@ final class PooledWorkerPhysicalCleanupTest {
             Thread.sleep(1);
         }
         assertEquals(expected, permits.availablePermits());
-    }
-
-    private enum SingleWorkerPoolOptions implements WorkerPoolPolicy.Options {
-        INSTANCE;
-
-        @Override
-        public int maxSize() {
-            return 1;
-        }
-
-        @Override
-        public int warmupSize() {
-            return 1;
-        }
-
-        @Override
-        public int minIdle() {
-            return 0;
-        }
-
-        @Override
-        public Duration acquireTimeout() {
-            return Duration.ofSeconds(1);
-        }
-
-        @Override
-        public int maxRequestsPerWorker() {
-            return Integer.MAX_VALUE;
-        }
-
-        @Override
-        public Duration maxWorkerAge() {
-            return Duration.ZERO;
-        }
-
-        @Override
-        public boolean backgroundReplenishment() {
-            return false;
-        }
     }
 
     private enum TestPoolFailures implements WorkerPoolController.FailureFactory {

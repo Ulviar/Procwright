@@ -30,26 +30,6 @@ final class WorkerPoolPolicy {
         maxRequestsPerWorker = configured.maxRequestsPerWorker();
         maxWorkerAge = configured.maxWorkerAge();
         backgroundReplenishment = configured.backgroundReplenishment();
-        validateReplenishment();
-    }
-
-    WorkerPoolPolicy(Options options) {
-        Options configured = Objects.requireNonNull(options, "options");
-        maxSize = configured.maxSize();
-        warmupSize = configured.warmupSize();
-        minIdle = configured.minIdle();
-        acquireTimeout = Objects.requireNonNull(configured.acquireTimeout(), "acquireTimeout");
-        closeTimeout = Objects.requireNonNull(configured.closeTimeout(), "closeTimeout");
-        maxRequestsPerWorker = configured.maxRequestsPerWorker();
-        maxWorkerAge = Objects.requireNonNull(configured.maxWorkerAge(), "maxWorkerAge");
-        backgroundReplenishment = configured.backgroundReplenishment();
-        validateReplenishment();
-    }
-
-    private void validateReplenishment() {
-        if (minIdle > 0 && !backgroundReplenishment) {
-            throw new IllegalArgumentException("minIdle requires backgroundReplenishment");
-        }
     }
 
     int maxSize() {
@@ -72,18 +52,8 @@ final class WorkerPoolPolicy {
         return backgroundReplenishment && minIdle > 0;
     }
 
-    <S> boolean needsReplenishment(PoolPartition<PoolWorker<S>> partition) {
-        Objects.requireNonNull(partition, "partition");
-        if (partition.size() >= maxSize) {
-            return false;
-        }
-        int readyOrReplenishing = partition.idleCount();
-        for (PoolWorker<S> worker : partition.startingWorkers()) {
-            if (worker.startupPurpose() == PoolWorker.StartupPurpose.REPLENISHMENT) {
-                readyOrReplenishing++;
-            }
-        }
-        return readyOrReplenishing < minIdle;
+    boolean needsReplenishment(int liveWorkers, int idleWorkers, int replenishingStarts) {
+        return liveWorkers < maxSize && idleWorkers + replenishingStarts < minIdle;
     }
 
     PooledWorkerRetireReason retirementReasonFor(PoolWorker<?> worker) {
@@ -96,26 +66,5 @@ final class WorkerPoolPolicy {
             return PooledWorkerRetireReason.AGE;
         }
         return null;
-    }
-
-    interface Options {
-
-        int maxSize();
-
-        int warmupSize();
-
-        int minIdle();
-
-        Duration acquireTimeout();
-
-        default Duration closeTimeout() {
-            return acquireTimeout();
-        }
-
-        int maxRequestsPerWorker();
-
-        Duration maxWorkerAge();
-
-        boolean backgroundReplenishment();
     }
 }

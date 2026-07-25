@@ -30,7 +30,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> {},
-                new Options(2, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
+                settings(2, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
         try {
             assertTrue(pool.awaitMetrics(metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
 
@@ -63,7 +63,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     throw new IllegalStateException("startup failed");
                 },
                 worker -> {},
-                new Options(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
+                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
 
         try {
             WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
@@ -103,7 +103,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     throw fatalFailure;
                 },
                 worker -> {},
-                new Options(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
+                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
 
         try {
             WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
@@ -132,7 +132,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(2, 1, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                settings(2, 1, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                 task -> {
                     throw schedulingFailure;
                 });
@@ -161,7 +161,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 () -> controller(
                         () -> new TestWorker(factoryInvocations.incrementAndGet()),
                         worker -> closedWorkers.incrementAndGet(),
-                        new Options(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                        settings(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                         task -> {
                             throw schedulingFailure;
                         }));
@@ -188,7 +188,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                             closedWorkers.incrementAndGet();
                             workerClosed.countDown();
                         },
-                        new Options(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                        settings(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                         task -> {
                             throw schedulingError;
                         }));
@@ -215,7 +215,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                             }
                             throw secondCloseFailure;
                         },
-                        new Options(3, 2, 3, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                        settings(3, 2, 3, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                         task -> {
                             throw schedulingError;
                         }));
@@ -236,7 +236,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     return new TestWorker(2);
                 },
                 worker -> {},
-                new Options(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
 
         assertTrue(pool.awaitMetrics(metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
         assertEquals(2, attempts.get());
@@ -273,7 +273,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     throw new IllegalStateException("startup unavailable");
                 },
                 worker -> {},
-                new Options(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                 task -> Threading.start("test-replenish-", () -> {
                     try {
                         task.run();
@@ -322,7 +322,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     throw new IllegalStateException("startup unavailable");
                 },
                 worker -> {},
-                new Options(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                 task -> Threading.start("test-replenish-", () -> {
                     try {
                         task.run();

@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -28,8 +27,8 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         WorkerStartupCoordinator<String> coordinator = coordinator(permits, state);
         WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
-        WorkerStartupCoordinator.Completion<String> completion = coordinator.start(
-                reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1), PoolWorker.StartupPurpose.DEMAND);
+        WorkerStartupCoordinator.Completion<String> completion =
+                coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1));
 
         assertEquals("ready", completion.createdWorker().session());
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, completion.decision());
@@ -54,10 +53,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
-                () -> coordinator.start(
-                        reservation,
-                        System.nanoTime() + TimeUnit.SECONDS.toNanos(1),
-                        PoolWorker.StartupPurpose.DEMAND));
+                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.CLOSED, observed.kind);
         assertEquals(0, factoryCalls.get());
@@ -81,10 +77,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         try {
             PoolFailure observed = assertThrows(
                     PoolFailure.class,
-                    () -> coordinator.start(
-                            reservation,
-                            System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(25),
-                            PoolWorker.StartupPurpose.DEMAND));
+                    () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(25)));
 
             assertEquals(FailureKind.ACQUIRE_TIMEOUT, observed.kind);
             assertEquals(
@@ -122,10 +115,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         AtomicBoolean interruptPreserved = new AtomicBoolean();
         Thread caller = new Thread(() -> {
             try {
-                coordinator.start(
-                        reservation,
-                        System.nanoTime() + TimeUnit.SECONDS.toNanos(10),
-                        PoolWorker.StartupPurpose.DEMAND);
+                coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(10));
             } catch (Throwable failure) {
                 observed.set(failure);
             } finally {
@@ -162,18 +152,17 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         BoundedTaskLimiter permits = new BoundedTaskLimiter(1);
         StartupState state = new StartupState();
         IllegalStateException factoryFailure = new IllegalStateException("factory failed");
-        PoolWorker<String> worker = worker(() -> {
-            throw factoryFailure;
-        });
+        PoolWorker<String> worker = worker(
+                () -> {
+                    throw factoryFailure;
+                },
+                PoolWorker.StartupPurpose.REPLENISHMENT);
         WorkerStartupCoordinator<String> coordinator = coordinator(permits, state);
         WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
-                () -> coordinator.start(
-                        reservation,
-                        System.nanoTime() + TimeUnit.SECONDS.toNanos(1),
-                        PoolWorker.StartupPurpose.REPLENISHMENT));
+                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.STARTUP_FAILED, observed.kind);
         assertSame(factoryFailure, observed.getCause());
@@ -200,10 +189,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
         IllegalStateException observed = assertThrows(
                 IllegalStateException.class,
-                () -> coordinator.start(
-                        reservation,
-                        System.nanoTime() + TimeUnit.SECONDS.toNanos(1),
-                        PoolWorker.StartupPurpose.DEMAND));
+                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertSame(claimFailure, observed);
         assertEquals(0, factoryCalls.get());
@@ -212,6 +198,41 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertEquals(0, permits.availablePermits());
         state.releasePermit();
         assertEquals(1, permits.availablePermits());
+    }
+
+    @Test
+    void postClaimLaunchFailureSettlesReservationAndReleasesWorkerPermit() {
+        int startupPermitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
+        IllegalStateException launchFailure = new IllegalStateException("thread launch failed");
+        AtomicInteger factoryCalls = new AtomicInteger();
+        StartupState state = new StartupState();
+        PoolWorker<String> worker = new PoolWorker<>(
+                session -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()),
+                PoolWorker.StartupPurpose.DEMAND);
+        worker.startup(new WorkerStartup<>(
+                () -> {
+                    factoryCalls.incrementAndGet();
+                    return "unexpected";
+                },
+                "test-startup-coordinator-",
+                completion -> {},
+                (prefix, task) -> {
+                    throw launchFailure;
+                }));
+        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
+
+        IllegalStateException observed =
+                assertThrows(IllegalStateException.class, () -> coordinator(workerPermits, state)
+                        .start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+
+        assertSame(launchFailure, observed);
+        assertEquals(0, factoryCalls.get());
+        assertEquals(1, state.launchFailures.get());
+        assertFalse(reservation.canRollback());
+        assertThrows(IllegalStateException.class, reservation::stateWorker);
+        assertEquals(1, workerPermits.availablePermits());
+        assertEquals(startupPermitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
     }
 
     @Test
@@ -229,10 +250,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
-                () -> coordinator.start(
-                        reservation,
-                        System.nanoTime() + TimeUnit.SECONDS.toNanos(1),
-                        PoolWorker.StartupPurpose.DEMAND));
+                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.CLOSED, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.CLOSED, worker.startup().terminalDecision());
@@ -257,10 +275,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
-                () -> coordinator.start(
-                        reservation,
-                        System.nanoTime() + TimeUnit.SECONDS.toNanos(1),
-                        PoolWorker.StartupPurpose.DEMAND));
+                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.ACQUIRE_TIMEOUT, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, worker.startup().terminalDecision());
@@ -275,25 +290,25 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
     }
 
     private static PoolWorker<String> worker(java.util.function.Supplier<String> factory) {
-        PoolWorker<String> worker =
-                new PoolWorker<>(session -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
+        return worker(factory, PoolWorker.StartupPurpose.DEMAND);
+    }
+
+    private static PoolWorker<String> worker(
+            java.util.function.Supplier<String> factory, PoolWorker.StartupPurpose purpose) {
+        PoolWorker<String> worker = new PoolWorker<>(
+                session -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()), purpose);
         worker.startup(new WorkerStartup<>(factory, "test-startup-coordinator-", completion -> {}));
         return worker;
     }
 
     private static WorkerStartupCoordinator.Reservation<String> reservation(PoolWorker<String> worker) {
-        WorkerRetirementCoordinator<String> retirements = new WorkerRetirementCoordinator<>(
-                Runnable::run, (retired, outcome) -> null, (retired, failure) -> {}, report -> {});
-        WorkerPoolState<String> state =
-                new WorkerPoolState<>(new WorkerPoolPolicy(TestOptions.INSTANCE), new PoolTermination(), () -> {
-                    throw new AssertionError("unused reservation factory");
-                });
-        return new WorkerStartupCoordinator.Reservation<>(worker, new PoolStateEffects<>(state, retirements));
+        return new WorkerStartupCoordinator.Reservation<>(worker);
     }
 
     private static final class StartupState implements WorkerStartupCoordinator.PoolState<String> {
 
         private final AtomicInteger factoryFailures = new AtomicInteger();
+        private final AtomicInteger launchFailures = new AtomicInteger();
         private BoundedTaskPermit permit;
         private boolean acceptPermit = true;
         private WorkerStartupCoordinator.StartupClaim claim = WorkerStartupCoordinator.StartupClaim.RUN;
@@ -301,9 +316,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
 
         @Override
         public boolean attachPermit(
-                WorkerStartupCoordinator.Reservation<String> reservation,
-                BoundedTaskPermit permit,
-                PoolWorker.StartupPurpose purpose) {
+                WorkerStartupCoordinator.Reservation<String> reservation, BoundedTaskPermit permit) {
             if (!acceptPermit) {
                 return false;
             }
@@ -311,7 +324,6 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 throw new IllegalStateException("test state already owns a worker permit");
             }
             this.permit = permit;
-            reservation.stateWorker().startupPurpose(purpose);
             return true;
         }
 
@@ -327,20 +339,23 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 reservation.stateWorker().startup().signalTimeout();
             } else {
                 reservation.stateWorker().startupStage(PoolWorker.StartupStage.RUNNING);
+                reservation.transferToAttempt();
             }
             return claim;
         }
 
         @Override
         public void launchFailed(WorkerStartupCoordinator.Reservation<String> reservation) {
+            launchFailures.incrementAndGet();
             releasePermit();
+            reservation.completeAttempt();
         }
 
         @Override
         public boolean factoryFailed(WorkerStartupCoordinator.Reservation<String> reservation, Throwable failure) {
             factoryFailures.incrementAndGet();
             releasePermit();
-            reservation.completeWithoutLease();
+            reservation.completeAttempt();
             return false;
         }
 
@@ -350,45 +365,6 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             if (owned != null) {
                 owned.close();
             }
-        }
-    }
-
-    private enum TestOptions implements WorkerPoolPolicy.Options {
-        INSTANCE;
-
-        @Override
-        public int maxSize() {
-            return 1;
-        }
-
-        @Override
-        public int warmupSize() {
-            return 0;
-        }
-
-        @Override
-        public int minIdle() {
-            return 0;
-        }
-
-        @Override
-        public Duration acquireTimeout() {
-            return Duration.ofSeconds(1);
-        }
-
-        @Override
-        public Duration maxWorkerAge() {
-            return Duration.ZERO;
-        }
-
-        @Override
-        public int maxRequestsPerWorker() {
-            return 0;
-        }
-
-        @Override
-        public boolean backgroundReplenishment() {
-            return false;
         }
     }
 }

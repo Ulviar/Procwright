@@ -27,9 +27,9 @@ final class WorkerStartupCoordinator<S> {
         this.poolState = Objects.requireNonNull(poolState, "poolState");
     }
 
-    Completion<S> start(Reservation<S> reservation, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
+    Completion<S> start(Reservation<S> reservation, long deadlineNanos) {
         Objects.requireNonNull(reservation, "reservation");
-        Objects.requireNonNull(purpose, "purpose");
+        PoolWorker.StartupPurpose purpose = reservation.purpose();
 
         BoundedTaskPermit startupPermit = acquireResources(reservation, deadlineNanos, purpose);
         WorkerStartup<S> owner = launch(reservation, startupPermit, deadlineNanos, purpose);
@@ -54,7 +54,7 @@ final class WorkerStartupCoordinator<S> {
         BoundedTaskPermit workerPermit = null;
         try {
             workerPermit = permits.acquire(deadlineNanos);
-            if (!poolState.attachPermit(reservation, workerPermit, purpose)) {
+            if (!poolState.attachPermit(reservation, workerPermit)) {
                 workerPermit.close();
                 workerPermit = null;
                 throw failures.closed("Pool is closed");
@@ -81,6 +81,7 @@ final class WorkerStartupCoordinator<S> {
             PoolWorker.StartupPurpose purpose) {
         boolean transferred = false;
         PoolWorker<S> worker = reservation.worker();
+        WorkerStartup<S> owner = worker.startup();
         try {
             StartupClaim claim = poolState.claimLaunch(reservation, deadlineNanos);
             if (claim == StartupClaim.CLOSED) {
@@ -89,8 +90,6 @@ final class WorkerStartupCoordinator<S> {
             if (claim == StartupClaim.TIMED_OUT) {
                 throw startupTimeout(purpose, new TimeoutException("worker startup deadline elapsed before launch"));
             }
-            WorkerStartup<S> owner = worker.startup();
-            reservation.transferToAttempt();
             transferred = true;
             try {
                 owner.start(startupPermit);
@@ -215,8 +214,9 @@ final class WorkerStartupCoordinator<S> {
 
     interface PoolState<S> {
 
-        boolean attachPermit(Reservation<S> reservation, BoundedTaskPermit permit, PoolWorker.StartupPurpose purpose);
+        boolean attachPermit(Reservation<S> reservation, BoundedTaskPermit permit);
 
+        /** A {@link StartupClaim#RUN} result atomically transfers reservation ownership to the startup attempt. */
         StartupClaim claimLaunch(Reservation<S> reservation, long deadlineNanos);
 
         void launchFailed(Reservation<S> reservation);
@@ -233,13 +233,12 @@ final class WorkerStartupCoordinator<S> {
     static final class Reservation<S> {
 
         private final PoolWorker<S> worker;
-        private final PoolStateEffects<S> effects;
+        private WorkerPoolState<S> owner;
         private Ownership ownership = Ownership.RESERVATION;
         private WorkerPoolState.Lease<S> lease;
 
-        Reservation(PoolWorker<S> worker, PoolStateEffects<S> effects) {
+        Reservation(PoolWorker<S> worker) {
             this.worker = Objects.requireNonNull(worker, "worker");
-            this.effects = Objects.requireNonNull(effects, "effects");
         }
 
         PoolWorker<S> worker() {
@@ -253,10 +252,12 @@ final class WorkerStartupCoordinator<S> {
             return ownership == Ownership.RESERVATION;
         }
 
-        private void transferToAttempt() {
-            if (ownership != Ownership.RESERVATION) {
-                throw new IllegalStateException("startup reservation has no slot");
-            }
+        PoolWorker.StartupPurpose purpose() {
+            return worker.startupPurpose();
+        }
+
+        void transferToAttempt() {
+            requireOwnership(Ownership.RESERVATION);
             ownership = Ownership.ATTEMPT;
         }
 
@@ -265,22 +266,21 @@ final class WorkerStartupCoordinator<S> {
             return worker;
         }
 
-        PoolStateEffects<S> effects() {
-            requireActive();
-            return effects;
+        PoolWorker<S> reservedWorker(WorkerPoolState<S> expectedOwner) {
+            requireOwnership(expectedOwner, Ownership.RESERVATION);
+            return worker;
         }
 
-        void requireEffects(PoolStateEffects<S> candidate) {
-            requireActive();
-            if (effects != candidate) {
-                throw new IllegalArgumentException("startup transition requires its reservation effects");
-            }
+        PoolWorker<S> attemptedWorker(WorkerPoolState<S> expectedOwner) {
+            requireOwnership(expectedOwner, Ownership.ATTEMPT);
+            return worker;
         }
 
-        void prepareLease(WorkerPoolState.Lease<S> preparedLease) {
-            if (ownership != Ownership.RESERVATION || lease != null) {
+        void bind(WorkerPoolState<S> acceptedOwner, WorkerPoolState.Lease<S> preparedLease) {
+            if (owner != null || ownership != Ownership.RESERVATION || lease != null) {
                 throw new IllegalStateException("startup reservation cannot accept a lease");
             }
+            owner = Objects.requireNonNull(acceptedOwner, "acceptedOwner");
             lease = Objects.requireNonNull(preparedLease, "preparedLease");
         }
 
@@ -292,20 +292,52 @@ final class WorkerStartupCoordinator<S> {
             return lease;
         }
 
-        WorkerPoolState.Lease<S> completeWithLease() {
-            WorkerPoolState.Lease<S> completedLease = preparedLease();
+        WorkerPoolState.Lease<S> preparedLease(WorkerPoolState<S> expectedOwner) {
+            requireOwnership(expectedOwner, Ownership.ATTEMPT);
+            return preparedLease();
+        }
+
+        WorkerPoolState.Lease<S> completeWithLease(WorkerPoolState<S> expectedOwner) {
+            WorkerPoolState.Lease<S> completedLease = preparedLease(expectedOwner);
             lease = null;
             ownership = Ownership.TERMINATED;
             return completedLease;
         }
 
-        void completeWithoutLease() {
-            requireActive();
+        void completeReservation(WorkerPoolState<S> expectedOwner) {
+            completeWithoutLease(expectedOwner, Ownership.RESERVATION);
+        }
+
+        void completeAttempt() {
+            completeWithoutLease(Ownership.ATTEMPT);
+        }
+
+        private void completeWithoutLease(WorkerPoolState<S> expectedOwner, Ownership expectedOwnership) {
+            requireOwnership(expectedOwner, expectedOwnership);
+            completeWithoutLease(expectedOwnership);
+        }
+
+        private void completeWithoutLease(Ownership expectedOwnership) {
+            requireOwnership(expectedOwnership);
             if (lease != null) {
                 lease.clear(worker);
                 lease = null;
             }
             ownership = Ownership.TERMINATED;
+        }
+
+        private void requireOwnership(Ownership expectedOwnership) {
+            if (ownership != expectedOwnership) {
+                throw new IllegalStateException(
+                        "startup reservation ownership must be " + expectedOwnership + " but was " + ownership);
+            }
+        }
+
+        private void requireOwnership(WorkerPoolState<S> expectedOwner, Ownership expectedOwnership) {
+            if (owner != Objects.requireNonNull(expectedOwner, "expectedOwner")) {
+                throw new IllegalArgumentException("startup reservation belongs to another pool");
+            }
+            requireOwnership(expectedOwnership);
         }
 
         private void requireActive() {

@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -57,20 +58,20 @@ abstract class WorkerPoolControllerTestSupport {
     static WorkerPoolController<TestWorker> controller(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
-            Options options) {
-        return new WorkerPoolController<>(
-                factory, closeAction(closer), options, Failures.INSTANCE, "test worker", "test-");
+            WorkerPoolSettings<?> settings) {
+        return WorkerPoolController.fromSettings(
+                factory, closeAction(closer), settings, Failures.INSTANCE, "test worker", "test-", System::nanoTime);
     }
 
     static WorkerPoolController<TestWorker> controllerWithPermits(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
-            Options options,
+            WorkerPoolSettings<?> settings,
             BoundedTaskLimiter workerPermits) {
-        return new WorkerPoolController<>(
+        return WorkerPoolController.fromSettings(
                 factory,
                 closeAction(closer),
-                options,
+                settings,
                 Failures.INSTANCE,
                 "separate-permit worker",
                 "test-separate-permit-",
@@ -85,23 +86,29 @@ abstract class WorkerPoolControllerTestSupport {
     static WorkerPoolController<TestWorker> inlineController(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
-            Options options) {
-        return new WorkerPoolController<>(
-                factory, inlineCloseAction(closer), options, Failures.INSTANCE, "test worker", "test-");
+            WorkerPoolSettings<?> settings) {
+        return WorkerPoolController.fromSettings(
+                factory,
+                inlineCloseAction(closer),
+                settings,
+                Failures.INSTANCE,
+                "test worker",
+                "test-",
+                System::nanoTime);
     }
 
     static WorkerPoolController<TestWorker> controller(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
-            Options options,
+            WorkerPoolSettings<?> settings,
             java.util.function.Consumer<Runnable> replenishmentStarter,
             java.util.function.BiConsumer<Thread, Throwable> lateFailureReporter,
             java.util.function.LongSupplier clock,
             PoolReplenisher.Waiter backoffWaiter) {
-        return new WorkerPoolController<>(
+        return WorkerPoolController.fromSettings(
                 factory,
                 closeAction(closer),
-                options,
+                settings,
                 Failures.INSTANCE,
                 "test worker",
                 "test-",
@@ -116,12 +123,12 @@ abstract class WorkerPoolControllerTestSupport {
     static WorkerPoolController<TestWorker> controller(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
-            Options options,
+            WorkerPoolSettings<?> settings,
             java.util.function.Consumer<Runnable> replenishmentStarter) {
-        return new WorkerPoolController<>(
+        return WorkerPoolController.fromSettings(
                 factory,
                 closeAction(closer),
-                options,
+                settings,
                 Failures.INSTANCE,
                 "test worker",
                 "test-",
@@ -273,15 +280,24 @@ abstract class WorkerPoolControllerTestSupport {
         }
     }
 
-    record Options(
+    static WorkerPoolSettings<Object> settings(
             int maxSize,
             int warmupSize,
             int minIdle,
             Duration acquireTimeout,
             int maxRequestsPerWorker,
             Duration maxWorkerAge,
-            boolean backgroundReplenishment)
-            implements WorkerPoolPolicy.Options {}
+            boolean backgroundReplenishment) {
+        return WorkerPoolSettings.defaults()
+                .withMaxSize(maxSize)
+                .withWarmupSize(warmupSize)
+                .withMinIdle(minIdle)
+                .withAcquireTimeout(acquireTimeout)
+                .withCloseTimeout(acquireTimeout)
+                .withMaxRequestsPerWorker(maxRequestsPerWorker)
+                .withMaxWorkerAge(maxWorkerAge)
+                .withBackgroundReplenishment(backgroundReplenishment);
+    }
 
     enum FailureKind {
         CLOSED,

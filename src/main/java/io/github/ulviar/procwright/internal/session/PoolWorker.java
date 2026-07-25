@@ -16,17 +16,17 @@ final class PoolWorker<S> {
 
     private WorkerStartup<S> startup;
     private StartupStage startupStage = StartupStage.QUEUED;
-    private StartupPurpose startupPurpose = StartupPurpose.DEMAND;
+    private final StartupPurpose startupPurpose;
     private S session;
     private final WorkerRetirement<S> retirement;
     private BoundedTaskPermit permit;
     private long createdAtNanos;
     private int requests;
     private PooledWorkerRetireReason retireReason;
-    private boolean failureReported;
 
-    PoolWorker(WorkerRetirement.Action<S> closeAction) {
+    PoolWorker(WorkerRetirement.Action<S> closeAction, StartupPurpose startupPurpose) {
         retirement = new WorkerRetirement<>(closeAction);
+        this.startupPurpose = Objects.requireNonNull(startupPurpose, "startupPurpose");
     }
 
     S session() {
@@ -96,10 +96,6 @@ final class PoolWorker<S> {
         return startupPurpose;
     }
 
-    void startupPurpose(StartupPurpose startupPurpose) {
-        this.startupPurpose = Objects.requireNonNull(startupPurpose, "startupPurpose");
-    }
-
     StartupStage startupStage() {
         return startupStage;
     }
@@ -114,14 +110,6 @@ final class PoolWorker<S> {
 
     void retireReason(PooledWorkerRetireReason retireReason) {
         this.retireReason = retireReason;
-    }
-
-    boolean claimFailureReport() {
-        if (failureReported) {
-            return false;
-        }
-        failureReported = true;
-        return true;
     }
 
     enum StartupPurpose {

@@ -125,12 +125,16 @@ final class StreamRuntimeStartupTest extends StreamRuntimeStartupTestSupport {
             return thread;
         };
         CopyOnWriteArrayList<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        CountDownLatch diagnosticBarrier = new CountDownLatch(1);
+        CountDownLatch shutdownDelivered = new CountDownLatch(1);
+        CountDownLatch processExitedDelivered = new CountDownLatch(1);
         DiagnosticEmitter eventDiagnostics = DiagnosticEmitter.of(
                 DiagnosticsSettings.disabled().withListener(event -> {
                     events.add(event);
+                    if (event.type() == DiagnosticEventType.SHUTDOWN_REQUESTED) {
+                        shutdownDelivered.countDown();
+                    }
                     if (event.type() == DiagnosticEventType.PROCESS_EXITED) {
-                        diagnosticBarrier.countDown();
+                        processExitedDelivered.countDown();
                     }
                 }),
                 "listen",
@@ -179,8 +183,9 @@ final class StreamRuntimeStartupTest extends StreamRuntimeStartupTestSupport {
         assertEquals(1, stderr.closeCalls());
 
         rawSession.close();
+        assertTrue(shutdownDelivered.await(2, TimeUnit.SECONDS));
         eventDiagnostics.emit(DiagnosticEventType.PROCESS_EXITED, DiagnosticEmitter.attributes("timedOut", "false"));
-        assertTrue(diagnosticBarrier.await(2, TimeUnit.SECONDS));
+        assertTrue(processExitedDelivered.await(2, TimeUnit.SECONDS));
         assertEquals(
                 List.of(
                         DiagnosticEventType.COMMAND_PREPARED,

@@ -3,13 +3,11 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.HEALTHY;
+import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.PROCESS_EXITED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.Threading;
-import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -23,43 +21,36 @@ import org.junit.jupiter.api.Test;
 final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupport {
 
     @Test
-    void acquireMetricFailureCannotStrandLeaseBeforeHandoff() throws Exception {
-        AssertionError metricFailure = new AssertionError("acquire metric clock failed");
-        AtomicInteger clockCalls = new AtomicInteger();
-        AtomicInteger physicalCloses = new AtomicInteger();
+    void acquireRecordsOneEndToEndMeasurementAcrossHealthRetries() throws Exception {
+        AtomicInteger clockReads = new AtomicInteger();
         WorkerPoolController<TestWorker> pool = controller(
-                () -> new TestWorker(1),
-                worker -> physicalCloses.incrementAndGet(),
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                task -> Threading.start("test-replenish-", task),
-                (thread, failure) -> {},
-                () -> {
-                    if (clockCalls.incrementAndGet() == 2) {
-                        throw metricFailure;
+                new java.util.function.Supplier<>() {
+                    private final AtomicInteger ids = new AtomicInteger();
+
+                    @Override
+                    public TestWorker get() {
+                        return new TestWorker(ids.incrementAndGet());
                     }
-                    return 100L;
+                },
+                worker -> {},
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                task -> Threading.start("test-metrics-replenish-", task),
+                (thread, failure) -> {},
+                () -> switch (clockReads.incrementAndGet()) {
+                    case 1 -> 100L;
+                    case 2 -> 175L;
+                    default -> throw new AssertionError("acquire metrics clock was read more than twice");
                 },
                 null);
         try {
-            AssertionError observed =
-                    assertThrows(AssertionError.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
+            WorkerPoolState.Lease<TestWorker> lease =
+                    pool.acquire((worker, deadline) -> worker.id() == 1 ? PROCESS_EXITED : HEALTHY);
 
-            assertSame(metricFailure, observed);
-            assertEquals(0, observed.getSuppressed().length);
-            assertEquals(2, clockCalls.get());
-            assertTrue(pool.awaitMetrics(metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
-            assertEquals(1, physicalCloses.get());
-            assertEquals(1, pool.metrics().created());
-            assertEquals(1, pool.metrics().retired());
-            assertEquals(0, pool.metrics().failedWorkerCloses());
-            assertEquals(0, pool.metrics().totalAcquireWaitNanos());
-            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.WORKER_FAILED));
-            assertPartition(pool, 0, 0, 0, 0, 0);
-
-            pool.closeAsync();
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            assertEquals(2, clockReads.get());
+            assertEquals(75L, pool.metrics().totalAcquireWaitNanos());
+            pool.releaseReusable(lease);
         } finally {
-            pool.closeAsync();
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
         }
     }
 
@@ -69,7 +60,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 task -> Threading.start("test-replenish-", task),
                 (thread, failure) -> {},
                 now::get,
@@ -98,7 +89,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 task -> Threading.start("test-metrics-replenish-", task),
                 (thread, failure) -> {},
                 now::get,
@@ -144,7 +135,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         CountDownLatch predicateStarted = new CountDownLatch(1);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -172,7 +163,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         CountDownLatch predicateStarted = new CountDownLatch(1);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -200,7 +191,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         CountDownLatch predicateEntered = new CountDownLatch(1);
         CountDownLatch releasePredicate = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);

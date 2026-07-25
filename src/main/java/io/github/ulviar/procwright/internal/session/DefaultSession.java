@@ -407,7 +407,7 @@ public final class DefaultSession implements Session {
 
         try {
             if (!termination.beginClosing()) {
-                if (termination.closedAndPublished()) {
+                if (termination.published()) {
                     resources.closeStdin();
                     processCleanup.stop();
                     resources.close();

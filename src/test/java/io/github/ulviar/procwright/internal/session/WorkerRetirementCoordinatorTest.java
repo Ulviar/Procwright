@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import java.time.Duration;
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -186,7 +186,7 @@ final class WorkerRetirementCoordinatorTest {
     @Test
     void exceptionalCloseFutureIsDeliveredAsNormalizedOutcome() {
         CompletableFuture<WorkerRetirement.Outcome> outcome = new CompletableFuture<>();
-        PoolWorker<String> worker = new PoolWorker<>(session -> outcome);
+        PoolWorker<String> worker = new PoolWorker<>(session -> outcome, PoolWorker.StartupPurpose.DEMAND);
         worker.accept("worker");
         AtomicReference<Throwable> observed = new AtomicReference<>();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
@@ -212,7 +212,8 @@ final class WorkerRetirementCoordinatorTest {
 
     @Test
     void nullCloseOutcomeIsNormalized() {
-        PoolWorker<String> worker = new PoolWorker<>(session -> CompletableFuture.completedFuture(null));
+        PoolWorker<String> worker =
+                new PoolWorker<>(session -> CompletableFuture.completedFuture(null), PoolWorker.StartupPurpose.DEMAND);
         worker.accept("worker");
         AtomicReference<Throwable> observed = new AtomicReference<>();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
@@ -259,16 +260,18 @@ final class WorkerRetirementCoordinatorTest {
     }
 
     private static PoolWorker<String> worker(AtomicInteger initiated) {
-        PoolWorker<String> worker = new PoolWorker<>(session -> {
-            initiated.incrementAndGet();
-            return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
-        });
+        PoolWorker<String> worker = new PoolWorker<>(
+                session -> {
+                    initiated.incrementAndGet();
+                    return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
+                },
+                PoolWorker.StartupPurpose.DEMAND);
         worker.accept("worker");
         return worker;
     }
 
     private static PoolWorker<String> worker(String session, WorkerRetirement.Action<String> closeAction) {
-        PoolWorker<String> worker = new PoolWorker<>(closeAction);
+        PoolWorker<String> worker = new PoolWorker<>(closeAction, PoolWorker.StartupPurpose.DEMAND);
         worker.accept(session);
         return worker;
     }
@@ -278,47 +281,9 @@ final class WorkerRetirementCoordinatorTest {
     }
 
     private static WorkerPoolState<String> state() {
-        return new WorkerPoolState<>(new WorkerPoolPolicy(TestOptions.INSTANCE), new PoolTermination(), () -> {
-            throw new AssertionError("unused reservation factory");
-        });
-    }
-
-    private enum TestOptions implements WorkerPoolPolicy.Options {
-        INSTANCE;
-
-        @Override
-        public int maxSize() {
-            return 1;
-        }
-
-        @Override
-        public int warmupSize() {
-            return 0;
-        }
-
-        @Override
-        public int minIdle() {
-            return 0;
-        }
-
-        @Override
-        public Duration acquireTimeout() {
-            return Duration.ofSeconds(1);
-        }
-
-        @Override
-        public Duration maxWorkerAge() {
-            return Duration.ZERO;
-        }
-
-        @Override
-        public int maxRequestsPerWorker() {
-            return 0;
-        }
-
-        @Override
-        public boolean backgroundReplenishment() {
-            return false;
-        }
+        return new WorkerPoolState<>(
+                new WorkerPoolPolicy(WorkerPoolSettings.defaults()), new PoolTermination(), purpose -> {
+                    throw new AssertionError("unused reservation factory");
+                });
     }
 }

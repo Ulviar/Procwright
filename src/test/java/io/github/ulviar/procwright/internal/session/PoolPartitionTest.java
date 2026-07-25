@@ -117,7 +117,6 @@ final class PoolPartitionTest {
 
     private static void assertCounts(
             PoolPartition<?> partition, int size, int idle, int leased, int starting, int retiring) {
-        partition.verify();
         assertEquals(new PoolPartition.Counts(size, idle, leased, starting, retiring), partition.counts());
     }
 

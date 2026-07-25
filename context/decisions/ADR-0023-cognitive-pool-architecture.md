@@ -19,18 +19,21 @@ Pool runtime перестраивается вокруг следующих вл
 
 - `WorkerPoolState` является aggregate root единственного consistency domain пула. Он владеет monitor,
   `PoolPartition`, `PoolMetrics`, `PoolTermination`, revision ожиданий и связанными с partition полями уже
-  зарезервированного `PoolWorker`; acquire/reservation transitions возвращают sealed variants, поэтому lease,
-  reservation и interruption нельзя сочетать с неверным status или `null`; внутренними автоматами startup и physical
-  retirement владеют отдельные компоненты;
+  зарезервированного `PoolWorker`; acquire transition возвращает sealed variants, поэтому lease, reservation и
+  interruption нельзя сочетать с неверным status или `null`; warmup различает только successful reservation и closed
+  pool, а replenishment использует семантику `tryReserve`; внутренними автоматами startup и physical retirement владеют
+  отдельные компоненты;
 - `PoolPartition` единолично представляет взаимоисключающие состояния `starting`, `idle`, `leased` и `retiring`;
   принадлежность коллекции является состоянием worker-а, но partition не покидает `WorkerPoolState`; bounded
   collections резервируют `maxSize` при создании, а переход добавляет worker в target до удаления из source;
 - `WorkerStartup` выбирает ровно один terminal outcome между factory completion, timeout, close и interruption;
 - `WorkerStartupCoordinator` владеет typed reservation, последовательностью worker-permit acquisition, launch, wait,
-  abandon и failure mapping. `WorkerPoolState` атомарно создаёт и регистрирует reservation с заранее подготовленными
-  lease и cleanup effects; reservation однократно передаёт ownership startup attempt, затем terminal transition либо
-  выдаёт lease, либо инвалидирует его и запрещает повторный доступ к worker/effects; узкий state port выражает только
-  startup events;
+  abandon и failure mapping. `WorkerPoolState` атомарно создаёт и регистрирует reservation с подготовленным lease и
+  worker cleanup owner. Startup purpose задаётся при создании worker и остаётся неизменным. Успешный launch claim под
+  тем же monitor однократно передаёт ownership startup attempt; terminal transition затем либо выдаёт lease, либо
+  инвалидирует внутренние capabilities. Reservation привязана к создавшему её `WorkerPoolState`, поэтому другой pool
+  не может завершить её или потерять принадлежащий исходному pool permit. Узкий state port выражает только startup
+  events;
 - `PoolWorker` владеет process-wide worker permit от допуска startup до удаления slot после полного retirement outcome:
   `session.close()`, terminal observation и physical output cleanup;
 - `WorkerRetirement` создаётся вместе с reservation до регистрации slot, затем принимает factory session, атомарно
@@ -49,7 +52,8 @@ Pool runtime перестраивается вокруг следующих вл
   construction/cleanup failures без изменения исходных `Throwable`;
 - `PoolTermination` сам владеет construction phase и pending reports и возвращает отдельные завершённые construction
   success/failure variants вместо tag, nullable payload и обязательного второго transition;
-- `WorkerPoolPolicy` владеет immutable options, reuse policy и расчетом `minIdle`;
+- `WorkerPoolSettings` является единственным configuration dialect и проходит полную validation до создания
+  `WorkerPoolPolicy`; policy владеет reuse policy и чистым расчетом `minIdle` по state counts;
 - `PooledRequestRunner` владеет observation, preparation и exact-once `WorkerPoolState.Lease`, не получая сырой
   `PoolWorker`;
 - `PoolTermination` владеет решением construction, состоянием closing, приоритетом terminal failures и готовностью к
@@ -61,8 +65,9 @@ Pool runtime перестраивается вокруг следующих вл
 - `PoolLifecycleDispatcher` предоставляет три независимых process-wide bounded domains: retirement outcome вместе с
   аварийным close fallback, reporting и replenishment; terminal publication в dispatcher не входит;
 - controller координирует factory, hooks, physical close и reporting, но не содержит monitor и не дублирует mutable
-  state. Сырой `PoolWorker` остаётся внутренней деталью state/startup/retirement collaborators и не достигает request
-  runner или public pooled wrappers.
+  state. Каждая state-транзакция получает новый `PoolStateEffects` того же pool; metrics clock является внутренним
+  total/non-throwing monotonic source. Сырой `PoolWorker` остаётся внутренней деталью state/startup/retirement
+  collaborators и не достигает request runner или public pooled wrappers.
 
 State transition выполняется под одним pool monitor. Factory, hooks, worker close, reporting и completion callbacks
 выполняются вне monitor и возвращают typed outcome владельцу состояния. Worker permit отсоединяется от `PoolWorker` в
@@ -76,7 +81,8 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - `starting + idle + leased + retiring == size <= maxSize`;
 - worker принадлежит ровно одному состоянию, которое не дублируется mutable enum field;
 - partition membership, worker-permit ownership, startup purpose/stage, retire reason и request count согласуются через
-  `WorkerPoolState`; terminal startup и physical retirement имеют собственных владельцев;
+  `WorkerPoolState`; startup purpose неизменяем и задаётся до регистрации worker; terminal startup и physical
+  retirement имеют собственных владельцев;
 - startup terminal winner выбирается ровно один раз, а поздний успешный startup обязательно retire-ится;
 - каждый зарегистрированный worker уже имеет cleanup owner до запуска factory;
 - retirement удерживает capacity до полного retirement outcome;
@@ -87,8 +93,10 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
 - close запрещает новые acquisitions, но не отнимает уже переданный lease;
 - retirement batch не требует дополнительного queue permit;
 - startup reservation до launch и startup attempt после launch не имеют совместного ownership;
-- terminal startup reservation больше не раскрывает worker, prepared lease или effects; state transition принимает
-  только effects, принадлежащие этой reservation;
+- успешный launch claim и передача ownership startup attempt являются одним переходом под pool monitor;
+- startup completion принимает только уже переданный attempt; выдать lease непосредственно из reservation нельзя;
+- terminal startup reservation не раскрывает worker или prepared lease; `PoolStateEffects` принадлежит pool, а не
+  reservation, и создаётся отдельно для каждой state-транзакции;
 - process-wide worker permits допускают суммарно не более 256 factory-admitted workers всех pools; reservation,
   ожидающая permit до factory, уже занимает slot своего pool, но ещё не входит в process-wide limit;
 - pool не резервирует отдельный thread или process-wide slot для terminal future во время `open()`;
@@ -105,7 +113,7 @@ Line и protocol public API, отсутствие public lease, timeout taxonomy
   exception с сохраненными reason и message; aggregate с `Error` primary раскрывается напрямую, чтобы сохранить fatal
   type. Только свежая оболочка получает дополнительные diagnostics, пользовательские failures не изменяются;
 - startup reservation создается до регистрации worker; terminal publication capability выбирается под pool monitor, а
-  post-monitor effects выполняют её после освобождения monitor;
+  отдельный post-monitor effects batch выполняет её после освобождения monitor;
 - controller не содержит `synchronized` и не получает ссылку на monitor или partition;
 - тестовые seams находятся на границах владельцев и не добавляют test-only переходы в production lifecycle.
 

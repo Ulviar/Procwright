@@ -87,7 +87,8 @@ final class WorkerPoolState<S> {
                     return result;
                 }
                 if (partition.size() < policy.maxSize()) {
-                    WorkerStartupCoordinator.Reservation<S> reservation = prepareReservationLocked();
+                    WorkerStartupCoordinator.Reservation<S> reservation =
+                            prepareReservationLocked(PoolWorker.StartupPurpose.DEMAND);
                     AcquireResult<S> result = AcquireResult.reserved(reservation);
                     commitReservationLocked(reservation);
                     return result;
@@ -106,33 +107,44 @@ final class WorkerPoolState<S> {
         }
     }
 
-    ReservationResult<S> reserve() {
+    ReservationResult<S> reserveWarmup() {
         synchronized (monitor) {
-            return reserveLocked(false);
+            if (termination.closing()) {
+                return ReservationResult.closed();
+            }
+            if (partition.size() >= policy.maxSize()) {
+                throw new IllegalStateException("pool capacity exhausted while reserving warmup slot");
+            }
+            WorkerStartupCoordinator.Reservation<S> reservation =
+                    prepareReservationLocked(PoolWorker.StartupPurpose.WARMUP);
+            ReservationResult<S> result = ReservationResult.reserved(reservation);
+            commitReservationLocked(reservation);
+            return result;
         }
     }
 
-    ReservationResult<S> reserveReplenishment() {
+    WorkerStartupCoordinator.Reservation<S> tryReserveReplenishment() {
         synchronized (monitor) {
-            return reserveLocked(true);
+            if (termination.closing() || !needsReplenishmentLocked()) {
+                return null;
+            }
+            WorkerStartupCoordinator.Reservation<S> reservation =
+                    prepareReservationLocked(PoolWorker.StartupPurpose.REPLENISHMENT);
+            commitReservationLocked(reservation);
+            return reservation;
         }
     }
 
-    boolean attachStartupPermit(
-            WorkerStartupCoordinator.Reservation<S> reservation,
-            BoundedTaskPermit permit,
-            PoolWorker.StartupPurpose purpose) {
+    boolean attachStartupPermit(WorkerStartupCoordinator.Reservation<S> reservation, BoundedTaskPermit permit) {
         Objects.requireNonNull(reservation, "reservation");
         Objects.requireNonNull(permit, "permit");
-        Objects.requireNonNull(purpose, "purpose");
-        PoolWorker<S> worker = reservation.stateWorker();
+        PoolWorker<S> worker = reservation.reservedWorker(this);
         synchronized (monitor) {
             if (!partition.contains(worker) || termination.closing()) {
                 return false;
             }
             partition.requireState(worker, PoolPartition.State.STARTING);
             worker.workerPermit(permit);
-            worker.startupPurpose(purpose);
             return true;
         }
     }
@@ -140,7 +152,7 @@ final class WorkerPoolState<S> {
     WorkerStartupCoordinator.StartupClaim claimStartup(
             WorkerStartupCoordinator.Reservation<S> reservation, long deadlineNanos) {
         Objects.requireNonNull(reservation, "reservation");
-        PoolWorker<S> worker = reservation.stateWorker();
+        PoolWorker<S> worker = reservation.reservedWorker(this);
         synchronized (monitor) {
             if (!partition.contains(worker) || termination.closing()) {
                 worker.startup().signalClosed();
@@ -152,19 +164,20 @@ final class WorkerPoolState<S> {
                 return WorkerStartupCoordinator.StartupClaim.TIMED_OUT;
             }
             worker.startupStage(PoolWorker.StartupStage.RUNNING);
+            reservation.transferToAttempt();
             return WorkerStartupCoordinator.StartupClaim.RUN;
         }
     }
 
     void launchFailed(WorkerStartupCoordinator.Reservation<S> reservation, PoolStateEffects<S> effects) {
         Objects.requireNonNull(reservation, "reservation");
-        requireEffects(reservation, effects);
-        PoolWorker<S> worker = reservation.stateWorker();
+        requireEffects(effects);
+        PoolWorker<S> worker = reservation.attemptedWorker(this);
         synchronized (monitor) {
             if (removeSlotLocked(worker, effects)) {
                 changedLocked();
             }
-            reservation.completeWithoutLease();
+            reservation.completeAttempt();
             effects.publish(claimDrainLocked());
         }
     }
@@ -173,8 +186,8 @@ final class WorkerPoolState<S> {
             WorkerStartupCoordinator.Reservation<S> reservation, Throwable failure, PoolStateEffects<S> effects) {
         Objects.requireNonNull(reservation, "reservation");
         Objects.requireNonNull(failure, "failure");
-        requireEffects(reservation, effects);
-        PoolWorker<S> worker = reservation.stateWorker();
+        requireEffects(effects);
+        PoolWorker<S> worker = reservation.attemptedWorker(this);
         synchronized (monitor) {
             boolean closedStartup =
                     switch (worker.startup().terminalDecision()) {
@@ -190,7 +203,7 @@ final class WorkerPoolState<S> {
                 metrics.startupFailed();
             }
             changedLocked();
-            reservation.completeWithoutLease();
+            reservation.completeAttempt();
             effects.publish(claimDrainLocked());
             return closedStartup;
         }
@@ -204,9 +217,9 @@ final class WorkerPoolState<S> {
         Objects.requireNonNull(reservation, "reservation");
         Objects.requireNonNull(createdWorker, "createdWorker");
         Objects.requireNonNull(decision, "decision");
-        requireEffects(reservation, effects);
-        PoolWorker<S> worker = reservation.stateWorker();
-        Lease<S> lease = reservation.preparedLease();
+        requireEffects(effects);
+        PoolWorker<S> worker = reservation.attemptedWorker(this);
+        Lease<S> lease = reservation.preparedLease(this);
         synchronized (monitor) {
             partition.requireState(worker, PoolPartition.State.STARTING);
             if (decision != WorkerStartup.TerminalDecision.FACTORY_COMPLETED) {
@@ -226,9 +239,9 @@ final class WorkerPoolState<S> {
             }
             changedLocked();
             if (decision == WorkerStartup.TerminalDecision.FACTORY_COMPLETED) {
-                return reservation.completeWithLease();
+                return reservation.completeWithLease(this);
             }
-            reservation.completeWithoutLease();
+            reservation.completeAttempt();
             return null;
         }
     }
@@ -239,11 +252,11 @@ final class WorkerPoolState<S> {
             PoolStateEffects<S> effects) {
         Objects.requireNonNull(reservation, "reservation");
         Objects.requireNonNull(completion, "completion");
-        requireEffects(reservation, effects);
-        PoolWorker<S> worker = reservation.stateWorker();
+        requireEffects(effects);
+        PoolWorker<S> worker = reservation.attemptedWorker(this);
         synchronized (monitor) {
             if (!partition.contains(worker)) {
-                reservation.completeWithoutLease();
+                reservation.completeAttempt();
                 return false;
             }
             metrics.startupFailed();
@@ -256,7 +269,7 @@ final class WorkerPoolState<S> {
                 markRetiringLocked(worker, completion.reason());
             }
             changedLocked();
-            reservation.completeWithoutLease();
+            reservation.completeAttempt();
             effects.publish(claimDrainLocked());
             return true;
         }
@@ -264,13 +277,13 @@ final class WorkerPoolState<S> {
 
     void removeFailedStartup(WorkerStartupCoordinator.Reservation<S> reservation, PoolStateEffects<S> effects) {
         Objects.requireNonNull(reservation, "reservation");
-        requireEffects(reservation, effects);
-        PoolWorker<S> worker = reservation.stateWorker();
+        requireEffects(effects);
+        PoolWorker<S> worker = reservation.reservedWorker(this);
         synchronized (monitor) {
             if (removeSlotLocked(worker, effects)) {
                 changedLocked();
             }
-            reservation.completeWithoutLease();
+            reservation.completeReservation(this);
             effects.publish(claimDrainLocked());
         }
     }
@@ -364,10 +377,8 @@ final class WorkerPoolState<S> {
             FailureReport lateReport = null;
             if (closeFailure != null) {
                 enterClosingLocked(closeFailure, effects);
-                if (worker.claimFailureReport()) {
-                    lateReport = termination.routeWorkerCloseFailure(
-                            Objects.requireNonNull(closeFailureReport, "closeFailureReport"));
-                }
+                lateReport = termination.routeWorkerCloseFailure(
+                        Objects.requireNonNull(closeFailureReport, "closeFailureReport"));
             } else if (closeFailureReport != null) {
                 throw new IllegalArgumentException("successful retirement cannot carry a failure report");
             }
@@ -394,7 +405,7 @@ final class WorkerPoolState<S> {
 
     boolean replenishmentNeeded() {
         synchronized (monitor) {
-            return !termination.closing() && policy.needsReplenishment(partition);
+            return !termination.closing() && needsReplenishmentLocked();
         }
     }
 
@@ -487,39 +498,27 @@ final class WorkerPoolState<S> {
         Objects.requireNonNull(effects, "effects").requireOwner(this);
     }
 
-    private void requireEffects(WorkerStartupCoordinator.Reservation<S> reservation, PoolStateEffects<S> effects) {
-        Objects.requireNonNull(reservation, "reservation").requireEffects(effects);
-        requireEffects(effects);
-    }
-
-    private ReservationResult<S> reserveLocked(boolean replenishment) {
-        if (termination.closing()) {
-            return ReservationResult.closed();
-        }
-        if (replenishment && !policy.needsReplenishment(partition)) {
-            return ReservationResult.notNeeded();
-        }
-        if (partition.size() >= policy.maxSize()) {
-            return ReservationResult.full();
-        }
-        WorkerStartupCoordinator.Reservation<S> reservation = prepareReservationLocked();
-        ReservationResult<S> result = ReservationResult.reserved(reservation);
-        commitReservationLocked(reservation);
-        return result;
-    }
-
-    private WorkerStartupCoordinator.Reservation<S> prepareReservationLocked() {
+    private WorkerStartupCoordinator.Reservation<S> prepareReservationLocked(PoolWorker.StartupPurpose purpose) {
         WorkerStartupCoordinator.Reservation<S> reservation =
-                Objects.requireNonNull(reservations.create(), "startup reservation factory returned null");
+                Objects.requireNonNull(reservations.create(purpose), "startup reservation factory returned null");
         PoolWorker<S> worker = reservation.worker();
-        reservation.effects().requireOwner(this);
-        reservation.prepareLease(new Lease<>(this, worker));
+        reservation.bind(this, new Lease<>(this, worker));
         return reservation;
     }
 
     private void commitReservationLocked(WorkerStartupCoordinator.Reservation<S> reservation) {
-        partition.addStarting(reservation.worker());
+        partition.addStarting(reservation.reservedWorker(this));
         changedLocked();
+    }
+
+    private boolean needsReplenishmentLocked() {
+        int replenishingStarts = 0;
+        for (PoolWorker<S> worker : partition.startingWorkers()) {
+            if (worker.startupPurpose() == PoolWorker.StartupPurpose.REPLENISHMENT) {
+                replenishingStarts++;
+            }
+        }
+        return policy.needsReplenishment(partition.size(), partition.idleCount(), replenishingStarts);
     }
 
     private PoolMetrics.Snapshot metricsLocked() {
@@ -690,8 +689,7 @@ final class WorkerPoolState<S> {
         }
     }
 
-    sealed interface ReservationResult<S>
-            permits SlotReserved, ReservationClosed, ReservationFull, ReplenishmentNotNeeded {
+    sealed interface ReservationResult<S> permits SlotReserved, ReservationClosed {
 
         private static <S> ReservationResult<S> reserved(WorkerStartupCoordinator.Reservation<S> reservation) {
             return new SlotReserved<>(reservation);
@@ -699,14 +697,6 @@ final class WorkerPoolState<S> {
 
         private static <S> ReservationResult<S> closed() {
             return new ReservationClosed<>();
-        }
-
-        private static <S> ReservationResult<S> full() {
-            return new ReservationFull<>();
-        }
-
-        private static <S> ReservationResult<S> notNeeded() {
-            return new ReplenishmentNotNeeded<>();
         }
     }
 
@@ -719,14 +709,10 @@ final class WorkerPoolState<S> {
 
     record ReservationClosed<S>() implements ReservationResult<S> {}
 
-    record ReservationFull<S>() implements ReservationResult<S> {}
-
-    record ReplenishmentNotNeeded<S>() implements ReservationResult<S> {}
-
     @FunctionalInterface
     interface StartupReservationFactory<S> {
 
         /** Creates internal owners only; implementations must not launch work or invoke user code. */
-        WorkerStartupCoordinator.Reservation<S> create();
+        WorkerStartupCoordinator.Reservation<S> create(PoolWorker.StartupPurpose purpose);
     }
 }

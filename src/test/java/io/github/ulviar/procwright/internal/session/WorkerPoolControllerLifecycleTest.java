@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -63,7 +64,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                             throw startupFailure;
                         },
                         worker -> {},
-                        new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                        settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                         workerPermits));
 
         assertEquals(FailureKind.STARTUP_FAILED, observed.kind);
@@ -73,7 +74,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         WorkerPoolController<TestWorker> recovered = controllerWithPermits(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 workerPermits);
         assertEquals(0, workerPermits.availablePermits());
         recovered.closeAsync().get(1, TimeUnit.SECONDS);
@@ -92,7 +93,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     closeEntered.countDown();
                     awaitIgnoringInterrupt(releaseClose);
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         try {
             CompletableFuture<Void> cancelledView = pool.closeAsync();
             assertTrue(closeEntered.await(1, TimeUnit.SECONDS));
@@ -123,11 +124,11 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     firstWorkerCloseEntered.countDown();
                     awaitIgnoringInterrupt(releaseFirstWorkerClose);
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         WorkerPoolController<TestWorker> second = controller(
                 () -> new TestWorker(2),
                 worker -> {},
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         CompletableFuture<Void> callback = null;
         try {
             CompletableFuture<Void> firstClose = publicCloseView(first);
@@ -167,7 +168,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     firstWorkerCloseEntered.countDown();
                     awaitIgnoringInterrupt(releaseFirstWorkerClose);
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 workerPermits);
         WorkerPoolController<TestWorker> second = null;
         CompletableFuture<Void> callback = null;
@@ -185,7 +186,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
             second = controllerWithPermits(
                     () -> new TestWorker(2),
                     worker -> {},
-                    new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                    settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                     workerPermits);
             assertEquals(0, workerPermits.availablePermits());
             assertFalse(callback.isDone());
@@ -225,11 +226,11 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
             for (int index = 0; index <= blockingPools; index++) {
                 ExitCallbackWorker worker = new ExitCallbackWorker();
                 workers.add(worker);
-                pools.add(new WorkerPoolController<>(
+                pools.add(WorkerPoolController.fromSettings(
                         () -> worker,
                         session ->
                                 WorkerCloseSupport.closeOutcome(session, session.onExit(), session.physicalCleanup()),
-                        new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                        settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                         Failures.INSTANCE,
                         "exit-callback worker",
                         "test-exit-callback-",
@@ -287,7 +288,8 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
     void aggregateWorkerPermitRejectsAnotherPoolBeforeFactoryAndRecoversAfterRetirement() throws Exception {
         BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
         AtomicInteger factoryInvocations = new AtomicInteger();
-        Options options = new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
+        WorkerPoolSettings<?> options =
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
         WorkerPoolController<TestWorker> accepted = controllerWithPermits(
                 () -> new TestWorker(factoryInvocations.incrementAndGet()), worker -> {}, options, workerPermits);
         try {
@@ -329,7 +331,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         WorkerPoolController<TestWorker> pool = controllerWithPermits(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> {},
-                new Options(
+                settings(
                         workerCapacity,
                         workerCapacity,
                         0,
@@ -352,7 +354,8 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
     void defaultControllersShareTheProcessWideWorkerLimit() throws Exception {
         int permitsBefore = BoundedTaskLimits.POOL_WORKERS.availablePermits();
         assertTrue(permitsBefore >= 2);
-        Options options = new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
+        WorkerPoolSettings<?> options =
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
         WorkerPoolController<TestWorker> first = null;
         WorkerPoolController<TestWorker> second = null;
         try {
@@ -387,7 +390,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 worker -> {
                     throw closeFailure;
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 workerPermits);
 
         ExecutionException observed =
@@ -402,7 +405,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         WorkerPoolController<TestWorker> recovered = controllerWithPermits(
                 () -> new TestWorker(2),
                 worker -> {},
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 workerPermits);
         recovered.closeAsync().get(1, TimeUnit.SECONDS);
 
@@ -417,7 +420,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         CountDownLatch firstInitiated = new CountDownLatch(1);
         CountDownLatch secondInitiated = new CountDownLatch(1);
         AtomicInteger workerIds = new AtomicInteger();
-        WorkerPoolController<TestWorker> pool = new WorkerPoolController<>(
+        WorkerPoolController<TestWorker> pool = WorkerPoolController.fromSettings(
                 () -> new TestWorker(workerIds.incrementAndGet()),
                 worker -> {
                     if (worker.id() == 1) {
@@ -427,10 +430,11 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     secondInitiated.countDown();
                     return secondOutcome;
                 },
-                new Options(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 Failures.INSTANCE,
                 "test worker",
-                "test-two-phase-");
+                "test-two-phase-",
+                System::nanoTime);
         try {
             CompletableFuture<Void> drained = pool.closeAsync();
 
@@ -465,7 +469,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                         awaitIgnoringInterrupt(allowRetirement);
                     }
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ofNanos(1), false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ofNanos(1), false));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<WorkerPoolState.Lease<TestWorker>> first =
@@ -497,7 +501,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 worker -> {
                     throw new IllegalStateException("close failed");
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
 
         pool.closeAsync();
         assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
@@ -524,7 +528,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     }
                     throw fatalFailure;
                 },
-                new Options(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
 
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
@@ -549,7 +553,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     }
                     throw runtimeFailure;
                 },
-                new Options(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
 
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
@@ -576,7 +580,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                         default -> throw secondFatal;
                     }
                 },
-                new Options(3, 3, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(3, 3, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
 
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
@@ -593,13 +597,14 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
     void poolObservesFailedFirstPhysicalCloseAfterWorkerSelfCloses() throws Exception {
         IllegalStateException firstCloseFailure = new IllegalStateException("first physical close failed");
         CloseAwareWorker session = new CloseAwareWorker();
-        WorkerPoolController<CloseAwareWorker> pool = new WorkerPoolController<>(
+        WorkerPoolController<CloseAwareWorker> pool = WorkerPoolController.fromSettings(
                 () -> session,
                 worker -> WorkerCloseSupport.closeOutcome(worker, worker.terminal, worker.physicalCleanup),
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 Failures.INSTANCE,
                 "close-aware worker",
-                "test-close-aware-");
+                "test-close-aware-",
+                System::nanoTime);
         WorkerPoolState.Lease<CloseAwareWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
         session.failPhysicalClose(firstCloseFailure);
 
@@ -627,7 +632,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
 
         try {
@@ -660,7 +665,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
         AtomicReference<PoolMetrics.Snapshot> callbackMetrics = new AtomicReference<>();
         ExecutorService metricsExecutor = Executors.newSingleThreadExecutor();
         CompletableFuture<Void> callback = pool.closeAsync().thenRun(() -> {

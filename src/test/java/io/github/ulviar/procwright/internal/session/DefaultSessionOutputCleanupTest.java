@@ -16,6 +16,7 @@ import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -548,13 +549,14 @@ final class DefaultSessionOutputCleanupTest {
             throws Exception {
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
         DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
-        WorkerPoolController<DefaultSession> pool = new WorkerPoolController<>(
+        WorkerPoolController<DefaultSession> pool = WorkerPoolController.fromSettings(
                 () -> session,
                 worker -> WorkerCloseSupport.closeOutcome(worker, worker.onExit(), worker.physicalOutputCleanup()),
-                PoolTestOptions.INSTANCE,
+                WorkerPoolSettings.defaults().withWarmupSize(1).withBackgroundReplenishment(false),
                 PoolTestFailures.INSTANCE,
                 "default session",
-                "output-cleanup-pool-");
+                "output-cleanup-pool-",
+                System::nanoTime);
         try {
             ExecutionException observed = assertThrows(
                     ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
@@ -1041,45 +1043,6 @@ final class DefaultSessionOutputCleanupTest {
 
         private int stderrGetterCalls() {
             return stderrGetterCalls.get();
-        }
-    }
-
-    private enum PoolTestOptions implements WorkerPoolPolicy.Options {
-        INSTANCE;
-
-        @Override
-        public int maxSize() {
-            return 1;
-        }
-
-        @Override
-        public int warmupSize() {
-            return 1;
-        }
-
-        @Override
-        public int minIdle() {
-            return 0;
-        }
-
-        @Override
-        public Duration acquireTimeout() {
-            return Duration.ofSeconds(1);
-        }
-
-        @Override
-        public int maxRequestsPerWorker() {
-            return Integer.MAX_VALUE;
-        }
-
-        @Override
-        public Duration maxWorkerAge() {
-            return Duration.ZERO;
-        }
-
-        @Override
-        public boolean backgroundReplenishment() {
-            return false;
         }
     }
 

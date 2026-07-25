@@ -19,8 +19,12 @@ owner вынуждает при локальном изменении держа
 
 - `SessionConstruction` удерживает приобретенные ресурсы до единственного решения commit/rollback и не пропускает
   watcher-ы через construction gate до commit;
-- `SessionTermination` владеет session state, выбором terminal outcome и внутренней terminal publication; принятый
-  terminal failure регистрирует незавершенный cleanup и удерживает publication до его явного завершения;
+- `SessionTermination` владеет session state, выбором terminal outcome и внутренней terminal publication. Единственная
+  sealed phase-модель различает `RUNNING`, `CLOSING`, `SELECTED` и terminal `PUBLISHING`; `SELECTED` хранит
+  типизированный запрос success/failure, identity-дедуплицированные failures и число незавершенных cleanup. Capability
+  `Publication` и `FailureClaim` не создают параллельное представление фазы. Один completion с immutable `Outcome`
+  одновременно служит источником terminal observers, cancellation-isolated barrier views и признака завершённой
+  публикации. Нормализация вложенного aggregate сохраняет выбранную primary identity;
 - `SessionExitBarrier` хранит process/output dependencies как явные pending/settled states и публикует изолированный
   public `onExit()` неизменяемым action только после terminal outcome, физического закрытия обоих output streams и
   завершения зарегистрированных helpers;

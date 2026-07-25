@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright.internal.session;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -156,37 +155,6 @@ final class PoolPartition<W> {
         return List.copyOf(idle);
     }
 
-    List<W> leasedWorkers() {
-        return List.copyOf(leased);
-    }
-
-    List<W> retiringWorkers() {
-        return List.copyOf(retiring);
-    }
-
-    List<W> workers() {
-        List<W> workers = new ArrayList<>(size());
-        workers.addAll(starting);
-        workers.addAll(idle);
-        workers.addAll(leased);
-        workers.addAll(retiring);
-        return List.copyOf(workers);
-    }
-
-    void verify() {
-        if (size() > maxSize) {
-            throw new IllegalStateException("pool partition exceeds configured capacity");
-        }
-        Set<W> observed = identitySet(maxSize);
-        addUnique(observed, starting);
-        addUnique(observed, idle);
-        addUnique(observed, leased);
-        addUnique(observed, retiring);
-        if (observed.size() != size()) {
-            throw new IllegalStateException("pool partition is inconsistent");
-        }
-    }
-
     private void moveFromSet(Set<W> source, W worker, Set<W> target, State expected) {
         W candidate = requireInSet(source, worker, expected);
         addTarget(target, candidate);
@@ -259,14 +227,6 @@ final class PoolPartition<W> {
             }
         }
         return false;
-    }
-
-    private static <W> void addUnique(Set<W> observed, Iterable<W> values) {
-        for (W value : values) {
-            if (!observed.add(value)) {
-                throw new IllegalStateException("worker belongs to more than one pool state");
-            }
-        }
     }
 
     private static <W> Set<W> identitySet(int expectedSize) {

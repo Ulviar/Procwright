@@ -25,6 +25,20 @@ import org.junit.jupiter.api.Test;
 final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTestSupport {
 
     @Test
+    void settingsValidationPrecedesWorkerFactory() {
+        AtomicInteger factoryCalls = new AtomicInteger();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> controller(
+                        () -> new TestWorker(factoryCalls.incrementAndGet()),
+                        worker -> {},
+                        settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false)));
+
+        assertEquals(0, factoryCalls.get());
+    }
+
+    @Test
     void fatalReplenishmentErrorAfterCommitClosesPoolWithoutExternalActivity() throws Exception {
         int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         AssertionError fatalError = new AssertionError("background worker startup failed");
@@ -41,7 +55,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                     throw fatalError;
                 },
                 worker -> {},
-                new Options(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                 task -> Threading.start("test-fatal-replenish-", () -> {
                     try {
                         task.run();
@@ -105,7 +119,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                     }
                 },
                 worker -> {},
-                new Options(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false),
                 task -> Threading.start("test-replenish-", task),
                 (thread, failure) -> {
                     reported.set(failure);
@@ -176,7 +190,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                                 closeCalls.incrementAndGet();
                                 workerClosed.countDown();
                             },
-                            new Options(1, 1, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false))));
+                            settings(1, 1, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false))));
 
             assertTrue(startupEntered.await(1, TimeUnit.SECONDS));
             PoolFailure primary = construction.get(1, TimeUnit.SECONDS);
@@ -215,7 +229,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                         worker -> {
                             throw closeFailure;
                         },
-                        new Options(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false)));
+                        settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false)));
 
         assertEquals(FailureKind.STARTUP_FAILED, thrown.kind);
         Throwable aggregate = thrown.getCause();
@@ -258,7 +272,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                                 throw lateCloseFailure;
                             }
                         },
-                        new Options(2, 2, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false),
+                        settings(2, 2, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false),
                         task -> Threading.start("test-replenish-", task),
                         (thread, failure) -> {
                             reported.compareAndSet(null, failure);
@@ -297,7 +311,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                                 return new TestWorker(1);
                             },
                             worker -> {},
-                            new Options(1, 1, 0, Duration.ofMillis(30), Integer.MAX_VALUE, Duration.ZERO, false)));
+                            settings(1, 1, 0, Duration.ofMillis(30), Integer.MAX_VALUE, Duration.ZERO, false)));
 
             assertEquals(FailureKind.STARTUP_FAILED, failure.kind);
         } finally {
@@ -315,7 +329,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                     throw startupFailure;
                 },
                 worker -> {},
-                new Options(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
 
         AssertionError thrown = assertThrows(AssertionError.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
 

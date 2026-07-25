@@ -5,44 +5,28 @@ package io.github.ulviar.procwright.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 
 final class WorkerPoolPolicyTest {
 
     @Test
-    void minIdleRequiresBackgroundOwnership() {
-        Options options = new Options(2, 0, 1, false, 10);
-
-        assertThrows(IllegalArgumentException.class, () -> new WorkerPoolPolicy(options));
-    }
-
-    @Test
     void idleAndReplenishingWorkersBothSatisfyMinIdle() {
-        WorkerPoolPolicy policy = new WorkerPoolPolicy(new Options(3, 0, 2, true, 10));
-        PoolPartition<PoolWorker<String>> partition = new PoolPartition<>(3);
-        PoolWorker<String> idle = worker();
-        PoolWorker<String> replenishing = worker();
-        replenishing.startupPurpose(PoolWorker.StartupPurpose.REPLENISHMENT);
-        partition.addStarting(idle);
-        partition.startingToLeased(idle);
-        partition.leasedToIdle(idle);
+        WorkerPoolPolicy policy = new WorkerPoolPolicy(settings(3, 2, true, 10));
 
-        assertTrue(policy.needsReplenishment(partition));
+        assertTrue(policy.needsReplenishment(1, 1, 0));
 
-        partition.addStarting(replenishing);
-        assertFalse(policy.needsReplenishment(partition));
+        assertFalse(policy.needsReplenishment(2, 1, 1));
     }
 
     @Test
     void requestLimitRetiresWorkerAtTheConfiguredBoundary() {
-        WorkerPoolPolicy policy = new WorkerPoolPolicy(new Options(1, 0, 0, false, 2));
-        PoolWorker<String> worker = worker();
+        WorkerPoolPolicy policy = new WorkerPoolPolicy(settings(1, 0, false, 2));
+        PoolWorker<String> worker = worker(PoolWorker.StartupPurpose.DEMAND);
         worker.recordRequest();
         assertNull(policy.retirementReasonFor(worker));
 
@@ -51,31 +35,16 @@ final class WorkerPoolPolicyTest {
         assertEquals(PooledWorkerRetireReason.MAX_REQUESTS, policy.retirementReasonFor(worker));
     }
 
-    private static PoolWorker<String> worker() {
-        return new PoolWorker<>(session -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
+    private static PoolWorker<String> worker(PoolWorker.StartupPurpose purpose) {
+        return new PoolWorker<>(
+                session -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()), purpose);
     }
 
-    private record Options(int maxSize, int warmupSize, int minIdle, boolean background, int maxRequests)
-            implements WorkerPoolPolicy.Options {
-
-        @Override
-        public Duration acquireTimeout() {
-            return Duration.ofSeconds(1);
-        }
-
-        @Override
-        public int maxRequestsPerWorker() {
-            return maxRequests;
-        }
-
-        @Override
-        public Duration maxWorkerAge() {
-            return Duration.ZERO;
-        }
-
-        @Override
-        public boolean backgroundReplenishment() {
-            return background;
-        }
+    private static WorkerPoolSettings<Object> settings(int maxSize, int minIdle, boolean background, int maxRequests) {
+        return WorkerPoolSettings.defaults()
+                .withMaxSize(maxSize)
+                .withMinIdle(minIdle)
+                .withBackgroundReplenishment(background)
+                .withMaxRequestsPerWorker(maxRequests);
     }
 }
