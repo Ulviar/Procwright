@@ -88,7 +88,8 @@ abstract class WorkerPoolControllerTestSupport {
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
             Options options) {
-        return controller(factory, closer, options, Runnable::run, (thread, failure) -> {}, System::nanoTime, null);
+        return new WorkerPoolController<>(
+                factory, inlineCloseAction(closer), options, Failures.INSTANCE, "test worker", "test-");
     }
 
     static WorkerPoolController<TestWorker> controller(
@@ -135,16 +136,22 @@ abstract class WorkerPoolControllerTestSupport {
     }
 
     static WorkerRetirement.Action<TestWorker> closeAction(java.util.function.Consumer<TestWorker> closer) {
+        return (worker, admission) -> WorkerCloseSupport.closeOutcome(
+                () -> closer.accept(worker),
+                CompletableFuture.completedFuture(null),
+                CompletableFuture.completedFuture(null),
+                admission);
+    }
+
+    private static WorkerRetirement.Action<TestWorker> inlineCloseAction(
+            java.util.function.Consumer<TestWorker> closer) {
         return (worker, admission) -> {
-            WorkerRetirement.Outcome outcome;
             try {
                 closer.accept(worker);
-                outcome = WorkerRetirement.Outcome.success();
+                return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
             } catch (Throwable failure) {
-                outcome = WorkerRetirement.Outcome.failure(failure);
+                return CompletableFuture.completedFuture(WorkerRetirement.Outcome.failure(failure));
             }
-            WorkerRetirement.Outcome completed = outcome;
-            return CompletableFuture.completedFuture(completed);
         };
     }
 

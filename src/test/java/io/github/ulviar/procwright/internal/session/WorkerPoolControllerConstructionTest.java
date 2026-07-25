@@ -191,7 +191,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
             assertTrue(workerClosed.await(1, TimeUnit.SECONDS));
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
             assertFalse(closeThread.get() == startupThread.get(), "late worker closed on startup caller thread");
-            assertTrue(closeThread.get().getName().startsWith("procwright-terminal-retirement-"));
+            assertTrue(closeThread.get().getName().startsWith("procwright-worker-close-"));
             assertEquals(1, closeCalls.get());
         } finally {
             releaseStartup.countDown();

@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -34,19 +35,22 @@ final class WorkerRetirementCoordinator<S> {
         if (batch.isEmpty()) {
             throw new IllegalArgumentException("retirement batch must not be empty");
         }
-        Runnable retirement = () -> run(batch);
+        batch.forEach(PoolWorker::initiateClose);
+        AtomicBoolean processingStarted = new AtomicBoolean();
+        Runnable outcomeProcessing = () -> {
+            if (processingStarted.compareAndSet(false, true)) {
+                processOutcomes(batch);
+            }
+        };
         try {
-            dispatcher.accept(retirement);
+            dispatcher.accept(outcomeProcessing);
         } catch (RuntimeException | Error dispatchFailure) {
-            retirement.run();
+            outcomeProcessing.run();
             throw dispatchFailure;
         }
     }
 
-    private void run(List<PoolWorker<S>> workers) {
-        for (PoolWorker<S> worker : workers) {
-            worker.initiateClose();
-        }
+    private void processOutcomes(List<PoolWorker<S>> workers) {
         List<FailureReport> immediateReports = new ArrayList<>(workers.size());
         for (PoolWorker<S> worker : workers) {
             FailureReport report = observeSafely(worker);

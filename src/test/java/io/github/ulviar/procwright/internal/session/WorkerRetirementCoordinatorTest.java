@@ -9,12 +9,45 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class WorkerRetirementCoordinatorTest {
+
+    @Test
+    void dispatchInitiatesEveryCloseBeforeSchedulingOutcomeProcessing() {
+        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(2);
+        AtomicInteger initiated = new AtomicInteger();
+        AtomicInteger completed = new AtomicInteger();
+        AtomicReference<Runnable> outcomeProcessing = new AtomicReference<>();
+        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
+                outcomeProcessing::set,
+                (worker, outcome) -> {
+                    releaseAdmission(worker);
+                    completed.incrementAndGet();
+                    return null;
+                },
+                (worker, failure) -> {
+                    throw new AssertionError(failure);
+                },
+                report -> {});
+        PoolWorker<String> first = worker(admissions, initiated);
+        PoolWorker<String> second = worker(admissions, initiated);
+
+        coordinator.dispatch(List.of(first, second));
+
+        assertEquals(2, initiated.get());
+        assertEquals(0, completed.get());
+        assertEquals(0, admissions.availablePermits());
+
+        outcomeProcessing.get().run();
+
+        assertEquals(2, completed.get());
+        assertEquals(2, admissions.availablePermits());
+    }
 
     @Test
     void batchInitiatesEveryCloseBeforeObservingAnyOutcome() {
@@ -59,6 +92,37 @@ final class WorkerRetirementCoordinatorTest {
         AtomicInteger completed = new AtomicInteger();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
                 task -> {
+                    throw dispatchFailure;
+                },
+                (worker, outcome) -> {
+                    releaseAdmission(worker);
+                    completed.incrementAndGet();
+                    return null;
+                },
+                (worker, failure) -> {
+                    throw new AssertionError(failure);
+                },
+                report -> {});
+        PoolStateEffects<String> effects = effects(coordinator);
+        effects.retire(worker(admissions, initiated));
+
+        IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
+
+        assertSame(dispatchFailure, observed);
+        assertEquals(1, initiated.get());
+        assertEquals(1, completed.get());
+        assertEquals(1, admissions.availablePermits());
+    }
+
+    @Test
+    void dispatcherFailureAfterInlineExecutionDoesNotRepeatOutcomeProcessing() {
+        IllegalStateException dispatchFailure = new IllegalStateException("dispatcher failed after execution");
+        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+        AtomicInteger initiated = new AtomicInteger();
+        AtomicInteger completed = new AtomicInteger();
+        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
+                task -> {
+                    task.run();
                     throw dispatchFailure;
                 },
                 (worker, outcome) -> {
