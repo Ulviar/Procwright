@@ -34,8 +34,11 @@ final class SessionOutputCleanup {
             }
             bound = true;
         }
-        CompletableFuture.allOf(stdout.closeCompletion(), stderr.closeCompletion())
-                .whenComplete((ignored, impossible) -> settle(stdout.closeResult(), stderr.closeResult(), ownership));
+        CompletableFuture<ProcessStreamResource.CloseOutcome> stdoutOutcome = stdout.closeOutcome();
+        CompletableFuture<ProcessStreamResource.CloseOutcome> stderrOutcome = stderr.closeOutcome();
+        CompletableFuture.allOf(stdoutOutcome, stderrOutcome)
+                .whenComplete((ignored, impossible) -> settle(
+                        stdoutOutcome.join().failure(), stderrOutcome.join().failure(), ownership));
     }
 
     void inlineFailed(Throwable failure) {

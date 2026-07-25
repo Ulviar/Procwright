@@ -30,7 +30,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
 
     @Test
     void singleAndPairCloseLinearizeWithoutPartialClaimOrDuplicatePhysicalClose() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -74,7 +74,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
                     new IllegalStateException("starter " + failedOrdinal + " failed"),
                     new AssertionError("starter " + failedOrdinal + " failed"))) {
                 AtomicInteger starts = new AtomicInteger();
-                BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3, (name, task) -> {
+                BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, (name, task) -> {
                     if (starts.incrementAndGet() == expectedFailedOrdinal) {
                         throwFailure(expected);
                     }
@@ -110,7 +110,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
         IllegalStateException stderrFailure = new IllegalStateException("stderr starter failed");
         java.util.List<Throwable> failures = java.util.List.of(stdinFailure, stdoutFailure, stderrFailure);
         AtomicInteger starts = new AtomicInteger();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, (name, task) -> {
             throw (IllegalStateException) failures.get(starts.getAndIncrement());
         });
         TrackingProcess process = new TrackingProcess();
@@ -128,7 +128,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
     }
 
     private static void assertInvalidPairLeavesResourcesUsable(InvalidPairArgument invalidArgument) throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(6);
         TrackingProcess process = new TrackingProcess();
         TrackingProcess foreignProcess = new TrackingProcess();
@@ -163,7 +163,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
     }
 
     private static void closeOutputPair(ProcessIoResources resources) {
-        ProcessIoResources.closePairAsync(
+        ProcessStreamResource.closePairAsync(
                 resources.stdout(),
                 "procwright-test-stdout-close-",
                 ignored -> {},
@@ -197,7 +197,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
         }
 
         private void invoke(ProcessIoResources resources, ProcessIoResources foreign) {
-            ProcessIoResources.closePairAsync(
+            ProcessStreamResource.closePairAsync(
                     this == NULL_FIRST_RESOURCE ? null : resources.stdout(),
                     this == NULL_FIRST_PREFIX ? null : "first-",
                     this == NULL_FIRST_FAILURE_HANDLER ? null : ignored -> {},

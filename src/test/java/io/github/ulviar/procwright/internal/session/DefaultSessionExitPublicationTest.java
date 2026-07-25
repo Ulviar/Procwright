@@ -41,7 +41,7 @@ final class DefaultSessionExitPublicationTest extends DefaultSessionLifecycleTes
                 StandardCharsets.UTF_8,
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()),
                 () -> {},
-                new BoundedCloseDispatcher(1, 2, 3),
+                new BoundedCloseDispatcher(1, 2),
                 (threadPrefix, task) -> {
                     Thread watcher = io.github.ulviar.procwright.internal.Threading.start(threadPrefix, task);
                     exitWatcher.set(watcher);
@@ -200,7 +200,7 @@ final class DefaultSessionExitPublicationTest extends DefaultSessionLifecycleTes
     @Test
     void exhaustedCloseAdmissionFailsBeforeSessionPublicationAndTerminatesProcess() throws Exception {
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         BoundedCloseDispatcher.Reservation occupied = dispatcher.reserve(3);
         try {
             assertThrows(

@@ -52,11 +52,7 @@ final class SessionConstructionTest {
         TrackingProcess process = new CloseFailingProcess(cleanupFailure);
         SessionConstruction construction = SessionConstruction.begin(process);
         construction.own(SessionResources.acquire(
-                process,
-                new BoundedCloseDispatcher(3, 3, 6),
-                new BoundedLifecyclePublisher(3),
-                () -> {},
-                ignored -> {}));
+                process, new BoundedCloseDispatcher(3, 3), new BoundedLifecyclePublisher(3), () -> {}, ignored -> {}));
         AtomicReference<Throwable> result = new AtomicReference<>();
         Thread rollback =
                 new Thread(() -> result.set(construction.rollback(primary)), "session-construction-monitor-regression");

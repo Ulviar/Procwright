@@ -23,7 +23,7 @@ final class BoundedCloseDispatcherLinearizationTest {
 
     @Test
     void releasedActiveSlotLaunchesAcceptedWorkBeforeBlockingSettlement() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
         CountDownLatch settlementEntered = new CountDownLatch(1);
         CountDownLatch releaseSettlement = new CountDownLatch(1);
         CountDownLatch secondClosed = new CountDownLatch(1);
@@ -55,7 +55,7 @@ final class BoundedCloseDispatcherLinearizationTest {
 
     @Test
     void nullReservationDispatchDoesNotConsumeItsPermit() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
         BoundedCloseDispatcher.Reservation reservation = dispatcher.reserve(1);
 
         assertThrows(
@@ -80,7 +80,7 @@ final class BoundedCloseDispatcherLinearizationTest {
         CountDownLatch secondClosed = new CountDownLatch(1);
         CountDownLatch failureReported = new CountDownLatch(1);
         AtomicReference<Throwable> reported = new AtomicReference<>();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, (name, task) -> {
             if (starts.getAndIncrement() == 1) {
                 throw startFailure;
             }
@@ -127,7 +127,6 @@ final class BoundedCloseDispatcherLinearizationTest {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
                 1,
                 1,
-                2,
                 (name, task) -> {
                     throw new RejectedExecutionException("close owner rejected");
                 },
@@ -158,7 +157,7 @@ final class BoundedCloseDispatcherLinearizationTest {
         AssertionError firstClose = new AssertionError("first close failed");
         IllegalArgumentException secondClose = new IllegalArgumentException("second close failed");
         AtomicInteger starts = new AtomicInteger();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, (name, task) -> {
             if (starts.getAndIncrement() == 0) {
                 throw firstStart;
             }
@@ -249,7 +248,7 @@ final class BoundedCloseDispatcherLinearizationTest {
                 reportCompleted.countDown();
             }
         };
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, Threading::start, notifications);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, Threading::start, notifications);
 
         dispatcher
                 .reserve(1)

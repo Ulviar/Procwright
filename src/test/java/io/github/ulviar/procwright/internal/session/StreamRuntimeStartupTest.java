@@ -139,7 +139,7 @@ final class StreamRuntimeStartupTest extends StreamRuntimeStartupTestSupport {
                 }),
                 "listen",
                 CommandEcho.empty());
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(3, 3, 6, (name, task) -> {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(3, 3, (name, task) -> {
             if (name.startsWith("procwright-process-stdin-close-")) {
                 awaitUninterruptibly(stdout.readStarted);
                 awaitUninterruptibly(stderr.readStarted);

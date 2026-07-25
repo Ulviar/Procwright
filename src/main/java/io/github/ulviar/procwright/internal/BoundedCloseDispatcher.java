@@ -23,10 +23,10 @@ public final class BoundedCloseDispatcher {
 
     public static final int SHARED_ACTIVE_CAPACITY = 32;
     public static final int SHARED_PENDING_CAPACITY = 128;
-    public static final int SHARED_MAX_OUTSTANDING_CAPACITY = SHARED_ACTIVE_CAPACITY + SHARED_PENDING_CAPACITY;
+    public static final int SHARED_CAPACITY = SHARED_ACTIVE_CAPACITY + SHARED_PENDING_CAPACITY;
 
-    private static final BoundedCloseDispatcher SHARED = new BoundedCloseDispatcher(
-            SHARED_ACTIVE_CAPACITY, SHARED_PENDING_CAPACITY, SHARED_MAX_OUTSTANDING_CAPACITY);
+    private static final BoundedCloseDispatcher SHARED =
+            new BoundedCloseDispatcher(SHARED_ACTIVE_CAPACITY, SHARED_PENDING_CAPACITY);
 
     private final int activeCapacity;
     private final int pendingCapacity;
@@ -40,33 +40,25 @@ public final class BoundedCloseDispatcher {
     private int outstanding;
     private boolean fallbackOwnerRunning;
 
-    public BoundedCloseDispatcher(int activeCapacity, int pendingCapacity, int maxOutstandingCapacity) {
-        this(activeCapacity, pendingCapacity, maxOutstandingCapacity, Threading::start);
+    public BoundedCloseDispatcher(int activeCapacity, int pendingCapacity) {
+        this(activeCapacity, pendingCapacity, Threading::start);
     }
 
-    public BoundedCloseDispatcher(
-            int activeCapacity, int pendingCapacity, int maxOutstandingCapacity, ThreadStarter threadStarter) {
-        this(activeCapacity, pendingCapacity, maxOutstandingCapacity, threadStarter, BoundedFailureReporter.shared());
+    public BoundedCloseDispatcher(int activeCapacity, int pendingCapacity, ThreadStarter threadStarter) {
+        this(activeCapacity, pendingCapacity, threadStarter, BoundedFailureReporter.shared());
     }
 
     public BoundedCloseDispatcher(
             int activeCapacity,
             int pendingCapacity,
-            int maxOutstandingCapacity,
             ThreadStarter threadStarter,
             BoundedFailureReporter failureReporter) {
-        this(
-                activeCapacity,
-                pendingCapacity,
-                maxOutstandingCapacity,
-                threadStarter,
-                CloseNotificationPublisher.using(failureReporter));
+        this(activeCapacity, pendingCapacity, threadStarter, CloseNotificationPublisher.using(failureReporter));
     }
 
     BoundedCloseDispatcher(
             int activeCapacity,
             int pendingCapacity,
-            int maxOutstandingCapacity,
             ThreadStarter threadStarter,
             CloseNotificationPublisher notifications) {
         if (activeCapacity <= 0) {
@@ -75,18 +67,13 @@ public final class BoundedCloseDispatcher {
         if (pendingCapacity <= 0) {
             throw new IllegalArgumentException("pendingCapacity must be positive");
         }
-        int totalCapacity;
         try {
-            totalCapacity = Math.addExact(activeCapacity, pendingCapacity);
+            maxOutstandingCapacity = Math.addExact(activeCapacity, pendingCapacity);
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("dispatcher capacities are too large", overflow);
         }
-        if (maxOutstandingCapacity != totalCapacity) {
-            throw new IllegalArgumentException("maxOutstandingCapacity must equal activeCapacity + pendingCapacity");
-        }
         this.activeCapacity = activeCapacity;
         this.pendingCapacity = pendingCapacity;
-        this.maxOutstandingCapacity = maxOutstandingCapacity;
         this.threadStarter = Objects.requireNonNull(threadStarter, "threadStarter");
         this.notifications = Objects.requireNonNull(notifications, "notifications");
         pending = new ArrayDeque<>(pendingCapacity);
@@ -224,13 +211,10 @@ public final class BoundedCloseDispatcher {
         if (execution == null) {
             return null;
         }
-        WorkerStartGate startGate = new WorkerStartGate(execution, Thread.currentThread());
         try {
-            threadStarter.start(execution.request().threadPrefix(), startGate::run);
-            startGate.accept();
+            threadStarter.start(execution.request().threadPrefix(), execution::run);
             return null;
         } catch (RuntimeException | Error startFailure) {
-            startGate.reject();
             execution.recordStartFailure(startFailure);
             handoffAfterStartFailure(execution);
             return startFailure;
@@ -378,7 +362,12 @@ public final class BoundedCloseDispatcher {
     @FunctionalInterface
     public interface ThreadStarter {
 
-        /** Starts {@code task} asynchronously before returning. */
+        /**
+         * Starts {@code task} asynchronously before returning.
+         *
+         * <p>An implementation that cannot start the task must throw before invoking it. Once the task can run, the
+         * method must return normally.
+         */
         void start(String threadPrefix, Runnable task);
     }
 
@@ -594,73 +583,5 @@ public final class BoundedCloseDispatcher {
 
     private static Throwable combineFailures(Throwable first, Throwable second) {
         return FailureAggregation.combine(first, second, "Multiple failures occurred while closing a process stream");
-    }
-
-    private final class WorkerStartGate {
-
-        private final CloseExecution execution;
-        private final Thread dispatchThread;
-        private boolean decided;
-        private boolean accepted;
-        private boolean inlineInvocation;
-
-        private WorkerStartGate(CloseExecution execution, Thread dispatchThread) {
-            this.execution = execution;
-            this.dispatchThread = dispatchThread;
-        }
-
-        private void accept() {
-            synchronized (this) {
-                if (inlineInvocation) {
-                    throw new RejectedExecutionException("Close thread starter must start the task asynchronously");
-                }
-                accepted = true;
-                decided = true;
-                notifyAll();
-            }
-        }
-
-        private void reject() {
-            synchronized (this) {
-                if (decided) {
-                    return;
-                }
-                decided = true;
-                notifyAll();
-            }
-        }
-
-        private void run() {
-            Thread worker = Thread.currentThread();
-            if (worker == dispatchThread) {
-                synchronized (this) {
-                    inlineInvocation = true;
-                }
-                return;
-            }
-            boolean restoreInterrupt = false;
-            synchronized (this) {
-                while (!decided) {
-                    try {
-                        wait();
-                    } catch (InterruptedException interruption) {
-                        restoreInterrupt = true;
-                    }
-                }
-                if (!accepted) {
-                    if (restoreInterrupt) {
-                        worker.interrupt();
-                    }
-                    return;
-                }
-            }
-            try {
-                execution.run();
-            } finally {
-                if (restoreInterrupt) {
-                    worker.interrupt();
-                }
-            }
-        }
     }
 }

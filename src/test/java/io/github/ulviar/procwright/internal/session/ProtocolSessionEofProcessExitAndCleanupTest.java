@@ -75,7 +75,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
         GatedEofCloseFailureInputStream stdout = new GatedEofCloseFailureInputStream(stdoutCloseFailure);
         GatedEofCloseFailureInputStream stderr = new GatedEofCloseFailureInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         DefaultSession rawSession = session(process, dispatcher);
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
@@ -147,7 +147,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                 new GatedEofCloseFailureInputStream(new byte[] {42}, stdoutCloseFailure);
         GatedEofCloseFailureInputStream stderr = new GatedEofCloseFailureInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         DefaultSession rawSession = session(process, dispatcher);
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
@@ -209,7 +209,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
 
     @Test
     void blockingPublicExitContinuationObservesReleasedPhysicalCloseCapacity() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
         DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
@@ -334,7 +334,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                 StandardCharsets.UTF_8,
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "protocol-eof-test", CommandEcho.empty()),
                 () -> {},
-                new BoundedCloseDispatcher(2, 2, 4),
+                new BoundedCloseDispatcher(2, 2),
                 watcherStarter);
         CountDownLatch responseReadStarted = new CountDownLatch(1);
         DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
@@ -387,7 +387,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
                 StandardCharsets.UTF_8,
                 diagnostics,
                 () -> {},
-                new BoundedCloseDispatcher(2, 2, 4),
+                new BoundedCloseDispatcher(2, 2),
                 DefaultSession.WatcherStarter.threading());
         CountDownLatch responseReadStarted = new CountDownLatch(1);
         DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(

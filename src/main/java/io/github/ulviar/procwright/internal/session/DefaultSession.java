@@ -44,7 +44,7 @@ import java.util.function.Consumer;
 public final class DefaultSession implements Session {
 
     private static final BoundedLifecyclePublisher EXIT_PUBLICATIONS =
-            new BoundedLifecyclePublisher(BoundedCloseDispatcher.SHARED_MAX_OUTSTANDING_CAPACITY);
+            new BoundedLifecyclePublisher(BoundedCloseDispatcher.SHARED_CAPACITY);
 
     private final Process process;
     private final Charset charset;
@@ -488,7 +488,8 @@ public final class DefaultSession implements Session {
         return resources.ownedStderr(owner);
     }
 
-    OutputCloseReservation.Reservation reserveOwnedOutputClose(String owner, Runnable pumpCloseObserver) {
+    OutputCloseReservation.Reservation reserveOwnedOutputClose(
+            String owner, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
         return resources.reserveOutputClose(owner, pumpCloseObserver);
     }
 

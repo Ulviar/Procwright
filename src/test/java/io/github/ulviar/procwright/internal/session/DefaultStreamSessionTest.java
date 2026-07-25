@@ -53,7 +53,7 @@ final class DefaultStreamSessionTest {
 
     @Test
     void blockingPublicExitContinuationObservesReleasedOutputCleanupOwners() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         ControllableProcess process =
                 new ControllableProcess(InputStream.nullInputStream(), InputStream.nullInputStream());
         DefaultStreamSession stream =
@@ -622,7 +622,7 @@ final class DefaultStreamSessionTest {
     }
 
     private static BoundedCloseDispatcher outputStartFailingDispatcher(int capacity) {
-        return new BoundedCloseDispatcher(2, capacity - 2, capacity, (name, task) -> {
+        return new BoundedCloseDispatcher(2, capacity - 2, (name, task) -> {
             if (name.contains("stdout-close") || name.contains("stderr-close")) {
                 throw new IllegalStateException("output close starter failed: " + name);
             }

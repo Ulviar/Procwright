@@ -82,7 +82,7 @@ final class DefaultSessionConstructionTest {
                                     StandardCharsets.UTF_8,
                                     diagnostics(),
                                     () -> {},
-                                    new BoundedCloseDispatcher(3, 3, 6),
+                                    new BoundedCloseDispatcher(3, 3),
                                     starter));
 
                     assertSame(expected, actual);
@@ -125,7 +125,7 @@ final class DefaultSessionConstructionTest {
                             StandardCharsets.UTF_8,
                             diagnostics(),
                             () -> {},
-                            new BoundedCloseDispatcher(3, 3, 6),
+                            new BoundedCloseDispatcher(3, 3),
                             starter));
 
             assertTrue(process.stdin.closed.await(1, TimeUnit.SECONDS));
@@ -162,7 +162,7 @@ final class DefaultSessionConstructionTest {
                             assertEquals(1, process.stderrGets.get());
                             throw expected;
                         },
-                        new BoundedCloseDispatcher(3, 3, 6),
+                        new BoundedCloseDispatcher(3, 3),
                         starter));
 
         assertSame(expected, actual);

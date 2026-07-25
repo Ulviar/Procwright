@@ -32,7 +32,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
     void asynchronousOutputCloseDoesNotWaitForAnActiveReadAndReportsIoFailure() throws Exception {
         BlockingReadInputStream stdout = new BlockingReadInputStream(new IOException("close failed"));
         TrackingProcess process = new TrackingProcess(stdout, new TrackingInputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 3, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 3);
         ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
         AtomicReference<Throwable> closeFailure = new AtomicReference<>();
         CountDownLatch closeFailureReported = new CountDownLatch(1);
@@ -57,7 +57,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         assertTrue(elapsedMillis < 250, "dispatch must not wait for the stream monitor");
         stdout.releaseRead.countDown();
         assertTrue(stdout.closeCompleted.await(1, TimeUnit.SECONDS));
-        resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
+        resources.stdout().closeOutcome().get(1, TimeUnit.SECONDS);
         assertTrue(closeFailureReported.await(1, TimeUnit.SECONDS));
         reader.join(1_000);
         assertSame(stdout.closeFailure, closeFailure.get());
@@ -71,7 +71,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         AssertionError callbackFailure = new AssertionError("stdout failure callback failed");
         TrackingInputStream stdout = failingInput(physicalFailure);
         TrackingProcess process = new TrackingProcess(stdout, new TrackingInputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1);
         AtomicReference<Throwable> reported = new AtomicReference<>();
         CountDownLatch callbackEntered = new CountDownLatch(1);
         CountDownLatch releaseCallback = new CountDownLatch(1);
@@ -96,7 +96,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             assertTrue(callbackEntered.await(1, TimeUnit.SECONDS));
 
             resources.stderr().closeAsync("procwright-independent-stderr-close-", ignored -> {});
-            resources.stderr().closeCompletion().get(1, TimeUnit.SECONDS);
+            resources.stderr().closeOutcome().get(1, TimeUnit.SECONDS);
         } finally {
             releaseCallback.countDown();
         }
@@ -114,7 +114,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         BlockingCloseInputStream stdout = new BlockingCloseInputStream(closeFailure);
         TrackingProcess process = new TrackingProcess(stdout, new TrackingInputStream());
         AtomicInteger starts = new AtomicInteger();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, (name, task) -> {
             if (starts.getAndIncrement() == 0) {
                 throw startFailure;
             }
@@ -131,23 +131,22 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             assertTrue(stdout.closeEntered.await(1, TimeUnit.SECONDS));
 
             resources.closeAllAsync(ignored -> {});
-            CompletableFuture<Void> completeFailureGraphObservation = resources
-                    .stdout()
-                    .closeCompletion()
-                    .thenRun(() -> {
-                        Throwable result = resources.stdout().closeResult();
-                        completeFailureGraphObserved.set(result != null
-                                && result.getCause() == startFailure
-                                && java.util.List.of(closeFailure).equals(java.util.List.of(result.getSuppressed())));
-                    });
+            CompletableFuture<ProcessStreamResource.CloseOutcome> stdoutOutcome =
+                    resources.stdout().closeOutcome();
+            CompletableFuture<Void> completeFailureGraphObservation = stdoutOutcome.thenAccept(outcome -> {
+                Throwable result = outcome.failure();
+                completeFailureGraphObserved.set(result != null
+                        && result.getCause() == startFailure
+                        && java.util.List.of(closeFailure).equals(java.util.List.of(result.getSuppressed())));
+            });
             Future<Throwable> awaitClose = waiter.submit(() -> resources.awaitClose(Duration.ofSeconds(2)));
 
-            assertFalse(resources.stdout().closeCompletion().isDone());
+            assertFalse(stdoutOutcome.isDone());
             assertFalse(awaitClose.isDone());
 
             stdout.releaseClose.countDown();
             Throwable result = awaitClose.get(1, TimeUnit.SECONDS);
-            assertSame(result, resources.stdout().closeResult());
+            assertSame(result, stdoutOutcome.join().failure());
             assertSame(startFailure, result.getCause());
             assertEquals(java.util.List.of(closeFailure), java.util.List.of(result.getSuppressed()));
             assertEquals(0, startFailure.getSuppressed().length);
@@ -174,7 +173,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             }
         };
         TrackingProcess process = new TrackingProcess(stdout, new TrackingInputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
         CountDownLatch callbackEntered = new CountDownLatch(1);
         CountDownLatch releaseCallback = new CountDownLatch(1);
@@ -186,8 +185,9 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             });
 
             assertTrue(callbackEntered.await(1, TimeUnit.SECONDS));
-            resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
-            assertSame(closeFailure, resources.stdout().closeResult());
+            assertSame(
+                    closeFailure,
+                    resources.stdout().closeOutcome().get(1, TimeUnit.SECONDS).failure());
             assertEquals(1, stdout.closeCalls.get());
         } finally {
             releaseCallback.countDown();
@@ -199,7 +199,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
     @Test
     void failureTargetCaptureCannotStrandOwnedCloseCallbacksOrCompletion() throws Exception {
         AssertionError captureFailure = new AssertionError("context loader unavailable");
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, (name, task) -> {
             Thread owner = new Thread(task, name) {
                 @Override
                 public ClassLoader getContextClassLoader() {
@@ -217,8 +217,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
                 .closeOwnedAsync("procwright-hostile-target-close-", ignored -> {}, callbackCompleted::countDown);
 
         assertTrue(callbackCompleted.await(1, TimeUnit.SECONDS));
-        resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
-        assertNull(resources.stdout().closeResult());
+        assertNull(resources.stdout().closeOutcome().get(1, TimeUnit.SECONDS).failure());
         resources.closeAllAsync(ignored -> {});
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
     }
@@ -230,7 +229,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         IllegalStateException completionCallbackFailure = new IllegalStateException("completion callback failed");
         TrackingInputStream stdout = failingInput(physicalFailure);
         TrackingProcess process = new TrackingProcess(stdout, new TrackingInputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         BiConsumer<BoundedFailureReporter.FailureTarget, Throwable> failureReporter = reporterWhoseOwnerCannotStart();
         AtomicReference<Throwable> uncaught = new AtomicReference<>();
         CountDownLatch uncaughtReported = new CountDownLatch(1);
@@ -259,13 +258,13 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         resources.stdin().closeInline();
         resources.stderr().closeInline();
 
-        resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
+        resources.stdout().closeOutcome().get(1, TimeUnit.SECONDS);
         assertSame(physicalFailure, resources.awaitClose(Duration.ofSeconds(1)));
         assertTrue(uncaughtReported.await(1, TimeUnit.SECONDS));
         Throwable reportedFailure = uncaught.get();
         assertInstanceOf(Error.class, reportedFailure);
         assertSame(failureCallbackFailure, FailureAggregation.primary(reportedFailure));
-        assertSame(physicalFailure, resources.stdout().closeResult());
+        assertSame(physicalFailure, resources.stdout().closeOutcome().join().failure());
         assertEquals(java.util.List.of(), java.util.List.of(physicalFailure.getSuppressed()));
         assertEquals(0, failureCallbackFailure.getSuppressed().length);
         assertEquals(0, completionCallbackFailure.getSuppressed().length);
@@ -290,7 +289,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         TrackingProcess process = new TrackingProcess(failingInput(physicalFailure), new TrackingInputStream());
         ProcessIoResources resources = ProcessIoResources.acquire(
                 process,
-                new BoundedCloseDispatcher(1, 2, 3),
+                new BoundedCloseDispatcher(1, 2),
                 new BoundedLifecyclePublisher(3),
                 ignored -> {},
                 (target, failure) -> reported.set(failure));
@@ -308,8 +307,9 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
                                 throw completionCallbackFailure;
                             });
 
-            resources.stdout().closeCompletion().get(1, TimeUnit.SECONDS);
-            assertSame(physicalFailure, resources.stdout().closeResult());
+            assertSame(
+                    physicalFailure,
+                    resources.stdout().closeOutcome().get(1, TimeUnit.SECONDS).failure());
             assertTrue(eventually(() -> reported.get() != null));
             assertEquals(
                     java.util.List.of(failureCallbackFailure, completionCallbackFailure),
@@ -326,13 +326,14 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         TrackingProcess process = new TrackingProcess(new TrackingInputStream(), new TrackingInputStream());
         ProcessIoResources resources = ProcessIoResources.acquire(
                 process,
-                new BoundedCloseDispatcher(1, 2, 3),
+                new BoundedCloseDispatcher(1, 2),
                 new BoundedLifecyclePublisher(3),
                 ignored -> {},
                 (target, failure) -> reported.set(failure));
         AtomicReference<Throwable> observedAtCompletion = new AtomicReference<>();
-        CompletableFuture<Void> completion = resources.stdout().closeCompletion();
-        completion.thenRun(() -> observedAtCompletion.set(resources.stdout().closeResult()));
+        CompletableFuture<ProcessStreamResource.CloseOutcome> completion =
+                resources.stdout().closeOutcome();
+        completion.thenAccept(outcome -> observedAtCompletion.set(outcome.failure()));
 
         resources.stdout().closeOwnedAsync("procwright-callback-diagnostic-", ignored -> {}, () -> {
             throw callbackFailure;
@@ -341,7 +342,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         completion.get(1, TimeUnit.SECONDS);
         assertTrue(eventually(() -> reported.get() == callbackFailure));
         assertNull(observedAtCompletion.get());
-        assertNull(resources.stdout().closeResult());
+        assertNull(completion.join().failure());
     }
 
     @Test
@@ -353,7 +354,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         TrackingInputStream stdout = failingInput(firstCloseFailure);
         TrackingInputStream stderr = failingInput(secondCloseFailure);
         AtomicInteger starts = new AtomicInteger();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, (name, task) -> {
             throwFailure(starts.getAndIncrement() == 0 ? firstStartFailure : secondStartFailure);
             throw new AssertionError("unreachable");
         });
@@ -361,7 +362,8 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         TrackingProcess process = new TrackingProcess(stdout, stderr);
         ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher, publisher);
         CompletableFuture<Void> escape = new CompletableFuture<>();
-        CompletableFuture<Void> secondCompletion = resources.stderr().closeCompletion();
+        CompletableFuture<ProcessStreamResource.CloseOutcome> secondCompletion =
+                resources.stderr().closeOutcome();
         CountDownLatch firstContinuationEntered = new CountDownLatch(1);
         AtomicReference<Throwable> firstReported = new AtomicReference<>();
         AtomicReference<Throwable> secondReported = new AtomicReference<>();
@@ -370,7 +372,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         CountDownLatch reports = new CountDownLatch(2);
         CompletableFuture<Void> firstContinuation = resources
                 .stdout()
-                .closeCompletion()
+                .closeOutcome()
                 .thenRun(() -> {
                     firstContinuationEntered.countDown();
                     CompletableFuture.anyOf(secondCompletion, escape).join();
@@ -398,8 +400,8 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             secondCompletion.get(1, TimeUnit.SECONDS);
             firstContinuation.get(1, TimeUnit.SECONDS);
             assertTrue(reports.await(1, TimeUnit.SECONDS));
-            Throwable firstResult = resources.stdout().closeResult();
-            Throwable secondResult = resources.stderr().closeResult();
+            Throwable firstResult = resources.stdout().closeOutcome().join().failure();
+            Throwable secondResult = secondCompletion.join().failure();
             assertSame(firstResult, firstReported.get());
             assertSame(secondResult, secondReported.get());
             assertSame(firstStartFailure, firstResult.getCause());
@@ -415,7 +417,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
             assertEquals(1, process.stdout.closeCalls.get());
             assertEquals(1, process.stderr.closeCalls.get());
             resources.stdin().closeInline();
-            resources.stdin().closeCompletion().get(1, TimeUnit.SECONDS);
+            resources.stdin().closeOutcome().get(1, TimeUnit.SECONDS);
             assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
             assertEquals(0, dispatcher.activeCount());
             assertEquals(0, dispatcher.pendingCount());
@@ -428,19 +430,16 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
 
     @Test
     void blockedCompletionOwnerAppliesExactBackpressureAndRecoversWithoutRetainingCloseCapacity() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
         TrackingProcess process = new TrackingProcess();
         ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher, publisher);
         CountDownLatch continuationEntered = new CountDownLatch(1);
         CountDownLatch releaseContinuation = new CountDownLatch(1);
-        CompletableFuture<Void> continuation = resources
-                .stdout()
-                .closeCompletion()
-                .thenRun(() -> {
-                    continuationEntered.countDown();
-                    BlockingReadInputStream.awaitUninterruptibly(releaseContinuation);
-                });
+        CompletableFuture<Void> continuation = resources.stdout().closeOutcome().thenRun(() -> {
+            continuationEntered.countDown();
+            BlockingReadInputStream.awaitUninterruptibly(releaseContinuation);
+        });
         try {
             assertEquals(3, publisher.ownerCount());
             resources.stdout().closeAsync("procwright-bounded-completion-owner-", ignored -> {});

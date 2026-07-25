@@ -22,6 +22,8 @@ final class OutputPumpCleanup {
     private boolean helperCleanupInstalled;
     private boolean processCleanupCompleted;
     private boolean forceOutputClose;
+    private boolean stdoutPumpClosed;
+    private boolean stderrPumpClosed;
     private boolean stdoutCloseDispatched;
     private boolean stderrCloseDispatched;
     private int pumpTasksFinished;
@@ -70,7 +72,23 @@ final class OutputPumpCleanup {
         });
     }
 
-    void pumpClosed() {
+    void pumpClosed(OutputCloseReservation.Stream stream) {
+        synchronized (lock) {
+            switch (Objects.requireNonNull(stream, "stream")) {
+                case STDOUT -> {
+                    if (stdoutPumpClosed) {
+                        return;
+                    }
+                    stdoutPumpClosed = true;
+                }
+                case STDERR -> {
+                    if (stderrPumpClosed) {
+                        return;
+                    }
+                    stderrPumpClosed = true;
+                }
+            }
+        }
         dispatchReadyCloses();
     }
 
@@ -245,10 +263,8 @@ final class OutputPumpCleanup {
             if (!processCleanupCompleted || reservation == null) {
                 return;
             }
-            dispatchStdout = !stdoutCloseDispatched
-                    && (forceOutputClose || reservation.pumpClosed(OutputCloseReservation.Stream.STDOUT));
-            dispatchStderr = !stderrCloseDispatched
-                    && (forceOutputClose || reservation.pumpClosed(OutputCloseReservation.Stream.STDERR));
+            dispatchStdout = !stdoutCloseDispatched && (forceOutputClose || stdoutPumpClosed);
+            dispatchStderr = !stderrCloseDispatched && (forceOutputClose || stderrPumpClosed);
             if (dispatchStdout) {
                 stdoutCloseDispatched = true;
             }

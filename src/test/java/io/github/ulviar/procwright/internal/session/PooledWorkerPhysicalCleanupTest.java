@@ -55,7 +55,7 @@ final class PooledWorkerPhysicalCleanupTest {
                 new TrackingOutputStream(), new TrackingInputStream(), new TrackingInputStream(), releaseFirstDestroy);
         TestProcess secondProcess =
                 new TestProcess(new TrackingOutputStream(), new TrackingInputStream(), new TrackingInputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 4, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 4);
         List<LineSession> workers = List.of(
                 new DefaultLineSession(
                         openSession(
@@ -101,7 +101,7 @@ final class PooledWorkerPhysicalCleanupTest {
         TrackingInputStream stdout = new TrackingInputStream();
         TrackingInputStream stderr = new TrackingInputStream();
         TestProcess process = new TestProcess(stdin, stdout, stderr);
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         DefaultLineSession worker =
                 new DefaultLineSession(openSession(process, closeDispatcher), LineSessionSettings.defaults());
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
@@ -151,7 +151,7 @@ final class PooledWorkerPhysicalCleanupTest {
         TrackingInputStream stdout = new TrackingInputStream();
         TrackingInputStream stderr = new TrackingInputStream();
         TestProcess process = new TestProcess(stdin, stdout, stderr);
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         DefaultLineSession worker =
                 new DefaultLineSession(openSession(process, closeDispatcher), LineSessionSettings.defaults());
         BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
@@ -238,7 +238,7 @@ final class PooledWorkerPhysicalCleanupTest {
         TrackingInputStream stdout = new TrackingInputStream();
         TrackingInputStream stderr = new TrackingInputStream();
         TestProcess process = new TestProcess(stdin, stdout, stderr);
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         DefaultProtocolSession<String, String> worker = new DefaultProtocolSession<>(
                 openSession(process, closeDispatcher), noOpAdapter(), ProtocolSessionSettings.defaults());
         DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
@@ -281,7 +281,7 @@ final class PooledWorkerPhysicalCleanupTest {
     void lineWarmupCleanupErrorRemainsFatalOverTheEarlierTypedStartupFailure() throws Exception {
         AssertionError cleanupFailure = new AssertionError("line worker cleanup failed");
         IllegalStateException startupFailure = new IllegalStateException("second worker startup failed");
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         TestProcess process = new TestProcess(
                 new TrackingOutputStream(),
                 new ImmediateFailingCloseInputStream(cleanupFailure),
@@ -325,7 +325,7 @@ final class PooledWorkerPhysicalCleanupTest {
     void protocolWarmupCleanupErrorRemainsFatalOverTheEarlierTypedStartupFailure() throws Exception {
         AssertionError cleanupFailure = new AssertionError("protocol worker cleanup failed");
         IllegalStateException startupFailure = new IllegalStateException("second worker startup failed");
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         TestProcess process = new TestProcess(
                 new TrackingOutputStream(),
                 new ImmediateFailingCloseInputStream(cleanupFailure),
@@ -370,7 +370,7 @@ final class PooledWorkerPhysicalCleanupTest {
         BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(null);
         TrackingOutputStream stdin = new TrackingOutputStream();
         TrackingInputStream stderr = new TrackingInputStream();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         TestProcess process = new TestProcess(stdin, stdout, stderr);
         LineSession firstWorker =
                 new DefaultLineSession(openSession(process, dispatcher), LineSessionSettings.defaults());
@@ -429,7 +429,7 @@ final class PooledWorkerPhysicalCleanupTest {
         BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(null);
         TrackingOutputStream stdin = new TrackingOutputStream();
         TrackingInputStream stderr = new TrackingInputStream();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         TestProcess process = new TestProcess(stdin, stdout, stderr);
         ProtocolSession<String, String> firstWorker = new DefaultProtocolSession<>(
                 openSession(process, dispatcher), noOpAdapter(), ProtocolSessionSettings.defaults());
@@ -487,7 +487,7 @@ final class PooledWorkerPhysicalCleanupTest {
     void linePoolWaitsForPhysicalOutputCleanupAndMapsLateRuntimeFailure() throws Exception {
         IllegalStateException closeFailure = new IllegalStateException("line stdout close failed");
         BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(closeFailure);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         TestProcess process = new TestProcess(new TrackingOutputStream(), stdout, new TrackingInputStream());
         DefaultLineSession worker =
                 new DefaultLineSession(openSession(process, dispatcher), LineSessionSettings.defaults());
@@ -528,7 +528,7 @@ final class PooledWorkerPhysicalCleanupTest {
     void protocolPoolWaitsForPhysicalOutputCleanupAndPreservesLateError() throws Exception {
         AssertionError closeFailure = new AssertionError("protocol stdout close failed");
         BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(closeFailure);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         TestProcess process = new TestProcess(new TrackingOutputStream(), stdout, new TrackingInputStream());
         DefaultProtocolSession<String, String> worker = new DefaultProtocolSession<>(
                 openSession(process, dispatcher), noOpAdapter(), ProtocolSessionSettings.defaults());
@@ -566,7 +566,7 @@ final class PooledWorkerPhysicalCleanupTest {
     void linePoolPromotesLaterPhysicalErrorAndSuppressesPriorRuntimeExactlyOnce() throws Exception {
         IllegalStateException runtimeFailure = new IllegalStateException("first line worker close failed");
         AssertionError fatalFailure = new AssertionError("second line worker close failed fatally");
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 4, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 4);
         TestProcess firstProcess = new TestProcess(
                 new TrackingOutputStream(),
                 new ImmediateFailingCloseInputStream(runtimeFailure),
@@ -604,7 +604,7 @@ final class PooledWorkerPhysicalCleanupTest {
     void protocolPoolKeepsFirstPhysicalErrorAndSuppressesLaterRuntimeExactlyOnce() throws Exception {
         AssertionError fatalFailure = new AssertionError("first protocol worker close failed fatally");
         IllegalStateException runtimeFailure = new IllegalStateException("second protocol worker close failed");
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 4, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 4);
         TestProcess firstProcess = new TestProcess(
                 new TrackingOutputStream(),
                 new ImmediateFailingCloseInputStream(fatalFailure),

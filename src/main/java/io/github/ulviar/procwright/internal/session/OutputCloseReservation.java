@@ -2,7 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.internal.ProcessStreamResource;
+import java.io.InputStream;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /** Atomically reserves physical close of both helper-owned process output streams. */
 final class OutputCloseReservation {
@@ -10,7 +13,7 @@ final class OutputCloseReservation {
     private final Object lock = new Object();
     private Reservation reservation;
 
-    Reservation reserve(CloseOnceInputStream stdout, CloseOnceInputStream stderr, Runnable pumpCloseObserver) {
+    Reservation reserve(CloseOnceInputStream stdout, CloseOnceInputStream stderr, Consumer<Stream> pumpCloseObserver) {
         Objects.requireNonNull(stdout, "stdout");
         Objects.requireNonNull(stderr, "stderr");
         Objects.requireNonNull(pumpCloseObserver, "pumpCloseObserver");
@@ -24,25 +27,26 @@ final class OutputCloseReservation {
             if (stdout.closeStarted() || stderr.closeStarted()) {
                 throw new IllegalStateException("Process output close has already started");
             }
-            reservation = new Reservation(this, stdout, stderr, pumpCloseObserver);
+            reservation = new Reservation(this, stdout.resource(), stderr.resource(), pumpCloseObserver);
             return reservation;
         }
     }
 
     boolean claimOrdinaryClose(Stream stream, CloseOnceInputStream input) {
-        Runnable observer = null;
+        Consumer<Stream> observer;
         synchronized (lock) {
             if (reservation == null) {
                 return true;
             }
-            reservation.requireStream(stream, input);
-            if (reservation.markPumpClosed(stream)) {
-                observer = reservation.pumpCloseObserver;
+            if (!input.belongsTo(this, stream)) {
+                throw new IllegalArgumentException("Output stream does not belong to this reservation");
             }
+            if (input.resource() != reservation.resource(stream)) {
+                throw new IllegalArgumentException("Output stream is not owned by the active reservation");
+            }
+            observer = reservation.pumpCloseObserver;
         }
-        if (observer != null) {
-            observer.run();
-        }
+        observer.accept(stream);
         return false;
     }
 
@@ -54,17 +58,15 @@ final class OutputCloseReservation {
     static final class Reservation {
 
         private final OutputCloseReservation owner;
-        private final CloseOnceInputStream stdout;
-        private final CloseOnceInputStream stderr;
-        private final Runnable pumpCloseObserver;
-        private boolean stdoutPumpClosed;
-        private boolean stderrPumpClosed;
+        private final ProcessStreamResource<InputStream> stdout;
+        private final ProcessStreamResource<InputStream> stderr;
+        private final Consumer<Stream> pumpCloseObserver;
 
         private Reservation(
                 OutputCloseReservation owner,
-                CloseOnceInputStream stdout,
-                CloseOnceInputStream stderr,
-                Runnable pumpCloseObserver) {
+                ProcessStreamResource<InputStream> stdout,
+                ProcessStreamResource<InputStream> stderr,
+                Consumer<Stream> pumpCloseObserver) {
             this.owner = owner;
             this.stdout = stdout;
             this.stderr = stderr;
@@ -76,8 +78,8 @@ final class OutputCloseReservation {
                 String threadPrefix,
                 java.util.function.Consumer<? super Throwable> failureHandler,
                 Runnable completionHandler) {
-            CloseOnceInputStream input = input(stream);
-            input.dispatchReservedClose(this, threadPrefix, failureHandler, completionHandler);
+            requireActive();
+            resource(stream).closeOwnedAsync(threadPrefix, failureHandler, completionHandler);
         }
 
         void dispatchPair(
@@ -87,8 +89,9 @@ final class OutputCloseReservation {
                 String stderrThreadPrefix,
                 java.util.function.Consumer<? super Throwable> stderrFailureHandler,
                 Runnable stderrCompletionHandler) {
-            stdout.dispatchReservedPair(
-                    this,
+            requireActive();
+            ProcessStreamResource.closePairAsync(
+                    stdout,
                     stdoutThreadPrefix,
                     stdoutFailureHandler,
                     stdoutCompletionHandler,
@@ -98,45 +101,15 @@ final class OutputCloseReservation {
                     stderrCompletionHandler);
         }
 
-        private boolean markPumpClosed(Stream stream) {
-            return switch (stream) {
-                case STDOUT -> {
-                    if (stdoutPumpClosed) {
-                        yield false;
-                    }
-                    stdoutPumpClosed = true;
-                    yield true;
-                }
-                case STDERR -> {
-                    if (stderrPumpClosed) {
-                        yield false;
-                    }
-                    stderrPumpClosed = true;
-                    yield true;
-                }
-            };
-        }
-
-        boolean pumpClosed(Stream stream) {
+        private void requireActive() {
             synchronized (owner.lock) {
                 if (owner.reservation != this) {
                     throw new IllegalStateException("Process output close token is not active");
                 }
-                return switch (stream) {
-                    case STDOUT -> stdoutPumpClosed;
-                    case STDERR -> stderrPumpClosed;
-                };
             }
         }
 
-        void requireStream(Stream stream, CloseOnceInputStream input) {
-            CloseOnceInputStream expected = input(stream);
-            if (input != expected) {
-                throw new IllegalStateException("Process output close token does not own " + stream);
-            }
-        }
-
-        private CloseOnceInputStream input(Stream stream) {
+        private ProcessStreamResource<InputStream> resource(Stream stream) {
             return switch (stream) {
                 case STDOUT -> stdout;
                 case STDERR -> stderr;

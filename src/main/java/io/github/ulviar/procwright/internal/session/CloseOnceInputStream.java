@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.ProcessIoResources;
 import io.github.ulviar.procwright.internal.ProcessStreamResource;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -41,42 +40,7 @@ final class CloseOnceInputStream extends FilterInputStream {
         return reservation == expectedReservation && stream == expectedStream;
     }
 
-    void dispatchReservedClose(
-            OutputCloseReservation.Reservation closeReservation,
-            String threadPrefix,
-            java.util.function.Consumer<? super Throwable> failureHandler,
-            Runnable completionHandler) {
-        closeReservation.requireStream(stream, this);
-        resource.closeOwnedAsync(threadPrefix, failureHandler, completionHandler);
-    }
-
-    void dispatchReservedPair(
-            OutputCloseReservation.Reservation closeReservation,
-            String threadPrefix,
-            java.util.function.Consumer<? super Throwable> failureHandler,
-            Runnable completionHandler,
-            CloseOnceInputStream second,
-            String secondThreadPrefix,
-            java.util.function.Consumer<? super Throwable> secondFailureHandler,
-            Runnable secondCompletionHandler) {
-        closeReservation.requireStream(stream, this);
-        closeReservation.requireStream(second.stream, second);
-        ProcessIoResources.closePairAsync(
-                resource,
-                threadPrefix,
-                failureHandler,
-                completionHandler,
-                second.resource,
-                secondThreadPrefix,
-                secondFailureHandler,
-                secondCompletionHandler);
-    }
-
-    void dispatchLifecycleClose(
-            String threadPrefix,
-            java.util.function.Consumer<? super Throwable> failureHandler,
-            Runnable completionHandler) {
-        resource.closeOwnedAsync(threadPrefix, failureHandler, completionHandler)
-                .rethrowStartFailure();
+    ProcessStreamResource<InputStream> resource() {
+        return resource;
     }
 }

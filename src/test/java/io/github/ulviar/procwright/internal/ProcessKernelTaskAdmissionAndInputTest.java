@@ -78,7 +78,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
                     return new TerminalProcess(
                             new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream());
                 },
-                new BoundedCloseDispatcher(3, 3, 6),
+                new BoundedCloseDispatcher(3, 3),
                 Duration.ofMillis(50),
                 owner);
         ExecutionPlan plan = executionPlan(
@@ -138,10 +138,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
                 new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), stdin, true);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         ProcessKernel kernel = kernel(
-                ignored -> {},
-                (launchPlan, stdio) -> process,
-                new BoundedCloseDispatcher(3, 3, 6),
-                Duration.ofMillis(50));
+                ignored -> {}, (launchPlan, stdio) -> process, new BoundedCloseDispatcher(3, 3), Duration.ofMillis(50));
         try {
             CommandExecutionException failure = assertThrows(
                     CommandExecutionException.class,
@@ -167,10 +164,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
                 new TerminalProcess(new ReadErrorInputStream(readFailure), new TrackingInputStream(), stdin, true);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         ProcessKernel kernel = kernel(
-                ignored -> {},
-                (launchPlan, stdio) -> process,
-                new BoundedCloseDispatcher(3, 3, 6),
-                Duration.ofMillis(50));
+                ignored -> {}, (launchPlan, stdio) -> process, new BoundedCloseDispatcher(3, 3), Duration.ofMillis(50));
         try {
             Error actual = assertThrows(
                     Error.class,

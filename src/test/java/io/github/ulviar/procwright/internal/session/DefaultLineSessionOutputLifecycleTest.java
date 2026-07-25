@@ -40,7 +40,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
 
     @Test
     void blockingPublicExitContinuationObservesReleasedOutputCleanupOwners() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
         DefaultLineSession lineSession =
@@ -84,7 +84,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
         FailingBlockingPhysicalCloseInputStream stdout = new FailingBlockingPhysicalCloseInputStream(physicalFailure);
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, (name, task) -> {
             if (name.contains("stdout-close")) {
                 throw startFailure;
             }
@@ -290,7 +290,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
         GatedEofCloseFailureInputStream stdout = new GatedEofCloseFailureInputStream(stdoutCloseFailure);
         GatedEofCloseFailureInputStream stderr = new GatedEofCloseFailureInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         DefaultSession rawSession = session(process, dispatcher);
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
@@ -351,7 +351,7 @@ final class DefaultLineSessionOutputLifecycleTest extends DefaultLineSessionOutp
                 new GatedEofCloseFailureInputStream("response\n".getBytes(StandardCharsets.UTF_8), stdoutCloseFailure);
         GatedEofCloseFailureInputStream stderr = new GatedEofCloseFailureInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         DefaultSession rawSession = session(process, dispatcher);
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);

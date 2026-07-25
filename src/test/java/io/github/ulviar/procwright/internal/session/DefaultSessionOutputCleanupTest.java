@@ -48,7 +48,7 @@ final class DefaultSessionOutputCleanupTest {
             BlockingPhysicalCloseInputStream stdout = new BlockingPhysicalCloseInputStream(null);
             BlockingPhysicalCloseInputStream stderr = new BlockingPhysicalCloseInputStream(null);
             MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-            DefaultSession session = openSession(process, new BoundedCloseDispatcher(2, 1, 3));
+            DefaultSession session = openSession(process, new BoundedCloseDispatcher(2, 1));
             CompletableFuture<?> publicExit = session.onExit();
             try {
                 process.complete(0);
@@ -107,7 +107,7 @@ final class DefaultSessionOutputCleanupTest {
         BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(null);
         TrackingInputStream stderr = new TrackingInputStream();
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
         Thread reader = startRawRead(session, OutputSource.STDOUT, stdout);
         try {
             CompletableFuture<Void> cancelledView = session.physicalOutputCleanup();
@@ -141,7 +141,7 @@ final class DefaultSessionOutputCleanupTest {
         ImmediateFailingCloseInputStream stdout = new ImmediateFailingCloseInputStream(stdoutFailure);
         ImmediateFailingCloseInputStream stderr = new ImmediateFailingCloseInputStream(stderrFailure);
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
         try {
             process.complete(0);
             session.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);
@@ -195,7 +195,7 @@ final class DefaultSessionOutputCleanupTest {
         BlockingPhysicalCloseInputStream stdout = new BlockingPhysicalCloseInputStream(expected);
         TrackingInputStream stderr = new TrackingInputStream();
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
         ExecutorService closer = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> closeResult = closer.submit(() -> {
@@ -236,7 +236,7 @@ final class DefaultSessionOutputCleanupTest {
         BlockingPhysicalCloseInputStream stdout = new BlockingPhysicalCloseInputStream(closeFailure);
         TrackingInputStream stderr = new TrackingInputStream();
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, (name, task) -> {
             if (name.contains("stdout")) {
                 throw startFailure;
             }
@@ -286,7 +286,7 @@ final class DefaultSessionOutputCleanupTest {
                 StandardCharsets.UTF_8,
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "output-cleanup-test", CommandEcho.empty()),
                 () -> {},
-                new BoundedCloseDispatcher(1, 2, 3),
+                new BoundedCloseDispatcher(1, 2),
                 io.github.ulviar.procwright.internal.Threading::start);
         try {
             assertTrue(session.onExit().get(1, TimeUnit.SECONDS).timedOut());
@@ -309,7 +309,7 @@ final class DefaultSessionOutputCleanupTest {
         TrackingOutputStream stdin = new TrackingOutputStream();
         MatrixProcess process = new MatrixProcess(stdin, stdout, stderr);
         CopyOnWriteFailureHandler reports = new CopyOnWriteFailureHandler(1);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3, reports::start));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, reports::start));
         try {
             process.complete(0);
             assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
@@ -338,7 +338,7 @@ final class DefaultSessionOutputCleanupTest {
         ImmediateFailingCloseInputStream stderr = new ImmediateFailingCloseInputStream(stderrFailure);
         MatrixProcess process = new MatrixProcess(stdin, stdout, stderr);
         CopyOnWriteFailureHandler reports = new CopyOnWriteFailureHandler(0);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3, reports::start));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, reports::start));
         try {
             ExecutionException terminal;
             try (var monitor = hold(stdinFailure)) {
@@ -388,7 +388,7 @@ final class DefaultSessionOutputCleanupTest {
         AtomicReference<Throwable> reportedFailure = new AtomicReference<>();
         AtomicInteger reportCount = new AtomicInteger();
         CountDownLatch reported = new CountDownLatch(1);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, (name, task) -> {
             Thread worker = new Thread(task, name);
             worker.setDaemon(true);
             worker.setUncaughtExceptionHandler((ignored, failure) -> {
@@ -502,7 +502,7 @@ final class DefaultSessionOutputCleanupTest {
                 ? new ImmediateFailingCloseInputStream(expected)
                 : new TrackingInputStream();
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
         try {
             Throwable closeFailure;
             try {
@@ -548,7 +548,7 @@ final class DefaultSessionOutputCleanupTest {
     private static void verifyPoolFailureAggregation(InputStream stdout, InputStream stderr, Throwable expectedPrimary)
             throws Exception {
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
         WorkerPoolController<DefaultSession> pool = WorkerPoolController.fromSettings(
                 () -> session,
                 worker -> WorkerCloseSupport.closeOutcome(worker, worker.onExit(), worker.physicalOutputCleanup()),
@@ -639,7 +639,7 @@ final class DefaultSessionOutputCleanupTest {
         ImmediateFailingCloseInputStream stdout = new ImmediateFailingCloseInputStream(stdoutFailure);
         ImmediateFailingCloseInputStream stderr = new ImmediateFailingCloseInputStream(stderrFailure);
         MatrixProcess process = new MatrixProcess(new TrackingOutputStream(), stdout, stderr);
-        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2, 3));
+        DefaultSession session = openSession(process, new BoundedCloseDispatcher(1, 2));
         try {
             process.complete(0);
             session.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);

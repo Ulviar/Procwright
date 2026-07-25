@@ -84,7 +84,7 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
                     CloseTrackingInputStream stdout = new CloseTrackingInputStream();
                     CloseTrackingInputStream stderr = new CloseTrackingInputStream();
                     ControllableProcess process = new ControllableProcess(stdout, stderr);
-                    BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+                    BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
                     DefaultSession rawSession = session(process, dispatcher);
                     FailingPumpStarter starter = new FailingPumpStarter(failingOrdinal, startupFailure);
                     try {
@@ -150,7 +150,7 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
 
     @Test
     void processExitBetweenPumpStartsClosesBothStreamsAfterStartupCommit() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
         CloseTrackingInputStream stdout = new CloseTrackingInputStream();
         CloseTrackingInputStream stderr = new CloseTrackingInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
@@ -286,7 +286,7 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
         ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         List<Throwable> reportedFailures = new CopyOnWriteArrayList<>();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4, (name, task) -> {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
             Thread thread = new Thread(task, name);
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler((ignored, failure) -> reportedFailures.add(failure));
@@ -340,7 +340,7 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
         ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         List<Throwable> reportedFailures = new CopyOnWriteArrayList<>();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4, (name, task) -> {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
             Thread thread = new Thread(task, name);
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler((ignored, failure) -> reportedFailures.add(failure));
@@ -406,7 +406,7 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
                 handlersReturned.countDown();
             }
         };
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4, (name, task) -> {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
             Thread thread = new Thread(task, name);
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler(handler);

@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class BoundedLifecyclePublisher {
 
-    public static final int SHARED_CAPACITY = BoundedCloseDispatcher.SHARED_MAX_OUTSTANDING_CAPACITY;
+    public static final int SHARED_CAPACITY = BoundedCloseDispatcher.SHARED_CAPACITY;
 
     private static final BoundedLifecyclePublisher SHARED = new BoundedLifecyclePublisher(SHARED_CAPACITY);
 

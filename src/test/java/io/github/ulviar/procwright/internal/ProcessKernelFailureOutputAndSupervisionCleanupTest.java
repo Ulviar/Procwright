@@ -39,7 +39,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> process,
-                new BoundedCloseDispatcher(3, 3, 6),
+                new BoundedCloseDispatcher(3, 3),
                 Duration.ofSeconds(1),
                 () -> nanoTime.getAndSet(50));
 
@@ -113,7 +113,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> process,
-                new BoundedCloseDispatcher(3, 3, 6),
+                new BoundedCloseDispatcher(3, 3),
                 Duration.ofSeconds(1),
                 () -> nanoReads.getAndIncrement() == 0 ? 100L : cleanupFinished.get() ? 500L : 200L);
         ExecutionPlan plan = executionPlan(
@@ -208,7 +208,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
 
     @Test
     void exhaustedCloseCapacityFailsBeforeOneShotProcessPublicationOrStreamObservation() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         BoundedCloseDispatcher.Reservation occupied = dispatcher.reserve(3);
         TerminalProcess process = new TerminalProcess(
                 new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream(), true);
@@ -237,7 +237,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
 
     @Test
     void timedOutRunConsumesItsPreReservedClosesAtFullDispatcherCapacity() {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         TerminalProcess process = new TerminalProcess(
                 new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream(), true);
         ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process, dispatcher, Duration.ofSeconds(1));
@@ -289,7 +289,7 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         IllegalStateException startFailure = new IllegalStateException("stdin close starter failed");
         BlockingCloseOutputStream stdin = new BlockingCloseOutputStream();
         TerminalProcess process = new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), stdin);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, (name, task) -> {
             if (name.contains("stdin")) {
                 throw startFailure;
             }

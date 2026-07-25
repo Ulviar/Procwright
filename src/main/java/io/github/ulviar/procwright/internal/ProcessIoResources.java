@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
-import java.io.Closeable;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
@@ -146,8 +145,10 @@ public final class ProcessIoResources {
         if (timeout.isNegative()) {
             throw new IllegalArgumentException("timeout must not be negative");
         }
-        CompletableFuture<Void> all =
-                CompletableFuture.allOf(stdin.closeCompletion(), stdout.closeCompletion(), stderr.closeCompletion());
+        CompletableFuture<ProcessStreamResource.CloseOutcome> stdinOutcome = stdin.closeOutcome();
+        CompletableFuture<ProcessStreamResource.CloseOutcome> stdoutOutcome = stdout.closeOutcome();
+        CompletableFuture<ProcessStreamResource.CloseOutcome> stderrOutcome = stderr.closeOutcome();
+        CompletableFuture<Void> all = CompletableFuture.allOf(stdinOutcome, stdoutOutcome, stderrOutcome);
         try {
             if (timeout.isZero()) {
                 all.get();
@@ -163,27 +164,10 @@ public final class ProcessIoResources {
             return new AssertionError("process close completion stores failures as values", impossible);
         }
         Throwable failure = FailureAggregation.combine(
-                stdin.closeResult(), stdout.closeResult(), "Multiple process streams failed to close");
-        return FailureAggregation.combine(failure, stderr.closeResult(), "Multiple process streams failed to close");
-    }
-
-    public static BoundedCloseDispatcher.DispatchOutcome closePairAsync(
-            ProcessStreamResource<? extends Closeable> first,
-            String firstThreadPrefix,
-            Consumer<? super Throwable> firstFailureHandler,
-            Runnable firstCompletionHandler,
-            ProcessStreamResource<? extends Closeable> second,
-            String secondThreadPrefix,
-            Consumer<? super Throwable> secondFailureHandler,
-            Runnable secondCompletionHandler) {
-        return ProcessStreamResource.closePairAsync(
-                first,
-                firstThreadPrefix,
-                firstFailureHandler,
-                firstCompletionHandler,
-                second,
-                secondThreadPrefix,
-                secondFailureHandler,
-                secondCompletionHandler);
+                stdinOutcome.join().failure(),
+                stdoutOutcome.join().failure(),
+                "Multiple process streams failed to close");
+        return FailureAggregation.combine(
+                failure, stderrOutcome.join().failure(), "Multiple process streams failed to close");
     }
 }

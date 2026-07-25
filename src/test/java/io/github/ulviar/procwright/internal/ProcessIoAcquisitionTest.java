@@ -27,7 +27,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
     @Test
     void acquiresEveryProcessStreamExactlyOnceBeforeReturning() {
         TrackingProcess process = new TrackingProcess();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
 
         ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
 
@@ -42,7 +42,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
 
     @Test
     void capacityExhaustionFailsBeforeAnyStreamIsObserved() {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         BoundedCloseDispatcher.Reservation occupied = dispatcher.reserve(3);
         TrackingProcess process = new TrackingProcess();
 
@@ -57,7 +57,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
 
     @Test
     void publicationCapacityFailureReleasesCloseReservationAndStopsProcessBeforeStreams() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
         BoundedLifecyclePublisher.Reservation occupied = publisher.reserve(1);
         TrackingProcess process = new TrackingProcess();
@@ -76,7 +76,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
 
     @Test
     void publicationCapacityFailureReleasesCloseReservationBeforeProcessCleanupCompletes() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
         BoundedLifecyclePublisher.Reservation occupied = publisher.reserve(1);
         BlockingCleanupProcess process = new BlockingCleanupProcess();
@@ -107,7 +107,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
                         ? new AssertionError("getter " + failedOrdinal)
                         : new IllegalStateException("getter " + failedOrdinal);
                 TrackingProcess process = new TrackingProcess(failedOrdinal, expected);
-                BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+                BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
                 BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
 
                 Throwable actual = assertThrows(
@@ -131,7 +131,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         AssertionError acquisitionFailure = new AssertionError("stderr getter failed");
         AssertionError cleanupFailure = new AssertionError("process handle failed");
         TerminationFailureProcess process = new TerminationFailureProcess(acquisitionFailure, cleanupFailure);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, 6);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
         BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
 
         Throwable actual = captureFailure(() -> ProcessIoResources.acquire(process, dispatcher, publisher));
@@ -155,7 +155,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
             AssertionError stdoutCloseFailure = new AssertionError("stdout rollback close failed");
             RollbackFailureProcess process =
                     new RollbackFailureProcess(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure);
-            BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3);
+            BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1);
 
             Throwable actual = captureFailure(() -> ProcessIoResources.acquire(process, dispatcher));
 
@@ -183,7 +183,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         AssertionError stdoutCloseFailure = new AssertionError("stdout rollback close failed");
         RollbackFailureProcess process =
                 new RollbackFailureProcess(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1);
 
         Throwable failure = captureFailure(() -> ProcessIoResources.acquire(process, dispatcher));
 
@@ -206,7 +206,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         AssertionError stdoutCloseFailure = new AssertionError("stdout rollback close failed");
         RollbackFailureProcess process =
                 new RollbackFailureProcess(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (var monitor = ThrowableMonitorTestSupport.hold(acquisitionFailure)) {
             monitor.verifyHeld();

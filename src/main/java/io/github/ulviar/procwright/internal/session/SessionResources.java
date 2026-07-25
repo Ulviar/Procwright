@@ -107,7 +107,8 @@ final class SessionResources {
         return stderr;
     }
 
-    OutputCloseReservation.Reservation reserveOutputClose(String owner, Runnable pumpCloseObserver) {
+    OutputCloseReservation.Reservation reserveOutputClose(
+            String owner, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
         outputOwnership.ensureOwnedBy(owner);
         return outputCloseReservation.reserve(stdoutClose, stderrClose, pumpCloseObserver);
     }
@@ -119,7 +120,7 @@ final class SessionResources {
             Consumer<? super Throwable> stderrFailureHandler,
             Runnable stderrCompletionHandler) {
         outputOwnership.ensureOwnedBy(owner);
-        ProcessIoResources.closePairAsync(
+        io.github.ulviar.procwright.internal.ProcessStreamResource.closePairAsync(
                         resources.stdout(),
                         "procwright-helper-stdout-construction-rollback-",
                         stdoutFailureHandler,
@@ -189,12 +190,18 @@ final class SessionResources {
         }
         if (outputOwnership.claimLifecycleClose()) {
             try {
-                stdoutClose.dispatchLifecycleClose("procwright-process-stdout-close-", ignored -> {}, () -> {});
+                resources
+                        .stdout()
+                        .closeOwnedAsync("procwright-process-stdout-close-", ignored -> {}, () -> {})
+                        .rethrowStartFailure();
             } catch (RuntimeException | Error closeFailure) {
                 failure = FailureAggregation.combine(failure, closeFailure, "Multiple session stream closes failed");
             }
             try {
-                stderrClose.dispatchLifecycleClose("procwright-process-stderr-close-", ignored -> {}, () -> {});
+                resources
+                        .stderr()
+                        .closeOwnedAsync("procwright-process-stderr-close-", ignored -> {}, () -> {})
+                        .rethrowStartFailure();
             } catch (RuntimeException | Error closeFailure) {
                 failure = FailureAggregation.combine(failure, closeFailure, "Multiple session stream closes failed");
             }

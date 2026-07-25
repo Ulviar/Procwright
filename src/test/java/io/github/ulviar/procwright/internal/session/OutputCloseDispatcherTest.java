@@ -50,8 +50,7 @@ final class BoundedCloseDispatcherTest {
             closeOwners.add(owner);
             owner.start();
         };
-        BoundedCloseDispatcher dispatcher =
-                new BoundedCloseDispatcher(2, closeCount - 2, closeCount, starter, reporter);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, closeCount - 2, starter, reporter);
         try {
             for (int ordinal = 0; ordinal < closeCount; ordinal++) {
                 AssertionError failure = new AssertionError("close " + ordinal);
@@ -89,7 +88,7 @@ final class BoundedCloseDispatcherTest {
 
     @Test
     void capacityOneQueuesReservedClosesInFifoOrderAndAdvancesBeforeFailureCallbackReturns() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
         IOException stdoutFailure = new IOException("stdout close failed");
         CountDownLatch stdoutCloseStarted = new CountDownLatch(1);
         CountDownLatch releaseStdoutClose = new CountDownLatch(1);
@@ -158,7 +157,7 @@ final class BoundedCloseDispatcherTest {
         CountDownLatch secondClose = new CountDownLatch(1);
         AtomicInteger activeObservedByCallback = new AtomicInteger(-1);
         AtomicReference<Throwable> observedFailure = new AtomicReference<>();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
 
         try {
             dispatcher
@@ -187,11 +186,11 @@ final class BoundedCloseDispatcherTest {
 
     @Test
     void validatesCapacityConfiguration() {
-        assertThrows(IllegalArgumentException.class, () -> new BoundedCloseDispatcher(0, 1, 1));
-        assertThrows(IllegalArgumentException.class, () -> new BoundedCloseDispatcher(1, 0, 1));
-        assertThrows(IllegalArgumentException.class, () -> new BoundedCloseDispatcher(1, 1, 1));
-        assertThrows(IllegalArgumentException.class, () -> new BoundedCloseDispatcher(1, 1, 3));
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2);
+        assertThrows(IllegalArgumentException.class, () -> new BoundedCloseDispatcher(0, 1));
+        assertThrows(IllegalArgumentException.class, () -> new BoundedCloseDispatcher(1, 0));
+        assertThrows(
+                IllegalArgumentException.class, () -> new BoundedCloseDispatcher(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
         assertThrows(IllegalArgumentException.class, () -> dispatcher.reserve(0));
         assertThrows(IllegalArgumentException.class, () -> dispatcher.reserve(3));
     }
@@ -199,7 +198,7 @@ final class BoundedCloseDispatcherTest {
     @Test
     void admissionIsAtomicBoundedAndRejectionLeavesCleanupWithTheCaller() throws Exception {
         BoundedFailureReporter reporter = new BoundedFailureReporter(1, 3);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, 3, Threading::start, reporter);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, Threading::start, reporter);
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         CountDownLatch acceptedClosed = new CountDownLatch(3);
@@ -250,7 +249,6 @@ final class BoundedCloseDispatcherTest {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
                 2,
                 1,
-                3,
                 (name, task) -> {
                     int ordinal = starts.getAndIncrement();
                     if (ordinal == 0) {
@@ -318,7 +316,7 @@ final class BoundedCloseDispatcherTest {
     @Test
     void pairAdmissionRejectsAtomicallyAndPartialUseReleasesOnlyTheUnusedPermit() throws Exception {
         AtomicReference<Thread> closeThread = new AtomicReference<>();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, (name, task) -> {
             Thread thread = new Thread(task, name);
             thread.setDaemon(true);
             closeThread.set(thread);
@@ -359,7 +357,6 @@ final class BoundedCloseDispatcherTest {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
                 1,
                 2,
-                3,
                 (name, task) -> {
                     if (startAttempts.getAndIncrement() == 0) {
                         firstStartEntered.countDown();
@@ -446,7 +443,7 @@ final class BoundedCloseDispatcherTest {
         AtomicReference<Throwable> reported = new AtomicReference<>();
         AtomicReference<Thread> closeThread = new AtomicReference<>();
         AtomicReference<Thread> dispatchThread = new AtomicReference<>();
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, (name, task) -> {
             throw startFailure;
         });
         ExecutorService caller = Executors.newSingleThreadExecutor();
@@ -490,121 +487,12 @@ final class BoundedCloseDispatcherTest {
     }
 
     @Test
-    void startThenThrowAndCloseFailureProduceOneStableFallbackResult() throws Exception {
-        IllegalStateException startFailure = new IllegalStateException("starter failed after starting worker");
-        IOException closeFailure = new IOException("fallback close failed");
-        AtomicInteger physicalCloses = new AtomicInteger();
-        AtomicInteger completions = new AtomicInteger();
-        AtomicInteger failureReports = new AtomicInteger();
-        AtomicReference<Throwable> reported = new AtomicReference<>();
-        AtomicReference<Thread> closeThread = new AtomicReference<>();
-        AtomicReference<Thread> dispatchThread = new AtomicReference<>();
-        CountDownLatch completed = new CountDownLatch(1);
-        CountDownLatch failureReported = new CountDownLatch(1);
-        CountDownLatch rejectedWorkerStopped = new CountDownLatch(1);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
-            Thread worker = new Thread(
-                    () -> {
-                        try {
-                            task.run();
-                        } finally {
-                            rejectedWorkerStopped.countDown();
-                        }
-                    },
-                    name);
-            worker.setDaemon(true);
-            worker.start();
-            throw startFailure;
-        });
-
-        dispatchThread.set(Thread.currentThread());
-        IllegalStateException thrown = assertThrows(IllegalStateException.class, () -> dispatcher
-                .reserve(1)
-                .dispatch(
-                        () -> {
-                            physicalCloses.incrementAndGet();
-                            closeThread.set(Thread.currentThread());
-                            throw closeFailure;
-                        },
-                        "procwright-partial-start-close-",
-                        failure -> {
-                            failureReports.incrementAndGet();
-                            reported.set(failure);
-                            failureReported.countDown();
-                        },
-                        () -> {
-                            completions.incrementAndGet();
-                            completed.countDown();
-                        }));
-
-        assertSame(startFailure, thrown);
-        assertTrue(rejectedWorkerStopped.await(1, TimeUnit.SECONDS));
-        assertTrue(completed.await(1, TimeUnit.SECONDS));
-        assertTrue(failureReported.await(1, TimeUnit.SECONDS));
-        assertSame(startFailure, reported.get().getCause());
-        assertEquals(List.of(closeFailure), List.of(reported.get().getSuppressed()));
-        assertEquals(0, startFailure.getSuppressed().length);
-        assertFalse(closeThread.get() == dispatchThread.get());
-        assertEquals(1, failureReports.get());
-        assertEquals(1, physicalCloses.get());
-        assertEquals(1, completions.get());
-        assertEquals(0, dispatcher.activeCount());
-        assertEquals(0, dispatcher.pendingCount());
-        assertEquals(0, dispatcher.outstandingCount());
-    }
-
-    @Test
-    void inlineStartThenThrowNeverRunsPhysicalCloseOnDispatchCaller() throws Exception {
-        IllegalStateException startFailure = new IllegalStateException("inline starter failed after invoking task");
-        CountDownLatch closeEntered = new CountDownLatch(1);
-        CountDownLatch releaseClose = new CountDownLatch(1);
-        CountDownLatch closeSettled = new CountDownLatch(1);
-        AtomicInteger physicalCloses = new AtomicInteger();
-        AtomicReference<Thread> closeThread = new AtomicReference<>();
-        Thread dispatchThread = Thread.currentThread();
-        BoundedFailureReporter reporter = new BoundedFailureReporter(1, 2);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
-                1,
-                1,
-                2,
-                (name, task) -> {
-                    task.run();
-                    throw startFailure;
-                },
-                reporter);
-
-        IllegalStateException thrown = assertThrows(IllegalStateException.class, () -> dispatcher
-                .reserve(1)
-                .dispatch(
-                        () -> {
-                            physicalCloses.incrementAndGet();
-                            closeThread.set(Thread.currentThread());
-                            closeEntered.countDown();
-                            awaitUninterruptibly(releaseClose);
-                        },
-                        "procwright-inline-start-close-",
-                        ignored -> {},
-                        closeSettled::countDown));
-        try {
-            assertSame(startFailure, thrown);
-            assertTrue(closeEntered.await(1, TimeUnit.SECONDS));
-            assertFalse(closeThread.get() == dispatchThread);
-        } finally {
-            releaseClose.countDown();
-        }
-
-        assertTrue(closeSettled.await(1, TimeUnit.SECONDS));
-        assertEquals(0, dispatcher.outstandingCount());
-        assertEquals(1, physicalCloses.get());
-    }
-
-    @Test
     void everyPhysicalCloseFailureKindReleasesAccountingAndReportsTheOriginalFailureOnce() throws Exception {
         for (Throwable expected : List.of(
                 new IOException("io failure"),
                 new IllegalStateException("runtime failure"),
                 new AssertionError("error failure"))) {
-            BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2);
+            BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
             AtomicInteger reports = new AtomicInteger();
             AtomicReference<Throwable> observed = new AtomicReference<>();
             CountDownLatch reported = new CountDownLatch(1);
@@ -629,7 +517,7 @@ final class BoundedCloseDispatcherTest {
     @Test
     void callbackCanReenterDispatcherAfterCapacityRelease() throws Exception {
         BoundedFailureReporter reporter = new BoundedFailureReporter(1, 4);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, Threading::start, reporter);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, Threading::start, reporter);
         IOException closeFailure = new IOException("close failed");
         CountDownLatch reentrantClose = new CountDownLatch(1);
         CountDownLatch reentrantSettled = new CountDownLatch(1);
@@ -665,37 +553,6 @@ final class BoundedCloseDispatcherTest {
     }
 
     @Test
-    void synchronousStarterIsRejectedAndAcceptedQueueStillCompletesOnFallbackOwner() throws Exception {
-        CountDownLatch secondClosed = new CountDownLatch(1);
-        CountDownLatch secondSettled = new CountDownLatch(1);
-        BoundedFailureReporter reporter = new BoundedFailureReporter(2, 6);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
-                1,
-                1,
-                2,
-                (name, task) -> {
-                    task.run();
-                },
-                reporter);
-        BoundedCloseDispatcher.Reservation pair = dispatcher.reserve(2);
-        java.util.concurrent.RejectedExecutionException startFailure = assertThrows(
-                java.util.concurrent.RejectedExecutionException.class,
-                () -> pair.dispatch(
-                        BoundedCloseDispatcher.closeRequest(
-                                () -> {}, "procwright-synchronous-first-close-", failure -> {}),
-                        BoundedCloseDispatcher.closeRequest(
-                                new CloseSignalInputStream(secondClosed),
-                                "procwright-synchronous-second-close-",
-                                failure -> {},
-                                secondSettled::countDown)));
-
-        assertTrue(startFailure.getMessage().contains("asynchronously"));
-        assertTrue(secondClosed.await(1, TimeUnit.SECONDS));
-        assertTrue(secondSettled.await(1, TimeUnit.SECONDS));
-        assertEquals(0, dispatcher.outstandingCount());
-    }
-
-    @Test
     void callbackFailureIsReportedWithoutMutatingTheCloseFailure() throws Exception {
         IOException closeFailure = new IOException("close failed");
         IllegalStateException callbackFailure = new IllegalStateException("callback failed");
@@ -703,7 +560,7 @@ final class BoundedCloseDispatcherTest {
         AtomicReference<Throwable> uncaught = new AtomicReference<>();
         CountDownLatch callbackReturned = new CountDownLatch(1);
         CountDownLatch uncaughtReported = new CountDownLatch(1);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, 2, (name, task) -> {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1, (name, task) -> {
             Thread thread = new Thread(task, name);
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler((ignored, failure) -> {
@@ -731,14 +588,14 @@ final class BoundedCloseDispatcherTest {
     private static void runBlockingStarterCase(int activeCapacity, int blockingOrdinal, CloseFailureKind failureKind)
             throws Exception {
         int pendingCapacity = 3;
-        int maxOutstandingCapacity = activeCapacity + pendingCapacity;
+        int totalCapacity = activeCapacity + pendingCapacity;
         AtomicInteger starts = new AtomicInteger();
         AtomicReference<Throwable> unexpectedUncaught = new AtomicReference<>();
         CountDownLatch starterBlocked = new CountDownLatch(1);
         CountDownLatch releaseStarter = new CountDownLatch(1);
         List<Thread> closeThreads = new CopyOnWriteArrayList<>();
         BoundedCloseDispatcher dispatcher =
-                new BoundedCloseDispatcher(activeCapacity, pendingCapacity, maxOutstandingCapacity, (name, task) -> {
+                new BoundedCloseDispatcher(activeCapacity, pendingCapacity, (name, task) -> {
                     int ordinal = starts.getAndIncrement();
                     Thread thread = new Thread(task, name + ordinal);
                     thread.setDaemon(true);
@@ -764,7 +621,7 @@ final class BoundedCloseDispatcherTest {
         CountDownLatch callbacksCompleted = new CountDownLatch(2);
         CountDownLatch reentrantCloseCompleted = new CountDownLatch(1);
         BoundedCloseDispatcher.Reservation pair = dispatcher.reserve(2);
-        BoundedCloseDispatcher.Reservation saturation = dispatcher.reserve(maxOutstandingCapacity - 2);
+        BoundedCloseDispatcher.Reservation saturation = dispatcher.reserve(totalCapacity - 2);
         ExecutorService executor = Executors.newSingleThreadExecutor();
 
         assertThrows(java.util.concurrent.RejectedExecutionException.class, () -> dispatcher.reserve(1));

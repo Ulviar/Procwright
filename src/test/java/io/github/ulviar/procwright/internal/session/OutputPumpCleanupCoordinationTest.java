@@ -29,7 +29,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
         InputStream stdout = InputStream.nullInputStream();
         InputStream stderr = InputStream.nullInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2, 4));
+        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2));
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(
                 rawSession, "successful-scenario", OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
         CountDownLatch pumpsFinished = new CountDownLatch(2);
@@ -63,7 +63,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
         ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
         ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2, 4));
+        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2));
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(
                 rawSession, "failed-scenario", OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
         CountDownLatch pumpsFinished = new CountDownLatch(2);
@@ -104,7 +104,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
         GatedThrowingCloseInputStream stdout = new GatedThrowingCloseInputStream(stdoutCloseFailure);
         GatedThrowingCloseInputStream stderr = new GatedThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2, 4));
+        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2));
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(
                 rawSession, "late-close-failure", OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
         CountDownLatch pumpsFinished = new CountDownLatch(2);
@@ -151,7 +151,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
         ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         AtomicInteger failureReportCount = new AtomicInteger();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4, (name, task) -> {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
             Thread thread = new Thread(task, name);
             thread.setDaemon(true);
             thread.setUncaughtExceptionHandler((ignored, failure) -> failureReportCount.incrementAndGet());
@@ -230,7 +230,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
         ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
         ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2, 4));
+        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2));
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "raw-exit-barrier");
         CountDownLatch outputCleanupCompleted = new CountDownLatch(1);
         coordinator.publishAfterOutputCleanup(outputCleanupCompleted::countDown);
@@ -288,7 +288,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
         GatedThrowingCloseInputStream stdout = new GatedThrowingCloseInputStream(stdoutCloseFailure);
         GatedThrowingCloseInputStream stderr = new GatedThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2, 4));
+        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2));
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "late-primary");
         CountDownLatch outputCleanupCompleted = new CountDownLatch(1);
         coordinator.publishAfterOutputCleanup(outputCleanupCompleted::countDown);
@@ -338,7 +338,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
 
     @Test
     void pumpEofCannotPhysicallyCloseReservedOutputBeforeProcessCleanup() throws Exception {
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, 4);
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2);
         CloseTrackingInputStream stdout = new CloseTrackingInputStream(closeDispatcher);
         CloseTrackingInputStream stderr = new CloseTrackingInputStream(closeDispatcher);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
@@ -389,7 +389,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
 
     @Test
     void coordinatorDoesNotStrandAReservedCloseWhenDispatcherCapacityIsOccupied() throws Exception {
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         AtomicBoolean processAlive = new AtomicBoolean(true);
         BlockingCloseInputStream stdout = new BlockingCloseInputStream(processAlive);
         CloseTrackingInputStream stderr = new CloseTrackingInputStream();
@@ -432,7 +432,7 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
 
     @Test
     void rejectedSessionAdmissionFailsBeforeOutputAndPumpPublication() throws Exception {
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
         CountDownLatch releaseOccupyingClose = new CountDownLatch(1);
         CountDownLatch pendingClosesFinished = new CountDownLatch(2);

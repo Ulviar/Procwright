@@ -25,9 +25,7 @@ public final class ProcessStreamResource<T extends Closeable> {
     private final Consumer<? super Throwable> inlineCloseFailureHandler;
     private final BiConsumer<BoundedFailureReporter.FailureTarget, Throwable> failureReporter;
     private final AtomicBoolean closeClaimed = new AtomicBoolean();
-    private final CompletableFuture<Void> closeCompletion = new CompletableFuture<>();
-    private final Object closeFailureLock = new Object();
-    private Throwable closeFailure;
+    private final CompletableFuture<CloseOutcome> closeOutcome = new CompletableFuture<>();
 
     ProcessStreamResource(
             T stream,
@@ -111,14 +109,8 @@ public final class ProcessStreamResource<T extends Closeable> {
         }
     }
 
-    public CompletableFuture<Void> closeCompletion() {
-        return closeCompletion.copy();
-    }
-
-    public Throwable closeResult() {
-        synchronized (closeFailureLock) {
-            return closeCompletion.isDone() ? closeFailure : null;
-        }
+    public CompletableFuture<CloseOutcome> closeOutcome() {
+        return closeOutcome.copy();
     }
 
     void rollbackConstruction(List<? super Throwable> failures) {
@@ -150,7 +142,7 @@ public final class ProcessStreamResource<T extends Closeable> {
         }
     }
 
-    static BoundedCloseDispatcher.DispatchOutcome closePairAsync(
+    public static BoundedCloseDispatcher.DispatchOutcome closePairAsync(
             ProcessStreamResource<? extends Closeable> first,
             String firstThreadPrefix,
             Consumer<? super Throwable> firstFailureHandler,
@@ -222,7 +214,6 @@ public final class ProcessStreamResource<T extends Closeable> {
 
     private void settleOwnedClose(
             Throwable physicalFailure, Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
-        recordCloseFailure(physicalFailure);
         BoundedFailureReporter.FailureTarget failureTarget = captureFailureTarget();
         publicationPermit.publish(() -> runWithFailureTarget(
                 failureTarget,
@@ -248,7 +239,7 @@ public final class ProcessStreamResource<T extends Closeable> {
             callbackFailure = FailureAggregation.combine(
                     callbackFailure, failure, "Multiple process stream close callbacks failed");
         } finally {
-            closeCompletion.complete(null);
+            completeClose(physicalFailure);
         }
         if (callbackFailure != null) {
             reportCallbackFailure(failureTarget, callbackFailure);
@@ -301,33 +292,24 @@ public final class ProcessStreamResource<T extends Closeable> {
     }
 
     private void settleClose(Throwable physicalFailure) {
-        recordCloseFailure(physicalFailure);
-        publicationPermit.publish(() -> closeCompletion.complete(null));
+        publicationPermit.publish(() -> completeClose(physicalFailure));
     }
 
     private void recordDispatchFailure(Throwable dispatchFailure) {
-        recordCloseFailure(dispatchFailure);
-        publicationPermit.publish(() -> closeCompletion.complete(null));
+        publicationPermit.publish(() -> completeClose(dispatchFailure));
     }
 
-    private void recordCloseFailure(Throwable failure) {
-        if (failure == null) {
-            return;
-        }
-        synchronized (closeFailureLock) {
-            closeFailure = FailureAggregation.combine(
-                    closeFailure, failure, "Multiple failures occurred while closing a process stream");
+    private void completeClose(Throwable failure) {
+        if (!closeOutcome.complete(new CloseOutcome(failure))) {
+            throw new IllegalStateException("Process stream close was already completed");
         }
     }
 
     private void observeExistingClose(Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
-        closeCompletion.whenComplete((ignored, impossible) -> {
+        closeOutcome.thenAccept(outcome -> {
             Thread sourceThread = Thread.currentThread();
             BoundedFailureReporter.shared().execute(sourceThread, () -> {
-                Throwable failure;
-                synchronized (closeFailureLock) {
-                    failure = closeFailure;
-                }
+                Throwable failure = outcome.failure();
                 if (failure != null) {
                     failureHandler.accept(failure);
                 }
@@ -335,4 +317,7 @@ public final class ProcessStreamResource<T extends Closeable> {
             BoundedFailureReporter.shared().execute(sourceThread, completionHandler);
         });
     }
+
+    /** Immutable physical-close result; a {@code null} failure denotes success. */
+    public record CloseOutcome(Throwable failure) {}
 }
