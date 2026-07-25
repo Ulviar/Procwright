@@ -7,7 +7,6 @@ import io.github.ulviar.procwright.session.ProtocolTranscript;
 import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -21,7 +20,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     private final Supplier<OptionalInt> exitCode;
     private final Consumer<Throwable> discardedFailure;
     private final Runnable sealFailureAttribution;
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private volatile boolean closed;
     private RequestOutcome activeRequest;
     private TerminalSnapshot terminalOutcome;
     private boolean stdoutEof;
@@ -50,7 +49,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     }
 
     boolean isClosed() {
-        return closed.get();
+        return closed;
     }
 
     synchronized RequestOutcome beginRequest() {
@@ -134,10 +133,10 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     CloseDecision claimClose(boolean publishClosed) {
         ProtocolSessionException closedFailure = publishClosed ? closed(null) : null;
         synchronized (this) {
-            boolean owner = !closed.getAndSet(true);
-            if (!owner) {
+            if (closed) {
                 return AlreadyClosed.INSTANCE;
             }
+            closed = true;
             if (!publishClosed) {
                 return CloseSilently.INSTANCE;
             }
@@ -146,10 +145,6 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
             }
             return new PublishTerminal(terminalOutcome);
         }
-    }
-
-    void markClosed() {
-        closed.set(true);
     }
 
     synchronized TerminalSnapshot terminal() {
@@ -161,7 +156,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         boolean sessionClosed;
         synchronized (this) {
             outcome = terminalOutcome;
-            sessionClosed = closed.get();
+            sessionClosed = closed;
         }
         if (outcome != null) {
             throwTerminalOutcome(outcome);
@@ -437,11 +432,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     }
 
     private boolean claimFailureAttributionSeal() {
-        if (failureAttributionSealed
-                || !stdoutEof
-                || activeRequest != null
-                || terminalOutcome != null
-                || closed.get()) {
+        if (failureAttributionSealed || !stdoutEof || activeRequest != null || terminalOutcome != null || closed) {
             return false;
         }
         failureAttributionSealed = true;

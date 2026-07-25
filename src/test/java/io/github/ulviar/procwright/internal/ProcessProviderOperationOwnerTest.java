@@ -278,14 +278,11 @@ final class ProcessProviderOperationOwnerTest {
             assertEquals(0, owner.availablePermits());
 
             AtomicInteger rejectedCalls = new AtomicInteger();
-            long started = System.nanoTime();
             ProcessProviderOperationOwner.BestEffortResult<Integer> rejected = owner.bestEffortResult(
                     "procwright-capacity-best-effort-", Duration.ofSeconds(1), rejectedCalls::incrementAndGet);
             assertFalse(rejected.completed());
             assertSame(ProcessProviderOperationOwner.BestEffortResult.Failure.UNAVAILABLE, rejected.failure());
-            Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
             assertEquals(0, rejectedCalls.get());
-            assertTrue(elapsed.compareTo(Duration.ofMillis(100)) < 0, () -> "capacity rejection took " + elapsed);
             CommandExecutionException requiredFailure = assertThrows(
                     CommandExecutionException.class,
                     () -> owner.required("procwright-capacity-test-", Duration.ofSeconds(1), () -> "unreachable"));

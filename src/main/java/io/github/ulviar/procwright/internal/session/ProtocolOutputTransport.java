@@ -27,8 +27,8 @@ final class ProtocolOutputTransport {
     private final ZeroReadBackoff zeroReadBackoff;
     private final OutputPumpCoordinator outputPumps;
     private final ProtocolTranscriptBuffer transcript;
-    private final ProtocolTextDecoderState stdoutTextDecoder;
-    private final ProtocolTextDecoderState stderrTextDecoder;
+    private final ProtocolTextReader.StreamState stdoutText;
+    private final ProtocolTextReader.StreamState stderrText;
     private final ProtocolOutputQueue stdout;
     private final ProtocolOutputQueue stderr;
     private final Supplier<OptionalInt> exitCode;
@@ -50,8 +50,10 @@ final class ProtocolOutputTransport {
         this.zeroReadBackoff = Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
         this.outputPumps = Objects.requireNonNull(outputPumps, "outputPumps");
         this.transcript = Objects.requireNonNull(transcript, "transcript");
-        this.stdoutTextDecoder = Objects.requireNonNull(stdoutTextDecoder, "stdoutTextDecoder");
-        this.stderrTextDecoder = Objects.requireNonNull(stderrTextDecoder, "stderrTextDecoder");
+        stdoutText = new ProtocolTextReader.StreamState(
+                options, Objects.requireNonNull(stdoutTextDecoder, "stdoutTextDecoder"));
+        stderrText = new ProtocolTextReader.StreamState(
+                options, Objects.requireNonNull(stderrTextDecoder, "stderrTextDecoder"));
         LongSupplier checkedNanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
         this.exitCode = Objects.requireNonNull(exitCode, "exitCode");
         this.failureHandler = Objects.requireNonNull(failureHandler, "failureHandler");
@@ -66,7 +68,7 @@ final class ProtocolOutputTransport {
                 stream -> runPump("stdout", stream, stdout),
                 "procwright-protocol-stderr-",
                 stream -> runPump("stderr", stream, stderr),
-                state::markClosed);
+                () -> state.claimClose(false));
     }
 
     ProtocolTranscript transcript() {
@@ -80,9 +82,9 @@ final class ProtocolOutputTransport {
             RequestCapabilityScope capabilityScope) {
         return new Readers(
                 new ProtocolResponseReader(
-                        stdout, options, deadlineNanos, budget, stdoutTextDecoder, failures, capabilityScope),
+                        stdout, options, deadlineNanos, budget, stdoutText, failures, capabilityScope),
                 new ProtocolResponseReader(
-                        stderr, options, deadlineNanos, budget, stderrTextDecoder, failures, capabilityScope));
+                        stderr, options, deadlineNanos, budget, stderrText, failures, capabilityScope));
     }
 
     void publishTerminal(ProtocolSessionState.TerminalSnapshot outcome) {

@@ -12,11 +12,10 @@ import java.nio.charset.CoderResult;
 import java.util.Objects;
 import java.util.function.IntFunction;
 
-/** Carries incremental decoding and bounded decoded-line output across readers of one process output stream. */
+/** Carries incremental charset-decoder state across readers of one process output stream. */
 final class ProtocolTextDecoderState {
 
     private static final char[] EMPTY_CHARS = new char[0];
-    private static final int INPUT_WINDOW_SIZE = 8192;
     private static final int MAX_RETAINED_STAGING_CHARS = 8192;
 
     private final CharsetDecoder decoder;
@@ -24,9 +23,7 @@ final class ProtocolTextDecoderState {
     private final int outputWithoutInputLimit;
     private final IncrementalTextDecoder.OutputWithoutInputGuard outputGuard;
     private final StagedText staged;
-    private final DecodedLineSuffix decodedLineSuffix;
     private ByteBuffer input;
-    private byte[] inputWindow;
     private final CharBuffer output = CharBuffer.allocate(128);
     private boolean pendingInput;
     private boolean finished;
@@ -40,50 +37,22 @@ final class ProtocolTextDecoderState {
     }
 
     ProtocolTextDecoderState(CharsetPolicy policy, int pendingByteLimit, int outputWithoutInputLimit) {
-        this(
-                policy,
-                pendingByteLimit,
-                outputWithoutInputLimit,
-                Math.min(pendingByteLimit, outputWithoutInputLimit),
-                char[]::new);
+        this(policy, pendingByteLimit, outputWithoutInputLimit, char[]::new);
     }
 
     ProtocolTextDecoderState(
             CharsetPolicy policy,
             int pendingByteLimit,
             int outputWithoutInputLimit,
-            IntFunction<char[]> stagingAllocator) {
-        this(
-                policy,
-                pendingByteLimit,
-                outputWithoutInputLimit,
-                Math.min(pendingByteLimit, outputWithoutInputLimit),
-                stagingAllocator);
-    }
-
-    ProtocolTextDecoderState(
-            CharsetPolicy policy, int pendingByteLimit, int outputWithoutInputLimit, int decodedLineSuffixLimit) {
-        this(policy, pendingByteLimit, outputWithoutInputLimit, decodedLineSuffixLimit, char[]::new);
-    }
-
-    private ProtocolTextDecoderState(
-            CharsetPolicy policy,
-            int pendingByteLimit,
-            int outputWithoutInputLimit,
-            int decodedLineSuffixLimit,
             IntFunction<char[]> stagingAllocator) {
         Objects.requireNonNull(policy, "policy");
         if (pendingByteLimit <= 0) {
             throw new IllegalArgumentException("pendingByteLimit must be positive");
         }
-        if (decodedLineSuffixLimit <= 0) {
-            throw new IllegalArgumentException("decodedLineSuffixLimit must be positive");
-        }
         this.pendingByteLimit = pendingByteLimit;
         this.outputWithoutInputLimit = outputWithoutInputLimit;
         this.outputGuard = new IncrementalTextDecoder.OutputWithoutInputGuard(outputWithoutInputLimit);
         this.staged = new StagedText(stagingAllocator);
-        this.decodedLineSuffix = new DecodedLineSuffix(decodedLineSuffixLimit);
         input = ByteBuffer.allocate(Math.min(16, pendingByteLimit));
         decoder = policy.charset()
                 .newDecoder()
@@ -210,41 +179,6 @@ final class ProtocolTextDecoderState {
         return pendingInput;
     }
 
-    boolean hasPendingLineOutput() {
-        return decodedLineSuffix.hasPending();
-    }
-
-    int remainingLineOutputCapacity() {
-        return decodedLineSuffix.remainingCapacity();
-    }
-
-    int lineOutputCheckpoint() {
-        return decodedLineSuffix.pendingCount();
-    }
-
-    void rollbackLineOutput(int checkpoint) {
-        decodedLineSuffix.truncate(checkpoint);
-    }
-
-    void appendLineOutput(char[] source, int offset, int count) throws DecodedLineSuffixLimitExceededException {
-        decodedLineSuffix.append(source, offset, count);
-    }
-
-    int copyFirstLineOutput(StringBuilder target) {
-        return decodedLineSuffix.copyFirstLineTo(target);
-    }
-
-    void consumeLineOutput(int count) {
-        decodedLineSuffix.consume(count);
-    }
-
-    byte[] inputWindow() {
-        if (inputWindow == null) {
-            inputWindow = new byte[Math.min(INPUT_WINDOW_SIZE, pendingByteLimit)];
-        }
-        return inputWindow;
-    }
-
     private CoderResult decodeInput(boolean endOfInput) throws IncrementalTextDecoder.DecoderStateException {
         try {
             return decoder.decode(input, output, endOfInput);
@@ -324,102 +258,6 @@ final class ProtocolTextDecoderState {
                 : (long) expectedOutput;
         long combinedLimit = boundedExpected + outputWithoutInputLimit;
         return (int) Math.max(1, Math.min(Integer.MAX_VALUE, combinedLimit));
-    }
-
-    private static final class DecodedLineSuffix {
-
-        private static final char[] EMPTY = new char[0];
-
-        private final int limit;
-        private char[] chars = EMPTY;
-        private int start;
-        private int end;
-
-        private DecodedLineSuffix(int limit) {
-            this.limit = limit;
-        }
-
-        private synchronized void append(char[] source, int offset, int count)
-                throws DecodedLineSuffixLimitExceededException {
-            Objects.checkFromIndexSize(offset, count, source.length);
-            if (count == 0) {
-                return;
-            }
-            if (count > remainingCapacity()) {
-                throw new DecodedLineSuffixLimitExceededException(limit);
-            }
-            ensureCapacity(count);
-            System.arraycopy(source, offset, chars, end, count);
-            end += count;
-        }
-
-        private synchronized int copyFirstLineTo(StringBuilder target) {
-            Objects.requireNonNull(target, "target");
-            int count = pendingCount();
-            for (int index = start; index < end; index++) {
-                if (chars[index] == '\n') {
-                    count = index - start + 1;
-                    break;
-                }
-            }
-            target.append(chars, start, count);
-            return count;
-        }
-
-        private synchronized void consume(int count) {
-            if (count < 0 || count > pendingCount()) {
-                throw new IllegalArgumentException("count exceeds pending decoded line output");
-            }
-            start += count;
-            clearIfEmpty();
-        }
-
-        private synchronized void truncate(int pendingCount) {
-            if (pendingCount < 0 || pendingCount > pendingCount()) {
-                throw new IllegalArgumentException("checkpoint exceeds pending decoded line output");
-            }
-            end = start + pendingCount;
-            clearIfEmpty();
-        }
-
-        private synchronized boolean hasPending() {
-            return start < end;
-        }
-
-        private synchronized int remainingCapacity() {
-            return limit - pendingCount();
-        }
-
-        private synchronized int pendingCount() {
-            return end - start;
-        }
-
-        private void ensureCapacity(int additional) {
-            int length = pendingCount();
-            int required = length + additional;
-            if (required <= chars.length) {
-                if (start > 0 && additional > chars.length - end) {
-                    System.arraycopy(chars, start, chars, 0, length);
-                    start = 0;
-                    end = length;
-                }
-                return;
-            }
-            int doubled = chars.length > limit - chars.length ? limit : chars.length * 2;
-            int capacity = Math.min(limit, Math.max(required, Math.max(1, doubled)));
-            char[] grown = new char[capacity];
-            System.arraycopy(chars, start, grown, 0, length);
-            chars = grown;
-            start = 0;
-            end = length;
-        }
-
-        private void clearIfEmpty() {
-            if (start == end) {
-                start = 0;
-                end = 0;
-            }
-        }
     }
 
     private static final class StagedText implements IncrementalTextDecoder.Sink {
@@ -510,26 +348,6 @@ final class ProtocolTextDecoderState {
         @Override
         public String getMessage() {
             return "Decoder output exceeds the current character budget";
-        }
-    }
-
-    static final class DecodedLineSuffixLimitExceededException extends CharacterCodingException {
-
-        private static final long serialVersionUID = 1L;
-
-        private final int limit;
-
-        private DecodedLineSuffixLimitExceededException(int limit) {
-            this.limit = limit;
-        }
-
-        int limit() {
-            return limit;
-        }
-
-        @Override
-        public String getMessage() {
-            return "Decoded line suffix exceeds its " + limit + " char limit";
         }
     }
 }

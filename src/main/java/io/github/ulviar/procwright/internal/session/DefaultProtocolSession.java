@@ -66,22 +66,15 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                 session, OUTPUT_OWNER, OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
         int responsePendingByteLimit = ProtocolTextReader.pendingByteLimit(options);
         int responseOutputWithoutInputLimit = ProtocolTextReader.outputWithoutInputLimit(options);
-        int decodedLineSuffixLimit = ProtocolTextReader.decodedLineSuffixLimit(options);
         ProtocolTranscriptBuffer initializedTranscript;
         ProtocolTextDecoderState stdoutDecoder;
         ProtocolTextDecoderState stderrDecoder;
         try {
             initializedTranscript = new ProtocolTranscriptBuffer(options.transcriptLimit(), options.charsetPolicy());
             stdoutDecoder = new ProtocolTextDecoderState(
-                    options.charsetPolicy(),
-                    responsePendingByteLimit,
-                    responseOutputWithoutInputLimit,
-                    decodedLineSuffixLimit);
+                    options.charsetPolicy(), responsePendingByteLimit, responseOutputWithoutInputLimit);
             stderrDecoder = new ProtocolTextDecoderState(
-                    options.charsetPolicy(),
-                    responsePendingByteLimit,
-                    responseOutputWithoutInputLimit,
-                    decodedLineSuffixLimit);
+                    options.charsetPolicy(), responsePendingByteLimit, responseOutputWithoutInputLimit);
         } catch (RuntimeException | CoderMalfunctionError exception) {
             ProtocolSessionException failure = new ProtocolSessionException(
                     ProtocolSessionException.Reason.DECODE_ERROR,

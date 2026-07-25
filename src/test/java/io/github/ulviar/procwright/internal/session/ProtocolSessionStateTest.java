@@ -122,6 +122,46 @@ final class ProtocolSessionStateTest {
     }
 
     @Test
+    void concurrentCloseClaimsHaveExactlyOneLifecycleOwner() throws Exception {
+        int callers = 8;
+        ProtocolSessionState state = state();
+        ExecutorService executor = Executors.newFixedThreadPool(callers);
+        CountDownLatch ready = new CountDownLatch(callers);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<ProtocolSessionState.CloseDecision>> decisions = new ArrayList<>();
+        try {
+            for (int index = 0; index < callers; index++) {
+                decisions.add(executor.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    return state.claimClose(true);
+                }));
+            }
+            assertTrue(ready.await(1, TimeUnit.SECONDS));
+            start.countDown();
+
+            int owners = 0;
+            int observers = 0;
+            for (Future<ProtocolSessionState.CloseDecision> decision : decisions) {
+                ProtocolSessionState.CloseDecision selected = decision.get(1, TimeUnit.SECONDS);
+                if (selected instanceof ProtocolSessionState.PublishTerminal) {
+                    owners++;
+                } else {
+                    assertInstanceOf(ProtocolSessionState.AlreadyClosed.class, selected);
+                    observers++;
+                }
+            }
+
+            assertEquals(1, owners);
+            assertEquals(callers - 1, observers);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void fatalFailurePromotesClosedWithoutMutatingTheActiveClosedFailure() {
         ProtocolSessionState state = state();
         ProtocolSessionState.RequestOutcome request = state.beginRequest();

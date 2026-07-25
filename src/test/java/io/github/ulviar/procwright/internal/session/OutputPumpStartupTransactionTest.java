@@ -112,6 +112,50 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
     }
 
     @Test
+    void unreservedConstructionRollbackClosesAndSettlesBothOutputs() throws Exception {
+        for (boolean closeStarterFails : new boolean[] {false, true}) {
+            IllegalStateException startFailure = new IllegalStateException("output close starter failed");
+            BoundedCloseDispatcher dispatcher = closeStarterFails
+                    ? new BoundedCloseDispatcher(2, 2, (name, task) -> {
+                        throw startFailure;
+                    })
+                    : new BoundedCloseDispatcher(2, 2);
+            CloseTrackingInputStream stdout = new CloseTrackingInputStream();
+            CloseTrackingInputStream stderr = new CloseTrackingInputStream();
+            ControllableProcess process = new ControllableProcess(stdout, stderr);
+            DefaultSession rawSession = session(process, dispatcher);
+            OutputPumpCleanup cleanup = new OutputPumpCleanup(
+                    rawSession, "unreserved-rollback", OutputPumpCoordinator.FailureAttribution.PUMP_COMPLETION);
+            CountDownLatch cleanupCompleted = new CountDownLatch(1);
+            AssertionError primary = new AssertionError("construction failed");
+            try {
+                cleanup.installHelperCleanup(rawSession.registerHelperCleanup());
+                rawSession.claimOutputOwner("unreserved-rollback");
+                cleanup.observeProcessCleanup();
+                cleanup.publishAfterOutputCleanup(cleanupCompleted::countDown);
+                cleanup.retainPrimaryPreserving(primary);
+                cleanup.pumpTaskFinished();
+                cleanup.pumpTaskFinished();
+
+                cleanup.closeSessionPreserving(primary);
+                assertFalse(cleanup.hasCloseReservation());
+                cleanup.dispatchUnreservedOutputClosePreserving(primary);
+
+                assertTrue(stdout.awaitClose());
+                assertTrue(stderr.awaitClose());
+                assertTrue(cleanupCompleted.await(1, TimeUnit.SECONDS));
+                awaitSettlement(rawSession.onExit());
+                assertEquals(1, stdout.closeCalls());
+                assertEquals(1, stderr.closeCalls());
+                assertEquals(0, primary.getSuppressed().length);
+                assertEquals(0, dispatcher.outstandingCount());
+            } finally {
+                rawSession.close();
+            }
+        }
+    }
+
+    @Test
     void startThenThrowCompletesEachPumpSlotExactlyOnceForEveryOrdinalAndFailureKind() throws Exception {
         for (int failingOrdinal : List.of(1, 2)) {
             for (Throwable startupFailure : List.of(

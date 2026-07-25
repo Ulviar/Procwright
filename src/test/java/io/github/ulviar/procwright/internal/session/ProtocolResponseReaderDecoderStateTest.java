@@ -105,6 +105,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults()
                 .withCharsetPolicy(io.github.ulviar.procwright.command.CharsetPolicy.report(StandardCharsets.UTF_16));
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(options.charsetPolicy());
+        ProtocolTextReader.StreamState textStream = streamText(options, decoder);
         ProtocolOutputQueue firstOutput = new ProtocolOutputQueue(32, ProtocolOutputQueue.OverflowPolicy.STRICT);
         firstOutput.offer(utf16LeWithBom("first\n"));
         ProtocolResponseReader first = new ProtocolResponseReader(
@@ -112,7 +113,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(32, 32, FAILURES),
-                decoder,
+                textStream,
                 FAILURES,
                 readerScope());
         ProtocolOutputQueue secondOutput = new ProtocolOutputQueue(32, ProtocolOutputQueue.OverflowPolicy.STRICT);
@@ -122,7 +123,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(32, 32, FAILURES),
-                decoder,
+                textStream,
                 FAILURES,
                 readerScope());
 
@@ -134,6 +135,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     void requestScopedReadersPreserveCoalescedBytesFromTheSameQueueChunk() {
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults();
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(options.charsetPolicy());
+        ProtocolTextReader.StreamState textStream = streamText(options, decoder);
         ProtocolOutputQueue output = new ProtocolOutputQueue(32, ProtocolOutputQueue.OverflowPolicy.STRICT);
         output.offer("first\nsecond\n".getBytes(StandardCharsets.UTF_8));
         ProtocolResponseReader first = new ProtocolResponseReader(
@@ -141,7 +143,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(32, 32, FAILURES),
-                decoder,
+                textStream,
                 FAILURES,
                 readerScope());
         ProtocolResponseReader second = new ProtocolResponseReader(
@@ -149,7 +151,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(32, 32, FAILURES),
-                decoder,
+                textStream,
                 FAILURES,
                 readerScope());
 
@@ -158,9 +160,9 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     }
 
     @Test
-    void requestScopedReadersOwnAtomicDecodedSuffixAndChargeTheirOwnBudgets() {
+    void requestScopedReadersChargeSharedDecodedLinesToTheirOwnBudgets() {
         ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
-        ProtocolTextDecoderState decoder = streamDecoder(options);
+        ProtocolTextReader.StreamState textStream = streamText(options);
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         output.offer(new byte[] {1});
         output.eof();
@@ -168,7 +170,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
         RequestCapabilityScope firstScope = new RequestCapabilityScope("first request reader");
         firstScope.activate();
         ProtocolResponseReader first =
-                requestReader(output, options, firstBudget, decoder, firstScope, Duration.ofSeconds(2));
+                requestReader(output, options, firstBudget, textStream, firstScope, Duration.ofSeconds(2));
 
         assertEquals("a", first.readLine(1));
         assertEquals(0, firstBudget.remainingBytes());
@@ -178,7 +180,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
 
         ProtocolResponseBudget secondBudget = new ProtocolResponseBudget(1, 2, FAILURES);
         ProtocolResponseReader second =
-                requestReader(output, options, secondBudget, decoder, readerScope(), Duration.ofSeconds(2));
+                requestReader(output, options, secondBudget, textStream, readerScope(), Duration.ofSeconds(2));
         assertEquals("b", second.readLine(1));
         assertEquals(1, secondBudget.remainingBytes());
         assertEquals(0, secondBudget.remainingChars());
@@ -187,7 +189,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 output,
                 options,
                 new ProtocolResponseBudget(1, 2, FAILURES),
-                decoder,
+                textStream,
                 readerScope(),
                 Duration.ofSeconds(2));
         ProtocolSessionException eof = assertThrows(ProtocolSessionException.class, () -> third.readLine(1));
@@ -195,50 +197,54 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     }
 
     @Test
-    void timeoutDoesNotConsumeRequestScopedDecodedSuffix() {
+    void timeoutDoesNotConsumeSharedDecodedLineBuffer() {
         ProtocolSessionSettings options = atomicLineOptions(2, 8, new SplitAtomicLineCharset());
-        ProtocolTextDecoderState decoder = streamDecoder(options);
+        ProtocolTextReader.StreamState textStream = streamText(options);
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         output.offer(new byte[] {1, 2});
         output.eof();
         assertEquals(
                 "a",
-                requestReader(output, options, decoder, Duration.ofSeconds(2)).readLine(1));
+                requestReader(output, options, textStream, Duration.ofSeconds(2))
+                        .readLine(1));
 
-        ProtocolResponseReader expired = requestReader(output, options, decoder, Duration.ZERO);
+        ProtocolResponseReader expired = requestReader(output, options, textStream, Duration.ZERO);
         ProtocolSessionException timeout = assertThrows(ProtocolSessionException.class, () -> expired.readLine(1));
         assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
         assertEquals(1, output.pendingBytes());
 
         assertEquals(
                 "b",
-                requestReader(output, options, decoder, Duration.ofSeconds(2)).readLine(1));
+                requestReader(output, options, textStream, Duration.ofSeconds(2))
+                        .readLine(1));
         assertEquals(0, output.pendingBytes());
     }
 
     @Test
-    void closeDoesNotDiscardAlreadyDecodedRequestScopedSuffix() {
+    void closeDoesNotDiscardSharedDecodedLineBuffer() {
         ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
-        ProtocolTextDecoderState decoder = streamDecoder(options);
+        ProtocolTextReader.StreamState textStream = streamText(options);
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         output.offer(new byte[] {1});
         assertEquals(
                 "a",
-                requestReader(output, options, decoder, Duration.ofSeconds(2)).readLine(1));
+                requestReader(output, options, textStream, Duration.ofSeconds(2))
+                        .readLine(1));
 
         output.close();
 
         assertEquals(
                 "b",
-                requestReader(output, options, decoder, Duration.ofSeconds(2)).readLine(1));
+                requestReader(output, options, textStream, Duration.ofSeconds(2))
+                        .readLine(1));
         ProtocolSessionException closed = assertThrows(
-                ProtocolSessionException.class, () -> requestReader(output, options, decoder, Duration.ofSeconds(2))
+                ProtocolSessionException.class, () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
                         .readLine(1));
         assertEquals(ProtocolSessionException.Reason.CLOSED, closed.reason());
     }
 
     @Test
-    void rawAndByteDelimitedMethodsRejectRequestScopedDecodedSuffixWithoutConsumingIt() {
+    void rawAndByteDelimitedMethodsRejectBufferedDecodedLinesWithoutConsumingThem() {
         List<Consumer<ProtocolResponseReader>> incompatibleReads = List.of(
                 ProtocolResponseReader::readByte,
                 reader -> reader.read(new byte[1], 0, 1),
@@ -249,41 +255,41 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
 
         for (Consumer<ProtocolResponseReader> incompatibleRead : incompatibleReads) {
             ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
-            ProtocolTextDecoderState decoder = streamDecoder(options);
+            ProtocolTextReader.StreamState textStream = streamText(options);
             ProtocolOutputQueue output = atomicLineOutput(8);
             assertEquals(
                     "a",
-                    requestReader(output, options, decoder, Duration.ofSeconds(2))
+                    requestReader(output, options, textStream, Duration.ofSeconds(2))
                             .readLine(1));
 
             ProtocolSessionException failure = assertThrows(
                     ProtocolSessionException.class,
-                    () -> incompatibleRead.accept(requestReader(output, options, decoder, Duration.ofSeconds(2))));
+                    () -> incompatibleRead.accept(requestReader(output, options, textStream, Duration.ofSeconds(2))));
 
             assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, failure.reason());
             assertEquals(0, output.pendingBytes());
             assertEquals(
                     "b",
-                    requestReader(output, options, decoder, Duration.ofSeconds(2))
+                    requestReader(output, options, textStream, Duration.ofSeconds(2))
                             .readLine(1));
         }
     }
 
     @Test
-    void zeroLengthReadsPreserveRequestScopedDecodedSuffixAndQueuedBytes() {
+    void zeroLengthReadsPreserveBufferedDecodedLinesAndQueuedBytes() {
         for (Consumer<ProtocolResponseReader> zeroLengthRead : zeroLengthReads()) {
             ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
-            ProtocolTextDecoderState decoder = streamDecoder(options);
+            ProtocolTextReader.StreamState textStream = streamText(options);
             ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
             output.offer(new byte[] {1});
             assertEquals(
                     "a",
-                    requestReader(output, options, decoder, Duration.ofSeconds(2))
+                    requestReader(output, options, textStream, Duration.ofSeconds(2))
                             .readLine(1));
             output.offer(new byte[] {'X'});
             ProtocolResponseBudget budget = new ProtocolResponseBudget(1, 2, FAILURES);
             ProtocolResponseReader reader =
-                    requestReader(output, options, budget, decoder, readerScope(), Duration.ofSeconds(2));
+                    requestReader(output, options, budget, textStream, readerScope(), Duration.ofSeconds(2));
 
             zeroLengthRead.accept(reader);
 
@@ -297,41 +303,41 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     }
 
     @Test
-    void decodedSuffixIsBoundedByBothResponseAndBacklogLimits() {
+    void decodedLineBufferIsBoundedByBothResponseAndBacklogLimits() {
         for (ProtocolSessionSettings options : List.of(
                 atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("bc")),
                 atomicLineOptions(4, 2, AtomicLinesCharset.duringDecode("bc")))) {
-            ProtocolTextDecoderState decoder = streamDecoder(options);
+            ProtocolTextReader.StreamState textStream = streamText(options);
             ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
             output.offer(new byte[] {1});
 
-            ProtocolSessionException failure = assertThrows(
-                    ProtocolSessionException.class, () -> requestReader(output, options, decoder, Duration.ofSeconds(2))
-                            .readLine(1));
+            ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> requestReader(
+                            output, options, textStream, Duration.ofSeconds(2))
+                    .readLine(1));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
             assertEquals(0, output.pendingBytes());
-            assertFalse(decoder.hasPendingLineOutput());
+            assertFalse(textStream.hasPendingDecodedLines());
         }
     }
 
     @Test
-    void failedOutputCommitRollsBackDecodedSuffix() {
+    void failedOutputCommitRollsBackDecodedLineBuffer() {
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         IllegalStateException terminalCause = new IllegalStateException("terminal replaced decoded source");
         Charset charset = new AtomicLinesTerminalCharset(
                 () -> output.failAndClear(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, terminalCause));
         ProtocolSessionSettings options = atomicLineOptions(4, 8, charset);
-        ProtocolTextDecoderState decoder = streamDecoder(options);
+        ProtocolTextReader.StreamState textStream = streamText(options);
         output.offer(new byte[] {1});
 
         ProtocolSessionException failure = assertThrows(
-                ProtocolSessionException.class, () -> requestReader(output, options, decoder, Duration.ofSeconds(2))
+                ProtocolSessionException.class, () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
                         .readLine(1));
 
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, failure.reason());
         assertSame(terminalCause, failure.getCause());
-        assertFalse(decoder.hasPendingLineOutput());
+        assertFalse(textStream.hasPendingDecodedLines());
     }
 
     @Test
@@ -349,7 +355,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(8, 8, FAILURES),
-                decoder,
+                streamText(options, decoder),
                 FAILURES,
                 readerScope());
 
@@ -549,7 +555,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(8, 8, FAILURES),
-                streamDecoder(options),
+                streamText(options),
                 FAILURES,
                 readerScope());
 

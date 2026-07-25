@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static io.github.ulviar.procwright.internal.session.ProtocolResponseReaderCharsetFixtures.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,7 +42,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(1)),
                 new ProtocolResponseBudget(16, 16, FAILURES),
-                streamDecoder(options),
+                streamText(options),
                 FAILURES,
                 scope);
         long pendingBeforeRead = queue.pendingBytes();
@@ -138,7 +139,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(5)),
                 new ProtocolResponseBudget(1, characterBudget, FAILURES),
-                streamDecoder(options),
+                streamText(options),
                 FAILURES,
                 readerScope());
 
@@ -186,7 +187,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(64, 64, FAILURES),
-                streamDecoder(options),
+                streamText(options),
                 FAILURES,
                 readerScope());
 
@@ -284,7 +285,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(2)),
                 new ProtocolResponseBudget(64, 64, FAILURES),
-                streamDecoder(options),
+                streamText(options),
                 FAILURES,
                 readerScope());
 
@@ -339,7 +340,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
                 options,
                 DurationSupport.deadlineFromNow(Duration.ofSeconds(5)),
                 new ProtocolResponseBudget(frame.length, frame.length, FAILURES),
-                decoder,
+                streamText(options, decoder),
                 FAILURES,
                 readerScope());
 
@@ -449,10 +450,25 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
     }
 
     @Test
-    void continuousTextInputWindowIsSharedByRequestScopedReadersForOneStream() {
-        ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(CharsetPolicy.report(StandardCharsets.UTF_8));
+    void continuousTextInputWindowIsLazyForRawOnlyAdapters() {
+        ProtocolSessionSettings options = ProtocolSessionSettings.defaults();
+        ProtocolTextReader.StreamState textStream = streamText(options);
+        ProtocolOutputQueue queue = new ProtocolOutputQueue(16, ProtocolOutputQueue.OverflowPolicy.STRICT);
+        queue.offer("xy|".getBytes(StandardCharsets.UTF_8));
+        ProtocolResponseReader reader = new ProtocolResponseReader(
+                queue,
+                options,
+                DurationSupport.deadlineFromNow(Duration.ofSeconds(1)),
+                new ProtocolResponseBudget(16, 16, FAILURES),
+                textStream,
+                FAILURES,
+                readerScope());
 
-        assertSame(decoder.inputWindow(), decoder.inputWindow());
+        assertFalse(textStream.inputWindowAllocated());
+        assertEquals('x', reader.readByte());
+        assertFalse(textStream.inputWindowAllocated());
+        assertEquals("y|", reader.readTextUntil((byte) '|', 2));
+        assertTrue(textStream.inputWindowAllocated());
     }
 
     @Test

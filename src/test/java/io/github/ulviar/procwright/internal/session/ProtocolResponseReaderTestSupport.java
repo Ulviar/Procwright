@@ -74,8 +74,16 @@ abstract class ProtocolResponseReaderTestSupport {
         return new ProtocolTextDecoderState(
                 options.charsetPolicy(),
                 ProtocolTextReader.pendingByteLimit(options),
-                ProtocolTextReader.outputWithoutInputLimit(options),
-                ProtocolTextReader.decodedLineSuffixLimit(options));
+                ProtocolTextReader.outputWithoutInputLimit(options));
+    }
+
+    static ProtocolTextReader.StreamState streamText(ProtocolSessionSettings options) {
+        return streamText(options, streamDecoder(options));
+    }
+
+    static ProtocolTextReader.StreamState streamText(
+            ProtocolSessionSettings options, ProtocolTextDecoderState decoder) {
+        return new ProtocolTextReader.StreamState(options, decoder);
     }
 
     static ProtocolOutputQueue atomicLineOutput(int limit) {
@@ -94,7 +102,21 @@ abstract class ProtocolResponseReaderTestSupport {
                 output,
                 options,
                 new ProtocolResponseBudget(options.maxResponseBytes(), options.maxResponseChars(), FAILURES),
-                decoder,
+                streamText(options, decoder),
+                readerScope(),
+                timeout);
+    }
+
+    static ProtocolResponseReader requestReader(
+            ProtocolOutputQueue output,
+            ProtocolSessionSettings options,
+            ProtocolTextReader.StreamState textStream,
+            Duration timeout) {
+        return requestReader(
+                output,
+                options,
+                new ProtocolResponseBudget(options.maxResponseBytes(), options.maxResponseChars(), FAILURES),
+                textStream,
                 readerScope(),
                 timeout);
     }
@@ -106,8 +128,18 @@ abstract class ProtocolResponseReaderTestSupport {
             ProtocolTextDecoderState decoder,
             RequestCapabilityScope scope,
             Duration timeout) {
+        return requestReader(output, options, budget, streamText(options, decoder), scope, timeout);
+    }
+
+    static ProtocolResponseReader requestReader(
+            ProtocolOutputQueue output,
+            ProtocolSessionSettings options,
+            ProtocolResponseBudget budget,
+            ProtocolTextReader.StreamState textStream,
+            RequestCapabilityScope scope,
+            Duration timeout) {
         return new ProtocolResponseReader(
-                output, options, DurationSupport.deadlineFromNow(timeout), budget, decoder, FAILURES, scope);
+                output, options, DurationSupport.deadlineFromNow(timeout), budget, textStream, FAILURES, scope);
     }
 
     static PendingInputFixture pendingInputFixture() {
@@ -151,7 +183,7 @@ abstract class ProtocolResponseReaderTestSupport {
         ProtocolResponseBudget budget = new ProtocolResponseBudget(maxBytes, maxChars, FAILURES);
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults().withCharsetPolicy(charsetPolicy);
         return new ProtocolResponseReader(
-                queue, options, deadlineNanos, budget, streamDecoder(options), FAILURES, readerScope());
+                queue, options, deadlineNanos, budget, streamText(options), FAILURES, readerScope());
     }
 
     static RequestCapabilityScope readerScope() {

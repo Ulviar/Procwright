@@ -21,7 +21,7 @@ final class ProtocolResponseReader implements ProtocolReader {
             ProtocolSessionSettings options,
             long deadlineNanos,
             ProtocolResponseBudget budget,
-            ProtocolTextDecoderState textDecoder,
+            ProtocolTextReader.StreamState textStream,
             ProtocolRuntimeFailures failures,
             RequestCapabilityScope capabilityScope) {
         ProtocolOutputQueue configuredOutput = Objects.requireNonNull(output, "output");
@@ -39,7 +39,7 @@ final class ProtocolResponseReader implements ProtocolReader {
                 configuredOptions,
                 deadlineNanos,
                 budget,
-                Objects.requireNonNull(textDecoder, "textDecoder"),
+                Objects.requireNonNull(textStream, "textStream"),
                 failures,
                 source);
     }

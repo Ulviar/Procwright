@@ -187,9 +187,9 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
         long deadline = DurationSupport.deadlineFromNow(Duration.ofSeconds(2));
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults();
         ProtocolResponseReader stdoutReader = new ProtocolResponseReader(
-                stdout, options, deadline, budget, streamDecoder(options), FAILURES, readerScope());
+                stdout, options, deadline, budget, streamText(options), FAILURES, readerScope());
         ProtocolResponseReader stderrReader = new ProtocolResponseReader(
-                stderr, options, deadline, budget, streamDecoder(options), FAILURES, readerScope());
+                stderr, options, deadline, budget, streamText(options), FAILURES, readerScope());
         assertEquals((byte) 1, stdoutReader.readByte());
 
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, stderrReader::readByte);

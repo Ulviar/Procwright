@@ -77,7 +77,6 @@ final class ProtocolOutputTransportTest extends ProtocolSessionContractSupport {
         return new ProtocolTextDecoderState(
                 options.charsetPolicy(),
                 ProtocolTextReader.pendingByteLimit(options),
-                ProtocolTextReader.outputWithoutInputLimit(options),
-                ProtocolTextReader.decodedLineSuffixLimit(options));
+                ProtocolTextReader.outputWithoutInputLimit(options));
     }
 }

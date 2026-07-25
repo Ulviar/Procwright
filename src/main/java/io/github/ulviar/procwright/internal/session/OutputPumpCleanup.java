@@ -17,17 +17,13 @@ final class OutputPumpCleanup {
     private final Object lock = new Object();
     private final OutputCloseFailures closeFailures = new OutputCloseFailures();
     private final CompletableFuture<Void> cleanupCompleted = new CompletableFuture<>();
+    private final StreamCloseState stdoutClose = new StreamCloseState(OutputCloseReservation.Stream.STDOUT);
+    private final StreamCloseState stderrClose = new StreamCloseState(OutputCloseReservation.Stream.STDERR);
     private boolean failureAttributionSealed;
     private OutputCloseReservation.Reservation closeReservation;
     private boolean helperCleanupInstalled;
     private boolean processCleanupCompleted;
-    private boolean forceOutputClose;
-    private boolean stdoutPumpClosed;
-    private boolean stderrPumpClosed;
-    private boolean stdoutCloseDispatched;
-    private boolean stderrCloseDispatched;
-    private int pumpTasksFinished;
-    private int outputClosesCompleted;
+    private int pumpTasksRemaining = 2;
     private boolean outputCloseFailureRecorded;
     private FailureSettlement failureSettlement = FailureSettlement.OPEN;
 
@@ -74,30 +70,17 @@ final class OutputPumpCleanup {
 
     void pumpClosed(OutputCloseReservation.Stream stream) {
         synchronized (lock) {
-            switch (Objects.requireNonNull(stream, "stream")) {
-                case STDOUT -> {
-                    if (stdoutPumpClosed) {
-                        return;
-                    }
-                    stdoutPumpClosed = true;
-                }
-                case STDERR -> {
-                    if (stderrPumpClosed) {
-                        return;
-                    }
-                    stderrPumpClosed = true;
-                }
-            }
+            closeState(stream).readyToClose();
         }
         dispatchReadyCloses();
     }
 
     void pumpTaskFinished() {
         synchronized (lock) {
-            if (pumpTasksFinished == 2) {
+            if (pumpTasksRemaining == 0) {
                 throw new IllegalStateException("Output pump completion accounting overflow");
             }
-            pumpTasksFinished++;
+            pumpTasksRemaining--;
         }
         maybeFinalizeCloseFailures();
     }
@@ -142,13 +125,22 @@ final class OutputPumpCleanup {
     }
 
     void dispatchUnreservedOutputClosePreserving(Throwable primary) {
+        synchronized (lock) {
+            if (closeReservation != null) {
+                throw new IllegalStateException("Reserved process output cannot use construction rollback close");
+            }
+            stdoutClose.readyToClose();
+            stderrClose.readyToClose();
+            stdoutClose.dispatchRequired();
+            stderrClose.dispatchRequired();
+        }
         try {
             session.dispatchUnreservedOwnedOutputClose(
                     owner,
                     this::recordOutputCloseFailure,
-                    this::outputCloseCompleted,
+                    () -> outputCloseCompleted(stdoutClose),
                     this::recordOutputCloseFailure,
-                    this::outputCloseCompleted);
+                    () -> outputCloseCompleted(stderrClose));
         } catch (RuntimeException | Error closeFailure) {
             closeFailures.retainFallback(closeFailure);
         }
@@ -176,7 +168,8 @@ final class OutputPumpCleanup {
 
     private void requestForcedOutputClose() {
         synchronized (lock) {
-            forceOutputClose = true;
+            stdoutClose.readyToClose();
+            stderrClose.readyToClose();
         }
         dispatchReadyCloses();
     }
@@ -189,12 +182,9 @@ final class OutputPumpCleanup {
         maybeFinalizeCloseFailures();
     }
 
-    private void outputCloseCompleted() {
+    private void outputCloseCompleted(StreamCloseState closeState) {
         synchronized (lock) {
-            if (outputClosesCompleted == 2) {
-                throw new IllegalStateException("Output close completion accounting overflow");
-            }
-            outputClosesCompleted++;
+            closeState.settle();
         }
         maybeFinalizeCloseFailures();
     }
@@ -203,8 +193,8 @@ final class OutputPumpCleanup {
         boolean finalize;
         synchronized (lock) {
             finalize = processCleanupCompleted
-                    && pumpTasksFinished == 2
-                    && (failureAttributionSealed || (outputClosesCompleted == 2 && !outputCloseFailureRecorded))
+                    && pumpTasksRemaining == 0
+                    && (failureAttributionSealed || (outputClosesSettled() && !outputCloseFailureRecorded))
                     && failureSettlement == FailureSettlement.OPEN;
             if (finalize) {
                 failureSettlement = FailureSettlement.FINALIZING;
@@ -231,7 +221,7 @@ final class OutputPumpCleanup {
     private void completeCleanupIfReady() {
         boolean complete;
         synchronized (lock) {
-            complete = failureSettlement == FailureSettlement.FINISHED && outputClosesCompleted == 2;
+            complete = failureSettlement == FailureSettlement.FINISHED && outputClosesSettled();
         }
         if (complete) {
             cleanupCompleted.complete(null);
@@ -263,14 +253,8 @@ final class OutputPumpCleanup {
             if (!processCleanupCompleted || reservation == null) {
                 return;
             }
-            dispatchStdout = !stdoutCloseDispatched && (forceOutputClose || stdoutPumpClosed);
-            dispatchStderr = !stderrCloseDispatched && (forceOutputClose || stderrPumpClosed);
-            if (dispatchStdout) {
-                stdoutCloseDispatched = true;
-            }
-            if (dispatchStderr) {
-                stderrCloseDispatched = true;
-            }
+            dispatchStdout = stdoutClose.dispatchIfReady();
+            dispatchStderr = stderrClose.dispatchIfReady();
         }
         if (dispatchStdout && dispatchStderr) {
             dispatchClosePair(reservation);
@@ -286,19 +270,20 @@ final class OutputPumpCleanup {
         reservation.dispatchPair(
                 threadPrefix + "-stdout-close-",
                 this::recordOutputCloseFailure,
-                this::outputCloseCompleted,
+                () -> outputCloseCompleted(stdoutClose),
                 threadPrefix + "-stderr-close-",
                 this::recordOutputCloseFailure,
-                this::outputCloseCompleted);
+                () -> outputCloseCompleted(stderrClose));
     }
 
     private void dispatchClose(
             OutputCloseReservation.Reservation reservation, OutputCloseReservation.Stream stream, String streamName) {
+        StreamCloseState closeState = closeState(stream);
         reservation.dispatchClose(
                 stream,
                 "procwright-" + owner.toLowerCase(Locale.ROOT) + '-' + streamName + "-close-",
                 this::recordOutputCloseFailure,
-                this::outputCloseCompleted);
+                () -> outputCloseCompleted(closeState));
     }
 
     private void recordOutputCloseFailure(Throwable failure) {
@@ -308,6 +293,17 @@ final class OutputPumpCleanup {
                 outputCloseFailureRecorded = true;
             }
         }
+    }
+
+    private StreamCloseState closeState(OutputCloseReservation.Stream stream) {
+        return switch (Objects.requireNonNull(stream, "stream")) {
+            case STDOUT -> stdoutClose;
+            case STDERR -> stderrClose;
+        };
+    }
+
+    private boolean outputClosesSettled() {
+        return stdoutClose.settled() && stderrClose.settled();
     }
 
     private static void rethrow(Throwable failure) {
@@ -326,5 +322,57 @@ final class OutputPumpCleanup {
         OPEN,
         FINALIZING,
         FINISHED
+    }
+
+    private static final class StreamCloseState {
+
+        private final OutputCloseReservation.Stream stream;
+        private State state = State.PUMP_RUNNING;
+
+        private StreamCloseState(OutputCloseReservation.Stream stream) {
+            this.stream = stream;
+        }
+
+        private void readyToClose() {
+            if (state == State.PUMP_RUNNING) {
+                state = State.READY_TO_CLOSE;
+            }
+        }
+
+        private boolean dispatchIfReady() {
+            if (state != State.READY_TO_CLOSE) {
+                return false;
+            }
+            state = State.CLOSE_DISPATCHED;
+            return true;
+        }
+
+        private void dispatchRequired() {
+            if (!dispatchIfReady()) {
+                throw new IllegalStateException(stream.name().toLowerCase(Locale.ROOT)
+                        + " close cannot be dispatched while it is "
+                        + state.name().toLowerCase(Locale.ROOT));
+            }
+        }
+
+        private void settle() {
+            if (state != State.CLOSE_DISPATCHED) {
+                throw new IllegalStateException(stream.name().toLowerCase(Locale.ROOT)
+                        + " close cannot settle while it is "
+                        + state.name().toLowerCase(Locale.ROOT));
+            }
+            state = State.SETTLED;
+        }
+
+        private boolean settled() {
+            return state == State.SETTLED;
+        }
+
+        private enum State {
+            PUMP_RUNNING,
+            READY_TO_CLOSE,
+            CLOSE_DISPATCHED,
+            SETTLED
+        }
     }
 }

@@ -15,6 +15,7 @@ import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSessionException;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -530,6 +531,38 @@ final class DefaultLineSessionRequestAdmissionTest extends DefaultLineSessionReq
             assertSame(writeFailure, followUp.getCause().getCause());
             assertEquals(1, stdin.writeCalls());
         }
+    }
+
+    @Test
+    void delegateIoFailureIsBrokenPipeAndRemainsTheTerminalReason() throws Exception {
+        int baselineWriteCapacity = BoundedTaskLimits.BLOCKING_WRITES.availablePermits();
+        IOException writeFailure = new IOException("pipe write failed");
+        PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
+        ControllableProcess process =
+                new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
+        DefaultSession rawSession = session(process);
+        try (DefaultLineSession lineSession = new DefaultLineSession(rawSession, LineSessionSettings.defaults())) {
+            LineSessionException failure = assertThrows(
+                    LineSessionException.class,
+                    () -> lineSession.requestEncoded("abcd".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
+
+            assertEquals(LineSessionException.Reason.BROKEN_PIPE, failure.reason());
+            assertSame(writeFailure, failure.getCause());
+            assertEquals(1, stdin.writeCalls());
+            assertEquals("ab", stdin.writtenText());
+            lineSession.onExit().get(1, TimeUnit.SECONDS);
+            assertFalse(process.isAlive());
+            assertEquals(baselineWriteCapacity, BoundedTaskLimits.BLOCKING_WRITES.availablePermits());
+
+            LineSessionException followUp = assertThrows(
+                    LineSessionException.class,
+                    () -> lineSession.requestEncoded("retry".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
+            assertEquals(LineSessionException.Reason.BROKEN_PIPE, followUp.reason());
+            assertSame(failure, followUp.getCause());
+            assertSame(writeFailure, followUp.getCause().getCause());
+            assertEquals(1, stdin.writeCalls());
+        }
+        assertEquals(baselineWriteCapacity, BoundedTaskLimits.BLOCKING_WRITES.availablePermits());
     }
 
     @Test

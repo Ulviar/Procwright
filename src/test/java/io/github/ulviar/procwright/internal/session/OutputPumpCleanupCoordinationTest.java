@@ -338,6 +338,57 @@ final class OutputPumpCleanupCoordinationTest extends OutputPumpCleanupTestSuppo
     }
 
     @Test
+    void eachOutputClosesWhenItsOwnPumpBecomesReadyAfterProcessCleanup() throws Exception {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2);
+        CloseTrackingInputStream stdout = new CloseTrackingInputStream(closeDispatcher);
+        CloseTrackingInputStream stderr = new CloseTrackingInputStream(closeDispatcher);
+        ControllableProcess process = new ControllableProcess(stdout, stderr);
+        DefaultSession rawSession = session(process, closeDispatcher);
+        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "asymmetric-eof");
+        CountDownLatch stdoutFinished = new CountDownLatch(1);
+        CountDownLatch stderrEntered = new CountDownLatch(1);
+        CountDownLatch releaseStderr = new CountDownLatch(1);
+        CountDownLatch stderrFinished = new CountDownLatch(1);
+        CountDownLatch cleanupCompleted = new CountDownLatch(1);
+        coordinator.publishAfterOutputCleanup(cleanupCompleted::countDown);
+
+        try {
+            coordinator.start(
+                    PumpStarter.threading(),
+                    "procwright-asymmetric-eof-stdout-pump-",
+                    stream -> drainToEof(stream, stdoutFinished),
+                    "procwright-asymmetric-eof-stderr-pump-",
+                    stream -> {
+                        stderrEntered.countDown();
+                        awaitUninterruptibly(releaseStderr);
+                        drainToEof(stream, stderrFinished);
+                    },
+                    () -> {});
+            assertTrue(stdoutFinished.await(1, TimeUnit.SECONDS));
+            assertTrue(stderrEntered.await(1, TimeUnit.SECONDS));
+
+            process.exitNaturally(0);
+
+            assertTrue(stdout.awaitClose());
+            assertEquals(1, stdout.closeCalls());
+            assertEquals(0, stderr.closeCalls());
+            assertEquals(1, cleanupCompleted.getCount());
+
+            releaseStderr.countDown();
+
+            assertTrue(stderrFinished.await(1, TimeUnit.SECONDS));
+            assertTrue(stderr.awaitClose());
+            assertTrue(cleanupCompleted.await(1, TimeUnit.SECONDS));
+            rawSession.onExit().get(1, TimeUnit.SECONDS);
+            assertEquals(1, stderr.closeCalls());
+        } finally {
+            releaseStderr.countDown();
+            coordinator.closeSession();
+            rawSession.close();
+        }
+    }
+
+    @Test
     void pumpEofCannotPhysicallyCloseReservedOutputBeforeProcessCleanup() throws Exception {
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2);
         CloseTrackingInputStream stdout = new CloseTrackingInputStream(closeDispatcher);
