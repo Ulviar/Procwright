@@ -2,41 +2,34 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.internal.FailureAggregation;
+import io.github.ulviar.procwright.internal.Threading;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 final class WorkerCloseSupport {
+
+    private static final String CLOSE_THREAD_PREFIX = "procwright-worker-close-";
 
     private WorkerCloseSupport() {}
 
     static CompletableFuture<WorkerRetirement.Outcome> closeOutcome(
-            AutoCloseable session,
-            CompletableFuture<?> terminalOutcome,
-            CompletableFuture<?> physicalOutputCleanup,
-            PoolLifecycleDispatcher.Admission admission) {
-        return closeOutcome(
-                session,
-                terminalOutcome,
-                physicalOutputCleanup,
-                admission,
-                PoolLifecycleDispatcher::executeWorkerClose);
+            AutoCloseable session, CompletableFuture<?> terminalOutcome, CompletableFuture<?> physicalOutputCleanup) {
+        return closeOutcome(session, terminalOutcome, physicalOutputCleanup, Threading::start);
     }
 
     static CompletableFuture<WorkerRetirement.Outcome> closeOutcome(
             AutoCloseable session,
             CompletableFuture<?> terminalOutcome,
             CompletableFuture<?> physicalOutputCleanup,
-            PoolLifecycleDispatcher.Admission admission,
-            TerminalRetirementDispatcher dispatcher) {
+            CloseStarter starter) {
         Objects.requireNonNull(session, "session");
         Objects.requireNonNull(terminalOutcome, "terminalOutcome");
         Objects.requireNonNull(physicalOutputCleanup, "physicalOutputCleanup");
-        Objects.requireNonNull(admission, "admission");
-        Objects.requireNonNull(dispatcher, "dispatcher");
+        Objects.requireNonNull(starter, "starter");
 
-        PoolLifecycleDispatcher.Ownership closeOwnership = initiateClose(session, admission, dispatcher);
-        CompletableFuture<Throwable> closeFailure = observe(closeOwnership.cleanupCompletion());
+        CompletableFuture<Throwable> closeFailure = observe(initiateClose(session, starter));
         CompletableFuture<Throwable> terminalFailure = observe(terminalOutcome);
         CompletableFuture<Throwable> physicalCleanupFailure = observe(physicalOutputCleanup);
         CompletableFuture<WorkerRetirement.Outcome> cleanupOutcome = CompletableFuture.allOf(
@@ -46,55 +39,78 @@ final class WorkerCloseSupport {
         return cleanupOutcome;
     }
 
-    private static PoolLifecycleDispatcher.Ownership initiateClose(
-            AutoCloseable session,
-            PoolLifecycleDispatcher.Admission admission,
-            TerminalRetirementDispatcher dispatcher) {
+    private static CompletableFuture<Void> initiateClose(AutoCloseable session, CloseStarter starter) {
+        CloseTask task = new CloseTask(session);
         try {
-            return dispatcher.dispatch(admission, () -> {
-                try {
-                    session.close();
-                } catch (Throwable failure) {
-                    throw new CloseTaskFailure(failure);
-                }
-            });
-        } catch (Throwable failure) {
-            CompletableFuture<Thread> started = CompletableFuture.failedFuture(failure);
-            CompletableFuture<Void> completion = CompletableFuture.failedFuture(failure);
-            return new PoolLifecycleDispatcher.Ownership(started, completion, completion);
+            starter.start(CLOSE_THREAD_PREFIX, task::run);
+            return task.completion();
+        } catch (RuntimeException | Error failure) {
+            Throwable ownerFailure = failure;
+            try {
+                PoolLifecycleDispatcher.executeRetirementBatch(task::run);
+            } catch (RuntimeException | Error fallbackFailure) {
+                ownerFailure = FailureAggregation.combine(
+                        failure, fallbackFailure, "Worker close owner startup and fallback dispatch both failed");
+                task.run();
+            }
+            return combineFailure(
+                    task.completion(), ownerFailure, "Worker close owner startup and fallback close both failed");
         }
     }
 
+    private static CompletableFuture<Void> combineFailure(
+            CompletableFuture<Void> completion, Throwable primary, String message) {
+        CompletableFuture<Void> combined = new CompletableFuture<>();
+        completion.whenComplete((ignored, failure) -> {
+            Throwable outcome = failure == null ? primary : FailureAggregation.combine(primary, failure, message);
+            combined.completeExceptionally(outcome);
+        });
+        return combined;
+    }
+
     private static CompletableFuture<Throwable> observe(CompletableFuture<?> future) {
-        return future.handle((ignored, failure) -> unwrap(failure));
+        return future.handle((ignored, failure) -> failure);
     }
 
     private static WorkerRetirement.Outcome aggregate(Throwable... observedFailures) {
         FailureAccumulator failures = new FailureAccumulator();
         for (Throwable failure : observedFailures) {
-            failures.add(unwrapCloseTaskFailure(failure));
+            failures.add(failure);
         }
         Throwable failure = failures.aggregateErrorFirst("Multiple failures occurred while closing a pool worker");
         return failure == null ? WorkerRetirement.Outcome.success() : WorkerRetirement.Outcome.failure(failure);
     }
 
-    private static Throwable unwrap(Throwable failure) {
-        return failure instanceof CompletionException completion && completion.getCause() != null
-                ? completion.getCause()
-                : failure;
+    @FunctionalInterface
+    interface CloseStarter {
+
+        Thread start(String threadPrefix, Runnable task);
     }
 
-    private static Throwable unwrapCloseTaskFailure(Throwable failure) {
-        return failure instanceof CloseTaskFailure closeTaskFailure && closeTaskFailure.getCause() != null
-                ? closeTaskFailure.getCause()
-                : failure;
-    }
+    private static final class CloseTask {
 
-    @SuppressWarnings("serial")
-    private static final class CloseTaskFailure extends RuntimeException {
+        private final AutoCloseable session;
+        private final CompletableFuture<Void> completion = new CompletableFuture<>();
+        private final AtomicBoolean claimed = new AtomicBoolean();
 
-        private CloseTaskFailure(Throwable cause) {
-            super(cause);
+        private CloseTask(AutoCloseable session) {
+            this.session = session;
+        }
+
+        private void run() {
+            if (!claimed.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                session.close();
+                completion.complete(null);
+            } catch (Throwable failure) {
+                completion.completeExceptionally(failure);
+            }
+        }
+
+        private CompletableFuture<Void> completion() {
+            return completion;
         }
     }
 }

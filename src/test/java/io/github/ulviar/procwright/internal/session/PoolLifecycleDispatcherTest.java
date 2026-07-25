@@ -3,8 +3,6 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,10 +11,12 @@ import io.github.ulviar.procwright.internal.Threading;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -27,20 +27,20 @@ final class PoolLifecycleDispatcherTest {
         PoolLifecycleDispatcher dispatcher = dispatcher(2);
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch firstFinished = new CountDownLatch(1);
         CountDownLatch secondFinished = new CountDownLatch(1);
 
-        PoolLifecycleDispatcher.Ownership first = dispatcher.dispatch(() -> {
+        dispatcher.dispatch(() -> {
             firstStarted.countDown();
             awaitIgnoringInterrupt(releaseFirst);
+            firstFinished.countDown();
         });
         assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
-        PoolLifecycleDispatcher.Ownership second = dispatcher.dispatch(secondFinished::countDown);
+        dispatcher.dispatch(secondFinished::countDown);
 
         assertTrue(secondFinished.await(1, TimeUnit.SECONDS));
-        second.completion().get(1, TimeUnit.SECONDS);
         releaseFirst.countDown();
-        first.completion().get(1, TimeUnit.SECONDS);
-        dispatcher.whenIdle().get(1, TimeUnit.SECONDS);
+        assertTrue(firstFinished.await(1, TimeUnit.SECONDS));
     }
 
     @Test
@@ -48,9 +48,9 @@ final class PoolLifecycleDispatcherTest {
         PoolLifecycleDispatcher dispatcher = dispatcher(1);
         CountDownLatch ownerStarted = new CountDownLatch(1);
         CountDownLatch releaseOwner = new CountDownLatch(1);
+        CountDownLatch completed = new CountDownLatch(4);
         List<Integer> order = Collections.synchronizedList(new ArrayList<>());
-        List<PoolLifecycleDispatcher.Ownership> queued = new ArrayList<>();
-        PoolLifecycleDispatcher.Ownership owner = dispatcher.dispatch(() -> {
+        dispatcher.dispatch(() -> {
             ownerStarted.countDown();
             awaitIgnoringInterrupt(releaseOwner);
         });
@@ -58,18 +58,15 @@ final class PoolLifecycleDispatcherTest {
 
         for (int index = 0; index < 4; index++) {
             int taskId = index;
-            queued.add(dispatcher.dispatch(() -> order.add(taskId)));
+            dispatcher.dispatch(() -> {
+                order.add(taskId);
+                completed.countDown();
+            });
         }
 
         assertEquals(List.of(), order);
-        queued.forEach(ownership -> assertFalse(ownership.started().isDone()));
         releaseOwner.countDown();
-        owner.completion().get(1, TimeUnit.SECONDS);
-        for (PoolLifecycleDispatcher.Ownership ownership : queued) {
-            ownership.completion().get(1, TimeUnit.SECONDS);
-        }
-        dispatcher.whenIdle().get(1, TimeUnit.SECONDS);
-
+        assertTrue(completed.await(1, TimeUnit.SECONDS));
         assertEquals(List.of(0, 1, 2, 3), order);
     }
 
@@ -77,92 +74,83 @@ final class PoolLifecycleDispatcherTest {
     void taskErrorDoesNotReduceBoundedOwnerCapacity() throws Exception {
         PoolLifecycleDispatcher dispatcher = dispatcher(1);
         AssertionError failure = new AssertionError("mandatory task failed");
-        PoolLifecycleDispatcher.Ownership failed = dispatcher.dispatch(() -> {
+        CountDownLatch failedTaskRan = new CountDownLatch(1);
+        CountDownLatch followingRan = new CountDownLatch(1);
+
+        dispatcher.dispatch(() -> {
+            failedTaskRan.countDown();
             throw failure;
         });
-        PoolLifecycleDispatcher.Ownership following = dispatcher.dispatch(() -> {});
+        dispatcher.dispatch(followingRan::countDown);
 
-        assertSame(failure, exceptionalCause(failed.completion()));
-        following.completion().get(1, TimeUnit.SECONDS);
-        dispatcher.whenIdle().get(1, TimeUnit.SECONDS);
+        assertTrue(failedTaskRan.await(1, TimeUnit.SECONDS));
+        assertTrue(followingRan.await(1, TimeUnit.SECONDS));
     }
 
     @Test
     void ownerCanSynchronouslyDispatchIntoItsOwnDomain() throws Exception {
         PoolLifecycleDispatcher dispatcher =
-                new PoolLifecycleDispatcher(new BoundedTaskLimiter(1), Threading::start, "test-reentrant-dispatch-", 1);
+                new PoolLifecycleDispatcher(1, Threading::start, "test-reentrant-dispatch-", 1);
         AtomicInteger runs = new AtomicInteger();
+        CountDownLatch finished = new CountDownLatch(1);
 
-        PoolLifecycleDispatcher.Ownership outer = dispatcher.dispatch(() -> {
-            PoolLifecycleDispatcher.Ownership inner = dispatcher.dispatch(runs::incrementAndGet);
-            inner.completion().join();
+        dispatcher.dispatch(() -> {
+            dispatcher.dispatch(runs::incrementAndGet);
             runs.incrementAndGet();
+            finished.countDown();
         });
 
-        outer.completion().get(1, TimeUnit.SECONDS);
-        dispatcher.whenIdle().get(1, TimeUnit.SECONDS);
+        assertTrue(finished.await(1, TimeUnit.SECONDS));
         assertEquals(2, runs.get());
-        assertEquals(1, dispatcher.availableAdmissions());
     }
 
     @Test
-    void retirementBatchDoesNotNeedAnAdmissionHeldByTheRetiringWorker() throws Exception {
-        PoolLifecycleDispatcher dispatcher = new PoolLifecycleDispatcher(
-                new BoundedTaskLimiter(1), Threading::start, "test-admission-free-batch-", 1);
-        PoolLifecycleDispatcher.Admission workerAdmission = dispatcher.tryAdmit();
-        assertTrue(workerAdmission != null);
+    void retirementBatchQueuesWithoutTaskPermit() throws Exception {
+        PoolLifecycleDispatcher dispatcher =
+                new PoolLifecycleDispatcher(1, Threading::start, "test-permit-free-batch-", 1);
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
         CountDownLatch completed = new CountDownLatch(1);
-        try {
-            assertEquals(0, dispatcher.availableAdmissions());
+        dispatcher.dispatch(() -> {
+            blockerStarted.countDown();
+            awaitIgnoringInterrupt(releaseBlocker);
+        });
+        assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
 
-            PoolLifecycleDispatcher.Ownership retirement = dispatcher.dispatchRetirementBatch(completed::countDown);
+        dispatcher.dispatchRetirementBatch(completed::countDown);
 
-            assertTrue(completed.await(1, TimeUnit.SECONDS));
-            retirement.completion().get(1, TimeUnit.SECONDS);
-        } finally {
-            workerAdmission.close();
-        }
-        assertEquals(1, dispatcher.availableAdmissions());
+        releaseBlocker.countDown();
+        assertTrue(completed.await(1, TimeUnit.SECONDS));
     }
 
     @Test
-    void runtimeStarterFailureFailsConstructionBeforeAdmission() throws Exception {
+    void runtimeStarterFailureFailsConstructionBeforeTaskAcceptance() throws Exception {
         assertStarterFailure(new IllegalStateException("owner launch failed"));
     }
 
     @Test
-    void errorStarterFailureFailsConstructionBeforeAdmission() throws Exception {
+    void errorStarterFailureFailsConstructionBeforeTaskAcceptance() throws Exception {
         assertStarterFailure(new AssertionError("owner launch failed fatally"));
-    }
-
-    @Test
-    void workerCloseRuntimeStarterFailurePreservesAdmissionAndExactOutcome() throws Exception {
-        assertWorkerCloseStarterFailure(new IllegalStateException("worker close owner launch failed"));
-    }
-
-    @Test
-    void workerCloseErrorStarterFailurePreservesAdmissionAndExactOutcome() throws Exception {
-        assertWorkerCloseStarterFailure(new AssertionError("worker close owner launch failed fatally"));
     }
 
     @Test
     void sharedReportAndRetirementUseIndependentOwners() throws Exception {
         CountDownLatch publicationStarted = new CountDownLatch(1);
         CountDownLatch releasePublication = new CountDownLatch(1);
+        CountDownLatch publicationFinished = new CountDownLatch(1);
         CountDownLatch retirementFinished = new CountDownLatch(1);
-        PoolLifecycleDispatcher.Ownership publication = PoolLifecycleDispatcher.report(() -> {
+        PoolLifecycleDispatcher.report(() -> {
             publicationStarted.countDown();
             awaitIgnoringInterrupt(releasePublication);
+            publicationFinished.countDown();
         });
         assertTrue(publicationStarted.await(1, TimeUnit.SECONDS));
 
-        PoolLifecycleDispatcher.Ownership retirement = PoolLifecycleDispatcher.execute(retirementFinished::countDown);
+        PoolLifecycleDispatcher.executeRetirementBatch(retirementFinished::countDown);
 
         assertTrue(retirementFinished.await(1, TimeUnit.SECONDS));
-        retirement.completion().get(1, TimeUnit.SECONDS);
         releasePublication.countDown();
-        publication.completion().get(1, TimeUnit.SECONDS);
-        PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
+        assertTrue(publicationFinished.await(1, TimeUnit.SECONDS));
     }
 
     @Test
@@ -170,29 +158,31 @@ final class PoolLifecycleDispatcherTest {
         int parallelism = 8;
         CountDownLatch ownersStarted = new CountDownLatch(parallelism);
         CountDownLatch releaseOwners = new CountDownLatch(1);
-        List<PoolLifecycleDispatcher.Ownership> blockers = new ArrayList<>();
+        CountDownLatch blockersFinished = new CountDownLatch(parallelism);
+        CountDownLatch publicationsFinished = new CountDownLatch(2);
         AtomicInteger publications = new AtomicInteger();
         for (int index = 0; index < parallelism; index++) {
-            blockers.add(PoolLifecycleDispatcher.report(() -> {
+            PoolLifecycleDispatcher.report(() -> {
                 ownersStarted.countDown();
                 awaitIgnoringInterrupt(releaseOwners);
-            }));
+                blockersFinished.countDown();
+            });
         }
         try {
             assertTrue(ownersStarted.await(1, TimeUnit.SECONDS));
-            PoolLifecycleDispatcher.Ownership first = PoolLifecycleDispatcher.report(publications::incrementAndGet);
-            PoolLifecycleDispatcher.Ownership second = PoolLifecycleDispatcher.report(publications::incrementAndGet);
+            PoolLifecycleDispatcher.report(() -> {
+                publications.incrementAndGet();
+                publicationsFinished.countDown();
+            });
+            PoolLifecycleDispatcher.report(() -> {
+                publications.incrementAndGet();
+                publicationsFinished.countDown();
+            });
 
-            assertFalse(first.started().isDone());
-            assertFalse(second.started().isDone());
             releaseOwners.countDown();
 
-            first.completion().get(1, TimeUnit.SECONDS);
-            second.completion().get(1, TimeUnit.SECONDS);
-            for (PoolLifecycleDispatcher.Ownership blocker : blockers) {
-                blocker.completion().get(1, TimeUnit.SECONDS);
-            }
-            PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
+            assertTrue(blockersFinished.await(1, TimeUnit.SECONDS));
+            assertTrue(publicationsFinished.await(1, TimeUnit.SECONDS));
             assertEquals(2, publications.get());
         } finally {
             releaseOwners.countDown();
@@ -200,55 +190,52 @@ final class PoolLifecycleDispatcherTest {
     }
 
     @Test
-    void admittedNonCooperativeTasksBoundQueueAndBackpressureArbitraryAttempts() throws Exception {
+    void taskPermitsBoundQueueAndBackpressureArbitraryAttempts() throws Exception {
         AtomicInteger ownerStarts = new AtomicInteger();
         PoolLifecycleDispatcher dispatcher = new PoolLifecycleDispatcher(
-                new BoundedTaskLimiter(1),
+                1,
                 (prefix, task) -> {
                     ownerStarts.incrementAndGet();
                     return Threading.start(prefix, task);
                 },
                 "test-bounded-retirement-",
                 3);
-        CountDownLatch tasksStarted = new CountDownLatch(1);
+        CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseTasks = new CountDownLatch(1);
+        CountDownLatch allFinished = new CountDownLatch(4);
         AtomicInteger taskRuns = new AtomicInteger();
-        List<PoolLifecycleDispatcher.Admission> admissions = new ArrayList<>();
-        List<PoolLifecycleDispatcher.Ownership> ownerships = new ArrayList<>();
+        ExecutorService blockedSubmitter = Executors.newSingleThreadExecutor();
         try {
             for (int index = 0; index < 3; index++) {
-                PoolLifecycleDispatcher.Admission admission = dispatcher.tryAdmit();
-                assertTrue(admission != null);
-                admissions.add(admission);
-                ownerships.add(dispatcher.dispatch(admission, () -> {
+                dispatcher.dispatch(() -> {
                     taskRuns.incrementAndGet();
-                    tasksStarted.countDown();
+                    firstStarted.countDown();
                     awaitIgnoringInterrupt(releaseTasks);
-                }));
+                    allFinished.countDown();
+                });
             }
-            assertTrue(tasksStarted.await(1, TimeUnit.SECONDS));
+            assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
 
-            for (int attempt = 0; attempt < 1_000; attempt++) {
-                assertNull(dispatcher.tryAdmit(), "non-cooperative owners must backpressure later resources");
-            }
-            assertEquals(1, ownerStarts.get(), "admission pressure must not create fallback owner threads");
+            Future<?> blocked = blockedSubmitter.submit(() -> dispatcher.dispatch(() -> {
+                taskRuns.incrementAndGet();
+                allFinished.countDown();
+            }));
+            assertThrows(TimeoutException.class, () -> blocked.get(100, TimeUnit.MILLISECONDS));
+            assertEquals(1, ownerStarts.get(), "task-permit pressure must not create fallback owner threads");
 
             releaseTasks.countDown();
-            for (PoolLifecycleDispatcher.Ownership ownership : ownerships) {
-                ownership.completion().get(1, TimeUnit.SECONDS);
-            }
-            assertEquals(3, taskRuns.get(), "every admitted cleanup must run exactly once");
+            blocked.get(1, TimeUnit.SECONDS);
+            assertTrue(allFinished.await(1, TimeUnit.SECONDS));
+            assertEquals(4, taskRuns.get(), "every accepted cleanup must run exactly once");
         } finally {
             releaseTasks.countDown();
-            admissions.forEach(PoolLifecycleDispatcher.Admission::close);
-            dispatcher.whenIdle().get(1, TimeUnit.SECONDS);
+            blockedSubmitter.shutdownNow();
+            assertTrue(blockedSubmitter.awaitTermination(1, TimeUnit.SECONDS));
         }
-        assertEquals(3, dispatcher.availableAdmissions());
     }
 
     private static PoolLifecycleDispatcher dispatcher(int parallelism) {
-        return new PoolLifecycleDispatcher(
-                new BoundedTaskLimiter(parallelism), Threading::start, "test-terminal-retirement-");
+        return new PoolLifecycleDispatcher(parallelism, Threading::start, "test-lifecycle-");
     }
 
     private static void assertStarterFailure(Throwable expected) throws Exception {
@@ -267,41 +254,12 @@ final class PoolLifecycleDispatcherTest {
             });
         };
 
-        Throwable observed = assertThrows(
-                expected.getClass(),
-                () -> new PoolLifecycleDispatcher(new BoundedTaskLimiter(2), starter, "test-launch-"));
+        Throwable observed =
+                assertThrows(expected.getClass(), () -> new PoolLifecycleDispatcher(2, starter, "test-launch-"));
 
         assertSame(expected, observed);
         assertTrue(firstOwnerExited.await(1, TimeUnit.SECONDS));
         assertEquals(2, launches.get());
-    }
-
-    private static void assertWorkerCloseStarterFailure(Throwable expected) throws Exception {
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
-        PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
-        AtomicInteger taskRuns = new AtomicInteger();
-
-        CompletableFuture<WorkerRetirement.Outcome> retirement = WorkerCloseSupport.closeOutcome(
-                taskRuns::incrementAndGet,
-                java.util.concurrent.CompletableFuture.completedFuture(null),
-                java.util.concurrent.CompletableFuture.completedFuture(null),
-                admission,
-                (ownedAdmission, task) -> PoolLifecycleDispatcher.executeWorkerClose(
-                        ownedAdmission, task, (prefix, owner) -> throwUnchecked(expected)));
-
-        WorkerRetirement.Outcome outcome = retirement.get(1, TimeUnit.SECONDS);
-        assertSame(expected, outcome.failure());
-        assertEquals(0, taskRuns.get());
-        assertEquals(0, admissions.availablePermits(), "the worker still owns its admitted close after failure");
-
-        admission.close();
-        admission.close();
-        assertEquals(1, admissions.availablePermits(), "dispatch rollback must allow exactly one admission return");
-    }
-
-    private static Throwable exceptionalCause(java.util.concurrent.Future<?> future) throws Exception {
-        return assertThrows(ExecutionException.class, () -> future.get(1, TimeUnit.SECONDS))
-                .getCause();
     }
 
     private static <T> T throwUnchecked(Throwable failure) {

@@ -35,7 +35,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     private final String threadPrefix;
     private final PoolFailurePublisher failurePublisher;
     private final LongSupplier metricsClock;
-    private final RetirementAdmissionProvider retirementAdmissions;
+    private final WorkerPermitProvider workerPermits;
     private final WorkerPoolState<S> state;
     private final PoolReplenisher replenisher;
     private final WorkerRetirementCoordinator<S> retirements;
@@ -129,7 +129,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         this.threadPrefix = Objects.requireNonNull(threadPrefix, "threadPrefix");
         failurePublisher = new PoolFailurePublisher(configuredDependencies.lateFailureReporter());
         metricsClock = configuredDependencies.metricsClock();
-        retirementAdmissions = configuredDependencies.retirementAdmissions();
+        workerPermits = configuredDependencies.workerPermits();
         retirements = new WorkerRetirementCoordinator<>(
                 task -> PoolLifecycleDispatcher.executeRetirementBatch(task),
                 this::processRetirement,
@@ -146,7 +146,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 this::replenishOne,
                 configuredWaiter,
                 this::failReplenishmentOwner);
-        startups = new WorkerStartupCoordinator<>(failures, workerLabel, retirementAdmissions, this);
+        startups = new WorkerStartupCoordinator<>(failures, workerLabel, workerPermits, this);
 
         List<FailureReport> commitReports = new WorkerPoolConstruction<>(
                         state,
@@ -542,11 +542,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     @Override
-    public boolean attachAdmission(
+    public boolean attachPermit(
             WorkerStartupCoordinator.Reservation<S> reservation,
-            PoolLifecycleDispatcher.Admission admission,
+            BoundedTaskPermit permit,
             PoolWorker.StartupPurpose purpose) {
-        return state.attachStartupAdmission(reservation, admission, purpose);
+        return state.attachStartupPermit(reservation, permit, purpose);
     }
 
     @Override
@@ -661,13 +661,13 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             BiConsumer<Thread, Throwable> lateFailureReporter,
             LongSupplier metricsClock,
             PoolReplenisher.Waiter backoffWaiter,
-            RetirementAdmissionProvider retirementAdmissions) {
+            WorkerPermitProvider workerPermits) {
 
         Dependencies {
             Objects.requireNonNull(replenishmentStarter, "replenishmentStarter");
             Objects.requireNonNull(lateFailureReporter, "lateFailureReporter");
             Objects.requireNonNull(metricsClock, "metricsClock");
-            Objects.requireNonNull(retirementAdmissions, "retirementAdmissions");
+            Objects.requireNonNull(workerPermits, "workerPermits");
         }
 
         static Dependencies defaults(LongSupplier metricsClock) {
@@ -676,13 +676,13 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                     PoolFailurePublisher::reportBounded,
                     metricsClock,
                     null,
-                    PoolLifecycleDispatcher::admit);
+                    BoundedTaskLimits.POOL_WORKERS::acquire);
         }
     }
 
     @FunctionalInterface
-    interface RetirementAdmissionProvider {
+    interface WorkerPermitProvider {
 
-        PoolLifecycleDispatcher.Admission acquire(long deadlineNanos) throws TimeoutException, InterruptedException;
+        BoundedTaskPermit acquire(long deadlineNanos) throws TimeoutException, InterruptedException;
     }
 }

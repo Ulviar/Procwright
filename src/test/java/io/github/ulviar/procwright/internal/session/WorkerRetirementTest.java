@@ -23,7 +23,7 @@ final class WorkerRetirementTest {
     void closeIsInitiatedAndCompletedExactlyOnce() {
         AtomicInteger initiations = new AtomicInteger();
         CompletableFuture<WorkerRetirement.Outcome> closeOutcome = new CompletableFuture<>();
-        WorkerRetirement<String> retirement = retirement((worker, admission) -> {
+        WorkerRetirement<String> retirement = retirement(worker -> {
             initiations.incrementAndGet();
             return closeOutcome;
         });
@@ -48,7 +48,7 @@ final class WorkerRetirementTest {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReferenceArray<CompletableFuture<WorkerRetirement.Outcome>> outcomes =
                 new AtomicReferenceArray<>(callers);
-        WorkerRetirement<String> retirement = retirement((worker, admission) -> {
+        WorkerRetirement<String> retirement = retirement(worker -> {
             initiations.incrementAndGet();
             try {
                 assertTrue(otherCallsReturned.await(5, TimeUnit.SECONDS));
@@ -97,7 +97,7 @@ final class WorkerRetirementTest {
     @Test
     void initiationFailureBecomesAStableOutcome() {
         AssertionError expected = new AssertionError("close failed");
-        WorkerRetirement<String> retirement = retirement((worker, admission) -> {
+        WorkerRetirement<String> retirement = retirement(worker -> {
             throw expected;
         });
 
@@ -107,12 +107,11 @@ final class WorkerRetirementTest {
 
     @Test
     void prematureInitiationDoesNotPoisonRetirement() {
-        WorkerRetirement<String> retirement = new WorkerRetirement<>(
-                (worker, admission) -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
+        WorkerRetirement<String> retirement =
+                new WorkerRetirement<>(worker -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
 
         assertThrows(NullPointerException.class, retirement::initiate);
 
-        retirement.admission(admission());
         retirement.accept("worker");
         CompletableFuture<WorkerRetirement.Outcome> outcome = retirement.outcome();
         assertTrue(outcome.isDone());
@@ -124,7 +123,7 @@ final class WorkerRetirementTest {
         AtomicInteger initiations = new AtomicInteger();
         AtomicReference<WorkerRetirement<String>> owner = new AtomicReference<>();
         AtomicReference<CompletableFuture<WorkerRetirement.Outcome>> reentrantOutcome = new AtomicReference<>();
-        WorkerRetirement<String> retirement = retirement((worker, admission) -> {
+        WorkerRetirement<String> retirement = retirement(worker -> {
             initiations.incrementAndGet();
             reentrantOutcome.set(owner.get().outcome());
             return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
@@ -141,15 +140,14 @@ final class WorkerRetirementTest {
     @Test
     void exceptionalFutureIsNormalizedToCloseOutcome() {
         IllegalStateException expected = new IllegalStateException("close failed");
-        WorkerRetirement<String> retirement =
-                retirement((worker, admission) -> CompletableFuture.failedFuture(expected));
+        WorkerRetirement<String> retirement = retirement(worker -> CompletableFuture.failedFuture(expected));
 
         assertSame(expected, retirement.outcome().join().failure());
     }
 
     @Test
     void nullFutureIsNormalizedToStableFailure() {
-        WorkerRetirement<String> retirement = retirement((worker, admission) -> null);
+        WorkerRetirement<String> retirement = retirement(worker -> null);
 
         Throwable first = retirement.outcome().join().failure();
         Throwable second = retirement.outcome().join().failure();
@@ -160,8 +158,7 @@ final class WorkerRetirementTest {
 
     @Test
     void nullOutcomeIsNormalizedToStableFailure() {
-        WorkerRetirement<String> retirement =
-                retirement((worker, admission) -> CompletableFuture.completedFuture(null));
+        WorkerRetirement<String> retirement = retirement(worker -> CompletableFuture.completedFuture(null));
 
         Throwable first = retirement.outcome().join().failure();
         Throwable second = retirement.outcome().join().failure();
@@ -170,17 +167,8 @@ final class WorkerRetirementTest {
         assertEquals("worker close future returned null", first.getMessage());
     }
 
-    private static PoolLifecycleDispatcher.Admission admission() {
-        PoolLifecycleDispatcher.Admission admission = new PoolLifecycleDispatcher.AdmissionPool(1).tryAcquire();
-        if (admission == null) {
-            throw new AssertionError("test admission unavailable");
-        }
-        return admission;
-    }
-
     private static WorkerRetirement<String> retirement(WorkerRetirement.Action<String> action) {
         WorkerRetirement<String> retirement = new WorkerRetirement<>(action);
-        retirement.admission(admission());
         retirement.accept("worker");
         return retirement;
     }

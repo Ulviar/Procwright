@@ -12,8 +12,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -79,15 +77,15 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
 
     @Test
     void queuedLateErrorReportCannotRetainAbandonedStartupSlot() throws Exception {
-        PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
         CountDownLatch releaseReports = new CountDownLatch(1);
         CountDownLatch reportsStarted = new CountDownLatch(8);
-        List<PoolLifecycleDispatcher.Ownership> saturatedReports = new ArrayList<>();
+        CountDownLatch reportsFinished = new CountDownLatch(8);
         for (int index = 0; index < 8; index++) {
-            saturatedReports.add(PoolLifecycleDispatcher.report(() -> {
+            PoolLifecycleDispatcher.report(() -> {
                 reportsStarted.countDown();
                 awaitIgnoringInterrupt(releaseReports);
-            }));
+                reportsFinished.countDown();
+            });
         }
         AssertionError lateError = new AssertionError("late startup failed");
         CountDownLatch factoryEntered = new CountDownLatch(1);
@@ -141,10 +139,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
             releaseReporter.countDown();
             releaseReports.countDown();
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
-            for (PoolLifecycleDispatcher.Ownership ownership : saturatedReports) {
-                ownership.completion().get(1, TimeUnit.SECONDS);
-            }
-            PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
+            assertTrue(reportsFinished.await(1, TimeUnit.SECONDS));
             pool.closeAsync();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
@@ -196,7 +191,6 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
         } finally {
             releaseStartup.countDown();
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
-            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
             constructorExecutor.shutdownNow();
             assertTrue(constructorExecutor.awaitTermination(1, TimeUnit.SECONDS));
             assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());

@@ -11,6 +11,8 @@ import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -19,14 +21,12 @@ final class WorkerRetirementCoordinatorTest {
 
     @Test
     void dispatchInitiatesEveryCloseBeforeSchedulingOutcomeProcessing() {
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(2);
         AtomicInteger initiated = new AtomicInteger();
         AtomicInteger completed = new AtomicInteger();
         AtomicReference<Runnable> outcomeProcessing = new AtomicReference<>();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
                 outcomeProcessing::set,
                 (worker, outcome) -> {
-                    releaseAdmission(worker);
                     completed.incrementAndGet();
                     return null;
                 },
@@ -34,24 +34,70 @@ final class WorkerRetirementCoordinatorTest {
                     throw new AssertionError(failure);
                 },
                 report -> {});
-        PoolWorker<String> first = worker(admissions, initiated);
-        PoolWorker<String> second = worker(admissions, initiated);
+        PoolWorker<String> first = worker(initiated);
+        PoolWorker<String> second = worker(initiated);
 
         coordinator.dispatch(List.of(first, second));
 
         assertEquals(2, initiated.get());
         assertEquals(0, completed.get());
-        assertEquals(0, admissions.availablePermits());
 
         outcomeProcessing.get().run();
 
         assertEquals(2, completed.get());
-        assertEquals(2, admissions.availablePermits());
+    }
+
+    @Test
+    void blockedStarterFallbackDoesNotDelayAnotherWorkerClose() throws Exception {
+        IllegalStateException starterFailure = new IllegalStateException("worker close owner unavailable");
+        CountDownLatch firstCloseStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirstClose = new CountDownLatch(1);
+        CountDownLatch secondCloseStarted = new CountDownLatch(1);
+        CountDownLatch outcomesProcessed = new CountDownLatch(2);
+        WorkerRetirement.Action<String> closeAction = session -> WorkerCloseSupport.closeOutcome(
+                () -> {
+                    if (session.equals("first")) {
+                        firstCloseStarted.countDown();
+                        try {
+                            releaseFirstClose.await();
+                        } catch (InterruptedException failure) {
+                            Thread.currentThread().interrupt();
+                        }
+                    } else {
+                        secondCloseStarted.countDown();
+                    }
+                },
+                CompletableFuture.completedFuture(null),
+                CompletableFuture.completedFuture(null),
+                (prefix, task) -> {
+                    throw starterFailure;
+                });
+        PoolWorker<String> first = worker("first", closeAction);
+        PoolWorker<String> second = worker("second", closeAction);
+        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
+                Runnable::run,
+                (worker, outcome) -> {
+                    outcomesProcessed.countDown();
+                    return null;
+                },
+                (worker, failure) -> {
+                    throw new AssertionError(failure);
+                },
+                report -> {});
+
+        try {
+            coordinator.dispatch(List.of(first, second));
+
+            assertTrue(firstCloseStarted.await(1, TimeUnit.SECONDS));
+            assertTrue(secondCloseStarted.await(1, TimeUnit.SECONDS));
+        } finally {
+            releaseFirstClose.countDown();
+        }
+        assertTrue(outcomesProcessed.await(1, TimeUnit.SECONDS));
     }
 
     @Test
     void batchInitiatesEveryCloseBeforeObservingAnyOutcome() {
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(2);
         AtomicInteger initiated = new AtomicInteger();
         AtomicInteger completed = new AtomicInteger();
         AtomicInteger reported = new AtomicInteger();
@@ -59,7 +105,6 @@ final class WorkerRetirementCoordinatorTest {
                 Runnable::run,
                 (worker, outcome) -> {
                     assertEquals(2, initiated.get());
-                    releaseAdmission(worker);
                     completed.incrementAndGet();
                     return new FailureReport(
                             BoundedFailureReporter.captureFailureTarget(),
@@ -73,21 +118,19 @@ final class WorkerRetirementCoordinatorTest {
                     reported.incrementAndGet();
                 });
         PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker(admissions, initiated));
-        effects.retire(worker(admissions, initiated));
+        effects.retire(worker(initiated));
+        effects.retire(worker(initiated));
 
         effects.close();
         effects.close();
 
         assertEquals(2, completed.get());
         assertEquals(2, reported.get());
-        assertEquals(2, admissions.availablePermits());
     }
 
     @Test
     void dispatcherFailureFallsBackInlineWithoutAbandoningRetirements() {
         IllegalStateException dispatchFailure = new IllegalStateException("dispatcher unavailable");
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
         AtomicInteger initiated = new AtomicInteger();
         AtomicInteger completed = new AtomicInteger();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
@@ -95,7 +138,6 @@ final class WorkerRetirementCoordinatorTest {
                     throw dispatchFailure;
                 },
                 (worker, outcome) -> {
-                    releaseAdmission(worker);
                     completed.incrementAndGet();
                     return null;
                 },
@@ -104,20 +146,18 @@ final class WorkerRetirementCoordinatorTest {
                 },
                 report -> {});
         PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker(admissions, initiated));
+        effects.retire(worker(initiated));
 
         IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
 
         assertSame(dispatchFailure, observed);
         assertEquals(1, initiated.get());
         assertEquals(1, completed.get());
-        assertEquals(1, admissions.availablePermits());
     }
 
     @Test
     void dispatcherFailureAfterInlineExecutionDoesNotRepeatOutcomeProcessing() {
         IllegalStateException dispatchFailure = new IllegalStateException("dispatcher failed after execution");
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
         AtomicInteger initiated = new AtomicInteger();
         AtomicInteger completed = new AtomicInteger();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
@@ -126,7 +166,6 @@ final class WorkerRetirementCoordinatorTest {
                     throw dispatchFailure;
                 },
                 (worker, outcome) -> {
-                    releaseAdmission(worker);
                     completed.incrementAndGet();
                     return null;
                 },
@@ -135,30 +174,25 @@ final class WorkerRetirementCoordinatorTest {
                 },
                 report -> {});
         PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker(admissions, initiated));
+        effects.retire(worker(initiated));
 
         IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
 
         assertSame(dispatchFailure, observed);
         assertEquals(1, initiated.get());
         assertEquals(1, completed.get());
-        assertEquals(1, admissions.availablePermits());
     }
 
     @Test
     void exceptionalCloseFutureIsDeliveredAsNormalizedOutcome() {
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
-        PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
         CompletableFuture<WorkerRetirement.Outcome> outcome = new CompletableFuture<>();
-        PoolWorker<String> worker = new PoolWorker<>((session, ignored) -> outcome);
-        worker.retirementAdmission(admission);
+        PoolWorker<String> worker = new PoolWorker<>(session -> outcome);
         worker.accept("worker");
         AtomicReference<Throwable> observed = new AtomicReference<>();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
                 Runnable::run,
                 (completedWorker, completedOutcome) -> {
                     assertSame(worker, completedWorker);
-                    releaseAdmission(completedWorker);
                     observed.set(completedOutcome.failure());
                     return null;
                 },
@@ -174,21 +208,16 @@ final class WorkerRetirementCoordinatorTest {
         outcome.completeExceptionally(failure);
 
         assertSame(failure, observed.get());
-        assertEquals(1, admissions.availablePermits());
     }
 
     @Test
-    void nullCloseOutcomeReleasesAdmission() {
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
-        PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
-        PoolWorker<String> worker = new PoolWorker<>((session, ignored) -> CompletableFuture.completedFuture(null));
-        worker.retirementAdmission(admission);
+    void nullCloseOutcomeIsNormalized() {
+        PoolWorker<String> worker = new PoolWorker<>(session -> CompletableFuture.completedFuture(null));
         worker.accept("worker");
         AtomicReference<Throwable> observed = new AtomicReference<>();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
                 Runnable::run,
                 (completedWorker, completedOutcome) -> {
-                    releaseAdmission(completedWorker);
                     observed.set(completedOutcome.failure());
                     return null;
                 },
@@ -202,11 +231,10 @@ final class WorkerRetirementCoordinatorTest {
         effects.close();
 
         assertEquals("worker close future returned null", observed.get().getMessage());
-        assertEquals(1, admissions.availablePermits());
     }
 
     @Test
-    void effectFailureDoesNotSkipAdmissionReleaseOrTerminalPublication() throws Exception {
+    void effectFailureDoesNotSkipPermitReleaseOrTerminalPublication() throws Exception {
         IllegalStateException dispatchFailure = new IllegalStateException("dispatcher unavailable");
         WorkerPoolState<String> state = state();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
@@ -216,37 +244,33 @@ final class WorkerRetirementCoordinatorTest {
                 (worker, outcome) -> null,
                 (worker, failure) -> {},
                 report -> {});
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+        BoundedTaskLimiter permits = new BoundedTaskLimiter(1);
         PoolStateEffects<String> effects = new PoolStateEffects<>(state, coordinator);
-        effects.release(admissions.acquireUninterruptibly());
-        effects.retire(worker(new PoolLifecycleDispatcher.AdmissionPool(1), new AtomicInteger()));
+        effects.release(permits.acquireUninterruptibly());
+        effects.retire(worker(new AtomicInteger()));
         state.beginClose(null, effects);
 
         IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
 
         assertSame(dispatchFailure, observed);
-        assertEquals(1, admissions.availablePermits());
+        assertEquals(1, permits.availablePermits());
         state.terminationView().get();
         assertTrue(state.terminationView().isDone());
     }
 
-    private static PoolWorker<String> worker(
-            PoolLifecycleDispatcher.AdmissionPool admissions, AtomicInteger initiated) {
-        PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
-        PoolWorker<String> worker = new PoolWorker<>((session, ignored) -> {
+    private static PoolWorker<String> worker(AtomicInteger initiated) {
+        PoolWorker<String> worker = new PoolWorker<>(session -> {
             initiated.incrementAndGet();
             return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
         });
-        worker.retirementAdmission(admission);
         worker.accept("worker");
         return worker;
     }
 
-    private static void releaseAdmission(PoolWorker<?> worker) {
-        PoolLifecycleDispatcher.Admission admission = worker.detachRetirementAdmission();
-        if (admission != null) {
-            admission.close();
-        }
+    private static PoolWorker<String> worker(String session, WorkerRetirement.Action<String> closeAction) {
+        PoolWorker<String> worker = new PoolWorker<>(closeAction);
+        worker.accept(session);
+        return worker;
     }
 
     private static PoolStateEffects<String> effects(WorkerRetirementCoordinator<String> retirements) {

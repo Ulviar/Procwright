@@ -69,6 +69,11 @@ final class BoundedTaskLimiter {
         return permits.tryAcquire() ? new BoundedTaskPermit(permits) : null;
     }
 
+    BoundedTaskPermit acquireUninterruptibly() {
+        permits.acquireUninterruptibly();
+        return new BoundedTaskPermit(permits);
+    }
+
     int availablePermits() {
         return permits.availablePermits();
     }

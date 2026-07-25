@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -80,6 +81,27 @@ final class SessionExitBarrierTest {
         assertSame(processFailure, observed.getCause().getCause());
         assertSame(outputFailure, observed.getCause().getSuppressed()[0]);
         assertEquals(0, processFailure.getSuppressed().length);
+        assertTrue(eventually(() -> publisher.ownerCount() == 0));
+    }
+
+    @Test
+    void isolatedViewsPreserveCompletionExceptionIdentity() throws Exception {
+        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(1);
+        SessionExitBarrier barrier = barrier(publisher);
+        CompletableFuture<SessionTermination.Outcome> process = new CompletableFuture<>();
+        CompletableFuture<SessionOutputCleanup.Outcome> output = new CompletableFuture<>();
+        CompletableFuture<SessionExit> cancelled = barrier.view();
+        CompletableFuture<SessionExit> observed = barrier.view();
+        CompletableFuture<Throwable> observedFailure = observed.handle((ignored, failure) -> failure);
+        CompletionException expected = new CompletionException(new IllegalStateException("terminal failed"));
+        barrier.observe(process, output);
+
+        assertTrue(cancelled.cancel(false));
+        process.complete(failure(expected));
+        output.complete(outcome());
+
+        assertSame(expected, observedFailure.get(1, TimeUnit.SECONDS));
+        assertTrue(cancelled.isCancelled());
         assertTrue(eventually(() -> publisher.ownerCount() == 0));
     }
 

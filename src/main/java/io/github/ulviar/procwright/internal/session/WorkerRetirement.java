@@ -12,28 +12,10 @@ final class WorkerRetirement<S> {
     private final Action<S> action;
     private final CompletableFuture<Outcome> outcome = new CompletableFuture<>();
     private S session;
-    private PoolLifecycleDispatcher.Admission admission;
     private boolean initiationStarted;
 
     WorkerRetirement(Action<S> action) {
         this.action = Objects.requireNonNull(action, "action");
-    }
-
-    synchronized void admission(PoolLifecycleDispatcher.Admission acceptedAdmission) {
-        if (admission != null) {
-            throw new IllegalStateException("worker retirement admission is already owned");
-        }
-        admission = Objects.requireNonNull(acceptedAdmission, "acceptedAdmission");
-    }
-
-    synchronized PoolLifecycleDispatcher.Admission admissionOrNull() {
-        return admission;
-    }
-
-    synchronized PoolLifecycleDispatcher.Admission detachAdmission() {
-        PoolLifecycleDispatcher.Admission owned = admission;
-        admission = null;
-        return owned;
     }
 
     synchronized void accept(S acceptedSession) {
@@ -45,19 +27,17 @@ final class WorkerRetirement<S> {
 
     void initiate() {
         S acceptedSession;
-        PoolLifecycleDispatcher.Admission acceptedAdmission;
         synchronized (this) {
             if (initiationStarted) {
                 return;
             }
             acceptedSession = Objects.requireNonNull(session, "worker has no accepted session");
-            acceptedAdmission = Objects.requireNonNull(admission, "worker has no retirement admission");
             initiationStarted = true;
         }
         CompletableFuture<Outcome> selected;
         try {
             selected = Objects.requireNonNull(
-                    action.initiate(acceptedSession, acceptedAdmission), "worker close action returned null future");
+                    action.initiate(acceptedSession), "worker close action returned null future");
         } catch (Throwable failure) {
             outcome.complete(Outcome.failure(failure));
             return;
@@ -95,7 +75,7 @@ final class WorkerRetirement<S> {
     @FunctionalInterface
     interface Action<S> {
 
-        CompletableFuture<Outcome> initiate(S session, PoolLifecycleDispatcher.Admission admission);
+        CompletableFuture<Outcome> initiate(S session);
     }
 
     record Outcome(Throwable failure) {

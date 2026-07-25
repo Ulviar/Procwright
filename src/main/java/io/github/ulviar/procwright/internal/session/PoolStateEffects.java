@@ -17,7 +17,7 @@ final class PoolStateEffects<S> implements AutoCloseable {
     private final WorkerRetirementCoordinator<S> retirements;
     private FailureAccumulator failures;
     private ArrayList<PoolWorker<S>> workersToRetire;
-    private ArrayList<PoolLifecycleDispatcher.Admission> admissionsToRelease;
+    private ArrayList<BoundedTaskPermit> permitsToRelease;
     private PoolDrain.Publication publication;
     private boolean closed;
 
@@ -41,15 +41,15 @@ final class PoolStateEffects<S> implements AutoCloseable {
         workersToRetire.add(Objects.requireNonNull(worker, "worker"));
     }
 
-    void release(PoolLifecycleDispatcher.Admission admission) {
+    void release(BoundedTaskPermit permit) {
         requireOpen();
-        if (admission == null) {
+        if (permit == null) {
             return;
         }
-        if (admissionsToRelease == null) {
-            admissionsToRelease = new ArrayList<>();
+        if (permitsToRelease == null) {
+            permitsToRelease = new ArrayList<>();
         }
-        admissionsToRelease.add(admission);
+        permitsToRelease.add(permit);
     }
 
     void publish(PoolDrain.Publication selected) {
@@ -69,7 +69,7 @@ final class PoolStateEffects<S> implements AutoCloseable {
             return;
         }
         closed = true;
-        closeAdmissions();
+        closePermits();
         if (workersToRetire != null) {
             try {
                 retirements.dispatch(workersToRetire);
@@ -85,11 +85,11 @@ final class PoolStateEffects<S> implements AutoCloseable {
         throwRecordedFailure();
     }
 
-    private void closeAdmissions() {
-        if (admissionsToRelease != null) {
-            for (PoolLifecycleDispatcher.Admission admission : admissionsToRelease) {
+    private void closePermits() {
+        if (permitsToRelease != null) {
+            for (BoundedTaskPermit permit : permitsToRelease) {
                 try {
-                    admission.close();
+                    permit.close();
                 } catch (RuntimeException | Error failure) {
                     record(failure);
                 }

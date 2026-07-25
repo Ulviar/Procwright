@@ -34,7 +34,15 @@ final class SessionExitBarrier {
     }
 
     CompletableFuture<SessionExit> view() {
-        return exit.copy();
+        CompletableFuture<SessionExit> view = new CompletableFuture<>();
+        exit.whenComplete((result, failure) -> {
+            if (failure == null) {
+                view.complete(result);
+            } else {
+                view.completeExceptionally(failure);
+            }
+        });
+        return view;
     }
 
     boolean completed() {

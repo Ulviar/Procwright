@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.HEALTHY;
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -52,31 +53,31 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
 
     @Test
     void warmupFailureDoesNotPoisonLaterPoolConstruction() throws Exception {
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
         IllegalStateException startupFailure = new IllegalStateException("warmup failed");
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
-                () -> controllerWithAdmissions(
+                () -> controllerWithPermits(
                         () -> {
                             throw startupFailure;
                         },
                         worker -> {},
                         new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                        admissions));
+                        workerPermits));
 
         assertEquals(FailureKind.STARTUP_FAILED, observed.kind);
         assertSame(startupFailure, observed.getCause());
-        assertEquals(1, admissions.availablePermits());
+        assertEquals(1, workerPermits.availablePermits());
 
-        WorkerPoolController<TestWorker> recovered = controllerWithAdmissions(
+        WorkerPoolController<TestWorker> recovered = controllerWithPermits(
                 () -> new TestWorker(1),
                 worker -> {},
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                admissions);
-        assertEquals(0, admissions.availablePermits());
+                workerPermits);
+        assertEquals(0, workerPermits.availablePermits());
         recovered.closeAsync().get(1, TimeUnit.SECONDS);
-        assertEquals(1, admissions.availablePermits());
+        assertEquals(1, workerPermits.availablePermits());
     }
 
     @Test
@@ -154,20 +155,20 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
     }
 
     @Test
-    void blockedPublicCloseContinuationDoesNotRetainWorkerAdmission() throws Exception {
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+    void blockedPublicCloseContinuationDoesNotRetainWorkerPermit() throws Exception {
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
         CountDownLatch firstWorkerCloseEntered = new CountDownLatch(1);
         CountDownLatch releaseFirstWorkerClose = new CountDownLatch(1);
         CountDownLatch callbackEntered = new CountDownLatch(1);
         CountDownLatch releaseCallback = new CountDownLatch(1);
-        WorkerPoolController<TestWorker> first = controllerWithAdmissions(
+        WorkerPoolController<TestWorker> first = controllerWithPermits(
                 () -> new TestWorker(1),
                 worker -> {
                     firstWorkerCloseEntered.countDown();
                     awaitIgnoringInterrupt(releaseFirstWorkerClose);
                 },
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                admissions);
+                workerPermits);
         WorkerPoolController<TestWorker> second = null;
         CompletableFuture<Void> callback = null;
         try {
@@ -179,14 +180,14 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
             });
             releaseFirstWorkerClose.countDown();
             assertTrue(callbackEntered.await(1, TimeUnit.SECONDS));
-            assertEquals(1, admissions.availablePermits());
+            assertEquals(1, workerPermits.availablePermits());
 
-            second = controllerWithAdmissions(
+            second = controllerWithPermits(
                     () -> new TestWorker(2),
                     worker -> {},
                     new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                    admissions);
-            assertEquals(0, admissions.availablePermits());
+                    workerPermits);
+            assertEquals(0, workerPermits.availablePermits());
             assertFalse(callback.isDone());
         } finally {
             releaseFirstWorkerClose.countDown();
@@ -199,20 +200,20 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 callback.get(1, TimeUnit.SECONDS);
             }
         }
-        assertEquals(1, admissions.availablePermits());
+        assertEquals(1, workerPermits.availablePermits());
     }
 
     @Test
-    void eightBlockingWorkerExitCallbacksDoNotStarveNinthAdmittedPoolClose() throws Exception {
+    void eightBlockingWorkerExitCallbacksDoNotStarveNinthPoolClose() throws Exception {
         int blockingPools = 8;
-        int admissionCapacity = blockingPools + 1;
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(admissionCapacity);
-        WorkerPoolController.RetirementAdmissionProvider admissionProvider = deadlineNanos -> {
-            PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
-            if (admission == null) {
+        int workerCapacity = blockingPools + 1;
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(workerCapacity);
+        WorkerPoolController.WorkerPermitProvider workerPermitProvider = deadlineNanos -> {
+            BoundedTaskPermit workerPermit = workerPermits.tryAcquire();
+            if (workerPermit == null) {
                 throw new java.util.concurrent.TimeoutException("test lifecycle capacity exhausted");
             }
-            return admission;
+            return workerPermit;
         };
         CountDownLatch callbacksEntered = new CountDownLatch(blockingPools);
         CountDownLatch releaseCallbacks = new CountDownLatch(1);
@@ -226,8 +227,8 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 workers.add(worker);
                 pools.add(new WorkerPoolController<>(
                         () -> worker,
-                        (session, admission) -> WorkerCloseSupport.closeOutcome(
-                                session, session.onExit(), session.physicalCleanup(), admission),
+                        session ->
+                                WorkerCloseSupport.closeOutcome(session, session.onExit(), session.physicalCleanup()),
                         new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                         Failures.INSTANCE,
                         "exit-callback worker",
@@ -237,9 +238,9 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                                 (thread, failure) -> {},
                                 System::nanoTime,
                                 null,
-                                admissionProvider)));
+                                workerPermitProvider)));
             }
-            assertEquals(0, admissions.availablePermits(), "all workers must be admitted up front");
+            assertEquals(0, workerPermits.availablePermits(), "all workers must hold permits before close");
 
             for (int index = 0; index < blockingPools; index++) {
                 callbacks.add(workers.get(index).onExit().thenRun(() -> {
@@ -255,7 +256,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
 
             CompletableFuture<Void> ninthClose = pools.get(blockingPools).closeAsync();
             ninthClose.get(1, TimeUnit.SECONDS);
-            awaitAvailableAdmissions(admissions, 1);
+            awaitAvailablePermits(workerPermits, 1);
 
             assertPartition(pools.get(blockingPools), 0, 0, 0, 0, 0);
             assertEquals(1, pools.get(blockingPools).metrics().retired());
@@ -275,59 +276,57 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 pool.closeAsync().get(1, TimeUnit.SECONDS);
                 assertPartition(pool, 0, 0, 0, 0, 0);
             }
-            awaitAvailableAdmissions(admissions, admissionCapacity);
+            awaitAvailablePermits(workerPermits, workerCapacity);
             for (ExitCallbackWorker worker : workers) {
                 assertEquals(1, worker.closeCalls.get());
             }
-            PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
         }
     }
 
     @Test
-    void aggregateWorkerAdmissionRejectsAnotherPoolBeforeFactoryAndRecoversAfterRetirement() throws Exception {
-        PoolLifecycleDispatcher.AdmissionPool workerAdmissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+    void aggregateWorkerPermitRejectsAnotherPoolBeforeFactoryAndRecoversAfterRetirement() throws Exception {
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
         AtomicInteger factoryInvocations = new AtomicInteger();
         Options options = new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
-        WorkerPoolController<TestWorker> accepted = controllerWithAdmissions(
-                () -> new TestWorker(factoryInvocations.incrementAndGet()), worker -> {}, options, workerAdmissions);
+        WorkerPoolController<TestWorker> accepted = controllerWithPermits(
+                () -> new TestWorker(factoryInvocations.incrementAndGet()), worker -> {}, options, workerPermits);
         try {
             assertEquals(1, factoryInvocations.get());
-            assertEquals(0, workerAdmissions.availablePermits());
+            assertEquals(0, workerPermits.availablePermits());
 
             PoolFailure rejected = assertThrows(
                     PoolFailure.class,
-                    () -> controllerWithAdmissions(
+                    () -> controllerWithPermits(
                             () -> new TestWorker(factoryInvocations.incrementAndGet()),
                             worker -> {},
                             options,
-                            workerAdmissions));
+                            workerPermits));
 
             assertEquals(FailureKind.STARTUP_FAILED, rejected.kind);
-            assertEquals(1, factoryInvocations.get(), "admission rejection must precede the worker factory");
-            assertEquals(0, workerAdmissions.availablePermits());
+            assertEquals(1, factoryInvocations.get(), "worker permit rejection must precede the worker factory");
+            assertEquals(0, workerPermits.availablePermits());
         } finally {
             accepted.closeAsync().get(1, TimeUnit.SECONDS);
         }
-        awaitAvailableAdmissions(workerAdmissions, 1);
+        awaitAvailablePermits(workerPermits, 1);
 
-        WorkerPoolController<TestWorker> recovered = controllerWithAdmissions(
-                () -> new TestWorker(factoryInvocations.incrementAndGet()), worker -> {}, options, workerAdmissions);
+        WorkerPoolController<TestWorker> recovered = controllerWithPermits(
+                () -> new TestWorker(factoryInvocations.incrementAndGet()), worker -> {}, options, workerPermits);
         try {
             assertEquals(2, factoryInvocations.get());
-            assertEquals(0, workerAdmissions.availablePermits());
+            assertEquals(0, workerPermits.availablePermits());
         } finally {
             recovered.closeAsync().get(1, TimeUnit.SECONDS);
         }
-        awaitAvailableAdmissions(workerAdmissions, 1);
+        awaitAvailablePermits(workerPermits, 1);
     }
 
     @Test
     void maximumAcceptedWarmupUsesAllWorkerCapacity() throws Exception {
-        int workerCapacity = PoolLifecycleDispatcher.sharedWorkerAdmissionCapacity();
-        PoolLifecycleDispatcher.AdmissionPool workerAdmissions =
-                new PoolLifecycleDispatcher.AdmissionPool(workerCapacity);
+        int workerCapacity = BoundedTaskLimits.POOL_WORKERS.capacity();
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(workerCapacity);
         AtomicInteger created = new AtomicInteger();
-        WorkerPoolController<TestWorker> pool = controllerWithAdmissions(
+        WorkerPoolController<TestWorker> pool = controllerWithPermits(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> {},
                 new Options(
@@ -338,46 +337,76 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                         Integer.MAX_VALUE,
                         Duration.ZERO,
                         false),
-                workerAdmissions);
+                workerPermits);
         try {
             assertEquals(workerCapacity, created.get());
-            assertEquals(0, workerAdmissions.availablePermits());
+            assertEquals(0, workerPermits.availablePermits());
             assertPartition(pool, workerCapacity, workerCapacity, 0, 0, 0);
         } finally {
             pool.closeAsync().get(5, TimeUnit.SECONDS);
         }
-        awaitAvailableAdmissions(workerAdmissions, workerCapacity);
+        awaitAvailablePermits(workerPermits, workerCapacity);
     }
 
     @Test
-    void completedCloseFailureReleasesWorkerAdmissionForAnotherPool() throws Exception {
-        PoolLifecycleDispatcher.AdmissionPool workerAdmissions = new PoolLifecycleDispatcher.AdmissionPool(1);
+    void defaultControllersShareTheProcessWideWorkerLimit() throws Exception {
+        int permitsBefore = BoundedTaskLimits.POOL_WORKERS.availablePermits();
+        assertTrue(permitsBefore >= 2);
+        Options options = new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
+        WorkerPoolController<TestWorker> first = null;
+        WorkerPoolController<TestWorker> second = null;
+        try {
+            first = controller(() -> new TestWorker(1), worker -> {}, options);
+            second = controller(() -> new TestWorker(2), worker -> {}, options);
+
+            assertEquals(permitsBefore - 2, BoundedTaskLimits.POOL_WORKERS.availablePermits());
+        } finally {
+            WorkerPoolController<TestWorker> firstToClose = first;
+            WorkerPoolController<TestWorker> secondToClose = second;
+            assertAll(
+                    () -> {
+                        if (firstToClose != null) {
+                            firstToClose.closeAsync().get(1, TimeUnit.SECONDS);
+                        }
+                    },
+                    () -> {
+                        if (secondToClose != null) {
+                            secondToClose.closeAsync().get(1, TimeUnit.SECONDS);
+                        }
+                    });
+        }
+        awaitAvailablePermits(BoundedTaskLimits.POOL_WORKERS, permitsBefore);
+    }
+
+    @Test
+    void completedCloseFailureReleasesWorkerPermitForAnotherPool() throws Exception {
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
         IllegalStateException closeFailure = new IllegalStateException("physical close failed");
-        WorkerPoolController<TestWorker> failed = controllerWithAdmissions(
+        WorkerPoolController<TestWorker> failed = controllerWithPermits(
                 () -> new TestWorker(1),
                 worker -> {
                     throw closeFailure;
                 },
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                workerAdmissions);
+                workerPermits);
 
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> failed.closeAsync().get(1, TimeUnit.SECONDS));
 
         assertSame(closeFailure, observed.getCause());
-        assertEquals(1, workerAdmissions.availablePermits());
+        assertEquals(1, workerPermits.availablePermits());
         assertPartition(failed, 0, 0, 0, 0, 0);
         assertEquals(1, failed.metrics().retired());
         assertEquals(1, failed.metrics().failedWorkerCloses());
 
-        WorkerPoolController<TestWorker> recovered = controllerWithAdmissions(
+        WorkerPoolController<TestWorker> recovered = controllerWithPermits(
                 () -> new TestWorker(2),
                 worker -> {},
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                workerAdmissions);
+                workerPermits);
         recovered.closeAsync().get(1, TimeUnit.SECONDS);
 
-        awaitAvailableAdmissions(workerAdmissions, 1);
+        awaitAvailablePermits(workerPermits, 1);
     }
 
     @Test
@@ -390,7 +419,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         AtomicInteger workerIds = new AtomicInteger();
         WorkerPoolController<TestWorker> pool = new WorkerPoolController<>(
                 () -> new TestWorker(workerIds.incrementAndGet()),
-                (worker, admission) -> {
+                worker -> {
                     if (worker.id() == 1) {
                         firstInitiated.countDown();
                         return firstOutcome;
@@ -566,8 +595,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
         CloseAwareWorker session = new CloseAwareWorker();
         WorkerPoolController<CloseAwareWorker> pool = new WorkerPoolController<>(
                 () -> session,
-                (worker, admission) ->
-                        WorkerCloseSupport.closeOutcome(worker, worker.terminal, worker.physicalCleanup, admission),
+                worker -> WorkerCloseSupport.closeOutcome(worker, worker.terminal, worker.physicalCleanup),
                 new Options(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                 Failures.INSTANCE,
                 "close-aware worker",

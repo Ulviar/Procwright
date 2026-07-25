@@ -33,31 +33,15 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         this(
                 workerFactory,
                 options,
-                PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.closeOutcome(
-                        session, session.onExit(), session.physicalOutputCleanup(), admission));
+                session -> WorkerCloseSupport.closeOutcome(session, session.onExit(), session.physicalOutputCleanup()));
     }
 
     DefaultPooledProtocolSession(
             Supplier<ProtocolSession<I, O>> workerFactory,
             WorkerPoolSettings<ProtocolSession<I, O>> options,
-            TerminalRetirementDispatcher terminalDispatcher) {
-        this(
-                workerFactory,
-                options,
-                terminalDispatcher,
-                (session, admission) -> WorkerCloseSupport.closeOutcome(
-                        session, session.onExit(), session.physicalOutputCleanup(), admission, terminalDispatcher));
-    }
-
-    DefaultPooledProtocolSession(
-            Supplier<ProtocolSession<I, O>> workerFactory,
-            WorkerPoolSettings<ProtocolSession<I, O>> options,
-            TerminalRetirementDispatcher terminalDispatcher,
             WorkerRetirement.Action<DefaultProtocolSession<I, O>> workerCloser) {
         Objects.requireNonNull(workerFactory, "workerFactory");
         this.options = Objects.requireNonNull(options, "options");
-        Objects.requireNonNull(terminalDispatcher, "terminalDispatcher");
         Objects.requireNonNull(workerCloser, "workerCloser");
         this.pool = WorkerPoolController.fromSettings(
                 () -> requireDefaultSession(workerFactory.get()),

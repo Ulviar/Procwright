@@ -155,10 +155,12 @@ Listener должен быстро завершаться; тяжелая обр
   `maxSize > 256`, `warmupSize > maxSize`, `minIdle > maxSize` и `minIdle > 0` без background replenishment;
 - после проверки в terminal `maxSize` ограничивает все live slots одного pool, включая startup/retirement, и не
   резервирует process-wide capacity;
-- независимый process-wide worker admission допускает суммарно не более 256 workers всех pools; admission захватывается
-  до worker factory и удерживается через startup/live/retirement до завершения physical close;
-- завершившийся close, включая close с ошибкой, освобождает worker admission, а незавершившийся close сохраняет
-  backpressure; порядок получения освободившегося admission разными pools не является контрактом;
+- независимые process-wide worker permits допускают суммарно не более 256 factory-admitted workers всех pools; permit
+  захватывается до worker factory и удерживается через startup/live/retirement до полного retirement outcome:
+  завершения `session.close()`, terminal observation и physical output cleanup. Reservation, ожидающая permit, входит
+  только в `maxSize` своего pool;
+- полностью завершившийся retirement outcome, включая outcome с ошибкой, освобождает worker permit, а незавершившийся
+  outcome сохраняет backpressure; порядок получения освободившегося permit разными pools не является контрактом;
 - pool не резервирует отдельный thread или process-wide slot для terminal future во время `open()`;
 - warmup failure закрывает уже созданных workers;
 - worker становится idle только после readiness;

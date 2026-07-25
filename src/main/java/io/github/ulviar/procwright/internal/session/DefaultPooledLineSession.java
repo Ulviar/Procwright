@@ -50,9 +50,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 lineOptions,
                 options,
                 metricsClock,
-                PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.closeOutcome(
-                        session, session.onExit(), session.physicalOutputCleanup(), admission));
+                session -> WorkerCloseSupport.closeOutcome(session, session.onExit(), session.physicalOutputCleanup()));
     }
 
     DefaultPooledLineSession(
@@ -60,28 +58,10 @@ public final class DefaultPooledLineSession implements PooledLineSession {
             LineSessionSettings lineOptions,
             WorkerPoolSettings<LineSession> options,
             LongSupplier metricsClock,
-            TerminalRetirementDispatcher terminalDispatcher) {
-        this(
-                workerFactory,
-                lineOptions,
-                options,
-                metricsClock,
-                terminalDispatcher,
-                (session, admission) -> WorkerCloseSupport.closeOutcome(
-                        session, session.onExit(), session.physicalOutputCleanup(), admission, terminalDispatcher));
-    }
-
-    DefaultPooledLineSession(
-            Supplier<LineSession> workerFactory,
-            LineSessionSettings lineOptions,
-            WorkerPoolSettings<LineSession> options,
-            LongSupplier metricsClock,
-            TerminalRetirementDispatcher terminalDispatcher,
             WorkerRetirement.Action<DefaultLineSession> workerCloser) {
         Objects.requireNonNull(workerFactory, "workerFactory");
         this.lineOptions = Objects.requireNonNull(lineOptions, "lineOptions");
         this.options = Objects.requireNonNull(options, "options");
-        Objects.requireNonNull(terminalDispatcher, "terminalDispatcher");
         Objects.requireNonNull(workerCloser, "workerCloser");
         this.pool = WorkerPoolController.fromSettings(
                 () -> requireDefaultSession(workerFactory.get()),

@@ -19,6 +19,7 @@ final class PoolWorker<S> {
     private StartupPurpose startupPurpose = StartupPurpose.DEMAND;
     private S session;
     private final WorkerRetirement<S> retirement;
+    private BoundedTaskPermit permit;
     private long createdAtNanos;
     private int requests;
     private PooledWorkerRetireReason retireReason;
@@ -66,16 +67,21 @@ final class PoolWorker<S> {
         startup = null;
     }
 
-    void retirementAdmission(PoolLifecycleDispatcher.Admission admission) {
-        retirement.admission(admission);
+    void workerPermit(BoundedTaskPermit acceptedPermit) {
+        if (permit != null) {
+            throw new IllegalStateException("worker permit is already assigned");
+        }
+        permit = Objects.requireNonNull(acceptedPermit, "acceptedPermit");
     }
 
-    PoolLifecycleDispatcher.Admission retirementAdmissionOrNull() {
-        return retirement.admissionOrNull();
+    BoundedTaskPermit workerPermitOrNull() {
+        return permit;
     }
 
-    PoolLifecycleDispatcher.Admission detachRetirementAdmission() {
-        return retirement.detachAdmission();
+    BoundedTaskPermit detachWorkerPermit() {
+        BoundedTaskPermit owned = permit;
+        permit = null;
+        return owned;
     }
 
     void initiateClose() {

@@ -36,23 +36,21 @@ abstract class WorkerPoolControllerTestSupport {
         assertEquals(1, matches);
     }
 
-    static void awaitAvailableAdmissions(PoolLifecycleDispatcher.AdmissionPool admissions, int expected)
-            throws InterruptedException {
+    static void awaitAvailablePermits(BoundedTaskLimiter permits, int expected) throws InterruptedException {
         long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        while (admissions.availablePermits() != expected && System.nanoTime() < deadlineNanos) {
+        while (permits.availablePermits() != expected && System.nanoTime() < deadlineNanos) {
             Thread.sleep(1);
         }
-        assertEquals(expected, admissions.availablePermits());
+        assertEquals(expected, permits.availablePermits());
     }
 
-    static WorkerPoolController.RetirementAdmissionProvider immediateAdmissions(
-            PoolLifecycleDispatcher.AdmissionPool admissions) {
+    static WorkerPoolController.WorkerPermitProvider immediatePermits(BoundedTaskLimiter permits) {
         return deadlineNanos -> {
-            PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
-            if (admission == null) {
+            BoundedTaskPermit permit = permits.tryAcquire();
+            if (permit == null) {
                 throw new java.util.concurrent.TimeoutException("test lifecycle capacity exhausted");
             }
-            return admission;
+            return permit;
         };
     }
 
@@ -64,24 +62,24 @@ abstract class WorkerPoolControllerTestSupport {
                 factory, closeAction(closer), options, Failures.INSTANCE, "test worker", "test-");
     }
 
-    static WorkerPoolController<TestWorker> controllerWithAdmissions(
+    static WorkerPoolController<TestWorker> controllerWithPermits(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
             Options options,
-            PoolLifecycleDispatcher.AdmissionPool workerAdmissions) {
+            BoundedTaskLimiter workerPermits) {
         return new WorkerPoolController<>(
                 factory,
                 closeAction(closer),
                 options,
                 Failures.INSTANCE,
-                "separate-admission worker",
-                "test-separate-admission-",
+                "separate-permit worker",
+                "test-separate-permit-",
                 new WorkerPoolController.Dependencies(
                         Runnable::run,
                         (thread, failure) -> {},
                         System::nanoTime,
                         null,
-                        immediateAdmissions(workerAdmissions)));
+                        immediatePermits(workerPermits)));
     }
 
     static WorkerPoolController<TestWorker> inlineController(
@@ -112,7 +110,7 @@ abstract class WorkerPoolControllerTestSupport {
                         lateFailureReporter,
                         clock,
                         backoffWaiter,
-                        PoolLifecycleDispatcher::admit));
+                        BoundedTaskLimits.POOL_WORKERS::acquire));
     }
 
     static WorkerPoolController<TestWorker> controller(
@@ -132,20 +130,19 @@ abstract class WorkerPoolControllerTestSupport {
                         (thread, failure) -> {},
                         System::nanoTime,
                         null,
-                        PoolLifecycleDispatcher::admit));
+                        BoundedTaskLimits.POOL_WORKERS::acquire));
     }
 
     static WorkerRetirement.Action<TestWorker> closeAction(java.util.function.Consumer<TestWorker> closer) {
-        return (worker, admission) -> WorkerCloseSupport.closeOutcome(
+        return worker -> WorkerCloseSupport.closeOutcome(
                 () -> closer.accept(worker),
                 CompletableFuture.completedFuture(null),
-                CompletableFuture.completedFuture(null),
-                admission);
+                CompletableFuture.completedFuture(null));
     }
 
     private static WorkerRetirement.Action<TestWorker> inlineCloseAction(
             java.util.function.Consumer<TestWorker> closer) {
-        return (worker, admission) -> {
+        return worker -> {
             try {
                 closer.accept(worker);
                 return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());

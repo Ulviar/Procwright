@@ -105,7 +105,8 @@
 
 - `lineSession().pooled()` открывает workers через существующий `LineSession`, а не через отдельный process runtime.
 - `warmupSize` заранее создает workers, а `maxSize` ограничивает общий live worker count.
-- Process-wide worker admission ограничивает суммарно 256 starting/live/retiring workers всех pools.
+- Process-wide worker permits ограничивают суммарно 256 factory-admitted workers всех pools; reservation до permit
+  занимает slot только своего pool.
 - Открытие pool не резервирует отдельный thread или process-wide slot для terminal future.
 - Terminal outcome выбирается под pool monitor и публикуется после его освобождения.
 - Если создание pool падает после частичного warmup или при запуске replenishment, уже созданные workers закрываются.

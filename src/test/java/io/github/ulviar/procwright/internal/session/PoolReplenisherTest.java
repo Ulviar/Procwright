@@ -11,6 +11,11 @@ import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -98,12 +103,19 @@ final class PoolReplenisherTest {
 
     @Test
     void stopRecheckDoesNotWaitForItsOwnSaturatedDispatcherDomain() throws Exception {
-        PoolLifecycleDispatcher dispatcher = new PoolLifecycleDispatcher(
-                new BoundedTaskLimiter(1), Threading::start, "test-replenishment-recheck-", 1);
+        PoolLifecycleDispatcher dispatcher =
+                new PoolLifecycleDispatcher(1, Threading::start, "test-replenishment-recheck-", 1);
         AtomicBoolean needed = new AtomicBoolean(true);
         AtomicInteger steps = new AtomicInteger();
+        CountDownLatch replenishmentFinished = new CountDownLatch(1);
         PoolReplenisher replenisher = replenisher(
-                task -> dispatcher.dispatch(task),
+                task -> dispatcher.dispatch(() -> {
+                    try {
+                        task.run();
+                    } finally {
+                        replenishmentFinished.countDown();
+                    }
+                }),
                 needed::get,
                 () -> {
                     if (steps.incrementAndGet() == 2) {
@@ -115,9 +127,18 @@ final class PoolReplenisherTest {
 
         replenisher.ensureStarted();
 
-        dispatcher.whenIdle().get(1, java.util.concurrent.TimeUnit.SECONDS);
+        assertTrue(replenishmentFinished.await(1, TimeUnit.SECONDS));
         assertEquals(2, steps.get());
-        assertEquals(1, dispatcher.availableAdmissions());
+        ExecutorService verifier = Executors.newSingleThreadExecutor();
+        CountDownLatch followUpRan = new CountDownLatch(1);
+        try {
+            Future<?> followUp = verifier.submit(() -> dispatcher.dispatch(followUpRan::countDown));
+            followUp.get(1, TimeUnit.SECONDS);
+            assertTrue(followUpRan.await(1, TimeUnit.SECONDS));
+        } finally {
+            verifier.shutdownNow();
+            assertTrue(verifier.awaitTermination(1, TimeUnit.SECONDS));
+        }
     }
 
     @Test

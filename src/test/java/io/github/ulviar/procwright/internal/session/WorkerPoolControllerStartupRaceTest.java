@@ -584,7 +584,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
     }
 
     @Test
-    void abandonedStartupReleasesPermitBeforeLateWorkerRetirementCompletes() throws Exception {
+    void abandonedStartupReleasesExecutionPermitBeforeLateWorkerRetirementCompletes() throws Exception {
         int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch releaseStartup = new CountDownLatch(1);

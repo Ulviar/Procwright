@@ -292,9 +292,10 @@ public final class ProtocolSessionScenario {
      * worker.
      *
      * <p>A pool's configured maximum is a per-pool bound and does not reserve process-wide capacity. Across all line and
-     * protocol pools, at most 256 workers may collectively hold admission while starting, live, or retiring. Worker
-     * admission is acquired before the worker factory is invoked and is retained until physical retirement completes;
-     * a non-cooperative retirement therefore continues to consume it. Saturated warmup fails with
+     * protocol pools, at most 256 factory-admitted workers may collectively hold permits while starting, live, or
+     * retiring. A worker permit is acquired before the worker factory is invoked and retained until session close,
+     * terminal observation, and physical output cleanup all complete; a non-cooperative retirement therefore continues
+     * to consume it. Saturated warmup fails with
      * {@link PooledProtocolSessionException.Reason#STARTUP_FAILED}; saturated demand acquisition fails with
      * {@link PooledProtocolSessionException.Reason#ACQUIRE_TIMEOUT}. Released capacity has no specified inter-pool
      * ordering.

@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.internal.WorkerPoolSettings;
+
 /** Process-wide admission partitions for independent bounded-operation categories. */
 final class BoundedTaskLimits {
 
@@ -12,6 +14,7 @@ final class BoundedTaskLimits {
     static final BoundedTaskLimiter TEXT_ENCODINGS = new BoundedTaskLimiter(32);
     static final BoundedTaskLimiter BLOCKING_WRITES = new BoundedTaskLimiter(32);
     static final BoundedTaskLimiter WORKER_STARTUPS = new BoundedTaskLimiter(16);
+    static final BoundedTaskLimiter POOL_WORKERS = new BoundedTaskLimiter(WorkerPoolSettings.MAX_SIZE);
     static final BoundedTaskLimiter REGEX_MATCHES = new BoundedTaskLimiter(8);
 
     private BoundedTaskLimits() {}

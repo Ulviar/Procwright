@@ -118,12 +118,12 @@ final class WorkerPoolState<S> {
         }
     }
 
-    boolean attachStartupAdmission(
+    boolean attachStartupPermit(
             WorkerStartupCoordinator.Reservation<S> reservation,
-            PoolLifecycleDispatcher.Admission admission,
+            BoundedTaskPermit permit,
             PoolWorker.StartupPurpose purpose) {
         Objects.requireNonNull(reservation, "reservation");
-        Objects.requireNonNull(admission, "admission");
+        Objects.requireNonNull(permit, "permit");
         Objects.requireNonNull(purpose, "purpose");
         PoolWorker<S> worker = reservation.stateWorker();
         synchronized (monitor) {
@@ -131,7 +131,7 @@ final class WorkerPoolState<S> {
                 return false;
             }
             partition.requireState(worker, PoolPartition.State.STARTING);
-            worker.retirementAdmission(admission);
+            worker.workerPermit(permit);
             worker.startupPurpose(purpose);
             return true;
         }
@@ -575,11 +575,11 @@ final class WorkerPoolState<S> {
         if (state == PoolPartition.State.IDLE || state == PoolPartition.State.LEASED) {
             throw new IllegalStateException("cannot remove live worker in state " + state);
         }
-        PoolLifecycleDispatcher.Admission admission = worker.retirementAdmissionOrNull();
-        effects.release(admission);
-        PoolLifecycleDispatcher.Admission detached = worker.detachRetirementAdmission();
-        if (detached != admission) {
-            throw new IllegalStateException("worker retirement admission changed while removing its slot");
+        BoundedTaskPermit permit = worker.workerPermitOrNull();
+        effects.release(permit);
+        BoundedTaskPermit detached = worker.detachWorkerPermit();
+        if (detached != permit) {
+            throw new IllegalStateException("worker permit changed while removing its slot");
         }
         if (state == PoolPartition.State.STARTING) {
             partition.removeStarting(worker);

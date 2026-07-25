@@ -27,16 +27,7 @@ final class PoolFailurePublisher {
             return;
         }
         try {
-            PoolLifecycleDispatcher.Ownership ownership = PoolLifecycleDispatcher.report(() -> report(report));
-            ownership.started().whenComplete((ignored, launchFailure) -> {
-                if (launchFailure != null) {
-                    Throwable aggregate = FailureAggregation.combine(
-                            report.failure(),
-                            unwrap(launchFailure),
-                            "Pool failure and bounded publication startup both failed");
-                    BoundedFailureReporter.shared().report(report.failureTarget(), aggregate);
-                }
-            });
+            PoolLifecycleDispatcher.report(() -> report(report));
         } catch (RuntimeException | Error dispatchFailure) {
             Throwable aggregate = FailureAggregation.combine(
                     report.failure(), dispatchFailure, "Pool failure publication dispatch failed");

@@ -94,130 +94,6 @@ final class PooledWorkerPhysicalCleanupTest {
     }
 
     @Test
-    void linePoolQueuesMandatoryCloseBehindBusyOwnerAndReleasesSlot() throws Exception {
-        PoolLifecycleDispatcher dispatcher = saturatedNestedDispatcher("test-line-close-saturation-");
-        CountDownLatch ownerStarted = new CountDownLatch(1);
-        CountDownLatch releaseOwner = new CountDownLatch(1);
-        PoolLifecycleDispatcher.Ownership blocker = dispatcher.dispatch(() -> {
-            ownerStarted.countDown();
-            awaitUninterruptibly(releaseOwner);
-        });
-        assertTrue(ownerStarted.await(1, TimeUnit.SECONDS));
-        CountDownLatch releaseDestroy = new CountDownLatch(1);
-        TrackingOutputStream stdin = new TrackingOutputStream();
-        CloseUnblocksInputStream stdout = new CloseUnblocksInputStream();
-        CloseUnblocksInputStream stderr = new CloseUnblocksInputStream();
-        BlockingDestroyProcess process = new BlockingDestroyProcess(stdin, stdout, stderr, releaseDestroy);
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
-        DefaultLineSession worker =
-                new DefaultLineSession(openSession(process, closeDispatcher), LineSessionSettings.defaults());
-        assertTrue(stdout.awaitReadStarted());
-        assertTrue(stderr.awaitReadStarted());
-        DefaultPooledLineSession pool = new DefaultPooledLineSession(
-                () -> worker,
-                LineSessionSettings.defaults(),
-                WorkerPoolSettings.<LineSession>defaults().withWarmupSize(1).withCloseTimeout(Duration.ofSeconds(1)),
-                System::nanoTime,
-                dispatcher::dispatch);
-        try {
-            CompletableFuture<Void> close = pool.closeAsync();
-
-            assertFalse(close.isDone());
-            assertEquals(1, pool.metrics().retiring());
-            assertEquals(0, pool.metrics().retired());
-            assertEquals(0, pool.metrics().failedWorkerCloses());
-            assertFalse(process.destroyInvoked());
-
-            releaseOwner.countDown();
-            blocker.completion().get(1, TimeUnit.SECONDS);
-            assertTrue(process.awaitDestroyInvoked(), "queued worker close did not initiate termination");
-
-            releaseDestroy.countDown();
-            close.get(1, TimeUnit.SECONDS);
-            dispatcher.whenIdle().get(1, TimeUnit.SECONDS);
-
-            assertFalse(process.isAlive());
-            assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
-            assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));
-            assertTrue(stderr.awaitCloseFinished(Duration.ofSeconds(1)));
-            worker.onExit().get(1, TimeUnit.SECONDS);
-            worker.physicalOutputCleanup().get(1, TimeUnit.SECONDS);
-            assertEquals(0, pool.metrics().retiring());
-            assertEquals(1, pool.metrics().retired());
-            assertEquals(0, pool.metrics().size());
-            assertEquals(0, pool.metrics().failedWorkerCloses());
-            assertNoDispatcherLeak(closeDispatcher);
-        } finally {
-            releaseOwner.countDown();
-            releaseDestroy.countDown();
-            process.complete(143);
-            dispatcher.whenIdle().get(2, TimeUnit.SECONDS);
-        }
-    }
-
-    @Test
-    void protocolPoolQueuesMandatoryCloseBehindBusyOwnerAndReleasesSlot() throws Exception {
-        PoolLifecycleDispatcher dispatcher = saturatedNestedDispatcher("test-protocol-close-saturation-");
-        CountDownLatch ownerStarted = new CountDownLatch(1);
-        CountDownLatch releaseOwner = new CountDownLatch(1);
-        PoolLifecycleDispatcher.Ownership blocker = dispatcher.dispatch(() -> {
-            ownerStarted.countDown();
-            awaitUninterruptibly(releaseOwner);
-        });
-        assertTrue(ownerStarted.await(1, TimeUnit.SECONDS));
-        CountDownLatch releaseDestroy = new CountDownLatch(1);
-        TrackingOutputStream stdin = new TrackingOutputStream();
-        CloseUnblocksInputStream stdout = new CloseUnblocksInputStream();
-        CloseUnblocksInputStream stderr = new CloseUnblocksInputStream();
-        BlockingDestroyProcess process = new BlockingDestroyProcess(stdin, stdout, stderr, releaseDestroy);
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
-        DefaultProtocolSession<String, String> worker = new DefaultProtocolSession<>(
-                openSession(process, closeDispatcher), noOpAdapter(), ProtocolSessionSettings.defaults());
-        assertTrue(stdout.awaitReadStarted());
-        assertTrue(stderr.awaitReadStarted());
-        DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
-                () -> worker,
-                WorkerPoolSettings.<ProtocolSession<String, String>>defaults()
-                        .withWarmupSize(1)
-                        .withCloseTimeout(Duration.ofSeconds(1)),
-                dispatcher::dispatch);
-        try {
-            CompletableFuture<Void> close = pool.closeAsync();
-
-            assertFalse(close.isDone());
-            assertEquals(1, pool.metrics().retiring());
-            assertEquals(0, pool.metrics().retired());
-            assertEquals(0, pool.metrics().failedWorkerCloses());
-            assertFalse(process.destroyInvoked());
-
-            releaseOwner.countDown();
-            blocker.completion().get(1, TimeUnit.SECONDS);
-            assertTrue(process.awaitDestroyInvoked(), "queued worker close did not initiate termination");
-
-            releaseDestroy.countDown();
-            close.get(1, TimeUnit.SECONDS);
-            dispatcher.whenIdle().get(1, TimeUnit.SECONDS);
-
-            assertFalse(process.isAlive());
-            assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
-            assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));
-            assertTrue(stderr.awaitCloseFinished(Duration.ofSeconds(1)));
-            worker.onExit().get(1, TimeUnit.SECONDS);
-            worker.physicalOutputCleanup().get(1, TimeUnit.SECONDS);
-            assertEquals(0, pool.metrics().retiring());
-            assertEquals(1, pool.metrics().retired());
-            assertEquals(0, pool.metrics().size());
-            assertEquals(0, pool.metrics().failedWorkerCloses());
-            assertNoDispatcherLeak(closeDispatcher);
-        } finally {
-            releaseOwner.countDown();
-            releaseDestroy.countDown();
-            process.complete(143);
-            dispatcher.whenIdle().get(2, TimeUnit.SECONDS);
-        }
-    }
-
-    @Test
     void linePoolDoesNotPublishRetirementBeforeDelayedTerminalObservation() throws Exception {
         CompletableFuture<Void> allowTerminalObservation = new CompletableFuture<>();
         CountDownLatch closeStarted = new CountDownLatch(1);
@@ -233,15 +109,13 @@ final class PooledWorkerPhysicalCleanupTest {
                 LineSessionSettings.defaults(),
                 WorkerPoolSettings.<LineSession>defaults().withWarmupSize(1),
                 System::nanoTime,
-                PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.closeOutcome(
+                session -> WorkerCloseSupport.closeOutcome(
                         () -> {
                             closeStarted.countDown();
                             session.close();
                         },
                         allowTerminalObservation.thenCompose(ignored -> session.onExit()),
-                        session.physicalOutputCleanup(),
-                        admission));
+                        session.physicalOutputCleanup()));
         try {
             CompletableFuture<Void> close = pool.closeAsync();
 
@@ -269,7 +143,7 @@ final class PooledWorkerPhysicalCleanupTest {
     }
 
     @Test
-    void delayedLineTerminalErrorReleasesResolvedSlotAndAdmissionsExactlyOnce() throws Exception {
+    void delayedLineTerminalErrorReleasesResolvedSlotAndPermitExactlyOnce() throws Exception {
         AssertionError terminalFailure = new AssertionError("delayed line terminal failed fatally");
         CompletableFuture<Void> delayedTerminal = new CompletableFuture<>();
         CompletableFuture<Void> closeTask = new CompletableFuture<>();
@@ -280,17 +154,17 @@ final class PooledWorkerPhysicalCleanupTest {
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, 3);
         DefaultLineSession worker =
                 new DefaultLineSession(openSession(process, closeDispatcher), LineSessionSettings.defaults());
-        PoolLifecycleDispatcher.AdmissionPool admissions = new PoolLifecycleDispatcher.AdmissionPool(1);
-        WorkerPoolController.RetirementAdmissionProvider admissionProvider = deadlineNanos -> {
-            PoolLifecycleDispatcher.Admission admission = admissions.tryAcquire();
-            if (admission == null) {
+        BoundedTaskLimiter workerPermits = new BoundedTaskLimiter(1);
+        WorkerPoolController.WorkerPermitProvider workerPermitProvider = deadlineNanos -> {
+            BoundedTaskPermit workerPermit = workerPermits.tryAcquire();
+            if (workerPermit == null) {
                 throw new TimeoutException("test lifecycle capacity exhausted");
             }
-            return admission;
+            return workerPermit;
         };
         WorkerPoolController<DefaultLineSession> pool = new WorkerPoolController<>(
                 () -> worker,
-                (session, admission) -> WorkerCloseSupport.closeOutcome(
+                session -> WorkerCloseSupport.closeOutcome(
                         () -> {
                             try {
                                 session.close();
@@ -301,8 +175,7 @@ final class PooledWorkerPhysicalCleanupTest {
                             }
                         },
                         delayedTerminal,
-                        session.physicalOutputCleanup(),
-                        admission),
+                        session.physicalOutputCleanup()),
                 SingleWorkerPoolOptions.INSTANCE,
                 TestPoolFailures.INSTANCE,
                 "delayed-terminal line worker",
@@ -312,9 +185,9 @@ final class PooledWorkerPhysicalCleanupTest {
                         (thread, failure) -> {},
                         System::nanoTime,
                         null,
-                        admissionProvider));
+                        workerPermitProvider));
         try {
-            assertEquals(0, admissions.availablePermits());
+            assertEquals(0, workerPermits.availablePermits());
             CompletableFuture<Void> drain = pool.closeAsync();
 
             closeTask.get(1, TimeUnit.SECONDS);
@@ -329,7 +202,7 @@ final class PooledWorkerPhysicalCleanupTest {
             assertEquals(1, pool.metrics().retiring());
             assertEquals(0, pool.metrics().retired());
             assertEquals(0, pool.metrics().failedWorkerCloses());
-            assertEquals(0, admissions.availablePermits());
+            assertEquals(0, workerPermits.availablePermits());
 
             delayedTerminal.completeExceptionally(terminalFailure);
 
@@ -340,7 +213,7 @@ final class PooledWorkerPhysicalCleanupTest {
             assertEquals(1, pool.metrics().retired());
             assertEquals(1, pool.metrics().failedWorkerCloses());
             assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.CLOSED));
-            awaitAvailableAdmissions(admissions, 1);
+            awaitAvailablePermits(workerPermits, 1);
 
             for (int attempt = 0; attempt < 10; attempt++) {
                 ExecutionException repeated = assertThrows(
@@ -348,7 +221,7 @@ final class PooledWorkerPhysicalCleanupTest {
                 assertSame(terminalFailure, repeated.getCause());
             }
             assertEquals(1, pool.metrics().failedWorkerCloses());
-            assertEquals(1, admissions.availablePermits(), "resolved failure must release the worker admission");
+            assertEquals(1, workerPermits.availablePermits(), "resolved failure must release the worker permit");
             assertNoDispatcherLeak(closeDispatcher);
         } finally {
             delayedTerminal.completeExceptionally(terminalFailure);
@@ -371,15 +244,13 @@ final class PooledWorkerPhysicalCleanupTest {
         DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
                 () -> worker,
                 WorkerPoolSettings.<ProtocolSession<String, String>>defaults().withWarmupSize(1),
-                PoolLifecycleDispatcher::execute,
-                (session, admission) -> WorkerCloseSupport.closeOutcome(
+                session -> WorkerCloseSupport.closeOutcome(
                         () -> {
                             closeStarted.countDown();
                             session.close();
                         },
                         allowTerminalObservation.thenCompose(ignored -> session.onExit()),
-                        session.physicalOutputCleanup(),
-                        admission));
+                        session.physicalOutputCleanup()));
         try {
             CompletableFuture<Void> close = pool.closeAsync();
 
@@ -447,7 +318,6 @@ final class PooledWorkerPhysicalCleanupTest {
             assertNoDispatcherLeak(dispatcher);
         } finally {
             process.complete(143);
-            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
         }
     }
 
@@ -492,7 +362,6 @@ final class PooledWorkerPhysicalCleanupTest {
             assertNoDispatcherLeak(dispatcher);
         } finally {
             process.complete(143);
-            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
         }
     }
 
@@ -548,12 +417,10 @@ final class PooledWorkerPhysicalCleanupTest {
             assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
             assertTrue(stderr.awaitCloseFinished(Duration.ofSeconds(1)));
             firstWorker.onExit().handle((ignored, exitFailure) -> null).get(1, TimeUnit.SECONDS);
-            PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
             assertNoDispatcherLeak(dispatcher);
         } finally {
             stdout.releaseRead();
             process.complete(143);
-            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
         }
     }
 
@@ -609,12 +476,10 @@ final class PooledWorkerPhysicalCleanupTest {
             assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
             assertTrue(stderr.awaitCloseFinished(Duration.ofSeconds(1)));
             firstWorker.onExit().handle((ignored, exitFailure) -> null).get(1, TimeUnit.SECONDS);
-            PoolLifecycleDispatcher.whenSharedIdle().get(1, TimeUnit.SECONDS);
             assertNoDispatcherLeak(dispatcher);
         } finally {
             stdout.releaseRead();
             process.complete(143);
-            PoolLifecycleDispatcher.whenSharedIdle().get(2, TimeUnit.SECONDS);
         }
     }
 
@@ -805,10 +670,6 @@ final class PooledWorkerPhysicalCleanupTest {
         };
     }
 
-    private static PoolLifecycleDispatcher saturatedNestedDispatcher(String threadPrefix) {
-        return new PoolLifecycleDispatcher(new BoundedTaskLimiter(1), Threading::start, threadPrefix);
-    }
-
     private static void assertNoDispatcherLeak(BoundedCloseDispatcher dispatcher) {
         assertNoDispatcherLeak(dispatcher, 3);
     }
@@ -830,13 +691,12 @@ final class PooledWorkerPhysicalCleanupTest {
         assertEquals(1, matches);
     }
 
-    private static void awaitAvailableAdmissions(PoolLifecycleDispatcher.AdmissionPool admissions, int expected)
-            throws InterruptedException {
+    private static void awaitAvailablePermits(BoundedTaskLimiter permits, int expected) throws InterruptedException {
         long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        while (admissions.availablePermits() != expected && System.nanoTime() < deadlineNanos) {
+        while (permits.availablePermits() != expected && System.nanoTime() < deadlineNanos) {
             Thread.sleep(1);
         }
-        assertEquals(expected, admissions.availablePermits());
+        assertEquals(expected, permits.availablePermits());
     }
 
     private enum SingleWorkerPoolOptions implements WorkerPoolPolicy.Options {

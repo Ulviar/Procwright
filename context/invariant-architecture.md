@@ -110,7 +110,8 @@ Runtime получает только согласованный plan и не у
   `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
 - startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
-- обязательные post-monitor retirement, admission release и terminal publication — одноразовый `PoolStateEffects`;
+- обязательные post-monitor retirement, worker-permit release и terminal publication — одноразовый
+  `PoolStateEffects`;
 - pool commit — заранее подготовленный startup owner, bounded capacity `PoolPartition`, target-first переходы и
   post-monitor `PoolStateEffects`;
 - pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
@@ -226,7 +227,8 @@ scenario flags.
 - pool использует существующий line/protocol runtime и не раскрывает lease;
 - каждый worker всегда принадлежит ровно одному состоянию: starting, idle, leased или retiring;
 - `maxSize` ограничивает live slots, включая starting/retiring;
-- process-wide worker admission ограничивает суммарно 256 starting/live/retiring workers всех pools;
+- process-wide worker permits ограничивают суммарно 256 factory-admitted workers всех pools; reservation до permit
+  занимает slot только своего pool;
 - pool terminal outcome выбирается под monitor и публикуется после его освобождения без отдельной lifetime reservation;
 - acquire timeout и request timeout различаются;
 - failed request/timeout/decoder/process exit retire worker;
