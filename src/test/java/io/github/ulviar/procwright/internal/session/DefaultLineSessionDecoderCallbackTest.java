@@ -17,7 +17,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderMalfunctionError;
+import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -28,6 +34,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -35,7 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
-final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDecoderCallbackTestSupport {
+final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTestSupport {
 
     @Test
     void abandonedDecoderFailureDoesNotChangeTimeoutAndReleasesProtocolCapacity() throws Exception {
@@ -399,6 +406,81 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionDeco
             } finally {
                 rawSession.close();
             }
+        }
+    }
+
+    private static final class DecoderCreationFailureCharset extends Charset {
+
+        private final int failingCreation;
+        private final Throwable failure;
+        private int decoderCreations;
+
+        DecoderCreationFailureCharset(int failingCreation, Throwable failure) {
+            super(
+                    "X-Procwright-Line-Decoder-Creation-" + failingCreation + "-"
+                            + failure.getClass().getSimpleName(),
+                    new String[0]);
+            this.failingCreation = failingCreation;
+            this.failure = failure;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            decoderCreations++;
+            if (decoderCreations == failingCreation) {
+                if (failure instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw (Error) failure;
+            }
+            return passthroughDecoder(this);
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+
+        int decoderCreations() {
+            return decoderCreations;
+        }
+    }
+
+    private static CharsetDecoder passthroughDecoder(Charset charset) {
+        return new CharsetDecoder(charset, 1, 1) {
+            @Override
+            protected CoderResult decodeLoop(ByteBuffer input, CharBuffer output) {
+                while (input.hasRemaining() && output.hasRemaining()) {
+                    output.put((char) Byte.toUnsignedInt(input.get()));
+                }
+                return input.hasRemaining() ? CoderResult.OVERFLOW : CoderResult.UNDERFLOW;
+            }
+        };
+    }
+
+    private static final class TrackingInputStream extends InputStream {
+
+        private final AtomicInteger reads = new AtomicInteger();
+
+        @Override
+        public int read() {
+            reads.incrementAndGet();
+            return -1;
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) {
+            reads.incrementAndGet();
+            return -1;
+        }
+
+        int reads() {
+            return reads.get();
         }
     }
 }

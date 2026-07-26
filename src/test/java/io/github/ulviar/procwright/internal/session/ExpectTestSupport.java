@@ -2,8 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import java.io.IOException;
 import java.io.InputStream;
@@ -16,7 +14,6 @@ import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayDeque;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -34,14 +31,6 @@ abstract class ExpectTestSupport {
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 StandardCharsets.UTF_8);
-    }
-
-    static void assertIdentitySuppressedOnce(Throwable primary, Throwable expected) {
-        assertEquals(
-                1,
-                List.of(primary.getSuppressed()).stream()
-                        .filter(suppressed -> suppressed == expected)
-                        .count());
     }
 
     static boolean eventually(BooleanSupplier condition) throws InterruptedException {

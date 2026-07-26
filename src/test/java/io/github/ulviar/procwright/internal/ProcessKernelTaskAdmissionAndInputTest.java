@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmissionAndInputTestSupport {
+final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessFixtureSupport {
 
     @Test
     void earlyStdinFailureWinsBeforeLongDeadlineAndStopsTheLiveProcess() throws Exception {
@@ -226,6 +226,66 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
         }
     }
 
+    private static final class ReadErrorInputStream extends TrackingInputStream {
+
+        private final AssertionError failure;
+
+        ReadErrorInputStream(AssertionError failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public int read() {
+            throw failure;
+        }
+    }
+
+    private static final class FailingWriteOutputStream extends TrackingOutputStream {
+
+        private final AssertionError failure;
+        private final AssertionError closeFailure;
+
+        FailingWriteOutputStream(AssertionError failure, AssertionError closeFailure) {
+            this.failure = failure;
+            this.closeFailure = closeFailure;
+        }
+
+        @Override
+        public void write(int value) {
+            throw failure;
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) {
+            throw failure;
+        }
+
+        @Override
+        public void close() {
+            super.close();
+            if (closeFailure != null) {
+                throw closeFailure;
+            }
+        }
+    }
+
+    private static final class ImmediateFailingOutputStream extends TrackingOutputStream {
+
+        private final Throwable failure;
+
+        ImmediateFailingOutputStream(Throwable failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) {
+            if (failure instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw (Error) failure;
+        }
+    }
+
     private static final class NonCooperativeOutputStream extends TrackingOutputStream {
 
         private final CountDownLatch entered = new CountDownLatch(1);
@@ -262,6 +322,36 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
         public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
             nonCooperativeStdin.entered.await(timeout, unit);
             return !isAlive();
+        }
+    }
+
+    private static final class BlockingReadInputStream extends TrackingInputStream {
+
+        private final CountDownLatch readEntered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public int read() {
+            readEntered.countDown();
+            boolean restoreInterrupt = false;
+            while (true) {
+                try {
+                    release.await();
+                    break;
+                } catch (InterruptedException interruption) {
+                    restoreInterrupt = true;
+                }
+            }
+            if (restoreInterrupt) {
+                Thread.currentThread().interrupt();
+            }
+            return -1;
+        }
+
+        @Override
+        public void close() {
+            super.close();
+            release.countDown();
         }
     }
 }

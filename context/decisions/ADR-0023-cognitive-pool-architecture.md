@@ -133,9 +133,10 @@ taxonomy, retirement reasons и worker reuse сохраняются.
 ## Проверка
 
 State owners проверяются прямыми unit tests. `WorkerPoolStateTest` проверяет составной lifecycle, close-транзакцию и
-revision wakeup; `PoolTerminationTest` проверяет construction/closing/drain как локальный инвариант,
-а `WorkerPoolControllerLifecycleTest` — construction rollback, независимое закрытие pools и восстановление worker
-capacity.
+revision wakeup; `PoolTerminationTest` проверяет construction/closing/drain как локальный инвариант.
+`WorkerPoolControllerCapacityTest` проверяет construction и независимость pools,
+`WorkerPoolControllerCloseIsolationTest` — public close и callbacks, а `WorkerPoolControllerRetirementTest` —
+освобождение worker capacity и drain.
 Orchestration collaborators дополнительно доказываются через controller и pooled-wrapper contracts; line и protocol
 integration tests проверяют пользовательские сценарии. `publicationReadinessCheck` включает unit, integration, bounded
 stress, API/ABI, документацию, publication structure и consumer examples.

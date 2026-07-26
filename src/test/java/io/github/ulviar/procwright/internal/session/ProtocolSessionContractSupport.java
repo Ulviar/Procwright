@@ -2,10 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
-
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
@@ -15,7 +11,6 @@ import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
-import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -26,9 +21,6 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -40,37 +32,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 abstract class ProtocolSessionContractSupport {
-
-    static void assertIdentitySuppressedOnce(Throwable primary, Throwable expected) {
-        assertEquals(1, identitySuppressionCount(primary, expected));
-    }
-
-    static int identitySuppressionCount(Throwable primary, Throwable expected) {
-        int matches = 0;
-        for (Throwable suppressed : primary.getSuppressed()) {
-            if (suppressed == expected) {
-                matches++;
-            }
-        }
-        return matches;
-    }
-
-    static void assertFailureGraphDoesNotContain(Throwable root, Throwable forbidden) {
-        IdentityHashMap<Throwable, Boolean> visited = new IdentityHashMap<>();
-        ArrayList<Throwable> pending = new ArrayList<>();
-        pending.add(root);
-        while (!pending.isEmpty()) {
-            Throwable current = pending.remove(pending.size() - 1);
-            assertNotSame(forbidden, current, "failure graph unexpectedly references the forbidden failure");
-            if (visited.put(current, Boolean.TRUE) != null) {
-                continue;
-            }
-            if (current.getCause() != null) {
-                pending.add(current.getCause());
-            }
-            pending.addAll(List.of(current.getSuppressed()));
-        }
-    }
 
     static ProtocolSessionSettings options(Charset charset) {
         return ProtocolSessionSettings.defaults().withCharsetPolicy(CharsetPolicy.report(charset));
@@ -149,32 +110,6 @@ abstract class ProtocolSessionContractSupport {
         }
     }
 
-    static final class GatedErrorInputStream extends InputStream {
-
-        final Error failure;
-        final CountDownLatch releaseFailure = new CountDownLatch(1);
-
-        GatedErrorInputStream(Error failure) {
-            this.failure = failure;
-        }
-
-        @Override
-        public int read() {
-            awaitUninterruptibly(releaseFailure);
-            throw failure;
-        }
-
-        @Override
-        public int read(byte[] bytes, int offset, int length) {
-            Objects.checkFromIndexSize(offset, length, bytes.length);
-            return length == 0 ? 0 : read();
-        }
-
-        void releaseFailure() {
-            releaseFailure.countDown();
-        }
-    }
-
     static final class GatedEofInputStream extends InputStream {
 
         final CountDownLatch readEntered = new CountDownLatch(1);
@@ -199,17 +134,6 @@ abstract class ProtocolSessionContractSupport {
 
         void releaseEof() {
             releaseEof.countDown();
-        }
-    }
-
-    record CallbackOutcome<T>(T value, Throwable failure) {
-
-        static <T> CallbackOutcome<T> completed(T value) {
-            return new CallbackOutcome<>(value, null);
-        }
-
-        static <T> CallbackOutcome<T> failed(Throwable failure) {
-            return new CallbackOutcome<>(null, Objects.requireNonNull(failure, "failure"));
         }
     }
 
@@ -364,13 +288,6 @@ abstract class ProtocolSessionContractSupport {
         } catch (Throwable failure) {
             return failure;
         }
-    }
-
-    static void assertCanonicalTimeout(ProtocolSessionException timeout) {
-        assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
-        assertEquals("Protocol request timed out", timeout.getMessage());
-        TimeoutException cause = assertInstanceOf(TimeoutException.class, timeout.getCause());
-        assertEquals("Protocol request deadline elapsed", cause.getMessage());
     }
 
     static void awaitUninterruptibly(CountDownLatch latch) {

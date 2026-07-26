@@ -286,7 +286,6 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
 
         final CompletableFuture<Void> terminal = CompletableFuture.completedFuture(null);
         final CompletableFuture<Void> physicalCleanup = new CompletableFuture<>();
-        final CountDownLatch physicalCloseFinished = new CountDownLatch(1);
         final AtomicBoolean physicallyClosed = new AtomicBoolean();
         final AtomicInteger physicalCloseCalls = new AtomicInteger();
 
@@ -294,7 +293,6 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
             if (physicallyClosed.compareAndSet(false, true)) {
                 physicalCloseCalls.incrementAndGet();
                 physicalCleanup.completeExceptionally(failure);
-                physicalCloseFinished.countDown();
             }
         }
 
@@ -303,7 +301,6 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
             if (physicallyClosed.compareAndSet(false, true)) {
                 physicalCloseCalls.incrementAndGet();
                 physicalCleanup.complete(null);
-                physicalCloseFinished.countDown();
             }
         }
     }

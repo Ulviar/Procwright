@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,7 +25,10 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderMalfunctionError;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -368,6 +372,49 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
 
         private int reads() {
             return reads.get();
+        }
+    }
+
+    private static void assertFailureGraphDoesNotContain(Throwable root, Throwable forbidden) {
+        IdentityHashMap<Throwable, Boolean> visited = new IdentityHashMap<>();
+        ArrayList<Throwable> pending = new ArrayList<>();
+        pending.add(root);
+        while (!pending.isEmpty()) {
+            Throwable current = pending.remove(pending.size() - 1);
+            assertNotSame(forbidden, current, "failure graph unexpectedly references the forbidden failure");
+            if (visited.put(current, Boolean.TRUE) != null) {
+                continue;
+            }
+            if (current.getCause() != null) {
+                pending.add(current.getCause());
+            }
+            pending.addAll(List.of(current.getSuppressed()));
+        }
+    }
+
+    private static final class GatedErrorInputStream extends InputStream {
+
+        private final Error failure;
+        private final CountDownLatch releaseFailure = new CountDownLatch(1);
+
+        GatedErrorInputStream(Error failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public int read() {
+            awaitUninterruptibly(releaseFailure);
+            throw failure;
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) {
+            Objects.checkFromIndexSize(offset, length, bytes.length);
+            return length == 0 ? 0 : read();
+        }
+
+        void releaseFailure() {
+            releaseFailure.countDown();
         }
     }
 }

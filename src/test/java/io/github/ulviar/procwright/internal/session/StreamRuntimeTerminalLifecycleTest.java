@@ -71,12 +71,82 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
 
     @Test
     void typedOutputFailureWinsWhenItOccursBeforeFatalError() throws Exception {
-        assertTypedAndFatalOutputFailuresAreArbitrated(true);
+        IOException readFailure = new IOException("controlled stdout read failure");
+        AssertionError fatalError = new AssertionError("controlled stderr fatal failure");
+        GatedFailureInputStream typedStream = new GatedFailureInputStream(readFailure);
+        GatedFailureInputStream fatalStream = new GatedFailureInputStream(fatalError);
+        ControllableProcess process = new ControllableProcess(typedStream, fatalStream, null);
+        DefaultSession rawSession = session(process);
+        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> reported.add(failure));
+        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        try {
+            assertTrue(typedStream.awaitReadEntered());
+            assertTrue(fatalStream.awaitReadEntered());
+
+            typedStream.release();
+            assertTrue(typedStream.awaitThrow());
+            assertTrue(process.awaitDestroyed(), "the first failure must complete fail-stop cleanup");
+            fatalStream.release();
+            assertTrue(fatalStream.awaitThrow());
+
+            ExecutionException failure =
+                    assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
+            StreamException primary = assertInstanceOf(StreamException.class, failure.getCause());
+            assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, primary.reason());
+            assertSame(readFailure, primary.getCause());
+            assertEquals(0, primary.getSuppressed().length);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(1, reported.size());
+            assertSame(fatalError, reported.get(0));
+        } finally {
+            typedStream.release();
+            fatalStream.release();
+            stream.close();
+            BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1));
+            Thread.setDefaultUncaughtExceptionHandler(previous);
+        }
     }
 
     @Test
     void fatalErrorWinsWhenItOccursBeforeTypedOutputFailure() throws Exception {
-        assertTypedAndFatalOutputFailuresAreArbitrated(false);
+        IOException readFailure = new IOException("controlled stdout read failure");
+        AssertionError fatalError = new AssertionError("controlled stderr fatal failure");
+        GatedFailureInputStream typedStream = new GatedFailureInputStream(readFailure);
+        GatedFailureInputStream fatalStream = new GatedFailureInputStream(fatalError);
+        ControllableProcess process = new ControllableProcess(typedStream, fatalStream, null);
+        DefaultSession rawSession = session(process);
+        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> reported.add(failure));
+        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        try {
+            assertTrue(typedStream.awaitReadEntered());
+            assertTrue(fatalStream.awaitReadEntered());
+
+            fatalStream.release();
+            assertTrue(fatalStream.awaitThrow());
+            assertTrue(process.awaitDestroyed(), "the first failure must complete fail-stop cleanup");
+            typedStream.release();
+            assertTrue(typedStream.awaitThrow());
+
+            ExecutionException failure =
+                    assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
+            assertSame(fatalError, failure.getCause());
+            assertEquals(0, fatalError.getSuppressed().length);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
+            assertEquals(1, reported.size());
+            StreamException typedFailure = assertInstanceOf(StreamException.class, reported.get(0));
+            assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, typedFailure.reason());
+            assertSame(readFailure, typedFailure.getCause());
+        } finally {
+            typedStream.release();
+            fatalStream.release();
+            stream.close();
+            BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1));
+            Thread.setDefaultUncaughtExceptionHandler(previous);
+        }
     }
 
     @Test
@@ -255,66 +325,6 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
         } finally {
             process.releaseWaitFailure();
             stream.close();
-        }
-    }
-
-    protected static void assertTypedAndFatalOutputFailuresAreArbitrated(boolean typedFirst) throws Exception {
-        IOException readFailure = new IOException("controlled stdout read failure");
-        AssertionError fatalError = new AssertionError("controlled stderr fatal failure");
-        GatedFailureInputStream typedStream = new GatedFailureInputStream(readFailure);
-        GatedFailureInputStream fatalStream = new GatedFailureInputStream(fatalError);
-        ControllableProcess process = new ControllableProcess(typedStream, fatalStream, null);
-        DefaultSession rawSession = session(process);
-        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> reported.add(failure));
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
-        try {
-            assertTrue(typedStream.awaitReadEntered());
-            assertTrue(fatalStream.awaitReadEntered());
-            if (typedFirst) {
-                typedStream.release();
-                assertTrue(typedStream.awaitThrow());
-            } else {
-                fatalStream.release();
-                assertTrue(fatalStream.awaitThrow());
-            }
-            assertTrue(process.awaitDestroyed(), "the first failure must complete fail-stop cleanup");
-
-            if (typedFirst) {
-                fatalStream.release();
-                assertTrue(fatalStream.awaitThrow());
-            } else {
-                typedStream.release();
-                assertTrue(typedStream.awaitThrow());
-            }
-
-            ExecutionException failure =
-                    assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
-            if (typedFirst) {
-                StreamException primary = assertInstanceOf(StreamException.class, failure.getCause());
-                assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, primary.reason());
-                assertSame(readFailure, primary.getCause());
-                assertEquals(0, primary.getSuppressed().length);
-            } else {
-                assertSame(fatalError, failure.getCause());
-                assertEquals(0, fatalError.getSuppressed().length);
-            }
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, reported.size());
-            if (typedFirst) {
-                assertSame(fatalError, reported.get(0));
-            } else {
-                StreamException typedFailure = assertInstanceOf(StreamException.class, reported.get(0));
-                assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, typedFailure.reason());
-                assertSame(readFailure, typedFailure.getCause());
-            }
-        } finally {
-            typedStream.release();
-            fatalStream.release();
-            stream.close();
-            BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
     }
 

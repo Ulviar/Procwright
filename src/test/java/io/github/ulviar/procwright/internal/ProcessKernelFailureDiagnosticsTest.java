@@ -81,7 +81,7 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
     void postStartErrorRetainsIdentityWhenDiagnosticListenerAlsoFails() throws Exception {
         AssertionError operationFailure = new AssertionError("post-start failed");
         CountDownLatch listenerCalled = new CountDownLatch(1);
-        CleanupProcess process = new CleanupProcess(new CloseCountingOutputStream(null));
+        CleanupProcess process = new CleanupProcess(OutputStream.nullOutputStream());
         ExecutionPlan plan = executionPlan(
                 StandardCharsets.UTF_8, DiagnosticsSettings.disabled().withListener(event -> {
                     if (event.type() == DiagnosticEventType.PROCESS_FAILED) {
@@ -252,37 +252,6 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
         @Override
         public Stream<ProcessHandle> descendants() {
             return Stream.empty();
-        }
-    }
-
-    static final class CloseCountingOutputStream extends OutputStream {
-
-        final Error failure;
-        final AtomicInteger closes = new AtomicInteger();
-        final CountDownLatch closed = new CountDownLatch(1);
-
-        CloseCountingOutputStream(Error failure) {
-            this.failure = failure;
-        }
-
-        @Override
-        public void write(int value) {}
-
-        @Override
-        public void close() {
-            closes.incrementAndGet();
-            closed.countDown();
-            if (failure != null) {
-                throw failure;
-            }
-        }
-
-        boolean awaitClose() throws InterruptedException {
-            return closed.await(1, TimeUnit.SECONDS);
-        }
-
-        final int closeCalls() {
-            return closes.get();
         }
     }
 
