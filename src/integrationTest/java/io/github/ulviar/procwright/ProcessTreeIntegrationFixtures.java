@@ -2,14 +2,13 @@
 
 package io.github.ulviar.procwright;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 
-abstract class OneShotCancellationIntegrationSupport extends OneShotIntegrationSupport {
+final class ProcessTreeIntegrationFixtures {
+
+    private ProcessTreeIntegrationFixtures() {}
 
     static void assertProcessEventuallyStops(long pid) throws InterruptedException {
         long deadlineNanos = System.nanoTime() + Duration.ofSeconds(5).toNanos();
@@ -46,34 +45,6 @@ abstract class OneShotCancellationIntegrationSupport extends OneShotIntegrationS
             waitForProcessStopBestEffort(pid, Duration.ofSeconds(2));
         } catch (RuntimeException ignored) {
             // Test cleanup is best-effort and must not replace the behavioral assertion failure.
-        }
-    }
-
-    static String cyclicFailureDiagnostic(Thread worker, long rootPid, long childPid, Path childPidFile) {
-        String pidFileState;
-        try {
-            pidFileState = java.nio.file.Files.exists(childPidFile)
-                    ? java.nio.file.Files.readString(childPidFile).trim()
-                    : "<missing>";
-        } catch (IOException failure) {
-            pidFileState = "<unreadable: " + failure.getClass().getSimpleName() + ">";
-        }
-        return "workerState=" + worker.getState()
-                + ", rootPid=" + rootPid
-                + ", rootAlive=" + processAliveBestEffort(rootPid)
-                + ", childPid=" + childPid
-                + ", childAlive=" + processAliveBestEffort(childPid)
-                + ", pidFile='" + pidFileState + "'";
-    }
-
-    static boolean processAliveBestEffort(long pid) {
-        if (pid <= 0) {
-            return false;
-        }
-        try {
-            return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
-        } catch (RuntimeException ignored) {
-            return false;
         }
     }
 
@@ -139,34 +110,6 @@ abstract class OneShotCancellationIntegrationSupport extends OneShotIntegrationS
         }
     }
 
-    static void waitForFile(Path path, Duration timeout) throws Exception {
-        long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        while (!java.nio.file.Files.exists(path) && System.nanoTime() < deadlineNanos) {
-            Thread.sleep(10);
-        }
-        assertTrue(java.nio.file.Files.exists(path), () -> "timed out waiting for " + path);
-    }
-
-    static void waitForFileUnchecked(Path path, Duration timeout) {
-        try {
-            waitForFile(path, timeout);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError("interrupted while waiting for " + path, exception);
-        } catch (Exception exception) {
-            throw new AssertionError("could not wait for " + path, exception);
-        }
-    }
-
-    static void waitForProcessExit(long pid, Duration timeout) throws Exception {
-        assertTrue(pid > 0, "process pid was not captured");
-        long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        while (ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) && System.nanoTime() < deadlineNanos) {
-            Thread.sleep(10);
-        }
-        assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false), "process did not exit");
-    }
-
     static void waitForDescendantUnchecked(Process process, long descendantPid, Duration timeout) {
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
         try {
@@ -181,20 +124,5 @@ abstract class OneShotCancellationIntegrationSupport extends OneShotIntegrationS
             throw new AssertionError("interrupted while waiting for descendant " + descendantPid, exception);
         }
         throw new AssertionError("process " + process.pid() + " did not expose descendant " + descendantPid);
-    }
-
-    static Duration timeoutAfterFixtureStartup() {
-        return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
-    }
-
-    static Duration boundedCleanupLimit() {
-        return isWindows() ? Duration.ofSeconds(6) : Duration.ofSeconds(3);
-    }
-
-    static Duration descendantStartupTimeout() {
-        // The spawned child JVM sleeps for 10 s, so a generous startup window keeps the assertion
-        // semantics (timeout fires after the child pid is reported) while absorbing cold JVM starts
-        // on loaded machines.
-        return Duration.ofSeconds(2);
     }
 }
