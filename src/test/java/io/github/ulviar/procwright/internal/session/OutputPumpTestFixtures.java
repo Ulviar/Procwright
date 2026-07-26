@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
@@ -16,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -399,6 +404,63 @@ final class OutputPumpTestFixtures {
             }
             return true;
         }
+    }
+
+    static final class FailureReportProbe {
+
+        private final List<ReportedFailure> reports = new CopyOnWriteArrayList<>();
+
+        BoundedCloseDispatcher closeDispatcher() {
+            return new BoundedCloseDispatcher(2, 2, (name, task) -> {
+                Thread thread = new Thread(task, name);
+                thread.setDaemon(true);
+                thread.setUncaughtExceptionHandler(
+                        (source, failure) -> reports.add(new ReportedFailure(source.getName(), failure)));
+                thread.start();
+            });
+        }
+
+        void retainFallbackFrom(String sourceName, OutputPumpCoordinator coordinator, Throwable fallback)
+                throws InterruptedException {
+            Thread source = new Thread(() -> coordinator.retainFailure(fallback), sourceName);
+            source.setUncaughtExceptionHandler(
+                    (reportedSource, failure) -> reports.add(new ReportedFailure(reportedSource.getName(), failure)));
+            source.start();
+            source.join(TimeUnit.SECONDS.toMillis(1));
+            assertFalse(source.isAlive(), "fallback registration must complete");
+        }
+
+        void assertReportedOnceFrom(String sourceName, Throwable expectedFailure) {
+            List<ReportedFailure> matching = reports.stream()
+                    .filter(report -> report.sourceName().equals(sourceName))
+                    .filter(report -> report.failure() == expectedFailure)
+                    .toList();
+            assertEquals(1, matching.size());
+            assertSame(expectedFailure, matching.get(0).failure());
+        }
+
+        void assertReportedOnceFromPrefix(String sourceNamePrefix, Throwable expectedFailure) {
+            List<ReportedFailure> matching = reports.stream()
+                    .filter(report -> report.sourceName().startsWith(sourceNamePrefix))
+                    .filter(report -> report.failure() == expectedFailure)
+                    .toList();
+            assertEquals(1, matching.size());
+            assertSame(expectedFailure, matching.get(0).failure());
+        }
+
+        void assertNotReported(Throwable failure) {
+            assertEquals(
+                    0,
+                    reports.stream()
+                            .filter(report -> report.failure() == failure)
+                            .count());
+        }
+
+        void assertReportCount(int expected) {
+            assertEquals(expected, reports.size());
+        }
+
+        private record ReportedFailure(String sourceName, Throwable failure) {}
     }
 
     static void awaitUninterruptibly(CountDownLatch latch) {

@@ -165,9 +165,10 @@ final class RunDecoderFailureIntegrationTest {
         private int decoderCreations;
 
         private OverflowProbeCharset(OverflowBehavior behavior) {
-            super(behavior == OverflowBehavior.PRODUCE_OUTPUT
-                    ? "x-procwright-output-overflow"
-                    : "x-procwright-no-progress-overflow");
+            super(
+                    behavior == OverflowBehavior.PRODUCE_OUTPUT
+                            ? "x-procwright-output-overflow"
+                            : "x-procwright-no-progress-overflow");
             this.behavior = behavior;
         }
 

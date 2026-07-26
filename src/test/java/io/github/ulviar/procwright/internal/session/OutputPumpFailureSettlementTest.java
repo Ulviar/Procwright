@@ -4,13 +4,13 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.FailingPumpStarter;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.FailureReportProbe;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.GatedThrowingCloseInputStream;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.ThrowingCloseInputStream;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.awaitSettlement;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.drainToEof;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -119,14 +119,8 @@ final class OutputPumpFailureSettlementTest {
         ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
         ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        List<ReportedFailure> reports = new CopyOnWriteArrayList<>();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler(
-                    (source, failure) -> reports.add(new ReportedFailure(source.getName(), failure)));
-            thread.start();
-        });
+        FailureReportProbe reports = new FailureReportProbe();
+        BoundedCloseDispatcher closeDispatcher = reports.closeDispatcher();
         DefaultSession rawSession = session(process, closeDispatcher);
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "shutdown-race");
         CountDownLatch pumpsFinished = new CountDownLatch(2);
@@ -140,7 +134,7 @@ final class OutputPumpFailureSettlementTest {
                     () -> {});
             assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
 
-            retainFallbackFrom("authoritative-primary-fallback-source", coordinator, fallback, reports);
+            reports.retainFallbackFrom("authoritative-primary-fallback-source", coordinator, fallback);
             coordinator.closeSessionPreserving(workerFailure);
             assertTrue(stdout.awaitCloseCompleted());
             assertTrue(stderr.awaitCloseCompleted());
@@ -149,11 +143,11 @@ final class OutputPumpFailureSettlementTest {
             coordinator.closeSessionPreserving(workerFailure);
 
             assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertReportedOnceFromSource(reports, "authoritative-primary-fallback-source", fallback);
-            assertReportedOnceFromSourcePrefix(reports, "procwright-shutdown-race-stdout-close-", stdoutCloseFailure);
-            assertReportedOnceFromSourcePrefix(reports, "procwright-shutdown-race-stderr-close-", stderrCloseFailure);
-            assertEquals(0, reportCount(reports, workerFailure));
-            assertEquals(3, reports.size());
+            reports.assertReportedOnceFrom("authoritative-primary-fallback-source", fallback);
+            reports.assertReportedOnceFromPrefix("procwright-shutdown-race-stdout-close-", stdoutCloseFailure);
+            reports.assertReportedOnceFromPrefix("procwright-shutdown-race-stderr-close-", stderrCloseFailure);
+            reports.assertNotReported(workerFailure);
+            reports.assertReportCount(3);
             assertEquals(0, workerFailure.getSuppressed().length);
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
@@ -312,14 +306,8 @@ final class OutputPumpFailureSettlementTest {
         GatedThrowingCloseInputStream stdout = new GatedThrowingCloseInputStream(stdoutCloseFailure);
         GatedThrowingCloseInputStream stderr = new GatedThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        List<ReportedFailure> reports = new CopyOnWriteArrayList<>();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler(
-                    (source, failure) -> reports.add(new ReportedFailure(source.getName(), failure)));
-            thread.start();
-        });
+        FailureReportProbe reports = new FailureReportProbe();
+        BoundedCloseDispatcher closeDispatcher = reports.closeDispatcher();
         DefaultSession rawSession = session(process, closeDispatcher);
         OutputPumpCoordinator coordinator = new OutputPumpCoordinator(
                 rawSession, "late-close-failure", OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
@@ -336,7 +324,7 @@ final class OutputPumpFailureSettlementTest {
                     () -> {});
             assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
 
-            retainFallbackFrom("scenario-terminal-fallback-source", coordinator, fallback, reports);
+            reports.retainFallbackFrom("scenario-terminal-fallback-source", coordinator, fallback);
             process.exitNaturally(0);
             assertTrue(stdout.awaitCloseStarted());
             assertTrue(stderr.awaitCloseStarted());
@@ -350,13 +338,11 @@ final class OutputPumpFailureSettlementTest {
             assertTrue(stderr.awaitCloseCompleted());
             assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
             assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertReportedOnceFromSource(reports, "scenario-terminal-fallback-source", fallback);
-            assertReportedOnceFromSourcePrefix(
-                    reports, "procwright-late-close-failure-stdout-close-", stdoutCloseFailure);
-            assertReportedOnceFromSourcePrefix(
-                    reports, "procwright-late-close-failure-stderr-close-", stderrCloseFailure);
-            assertEquals(0, reportCount(reports, terminalPrimary));
-            assertEquals(3, reports.size());
+            reports.assertReportedOnceFrom("scenario-terminal-fallback-source", fallback);
+            reports.assertReportedOnceFromPrefix("procwright-late-close-failure-stdout-close-", stdoutCloseFailure);
+            reports.assertReportedOnceFromPrefix("procwright-late-close-failure-stderr-close-", stderrCloseFailure);
+            reports.assertNotReported(terminalPrimary);
+            reports.assertReportCount(3);
             assertEquals(0, terminalPrimary.getSuppressed().length);
         } finally {
             stdout.releaseClose();
@@ -364,44 +350,6 @@ final class OutputPumpFailureSettlementTest {
             coordinator.closeSessionPreserving(terminalPrimary);
             rawSession.close();
         }
-    }
-
-    private static void retainFallbackFrom(
-            String sourceName,
-            OutputPumpCoordinator coordinator,
-            Throwable fallback,
-            List<ReportedFailure> reports)
-            throws InterruptedException {
-        Thread source = new Thread(() -> coordinator.retainFailure(fallback), sourceName);
-        source.setUncaughtExceptionHandler(
-                (reportedSource, failure) -> reports.add(new ReportedFailure(reportedSource.getName(), failure)));
-        source.start();
-        source.join(TimeUnit.SECONDS.toMillis(1));
-        assertFalse(source.isAlive(), "fallback registration must complete");
-    }
-
-    private static void assertReportedOnceFromSource(
-            List<ReportedFailure> reports, String sourceName, Throwable expectedFailure) {
-        List<ReportedFailure> matching = reports.stream()
-                .filter(report -> report.sourceName().equals(sourceName))
-                .filter(report -> report.failure() == expectedFailure)
-                .toList();
-        assertEquals(1, matching.size());
-        assertSame(expectedFailure, matching.get(0).failure());
-    }
-
-    private static void assertReportedOnceFromSourcePrefix(
-            List<ReportedFailure> reports, String sourceNamePrefix, Throwable expectedFailure) {
-        List<ReportedFailure> matching = reports.stream()
-                .filter(report -> report.sourceName().startsWith(sourceNamePrefix))
-                .filter(report -> report.failure() == expectedFailure)
-                .toList();
-        assertEquals(1, matching.size());
-        assertSame(expectedFailure, matching.get(0).failure());
-    }
-
-    private static long reportCount(List<ReportedFailure> reports, Throwable expectedFailure) {
-        return reports.stream().filter(report -> report.failure() == expectedFailure).count();
     }
 
     private static Throwable captureFailure(Runnable operation) {
@@ -412,6 +360,4 @@ final class OutputPumpFailureSettlementTest {
             return failure;
         }
     }
-
-    private record ReportedFailure(String sourceName, Throwable failure) {}
 }
