@@ -14,6 +14,8 @@ import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -26,10 +28,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessKernelFailureOutputAndSupervisionCleanupTest
-        extends ProcessKernelFailureOutputAndSupervisionCleanupTestSupport {
+final class ProcessKernelFailureOutputAndSupervisionCleanupTest extends ProcessKernelProcessFixtureSupport {
 
     @Test
     void elapsedDurationUsesInjectedMonotonicTimeAndClampsBackwardReadings() {
@@ -316,5 +318,207 @@ final class ProcessKernelFailureOutputAndSupervisionCleanupTest
         assertEquals(1, stdin.closeCalls());
         assertTrue(eventually(() ->
                 dispatcher.activeCount() == 0 && dispatcher.pendingCount() == 0 && dispatcher.outstandingCount() == 0));
+    }
+
+    static final class CleanupProcess extends Process {
+
+        final OutputStream stdin;
+        final AtomicBoolean alive = new AtomicBoolean(true);
+
+        CleanupProcess(OutputStream stdin) {
+            this.stdin = stdin;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return stdin;
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            alive.set(false);
+            return 137;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return !alive.get();
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive.get()) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 137;
+        }
+
+        @Override
+        public void destroy() {
+            alive.set(false);
+        }
+
+        @Override
+        public Process destroyForcibly() {
+            alive.set(false);
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive.get();
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            throw new UnsupportedOperationException("process handles are unavailable");
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+    }
+
+    static final class CloseCountingOutputStream extends OutputStream {
+
+        final Error failure;
+        final AtomicInteger closes = new AtomicInteger();
+        final CountDownLatch closed = new CountDownLatch(1);
+
+        CloseCountingOutputStream(Error failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void write(int value) {}
+
+        @Override
+        public void close() {
+            closes.incrementAndGet();
+            closed.countDown();
+            if (failure != null) {
+                throw failure;
+            }
+        }
+
+        boolean awaitClose() throws InterruptedException {
+            return closed.await(1, TimeUnit.SECONDS);
+        }
+
+        final int closeCalls() {
+            return closes.get();
+        }
+    }
+
+    static final class BlockingCloseOutputStream extends TrackingOutputStream {
+
+        final CountDownLatch closeStarted = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public void write(int value) {}
+
+        @Override
+        public void close() {
+            super.close();
+            closeStarted.countDown();
+            boolean interrupted = false;
+            while (true) {
+                try {
+                    release.await();
+                    break;
+                } catch (InterruptedException exception) {
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        boolean awaitClose() throws InterruptedException {
+            return closeStarted.await(1, TimeUnit.SECONDS);
+        }
+
+        void release() {
+            release.countDown();
+        }
+    }
+
+    static final class BlockingCleanupInputStream extends TrackingInputStream {
+
+        final AtomicBoolean cleanupFinished;
+        final AtomicBoolean byteReturned = new AtomicBoolean();
+        final CountDownLatch closeStarted = new CountDownLatch(1);
+        final CountDownLatch releaseClose = new CountDownLatch(1);
+
+        BlockingCleanupInputStream(AtomicBoolean cleanupFinished) {
+            this.cleanupFinished = cleanupFinished;
+        }
+
+        @Override
+        public int read() {
+            return byteReturned.compareAndSet(false, true) ? 0xC3 : -1;
+        }
+
+        @Override
+        public void close() {
+            super.close();
+            closeStarted.countDown();
+            boolean interrupted = false;
+            while (true) {
+                try {
+                    releaseClose.await();
+                    break;
+                } catch (InterruptedException exception) {
+                    interrupted = true;
+                }
+            }
+            cleanupFinished.set(true);
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        boolean awaitClose() throws InterruptedException {
+            return closeStarted.await(1, TimeUnit.SECONDS);
+        }
+
+        void releaseClose() {
+            releaseClose.countDown();
+        }
+    }
+
+    static final class FailingReadInputStream extends TrackingInputStream {
+
+        final AssertionError readFailure;
+        final AssertionError closeFailure;
+
+        FailingReadInputStream(AssertionError readFailure, AssertionError closeFailure) {
+            this.readFailure = readFailure;
+            this.closeFailure = closeFailure;
+        }
+
+        @Override
+        public int read() {
+            throw readFailure;
+        }
+
+        @Override
+        public void close() {
+            super.close();
+            throw closeFailure;
+        }
     }
 }
