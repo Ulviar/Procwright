@@ -724,4 +724,19 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
+
+    private static boolean awaitStackFrame(Thread thread, String className, String methodName, Duration timeout)
+            throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadlineNanos) {
+            for (StackTraceElement frame : thread.getStackTrace()) {
+                if (frame.getClassName().equals(className)
+                        && frame.getMethodName().equals(methodName)) {
+                    return true;
+                }
+            }
+            Thread.sleep(1);
+        }
+        return false;
+    }
 }

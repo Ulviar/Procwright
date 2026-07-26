@@ -11,8 +11,6 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 abstract class WorkerPoolControllerTestSupport {
@@ -26,16 +24,6 @@ abstract class WorkerPoolControllerTestSupport {
         assertEquals(starting, metrics.starting());
         assertEquals(retiring, metrics.retiring());
         assertEquals(size, idle + leased + starting + retiring);
-    }
-
-    static void assertSuppressedExactlyOnce(Throwable primary, Throwable expected) {
-        int matches = 0;
-        for (Throwable suppressed : primary.getSuppressed()) {
-            if (suppressed == expected) {
-                matches++;
-            }
-        }
-        assertEquals(1, matches);
     }
 
     static WorkerPoolController<TestWorker> controller(
@@ -122,21 +110,6 @@ abstract class WorkerPoolControllerTestSupport {
         assertFalse(thread.isAlive(), operation + " thread did not stop");
     }
 
-    static boolean awaitStackFrame(Thread thread, String className, String methodName, Duration timeout)
-            throws InterruptedException {
-        long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        while (System.nanoTime() < deadlineNanos) {
-            for (StackTraceElement frame : thread.getStackTrace()) {
-                if (frame.getClassName().equals(className)
-                        && frame.getMethodName().equals(methodName)) {
-                    return true;
-                }
-            }
-            Thread.sleep(1);
-        }
-        return false;
-    }
-
     static void awaitIgnoringInterrupt(CountDownLatch latch) {
         boolean interrupted = false;
         while (true) {
@@ -152,87 +125,7 @@ abstract class WorkerPoolControllerTestSupport {
         }
     }
 
-    static <T> T throwUnchecked(Throwable failure) {
-        if (failure instanceof RuntimeException exception) {
-            throw exception;
-        }
-        if (failure instanceof Error error) {
-            throw error;
-        }
-        throw new AssertionError("unsupported test failure", failure);
-    }
-
     record TestWorker(int id) {}
-
-    static CompletableFuture<Void> publicCloseView(WorkerPoolController<?> pool) {
-        return PoolCloseSupport.asyncView(pool.closeAsync(), PublicCloseFailures.INSTANCE);
-    }
-
-    enum PublicCloseFailures implements PoolCloseSupport.FailureFactory {
-        INSTANCE;
-
-        @Override
-        public RuntimeException drainTimeout(Duration timeout) {
-            return new IllegalStateException("unexpected drain timeout: " + timeout);
-        }
-
-        @Override
-        public RuntimeException interrupted(InterruptedException cause) {
-            return new IllegalStateException("unexpected close interruption", cause);
-        }
-
-        @Override
-        public RuntimeException workerFailed(Throwable cause) {
-            return new IllegalStateException("unexpected worker close failure", cause);
-        }
-    }
-
-    static final class CloseAwareWorker implements AutoCloseable {
-
-        final CompletableFuture<Void> terminal = CompletableFuture.completedFuture(null);
-        final CompletableFuture<Void> physicalCleanup = new CompletableFuture<>();
-        final CountDownLatch physicalCloseFinished = new CountDownLatch(1);
-        final AtomicBoolean physicallyClosed = new AtomicBoolean();
-        final AtomicInteger physicalCloseCalls = new AtomicInteger();
-
-        void failPhysicalClose(Throwable failure) {
-            if (physicallyClosed.compareAndSet(false, true)) {
-                physicalCloseCalls.incrementAndGet();
-                physicalCleanup.completeExceptionally(failure);
-                physicalCloseFinished.countDown();
-            }
-        }
-
-        @Override
-        public void close() {
-            if (physicallyClosed.compareAndSet(false, true)) {
-                physicalCloseCalls.incrementAndGet();
-                physicalCleanup.complete(null);
-                physicalCloseFinished.countDown();
-            }
-        }
-    }
-
-    static final class ExitCallbackWorker implements AutoCloseable {
-
-        final CompletableFuture<Void> exit = new CompletableFuture<>();
-        final CompletableFuture<Void> physicalCleanup = CompletableFuture.completedFuture(null);
-        final AtomicInteger closeCalls = new AtomicInteger();
-
-        CompletableFuture<Void> onExit() {
-            return exit;
-        }
-
-        CompletableFuture<Void> physicalCleanup() {
-            return physicalCleanup;
-        }
-
-        @Override
-        public void close() {
-            closeCalls.incrementAndGet();
-            exit.complete(null);
-        }
-    }
 
     static WorkerPoolSettings<Object> settings(
             int maxSize,
