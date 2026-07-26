@@ -4,11 +4,9 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
@@ -17,7 +15,12 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
+import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.CloseFailureProcess;
+import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.ControlledFailingCloseOutputStream;
+import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.TrackingProcessHandle;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -26,26 +29,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class DefaultSessionStdinCloseArbitrationTest extends DefaultSessionStdinCloseArbitrationTestSupport {
-
-    @Test
-    void asynchronousIoStdinCloseFailureTerminatesSessionWithTheOriginalCause() throws Exception {
-        assertAsynchronousStdinCloseFailure(new IOException("stdin close failed"));
-    }
-
-    @Test
-    void asynchronousRuntimeStdinCloseFailureTerminatesSessionWithTheOriginalCause() throws Exception {
-        assertAsynchronousStdinCloseFailure(new IllegalStateException("stdin close failed"));
-    }
-
-    @Test
-    void asynchronousErrorStdinCloseFailureTerminatesSessionWithTheOriginalCause() throws Exception {
-        assertAsynchronousStdinCloseFailure(new AssertionError("stdin close failed"));
-    }
+final class DefaultSessionStdinCloseTerminalRaceTest extends DefaultSessionLifecycleTestSupport {
 
     @Test
     void blockedStdinCloseFailureAfterNaturalExitIsReportedOnceWithoutContradictoryTerminalEvents() throws Exception {
@@ -229,46 +220,110 @@ final class DefaultSessionStdinCloseArbitrationTest extends DefaultSessionStdinC
         }
     }
 
-    @Test
-    void closeStdinDoesNotWaitForRawCloseContendedByAnActiveWrite() throws Exception {
-        WriteContendedCloseOutputStream stdin = new WriteContendedCloseOutputStream();
-        ControllableProcess process = new ControllableProcess(stdin);
-        DefaultSession session = SessionTestFixtures.open(
-                process,
-                Duration.ZERO,
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8,
-                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
-        CompletableFuture<Throwable> writerOutcome = new CompletableFuture<>();
-        Thread writer = new Thread(() -> {
-            try {
-                session.send("payload");
-                writerOutcome.complete(null);
-            } catch (Throwable failure) {
-                writerOutcome.complete(failure);
+    private static final class BlockingRootDestroyProcess extends Process {
+
+        private final OutputStream stdin;
+        private final CountDownLatch destroyStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseDestroy = new CountDownLatch(1);
+        private final CompletableFuture<Integer> exit = new CompletableFuture<>();
+        private final AtomicBoolean alive = new AtomicBoolean(true);
+        private final TrackingProcessHandle root = new TrackingProcessHandle(Long.MAX_VALUE - 4, alive, () -> {}) {
+            @Override
+            public boolean destroy() {
+                destroyStarted.countDown();
+                awaitIgnoringInterrupts(releaseDestroy);
+                BlockingRootDestroyProcess.this.alive.set(false);
+                exit.complete(143);
+                return true;
             }
-        });
-        writer.setDaemon(true);
-        writer.start();
-        try {
-            assertTrue(stdin.awaitWriteStarted(Duration.ofSeconds(1)));
 
-            assertTimeoutPreemptively(Duration.ofSeconds(1), session::closeStdin);
+            @Override
+            public boolean destroyForcibly() {
+                return destroy();
+            }
+        };
 
-            assertFalse(
-                    stdin.closeStarted(),
-                    "the raw close cannot acquire the delegate monitor while the active write owns it");
-            stdin.releaseWrite();
-            SessionStdinClosedException writerFailure =
-                    assertInstanceOf(SessionStdinClosedException.class, writerOutcome.get(1, TimeUnit.SECONDS));
-            assertEquals("Session stdin is closed", writerFailure.getMessage());
-            assertTrue(stdin.awaitCloseStarted(Duration.ofSeconds(1)));
-        } finally {
-            stdin.releaseWrite();
-            writer.join(TimeUnit.SECONDS.toMillis(1));
-            session.close();
+        private BlockingRootDestroyProcess(OutputStream stdin) {
+            this.stdin = stdin;
         }
 
-        assertFalse(writer.isAlive());
+        private boolean awaitDestroyStarted() throws InterruptedException {
+            return destroyStarted.await(1, TimeUnit.SECONDS);
+        }
+
+        private void releaseDestroy() {
+            releaseDestroy.countDown();
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return stdin;
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() throws InterruptedException {
+            try {
+                return exit.get();
+            } catch (ExecutionException exception) {
+                throw new IllegalStateException(exception.getCause());
+            }
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            try {
+                exit.get(timeout, unit);
+                return true;
+            } catch (TimeoutException exception) {
+                return false;
+            } catch (ExecutionException exception) {
+                throw new IllegalStateException(exception.getCause());
+            }
+        }
+
+        @Override
+        public int exitValue() {
+            Integer exitCode = exit.getNow(null);
+            if (exitCode == null) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return exitCode;
+        }
+
+        @Override
+        public void destroy() {
+            root.destroy();
+        }
+
+        @Override
+        public Process destroyForcibly() {
+            root.destroyForcibly();
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive.get();
+        }
+
+        @Override
+        public ProcessHandle toHandle() {
+            return root;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
     }
 }

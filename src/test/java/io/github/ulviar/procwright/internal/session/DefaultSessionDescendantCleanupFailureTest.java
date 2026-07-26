@@ -2,8 +2,21 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import io.github.ulviar.procwright.command.CommandExecutionException;
+import io.github.ulviar.procwright.command.ShutdownPolicy;
+import io.github.ulviar.procwright.diagnostics.CommandEcho;
+import io.github.ulviar.procwright.internal.DiagnosticEmitter;
+import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -13,11 +26,97 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 
-abstract class DefaultSessionWatcherCleanupTestSupport extends DefaultSessionLifecycleTestSupport {
+final class DefaultSessionDescendantCleanupFailureTest extends DefaultSessionLifecycleTestSupport {
 
-    static final class FailingDescendantProcess extends Process {
+    @Test
+    void cyclicCleanupFailureCannotHangCloseAndPreservesPrimaryIdentity() throws Exception {
+        IllegalStateException primary = new IllegalStateException("cyclic cleanup failure");
+        IllegalArgumentException cycle = new IllegalArgumentException("cycle");
+        primary.initCause(cycle);
+        cycle.initCause(primary);
+        FailingDescendantProcess process = new FailingDescendantProcess(primary);
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+        assertTrue(process.awaitDescendantObservation());
+
+        CommandExecutionException thrown = assertTimeoutPreemptively(
+                Duration.ofSeconds(1), () -> assertThrows(CommandExecutionException.class, session::close));
+        ExecutionException exitFailure =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
+
+        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, thrown.reason());
+        assertSame(primary, thrown.getCause());
+        assertSame(thrown, exitFailure.getCause());
+        assertEquals(0, primary.getSuppressed().length);
+        assertEquals(1, process.rootDestroyCalls());
+        assertTrue(process.descendant().gracefulDestroyCalls() >= 1);
+        assertTrue(process.descendant().forceDestroyCalls() >= 1);
+        assertFalse(process.isAlive());
+    }
+
+    @Test
+    void closeErrorCompletesExitFutureAndPreservesPrimaryError() throws Exception {
+        AssertionError closeError = new AssertionError("descendant close failed");
+        FailingDescendantProcess process = new FailingDescendantProcess(closeError);
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+        assertTrue(process.awaitDescendantObservation());
+
+        AssertionError thrown = assertThrows(AssertionError.class, session::close);
+        ExecutionException exitFailure =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
+
+        assertSame(closeError, thrown);
+        assertSame(closeError, exitFailure.getCause());
+    }
+
+    @Test
+    void closeDoesNotWaitForRawStdinCloseBlockedByAnotherOperation() throws Exception {
+        AssertionError closeError = new AssertionError("descendant close failed");
+        BlockingCloseOutputStream stdin = new BlockingCloseOutputStream();
+        FailingDescendantProcess process = new FailingDescendantProcess(closeError, stdin);
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+        assertTrue(process.awaitDescendantObservation());
+
+        AtomicReference<Throwable> observedFailure = new AtomicReference<>();
+        Thread closer = new Thread(() -> {
+            try {
+                session.close();
+            } catch (Throwable failure) {
+                observedFailure.set(failure);
+            }
+        });
+        closer.setDaemon(true);
+        closer.start();
+        try {
+            closer.join(500);
+
+            assertTrue(!closer.isAlive(), "Session.close() must not wait for a blocked raw stdin close");
+            assertSame(closeError, observedFailure.get());
+        } finally {
+            stdin.releaseClose();
+            closer.join(1_000);
+        }
+    }
+
+    private static final class FailingDescendantProcess extends Process {
 
         private final FailingProcessHandle descendant;
         private final CountDownLatch descendantObserved = new CountDownLatch(1);
@@ -26,16 +125,16 @@ abstract class DefaultSessionWatcherCleanupTestSupport extends DefaultSessionLif
         private final AtomicInteger rootDestroyCalls = new AtomicInteger();
         private final OutputStream stdin;
 
-        FailingDescendantProcess(Throwable closeError) {
+        private FailingDescendantProcess(Throwable closeError) {
             this(closeError, OutputStream.nullOutputStream());
         }
 
-        FailingDescendantProcess(Throwable closeError, OutputStream stdin) {
+        private FailingDescendantProcess(Throwable closeError, OutputStream stdin) {
             this.descendant = new FailingProcessHandle(closeError);
             this.stdin = stdin;
         }
 
-        boolean awaitDescendantObservation() throws InterruptedException {
+        private boolean awaitDescendantObservation() throws InterruptedException {
             return descendantObserved.await(1, TimeUnit.SECONDS);
         }
 
@@ -113,199 +212,16 @@ abstract class DefaultSessionWatcherCleanupTestSupport extends DefaultSessionLif
             return Stream.of(descendant);
         }
 
-        FailingProcessHandle descendant() {
+        private FailingProcessHandle descendant() {
             return descendant;
         }
 
-        int rootDestroyCalls() {
+        private int rootDestroyCalls() {
             return rootDestroyCalls.get();
         }
     }
 
-    static final class WatcherFailureProcess extends Process {
-
-        private final IllegalStateException watcherFailure = new IllegalStateException("watcher failed");
-        private final AtomicBoolean stopped = new AtomicBoolean();
-        private final AtomicInteger forceDestroyCalls = new AtomicInteger();
-
-        @Override
-        public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public int waitFor() {
-            throw watcherFailure;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            if (!stopped.get()) {
-                throw watcherFailure;
-            }
-            return true;
-        }
-
-        @Override
-        public int exitValue() {
-            if (!stopped.get()) {
-                throw new IllegalThreadStateException("process is alive");
-            }
-            return 137;
-        }
-
-        @Override
-        public void destroy() {
-            stopped.set(true);
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            forceDestroyCalls.incrementAndGet();
-            stopped.set(true);
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            if (!stopped.get()) {
-                throw new SecurityException("root liveness observation is denied");
-            }
-            return false;
-        }
-
-        @Override
-        public ProcessHandle toHandle() {
-            throw new UnsupportedOperationException("process handles are unavailable");
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
-        }
-
-        IllegalStateException watcherFailure() {
-            return watcherFailure;
-        }
-
-        int forceDestroyCalls() {
-            return forceDestroyCalls.get();
-        }
-    }
-
-    static final class RepeatedWatcherFailureProcess extends Process {
-
-        private final IllegalStateException failure = new IllegalStateException("repeated watcher failure");
-        private final AtomicBoolean stopped = new AtomicBoolean();
-        private final AtomicBoolean stdoutClosed = new AtomicBoolean();
-        private final AtomicBoolean stderrClosed = new AtomicBoolean();
-
-        @Override
-        public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return closeTrackingStream(stdoutClosed, true);
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return closeTrackingStream(stderrClosed, false);
-        }
-
-        private InputStream closeTrackingStream(AtomicBoolean closed, boolean fail) {
-            return new InputStream() {
-                @Override
-                public int read() {
-                    return -1;
-                }
-
-                @Override
-                public void close() {
-                    closed.set(true);
-                    if (fail) {
-                        throw failure;
-                    }
-                }
-            };
-        }
-
-        @Override
-        public int waitFor() {
-            throw failure;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            if (!stopped.get()) {
-                throw failure;
-            }
-            return true;
-        }
-
-        @Override
-        public int exitValue() {
-            if (!stopped.get()) {
-                throw new IllegalThreadStateException("process is alive");
-            }
-            return 137;
-        }
-
-        @Override
-        public void destroy() {
-            stopped.set(true);
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            stopped.set(true);
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            if (!stopped.get()) {
-                throw new SecurityException("root liveness observation is denied");
-            }
-            return false;
-        }
-
-        @Override
-        public ProcessHandle toHandle() {
-            throw new UnsupportedOperationException("process handles are unavailable");
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
-        }
-
-        IllegalStateException failure() {
-            return failure;
-        }
-
-        boolean stdoutClosed() {
-            return stdoutClosed.get();
-        }
-
-        boolean stderrClosed() {
-            return stderrClosed.get();
-        }
-    }
-
-    static final class BlockingCloseOutputStream extends OutputStream {
+    private static final class BlockingCloseOutputStream extends OutputStream {
 
         private final CountDownLatch closeStarted = new CountDownLatch(1);
         private final CountDownLatch allowClose = new CountDownLatch(1);
@@ -330,22 +246,22 @@ abstract class DefaultSessionWatcherCleanupTestSupport extends DefaultSessionLif
             }
         }
 
-        void releaseClose() {
+        private void releaseClose() {
             allowClose.countDown();
         }
 
-        boolean awaitCloseStarted(Duration timeout) throws InterruptedException {
+        private boolean awaitCloseStarted(Duration timeout) throws InterruptedException {
             return closeStarted.await(timeout.toNanos(), TimeUnit.NANOSECONDS);
         }
     }
 
-    static final class FailingProcessHandle implements ProcessHandle {
+    private static final class FailingProcessHandle implements ProcessHandle {
 
         private final Throwable closeError;
         private final AtomicInteger gracefulDestroyCalls = new AtomicInteger();
         private final AtomicInteger forceDestroyCalls = new AtomicInteger();
 
-        FailingProcessHandle(Throwable closeError) {
+        private FailingProcessHandle(Throwable closeError) {
             this.closeError = closeError;
         }
 
@@ -408,11 +324,11 @@ abstract class DefaultSessionWatcherCleanupTestSupport extends DefaultSessionLif
             return Long.compare(pid(), other.pid());
         }
 
-        int gracefulDestroyCalls() {
+        private int gracefulDestroyCalls() {
             return gracefulDestroyCalls.get();
         }
 
-        int forceDestroyCalls() {
+        private int forceDestroyCalls() {
             return forceDestroyCalls.get();
         }
     }
