@@ -7,6 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
+import io.github.ulviar.procwright.diagnostics.CommandEcho;
+import io.github.ulviar.procwright.internal.DiagnosticEmitter;
+import io.github.ulviar.procwright.internal.DiagnosticsSettings;
+import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.ExpectMatch;
 import java.io.IOException;
@@ -30,6 +34,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -37,12 +42,32 @@ final class ExpectTestFixtures {
 
     private ExpectTestFixtures() {}
 
-    static DefaultSession session(Process process) {
-        return SessionTestFixtures.open(
+    static DefaultExpect expect(Process process) {
+        return expect(process, StandardCharsets.UTF_8, ExpectSettings.defaults());
+    }
+
+    static DefaultExpect expect(Process process, ExpectSettings settings) {
+        return expect(process, StandardCharsets.UTF_8, settings);
+    }
+
+    static DefaultExpect expect(Process process, Charset charset, ExpectSettings settings) {
+        return openExpect(process, charset, session -> new DefaultExpect(session, settings));
+    }
+
+    static <T> T openExpect(Process process, Function<? super DefaultSession, ? extends T> handleFactory) {
+        return openExpect(process, StandardCharsets.UTF_8, handleFactory);
+    }
+
+    static <T> T openExpect(
+            Process process, Charset charset, Function<? super DefaultSession, ? extends T> handleFactory) {
+        return SessionTestFixtures.openHandle(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8);
+                charset,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "expect-test", CommandEcho.empty()),
+                SessionOutputMode.EXPECT,
+                handleFactory);
     }
 
     static boolean eventually(BooleanSupplier condition) throws InterruptedException {
@@ -263,14 +288,24 @@ final class ExpectTestFixtures {
         final CompletableFuture<Integer> exit = new CompletableFuture<>();
         final AtomicBoolean alive;
         final CountDownLatch destroyed = new CountDownLatch(1);
+        final OutputStream stdin;
         final InputStream stdout;
         final InputStream stderr;
 
         ControllableProcess(InputStream stdout, InputStream stderr) {
-            this(stdout, stderr, new AtomicBoolean(true));
+            this(OutputStream.nullOutputStream(), stdout, stderr, new AtomicBoolean(true));
         }
 
         ControllableProcess(InputStream stdout, InputStream stderr, AtomicBoolean alive) {
+            this(OutputStream.nullOutputStream(), stdout, stderr, alive);
+        }
+
+        ControllableProcess(OutputStream stdin, InputStream stdout, InputStream stderr) {
+            this(stdin, stdout, stderr, new AtomicBoolean(true));
+        }
+
+        private ControllableProcess(OutputStream stdin, InputStream stdout, InputStream stderr, AtomicBoolean alive) {
+            this.stdin = Objects.requireNonNull(stdin, "stdin");
             this.stdout = stdout;
             this.stderr = stderr;
             this.alive = alive;
@@ -278,7 +313,7 @@ final class ExpectTestFixtures {
 
         @Override
         public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
+            return stdin;
         }
 
         @Override

@@ -14,6 +14,7 @@ import java.nio.charset.CharacterCodingException;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -25,7 +26,7 @@ final class ProtocolOutputTransport {
     private final ProtocolSessionSettings options;
     private final ProtocolSessionState state;
     private final ZeroReadBackoff zeroReadBackoff;
-    private final OutputPumpCoordinator outputPumps;
+    private final Consumer<? super Throwable> failureReporter;
     private final ProtocolTranscriptBuffer transcript;
     private final ProtocolTextReader.StreamState stdoutText;
     private final ProtocolTextReader.StreamState stderrText;
@@ -38,7 +39,7 @@ final class ProtocolOutputTransport {
             ProtocolSessionSettings options,
             ProtocolSessionState state,
             ZeroReadBackoff zeroReadBackoff,
-            OutputPumpCoordinator outputPumps,
+            Consumer<? super Throwable> failureReporter,
             ProtocolTranscriptBuffer transcript,
             ProtocolTextDecoderState stdoutTextDecoder,
             ProtocolTextDecoderState stderrTextDecoder,
@@ -48,7 +49,7 @@ final class ProtocolOutputTransport {
         this.options = Objects.requireNonNull(options, "options");
         this.state = Objects.requireNonNull(state, "state");
         this.zeroReadBackoff = Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
-        this.outputPumps = Objects.requireNonNull(outputPumps, "outputPumps");
+        this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
         this.transcript = Objects.requireNonNull(transcript, "transcript");
         stdoutText = new ProtocolTextReader.StreamState(
                 options, Objects.requireNonNull(stdoutTextDecoder, "stdoutTextDecoder"));
@@ -61,14 +62,14 @@ final class ProtocolOutputTransport {
         this.stderr = queue(ProtocolOutputQueue.OverflowPolicy.FAIL_ON_READ, checkedNanoTime);
     }
 
-    void start(PumpStarter pumpStarter) {
+    void start(PumpStarter pumpStarter, OutputPumpCoordinator outputPumps) {
+        Objects.requireNonNull(outputPumps, "outputPumps");
         outputPumps.start(
                 pumpStarter,
                 "procwright-protocol-stdout-",
                 stream -> runPump("stdout", stream, stdout),
                 "procwright-protocol-stderr-",
-                stream -> runPump("stderr", stream, stderr),
-                () -> state.claimClose(false));
+                stream -> runPump("stderr", stream, stderr));
     }
 
     ProtocolTranscript transcript() {
@@ -105,10 +106,13 @@ final class ProtocolOutputTransport {
     }
 
     void failFatal(Error error) {
-        ProtocolSessionState.TerminalSnapshot outcome = state.recordFatalError(error);
-        Error selected = ((ProtocolSessionState.FatalSnapshot) outcome).error();
-        publishFatal(selected);
-        failureHandler.closeTerminalPreserving(selected);
+        ProtocolSessionState.OutputSelection selection = state.recordOutputFatalError(error);
+        if (selection.rejectedAfterClose()) {
+            return;
+        }
+        ProtocolSessionState.TerminalSnapshot outcome = Objects.requireNonNull(selection.selected(), "outcome");
+        publishTerminal(outcome);
+        failureHandler.closeTerminalPreserving(terminalPrimaryOr(outcome, error));
     }
 
     private ProtocolOutputQueue queue(ProtocolOutputQueue.OverflowPolicy overflowPolicy, LongSupplier nanoTime) {
@@ -158,8 +162,7 @@ final class ProtocolOutputTransport {
                 consecutiveZeroReads = 0;
                 transcript.appendStream(streamName, buffer, count);
                 if (!output.offer(Arrays.copyOf(buffer, count))) {
-                    Throwable primary = failOutputBacklogOverflow();
-                    failureHandler.closeQuietly(primary);
+                    closeAfter(failOutputBacklogOverflow());
                     return;
                 }
             }
@@ -168,8 +171,7 @@ final class ProtocolOutputTransport {
             }
             transcript.endStream(streamName);
         } catch (ProtocolTranscriptBuffer.TranscriptDecodingException exception) {
-            Throwable primary = failTranscriptDecoding(exception);
-            failureHandler.closeQuietly(primary);
+            closeAfter(failTranscriptDecoding(exception));
             return;
         } catch (IOException exception) {
             if (!endTranscript(streamName)) {
@@ -185,9 +187,6 @@ final class ProtocolOutputTransport {
             return;
         }
         output.eof(exitCode.get());
-        if (output == stdout) {
-            state.recordStdoutEof();
-        }
     }
 
     private boolean endTranscript(String streamName) {
@@ -196,68 +195,68 @@ final class ProtocolOutputTransport {
             return true;
         } catch (ProtocolTranscriptBuffer.TranscriptDecodingException exception) {
             if (!state.isClosed()) {
-                Throwable primary = failTranscriptDecoding(exception);
-                failureHandler.closeQuietly(primary);
+                closeAfter(failTranscriptDecoding(exception));
             }
             return false;
         }
     }
 
     private void failRuntime(RuntimeException failure) {
-        boolean publishFailure = !state.isClosed();
-        ProtocolSessionState.TerminalSnapshot outcome = state.recordTerminalFailure(
+        OutputFailure selection = selectAndPublishOutputFailure(
                 ProtocolSessionException.Reason.DECODE_ERROR, "Could not read protocol output", failure);
-        Throwable primary = terminalPrimaryOr(outcome, failure);
-        try {
-            if (publishFailure && outcome instanceof ProtocolSessionState.FailureSnapshot selected) {
-                publishFailure(stdout, selected.reason(), selected.primary());
-                publishFailure(stderr, selected.reason(), selected.primary());
-            }
-        } finally {
-            failureHandler.closeTerminalPreserving(primary);
+        if (!selection.rejectedAfterClose()) {
+            failureHandler.closeTerminalPreserving(selection.primary());
         }
     }
 
     private void failStdoutIo(IOException failure) {
         ProtocolSessionException.Reason reason = reasonFor(failure);
-        ProtocolSessionState.TerminalSnapshot outcome =
-                state.recordTerminalFailure(reason, "Could not read protocol stdout", failure);
-        Throwable primary = terminalPrimaryOr(outcome, failure);
-        try {
-            if (outcome instanceof ProtocolSessionState.FailureSnapshot selected) {
-                publishFailure(stdout, selected.reason(), selected.primary());
-                publishFailure(stderr, selected.reason(), selected.primary());
-            }
-        } finally {
-            failureHandler.closeTerminalPreserving(primary);
+        OutputFailure selection = selectAndPublishOutputFailure(reason, "Could not read protocol stdout", failure);
+        if (!selection.rejectedAfterClose()) {
+            failureHandler.closeTerminalPreserving(selection.primary());
         }
     }
 
-    private Throwable failOutputBacklogOverflow() {
+    private OutputFailure failOutputBacklogOverflow() {
         CommandExecutionException failure = new CommandExecutionException("Protocol stdout backlog overflow");
-        return selectAndPublishFailure(
+        return selectAndPublishOutputFailure(
                 ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "Protocol output backlog overflow", failure);
     }
 
-    private Throwable failTranscriptDecoding(ProtocolTranscriptBuffer.TranscriptDecodingException failure) {
-        return selectAndPublishFailure(
+    private OutputFailure failTranscriptDecoding(ProtocolTranscriptBuffer.TranscriptDecodingException failure) {
+        return selectAndPublishOutputFailure(
                 ProtocolSessionException.Reason.DECODE_ERROR, "Could not decode protocol transcript", failure);
     }
 
     Throwable selectAndPublishFailure(ProtocolSessionException.Reason reason, String message, Throwable failure) {
-        ProtocolSessionState.TerminalSnapshot outcome = state.recordTerminalFailure(
+        return selectAndPublishOutputFailure(reason, message, failure).primary();
+    }
+
+    private OutputFailure selectAndPublishOutputFailure(
+            ProtocolSessionException.Reason reason, String message, Throwable failure) {
+        ProtocolSessionState.OutputSelection selection = state.recordOutputFailure(
                 Objects.requireNonNull(reason, "reason"),
                 Objects.requireNonNull(message, "message"),
                 Objects.requireNonNull(failure, "failure"));
-        publishTerminal(outcome);
-        return terminalPrimaryOr(outcome, failure);
+        ProtocolSessionState.TerminalSnapshot outcome = selection.selected();
+        Throwable primary = terminalPrimaryOr(outcome, failure);
+        if (!selection.rejectedAfterClose()) {
+            publishTerminal(Objects.requireNonNull(outcome, "outcome"));
+        }
+        return new OutputFailure(primary, selection.rejectedAfterClose());
+    }
+
+    private void closeAfter(OutputFailure failure) {
+        if (!failure.rejectedAfterClose()) {
+            failureHandler.closeQuietly(failure.primary());
+        }
     }
 
     private void publishFailure(ProtocolOutputQueue output, ProtocolSessionException.Reason reason, Throwable failure) {
         try {
             output.failAndClear(reason, failure);
         } catch (Throwable publicationFailure) {
-            outputPumps.retainFailure(publicationFailure);
+            failureReporter.accept(publicationFailure);
         }
     }
 
@@ -269,6 +268,13 @@ final class ProtocolOutputTransport {
             return fatal.error();
         }
         return fallback;
+    }
+
+    private record OutputFailure(Throwable primary, boolean rejectedAfterClose) {
+
+        private OutputFailure {
+            Objects.requireNonNull(primary, "primary");
+        }
     }
 
     private static ProtocolSessionException.Reason reasonFor(IOException exception) {

@@ -68,7 +68,6 @@ final class WorkerRetirementCoordinatorTest {
                     }
                 },
                 CompletableFuture.completedFuture(null),
-                CompletableFuture.completedFuture(null),
                 (prefix, task) -> {
                     throw starterFailure;
                 });

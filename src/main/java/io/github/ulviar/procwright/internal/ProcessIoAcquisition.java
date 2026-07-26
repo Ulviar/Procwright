@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/** Acquires process streams and their permits as one rollback-safe transaction. */
+/** Acquires stable process streams as one rollback-safe transaction. */
 final class ProcessIoAcquisition {
 
     private static final Duration FAILURE_CLEANUP_TIMEOUT = Duration.ofSeconds(5);
@@ -30,32 +30,30 @@ final class ProcessIoAcquisition {
         ConstructionLedger ledger;
         try {
             cleanupFailures = new ArrayList<>(6);
-            ledger = new ConstructionLedger();
+            ledger = new ConstructionLedger(dispatcher);
         } catch (OutOfMemoryError allocationFailure) {
             stopProcessWithoutFailureDecoration(process);
             throw allocationFailure;
         }
         try {
-            ledger.closeReservation = dispatcher.reserve(3);
-            ledger.transferPermits();
             Object closeClaimLock = new Object();
 
             OutputStream stdinStream = process.getOutputStream();
             ledger.stdin.stream = stdinStream;
             ProcessStreamResource<OutputStream> stdin =
-                    new ProcessStreamResource<>(stdinStream, ledger.stdin.closePermit, closeClaimLock, ignored -> {});
+                    new ProcessStreamResource<>(stdinStream, dispatcher, closeClaimLock, ignored -> {});
             ledger.stdin.resource = stdin;
 
             InputStream stdoutStream = process.getInputStream();
             ledger.stdout.stream = stdoutStream;
             ProcessStreamResource<InputStream> stdout = new ProcessStreamResource<>(
-                    stdoutStream, ledger.stdout.closePermit, closeClaimLock, inlineOutputCloseFailureHandler);
+                    stdoutStream, dispatcher, closeClaimLock, inlineOutputCloseFailureHandler);
             ledger.stdout.resource = stdout;
 
             InputStream stderrStream = process.getErrorStream();
             ledger.stderr.stream = stderrStream;
             ProcessStreamResource<InputStream> stderr = new ProcessStreamResource<>(
-                    stderrStream, ledger.stderr.closePermit, closeClaimLock, inlineOutputCloseFailureHandler);
+                    stderrStream, dispatcher, closeClaimLock, inlineOutputCloseFailureHandler);
             ledger.stderr.resource = stderr;
 
             return new ProcessIoResources(stdin, stdout, stderr);
@@ -85,14 +83,6 @@ final class ProcessIoAcquisition {
         }
     }
 
-    private static void release(BoundedCloseDispatcher.Reservation reservation, List<Throwable> failures) {
-        try {
-            reservation.release();
-        } catch (Throwable releaseFailure) {
-            failures.add(releaseFailure);
-        }
-    }
-
     private static void rethrow(Throwable failure) {
         if (failure instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;
@@ -105,22 +95,17 @@ final class ProcessIoAcquisition {
 
     private static final class ConstructionLedger {
 
-        private BoundedCloseDispatcher.Reservation closeReservation;
-        private final ResourceSlot stdin = new ResourceSlot();
-        private final ResourceSlot stdout = new ResourceSlot();
-        private final ResourceSlot stderr = new ResourceSlot();
+        private final ResourceSlot stdin;
+        private final ResourceSlot stdout;
+        private final ResourceSlot stderr;
 
-        private void transferPermits() {
-            Objects.requireNonNull(closeReservation, "closeReservation");
-            stdin.closePermit = closeReservation.takePermit();
-            stdout.closePermit = closeReservation.takePermit();
-            stderr.closePermit = closeReservation.takePermit();
+        private ConstructionLedger(BoundedCloseDispatcher dispatcher) {
+            stdin = new ResourceSlot("stdin", dispatcher);
+            stdout = new ResourceSlot("stdout", dispatcher);
+            stderr = new ResourceSlot("stderr", dispatcher);
         }
 
         private void rollback(Process process, List<Throwable> failures) {
-            if (closeReservation != null) {
-                release(closeReservation, failures);
-            }
             stopProcess(process, failures);
             stdin.rollback(failures);
             stdout.rollback(failures);
@@ -130,34 +115,37 @@ final class ProcessIoAcquisition {
 
     private static final class ResourceSlot {
 
-        private BoundedCloseDispatcher.Permit closePermit;
+        private final String name;
+        private final BoundedCloseDispatcher dispatcher;
         private Closeable stream;
         private ProcessStreamResource<? extends Closeable> resource;
 
-        private void rollback(List<Throwable> failures) {
-            if (resource != null) {
-                resource.rollbackConstruction(failures);
-                return;
-            }
-            releaseUntransferredResource(failures);
+        private ResourceSlot(String name, BoundedCloseDispatcher dispatcher) {
+            this.name = name;
+            this.dispatcher = dispatcher;
         }
 
-        private void releaseUntransferredResource(List<Throwable> failures) {
-            if (closePermit == null) {
-                return;
-            }
-            if (stream == null) {
+        private void rollback(List<Throwable> failures) {
+            if (resource != null) {
+                addIfPresent(
+                        failures, resource.rollbackConstructionAsync("procwright-acquisition-" + name + "-close-"));
+            } else if (stream != null) {
                 try {
-                    closePermit.release();
-                } catch (Throwable releaseFailure) {
-                    failures.add(releaseFailure);
+                    dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                            stream,
+                            "procwright-acquisition-" + name + "-close-",
+                            ignored -> {},
+                            BoundedFailureReporter::reportBestEffort,
+                            () -> {}));
+                } catch (RuntimeException | Error dispatchFailure) {
+                    failures.add(dispatchFailure);
                 }
-                return;
             }
-            try {
-                closePermit.closeInline(stream);
-            } catch (Throwable closeFailure) {
-                failures.add(closeFailure);
+        }
+
+        private static void addIfPresent(List<? super Throwable> failures, Throwable failure) {
+            if (failure != null) {
+                failures.add(failure);
             }
         }
     }

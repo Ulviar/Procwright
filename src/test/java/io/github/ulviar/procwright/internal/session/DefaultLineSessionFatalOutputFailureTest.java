@@ -6,10 +6,11 @@ import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtur
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.strictSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,6 +30,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -52,9 +54,8 @@ final class DefaultLineSessionFatalOutputFailureTest {
             InputStream stderr = fatalStdout ? InputStream.nullInputStream() : fatalStream;
             CountingOutputStream stdin = new CountingOutputStream();
             ControllableProcess process = new ControllableProcess(stdin, stdout, stderr);
-            DefaultSession rawSession = openSession(process);
             DefaultLineSession lineSession =
-                    new DefaultLineSession(rawSession, strictSettings(charset).withTranscriptLimit(32));
+                    openLineSession(process, strictSettings(charset).withTranscriptLimit(32));
             ExecutorService executor = Executors.newSingleThreadExecutor();
             try {
                 Future<Throwable> request = executor.submit(() -> captureFailure(() -> lineSession.requestEncoded(
@@ -65,7 +66,9 @@ final class DefaultLineSessionFatalOutputFailureTest {
                 charset.releaseFailure();
 
                 assertSame(fatalError, request.get(2, TimeUnit.SECONDS));
-                lineSession.onExit().get(1, TimeUnit.SECONDS);
+                ExecutionException exitFailure = assertThrows(
+                        ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
+                assertSame(fatalError, exitFailure.getCause());
                 assertFalse(process.isAlive());
                 assertTrue(lineSession.transcript().text().length() <= 32);
                 int writesAfterFailure = stdin.writeCalls();
@@ -91,7 +94,7 @@ final class DefaultLineSessionFatalOutputFailureTest {
     }
 
     @Test
-    void fatalStderrDecoderFailureReplacesAnEarlierResponseLimit() throws Exception {
+    void lateFatalStderrDecoderFailureDoesNotReplaceAnEarlierResponseLimit() throws Exception {
         assertResponseLimitAndFatalErrorAreArbitrated();
     }
 
@@ -118,8 +121,7 @@ final class DefaultLineSessionFatalOutputFailureTest {
                     }
                 });
         ControllableProcess process = new ControllableProcess(stdin, stdout, stderr);
-        DefaultSession rawSession = openSession(process);
-        DefaultLineSession lineSession = new DefaultLineSession(rawSession, settings);
+        DefaultLineSession lineSession = openLineSession(process, settings);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() ->
@@ -137,21 +139,24 @@ final class DefaultLineSessionFatalOutputFailureTest {
             assertTrue(charset.awaitFatalDecoder(), "stderr decoder did not reach its controlled boundary");
             charset.releaseFatalDecoder();
 
-            lineSession.onExit().get(1, TimeUnit.SECONDS);
+            LineSessionException responseFailure = observedResponseFailure.get();
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(responseFailure, exitFailure.getCause());
             assertFalse(process.isAlive());
             allowCallbackReturn.countDown();
 
             Throwable thrown = request.get(2, TimeUnit.SECONDS);
-            LineSessionException responseFailure = observedResponseFailure.get();
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
-            assertSame(fatalError, thrown);
+            assertSame(responseFailure, thrown);
             assertEquals(0, fatalError.getSuppressed().length);
             assertEquals(0, responseFailure.getSuppressed().length);
 
             int writesAfterFailure = stdin.writeCalls();
             Throwable followUp = captureFailure(() ->
                     lineSession.requestEncoded("retry\n".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
-            assertSame(fatalError, followUp);
+            LineSessionException followUpFailure = assertInstanceOf(LineSessionException.class, followUp);
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, followUpFailure.reason());
             assertEquals(writesAfterFailure, stdin.writeCalls());
         } finally {
             stdout.releaseByte();

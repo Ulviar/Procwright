@@ -19,8 +19,10 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
+import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
+import io.github.ulviar.procwright.internal.Threading;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -36,13 +38,55 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 final class DefaultSessionStdinCloseTerminalRaceTest {
 
     @Test
-    void blockedStdinCloseFailureAfterNaturalExitIsReportedOnceWithoutContradictoryTerminalEvents() throws Exception {
+    void closeCleansObservedDescendantWhileNaturalExitCleanupIsStillStarting() throws Exception {
+        ControlledFailingCloseOutputStream stdin =
+                new ControlledFailingCloseOutputStream(new IOException("late close failure"));
+        CloseFailureProcess process = new CloseFailureProcess(stdin);
+        CountDownLatch closeStarterEntered = new CountDownLatch(1);
+        CountDownLatch releaseCloseStarter = new CountDownLatch(1);
+        AtomicInteger starts = new AtomicInteger();
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3, (name, task) -> {
+            if (starts.getAndIncrement() == 0) {
+                closeStarterEntered.countDown();
+                awaitIgnoringInterrupts(releaseCloseStarter);
+            }
+            Threading.start(name, task);
+        });
+        DefaultSession session = DefaultSession.openTransactionally(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()),
+                () -> {},
+                dispatcher,
+                Threading::start);
+        try {
+            assertTrue(process.awaitDescendantObservation());
+            process.completeNaturally(0);
+            assertTrue(closeStarterEntered.await(1, TimeUnit.SECONDS));
+
+            session.close();
+
+            assertFalse(process.descendant().isAlive());
+            assertEquals(1, process.descendant().gracefulDestroyCalls());
+            assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+        } finally {
+            releaseCloseStarter.countDown();
+            stdin.releaseClose();
+        }
+        assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+    }
+
+    @Test
+    void blockedStdinCloseFailureAfterNaturalExitDoesNotChangeTheTerminalOutcome() throws Exception {
         IOException closeFailure = new IOException("late stdin close failed");
         ControlledFailingCloseOutputStream stdin = new ControlledFailingCloseOutputStream(closeFailure);
         CloseFailureProcess process = new CloseFailureProcess(stdin);
@@ -57,48 +101,31 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
                 }),
                 "session-test",
                 CommandEcho.empty());
-        AtomicInteger reportCount = new AtomicInteger();
-        AtomicReference<Throwable> reportedFailure = new AtomicReference<>();
-        CountDownLatch reported = new CountDownLatch(1);
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            reportCount.incrementAndGet();
-            reportedFailure.compareAndSet(null, failure);
-            reported.countDown();
-        });
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                diagnostics);
         try {
-            DefaultSession session = SessionTestFixtures.open(
-                    process,
-                    Duration.ZERO,
-                    ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                    StandardCharsets.UTF_8,
-                    diagnostics);
-            try {
-                assertTrue(process.awaitDescendantObservation());
-                session.closeStdin();
-                assertTrue(stdin.awaitCloseStarted(Duration.ofSeconds(1)));
+            assertTrue(process.awaitDescendantObservation());
+            session.closeStdin();
+            assertTrue(stdin.awaitCloseStarted(Duration.ofSeconds(1)));
 
-                process.completeNaturally(0);
-                assertEquals(
-                        0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+            process.completeNaturally(0);
+            assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
 
-                stdin.releaseClose();
-                assertTrue(reported.await(1, TimeUnit.SECONDS));
-                assertTrue(processExitPublished.await(1, TimeUnit.SECONDS));
+            stdin.releaseClose();
+            assertTrue(processExitPublished.await(1, TimeUnit.SECONDS));
+            assertTrue(eventually(() -> !process.descendant().isAlive()));
 
-                assertSame(closeFailure, reportedFailure.get());
-                assertEquals(1, reportCount.get());
-                assertEquals(1, terminalEventCount(events, DiagnosticEventType.PROCESS_EXITED));
-                assertEquals(0, terminalEventCount(events, DiagnosticEventType.PROCESS_FAILED));
-                assertEquals(0, terminalEventCount(events, DiagnosticEventType.SHUTDOWN_REQUESTED));
-                assertFalse(process.descendant().isAlive(), "late failure must still clean up a surviving descendant");
-                assertEquals(1, process.descendant().forceDestroyCalls());
-            } finally {
-                stdin.releaseClose();
-                session.close();
-            }
+            assertEquals(1, terminalEventCount(events, DiagnosticEventType.PROCESS_EXITED));
+            assertEquals(0, terminalEventCount(events, DiagnosticEventType.PROCESS_FAILED));
+            assertEquals(0, terminalEventCount(events, DiagnosticEventType.SHUTDOWN_REQUESTED));
+            assertEquals(1, process.descendant().forceDestroyCalls());
         } finally {
-            Thread.setDefaultUncaughtExceptionHandler(previous);
+            stdin.releaseClose();
+            session.close();
         }
     }
 
@@ -141,11 +168,13 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
             assertTrue(process.awaitDestroyStarted());
             closer.start();
             closer.join(1_000);
-            assertFalse(closer.isAlive());
+            assertTrue(closer.isAlive(), "losing close must still wait for its idempotent cleanup");
             assertNull(closeFailureObserved.get());
             assertFalse(session.onExit().isDone(), "terminal failure must not publish before cleanup completes");
 
             process.releaseDestroy();
+            closer.join(1_000);
+            assertFalse(closer.isAlive());
             ExecutionException exitFailure = assertThrows(
                     ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
             assertSame(closeFailure, exitFailure.getCause());
@@ -163,7 +192,7 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
     }
 
     @Test
-    void explicitCloseSuccessReportsLaterStdinFailureWithoutRepublishingTerminalDiagnostics() throws Exception {
+    void explicitCloseRemainsStableAfterALateStdinFailure() throws Exception {
         IOException closeFailure = new IOException("stdin close failed after explicit close");
         ControlledFailingCloseOutputStream stdin = new ControlledFailingCloseOutputStream(closeFailure);
         CloseFailureProcess process = new CloseFailureProcess(stdin);
@@ -178,49 +207,43 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
                 }),
                 "session-test",
                 CommandEcho.empty());
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicReference<Throwable> reportedFailure = new AtomicReference<>();
-        AtomicInteger reportCount = new AtomicInteger();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            reportedFailure.compareAndSet(null, failure);
-            reportCount.incrementAndGet();
-            reported.countDown();
-        });
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                diagnostics);
         try {
-            DefaultSession session = SessionTestFixtures.open(
-                    process,
-                    Duration.ZERO,
-                    ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                    StandardCharsets.UTF_8,
-                    diagnostics);
-            try {
-                assertTrue(process.awaitDescendantObservation());
-                session.closeStdin();
-                assertTrue(stdin.awaitCloseStarted(Duration.ofSeconds(1)));
+            assertTrue(process.awaitDescendantObservation());
+            session.closeStdin();
+            assertTrue(stdin.awaitCloseStarted(Duration.ofSeconds(1)));
 
-                session.close();
-                assertEquals(
-                        143,
-                        session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+            session.close();
+            assertEquals(
+                    143, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
 
-                stdin.releaseClose();
-                assertTrue(reported.await(1, TimeUnit.SECONDS));
-                assertTrue(processExitPublished.await(1, TimeUnit.SECONDS));
+            stdin.releaseClose();
+            assertTrue(processExitPublished.await(1, TimeUnit.SECONDS));
 
-                assertSame(closeFailure, reportedFailure.get());
-                assertEquals(1, reportCount.get());
-                assertEquals(1, terminalEventCount(events, DiagnosticEventType.PROCESS_EXITED));
-                assertEquals(0, terminalEventCount(events, DiagnosticEventType.PROCESS_FAILED));
-                assertEquals(1, shutdownCount(events, "close"));
-                assertEquals(0, shutdownCount(events, "failure"));
-            } finally {
-                stdin.releaseClose();
-                session.close();
-            }
+            assertEquals(1, terminalEventCount(events, DiagnosticEventType.PROCESS_EXITED));
+            assertEquals(0, terminalEventCount(events, DiagnosticEventType.PROCESS_FAILED));
+            assertEquals(1, shutdownCount(events, "close"));
+            assertEquals(0, shutdownCount(events, "failure"));
         } finally {
-            Thread.setDefaultUncaughtExceptionHandler(previous);
+            stdin.releaseClose();
+            session.close();
         }
+    }
+
+    private static boolean eventually(BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        while (!condition.getAsBoolean()) {
+            if (deadline - System.nanoTime() <= 0) {
+                return false;
+            }
+            Thread.sleep(5);
+        }
+        return true;
     }
 
     private static final class BlockingRootDestroyProcess extends Process {

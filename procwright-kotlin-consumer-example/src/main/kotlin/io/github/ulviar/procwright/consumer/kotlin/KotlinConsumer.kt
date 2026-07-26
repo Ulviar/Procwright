@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.consumer.kotlin
 
 import io.github.ulviar.procwright.Procwright
 import io.github.ulviar.procwright.command.CommandSpec
+import io.github.ulviar.procwright.kotlin.awaitExit
 import io.github.ulviar.procwright.kotlin.executeAwait
 import io.github.ulviar.procwright.kotlin.openFlow
 import io.github.ulviar.procwright.kotlin.withTimeout
@@ -23,6 +24,12 @@ internal object KotlinConsumer {
     fun main(args: Array<String>) {
         if (args.contentEquals(arrayOf("--stream-worker"))) {
             println("collection:${UUID.randomUUID()}")
+            return
+        }
+        if (args.contentEquals(arrayOf("--expect-worker"))) {
+            print("ready> ")
+            System.out.flush()
+            println("echo:${readln()}")
             return
         }
 
@@ -51,6 +58,17 @@ internal object KotlinConsumer {
             check(firstCollection != secondCollection) {
                 "Collecting the cold Flow twice did not start independent processes"
             }
+
+            Procwright.command(expectWorkerCommand())
+                .interactive()
+                .expect()
+                .open()
+                .use { expect ->
+                    expect.expectText("ready> ")
+                    expect.sendLine("hello")
+                    expect.expectText("echo:hello")
+                    check(expect.awaitExit().exitCode().orElseThrow() == 0)
+                }
         }
     }
 
@@ -67,6 +85,15 @@ internal object KotlinConsumer {
                 System.getProperty("java.class.path"),
                 KotlinConsumer::class.java.name,
                 "--stream-worker",
+            )
+
+    private fun expectWorkerCommand(): CommandSpec =
+        CommandSpec.of(javaExecutable())
+            .withArgs(
+                "-cp",
+                System.getProperty("java.class.path"),
+                KotlinConsumer::class.java.name,
+                "--expect-worker",
             )
 
     private fun List<StreamChunk>.stdoutText(): String =

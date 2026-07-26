@@ -2,96 +2,64 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.io.ByteArrayInputStream;
 import org.junit.jupiter.api.Test;
 
 final class SessionOutputOwnershipStateTest {
 
     @Test
-    void lifecycleCloseClaimPreventsAHelperFromTakingOutputResponsibility() {
-        SessionOutputOwnership ownership = new SessionOutputOwnership();
+    void helperModeRejectsRawAccessBeforeTheHelperStarts() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership(SessionOutputMode.EXPECT);
 
-        assertTrue(ownership.claimLifecycleClose());
-
-        assertThrows(IllegalStateException.class, () -> ownership.claim("late helper"));
-        assertFalse(ownership.claimLifecycleClose(), "lifecycle close responsibility must be claimed once");
+        assertThrows(
+                IllegalStateException.class, () -> ownership.publicStream(new ByteArrayInputStream(new byte[] {1})));
     }
 
     @Test
-    void helperClaimPreventsLifecycleFromClosingItsOutput() {
-        SessionOutputOwnership ownership = new SessionOutputOwnership();
+    void helperModeAcceptsOnlyTheOwnerSelectedBeforeLaunch() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership(SessionOutputMode.LINE);
 
-        ownership.claim("helper");
+        assertThrows(IllegalStateException.class, () -> ownership.ensureOwnedBy(SessionOutputMode.PROTOCOL));
+        ownership.claimHelper(SessionOutputMode.LINE);
+        ownership.markHelperReady(SessionOutputMode.LINE);
+        ownership.requireHelperReady(SessionOutputMode.LINE);
+        assertThrows(IllegalStateException.class, () -> ownership.claimHelper(SessionOutputMode.LINE));
+        assertThrows(IllegalStateException.class, () -> ownership.markHelperReady(SessionOutputMode.LINE));
 
-        assertFalse(ownership.claimLifecycleClose());
+        assertFalse(ownership.raw());
     }
 
     @Test
-    void cleanupSettlementSelectsHelperResponsibilityAtomically() {
-        SessionOutputOwnership ownership = new SessionOutputOwnership();
-        ownership.claim("helper");
+    void helperModeMustBeReadyBeforeConstructionCommits() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership(SessionOutputMode.EXPECT);
 
-        assertEquals(SessionOutputOwnership.CloseResponsibility.OUTPUT_OWNER, ownership.settleCloseResponsibility());
-
-        assertThrows(IllegalStateException.class, ownership::settleCloseResponsibility);
+        assertThrows(IllegalStateException.class, () -> ownership.requireHelperReady(SessionOutputMode.EXPECT));
+        ownership.claimHelper(SessionOutputMode.EXPECT);
+        assertThrows(IllegalStateException.class, () -> ownership.requireHelperReady(SessionOutputMode.EXPECT));
     }
 
     @Test
-    void helperClaimAndCleanupSettlementHaveOneConsistentWinner() throws Exception {
-        ExecutorService competitors = Executors.newFixedThreadPool(2);
-        try {
-            for (int attempt = 0; attempt < 1_000; attempt++) {
-                SessionOutputOwnership ownership = new SessionOutputOwnership();
-                CountDownLatch start = new CountDownLatch(1);
-                Future<Throwable> claim = competitors.submit(() -> {
-                    start.await();
-                    try {
-                        ownership.claim("helper");
-                        return null;
-                    } catch (Throwable failure) {
-                        return failure;
-                    }
-                });
-                Future<SessionOutputOwnership.CloseResponsibility> settlement = competitors.submit(() -> {
-                    start.await();
-                    return ownership.settleCloseResponsibility();
-                });
+    void rawModeRejectsHelperOwnership() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership(SessionOutputMode.RAW);
 
-                start.countDown();
-                Throwable claimFailure = claim.get(1, TimeUnit.SECONDS);
-                boolean helperOwnsClose =
-                        settlement.get(1, TimeUnit.SECONDS) == SessionOutputOwnership.CloseResponsibility.OUTPUT_OWNER;
-
-                assertEquals(
-                        claimFailure == null,
-                        helperOwnsClose,
-                        "claim and settlement selected different close owners at attempt " + attempt);
-                if (claimFailure != null) {
-                    assertTrue(claimFailure instanceof IllegalStateException);
-                }
-            }
-        } finally {
-            competitors.shutdownNow();
-            assertTrue(competitors.awaitTermination(1, TimeUnit.SECONDS));
-        }
+        assertThrows(IllegalStateException.class, () -> ownership.ensureOwnedBy(SessionOutputMode.EXPECT));
     }
 
     @Test
-    void cleanupSettlementRejectsALateHelperClaim() {
-        SessionOutputOwnership ownership = new SessionOutputOwnership();
-        assertTrue(ownership.claimLifecycleClose());
+    void rawModeOwnsLifecycleOutputClose() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership(SessionOutputMode.RAW);
 
-        assertEquals(SessionOutputOwnership.CloseResponsibility.LIFECYCLE, ownership.settleCloseResponsibility());
+        assertTrue(ownership.raw());
+    }
 
-        assertThrows(IllegalStateException.class, () -> ownership.claim("late helper"));
+    @Test
+    void helperModePreventsLifecycleFromClosingItsOutput() {
+        SessionOutputOwnership ownership = new SessionOutputOwnership(SessionOutputMode.LINE);
+
+        assertFalse(ownership.raw());
     }
 }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.CommandService;
+import io.github.ulviar.procwright.ExpectScenario;
 import io.github.ulviar.procwright.InteractiveScenario;
 import io.github.ulviar.procwright.LineSessionScenario;
 import io.github.ulviar.procwright.ProtocolSessionScenario;
@@ -38,8 +39,8 @@ final class PublicDocumentationCoverageTest {
             "(?ms)^<!-- procwright-example: (examples/java/[^\\r\\n]+\\.java) -->\\R" + "```java\\R(.*?)^```[ \\t]*$");
     private static final Pattern CORE_EXAMPLE_MARKER =
             Pattern.compile("(?m)^<!-- procwright-example: examples/java/[^\\r\\n]+\\.java -->\\R\\z");
-    private static final Pattern CALLBACK_API_REFERENCE =
-            Pattern.compile("`((?:CommandService|RunScenario\\.Draft|InteractiveScenario\\.Draft|"
+    private static final Pattern CALLBACK_API_REFERENCE = Pattern.compile(
+            "`((?:CommandService|RunScenario\\.Draft|InteractiveScenario\\.Draft|ExpectScenario\\.Draft|"
                     + "LineSessionScenario\\.(?:Draft|PoolDraft)|ProtocolSessionScenario\\.(?:Draft|PoolDraft)|"
                     + "StreamScenario\\.Draft)\\.[A-Za-z][A-Za-z0-9]*)`");
     private static final String CALLBACK_POLICY_HEADING = "## Persistent callback concurrency";
@@ -49,6 +50,7 @@ final class PublicDocumentationCoverageTest {
             CommandService.class,
             RunScenario.Draft.class,
             InteractiveScenario.Draft.class,
+            ExpectScenario.Draft.class,
             LineSessionScenario.Draft.class,
             LineSessionScenario.PoolDraft.class,
             ProtocolSessionScenario.Draft.class,

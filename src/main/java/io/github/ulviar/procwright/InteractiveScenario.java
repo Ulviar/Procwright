@@ -18,14 +18,30 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/** Namespace for immutable raw interactive-session drafts. */
+/** Interactive scenario family with a pre-launch choice between raw I/O and Expect automation. */
 public final class InteractiveScenario {
 
     private InteractiveScenario() {}
 
-    static Draft draft(ScenarioRuntime runtime) {
+    static Entry draft(ScenarioRuntime runtime) {
         return new ImmutableDraft(
                 runtime, SessionSettings.defaults(runtime.commandSpec()), ReadinessSettings.defaults());
+    }
+
+    /**
+     * Initial interactive branch. Choose Expect before applying raw-session configuration.
+     *
+     * <p>Any inherited {@code with*} method returns {@link Draft}, which intentionally no longer exposes
+     * {@link #expect()}. This makes the process-output owner a scenario choice instead of a runtime race.
+     */
+    public interface Entry extends Draft {
+
+        /**
+         * Selects prompt automation with process output owned by the returned Expect handle.
+         *
+         * @return a new Expect draft initialized with interactive-process defaults
+         */
+        ExpectScenario.Draft expect();
     }
 
     /**
@@ -183,7 +199,7 @@ public final class InteractiveScenario {
     }
 
     private record ImmutableDraft(
-            ScenarioRuntime runtime, SessionSettings settings, ReadinessSettings<Session> readiness) implements Draft {
+            ScenarioRuntime runtime, SessionSettings settings, ReadinessSettings<Session> readiness) implements Entry {
 
         private ImmutableDraft {
             Objects.requireNonNull(runtime, "runtime");
@@ -279,6 +295,11 @@ public final class InteractiveScenario {
         @Override
         public Session open() {
             return runtime.interactive(settings, readiness);
+        }
+
+        @Override
+        public ExpectScenario.Draft expect() {
+            return ExpectScenario.draft(runtime, settings);
         }
 
         private Draft withSettings(SessionSettings updated) {

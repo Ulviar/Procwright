@@ -66,12 +66,48 @@ final class StreamListenerDispatcherTest {
         }
     }
 
+    @Test
+    void stopRejectsADeliveryWaitingBehindAnActiveListener() throws Exception {
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        StreamListenerDispatcher dispatcher = new StreamListenerDispatcher(chunk -> {
+            if (calls.incrementAndGet() == 1) {
+                firstEntered.countDown();
+                awaitUninterruptibly(releaseFirst);
+            }
+        });
+
+        Thread first = deliver(dispatcher, new StreamChunk(StreamSource.STDOUT, "one"), failure);
+        Thread second = null;
+        try {
+            assertTrue(firstEntered.await(1, TimeUnit.SECONDS));
+            second = deliver(dispatcher, new StreamChunk(StreamSource.STDERR, "two"), failure);
+
+            dispatcher.stop();
+            releaseFirst.countDown();
+            join(first);
+            join(second);
+
+            assertNull(failure.get());
+            assertEquals(1, calls.get());
+        } finally {
+            releaseFirst.countDown();
+            dispatcher.stop();
+            first.join(1_000);
+            if (second != null) {
+                second.join(1_000);
+            }
+        }
+    }
+
     private static Thread deliver(
             StreamListenerDispatcher dispatcher, StreamChunk chunk, AtomicReference<Throwable> failure) {
         Thread thread = new Thread(
                 () -> {
                     try {
-                        dispatcher.deliver(chunk, () -> true);
+                        dispatcher.deliver(chunk);
                     } catch (Throwable deliveryFailure) {
                         failure.compareAndSet(null, deliveryFailure);
                     }

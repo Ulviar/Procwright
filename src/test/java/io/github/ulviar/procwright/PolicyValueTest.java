@@ -131,6 +131,7 @@ final class PolicyValueTest {
                 IllegalArgumentException.class, () -> ExpectSettings.defaults().withTranscriptLimit(0));
         assertThrows(
                 IllegalArgumentException.class, () -> ExpectSettings.defaults().withMatchBufferLimit(0));
+        assertThrows(NullPointerException.class, () -> ExpectSettings.defaults().withOutputCharset(null));
     }
 
     @Test

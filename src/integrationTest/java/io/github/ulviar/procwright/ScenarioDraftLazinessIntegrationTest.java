@@ -28,6 +28,10 @@ final class ScenarioDraftLazinessIntegrationTest {
         service.interactive()
                 .withDiagnosticListener(event -> diagnosticEvents.incrementAndGet())
                 .withArg("unused");
+        service.interactive()
+                .expect()
+                .withDiagnosticListener(event -> diagnosticEvents.incrementAndGet())
+                .withArg("unused");
         service.lineSession()
                 .withDiagnosticListener(event -> diagnosticEvents.incrementAndGet())
                 .withArg("unused");

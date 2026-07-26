@@ -38,13 +38,24 @@ public final class ListenExample {
 [Open `ListenExample.java`](../examples/java/io/github/ulviar/procwright/examples/ListenExample.java) and the
 [shared example sources](../examples.md#core).
 
-Register `onOutput` before `open()`. The listener is the only output owner. Listener failures terminate the scenario and
-are reported through `StreamException`.
+Register `onOutput` before `open()`. The listener is the only output owner. Listener `RuntimeException`s, output I/O
+failures, and other ordinary callback failures terminate the scenario and complete `onExit()` exceptionally with
+`StreamException`. A fatal `Error` is not wrapped: `onExit()` fails with the same `Error` instance. `open()` reports only
+launch and construction failures.
 
 Within one stream session, stdout and stderr listener calls are synchronous and serialized. Concurrent opens of one Draft
 can invoke the same retained listener instance from different sessions, so a shared listener must be thread-safe. Use
 separate Draft branches with separate listener instances when it is not. Diagnostic recipients follow their asynchronous
 delivery contract and can also overlap across sessions.
+
+After natural process exit completes `onExit()`, all listener calls have returned and no later call can begin. This
+preserves output that Procwright has already read from the process. Explicit `close()` and the scenario timeout admit no
+further deliveries, but a delivery admitted immediately before stopping may invoke or remain inside the listener after
+`onExit()` completes. Application shutdown therefore is not held indefinitely by that callback.
+
+Natural completion also waits for stdout and stderr EOF. A descendant that inherits either pipe can keep it open after
+the root process exits. Use `withTimeout(...)` when that topology is possible; the same absolute timeout bounds the
+remaining output drain and then applies the configured shutdown policy.
 
 `listen()` closes stdin when the process starts. Use [`interactive()`](interactive.md) when the caller needs to write
 stdin.

@@ -4,13 +4,11 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -24,12 +22,10 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderMalfunctionError;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -44,7 +40,7 @@ import org.junit.jupiter.api.Test;
 final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionContractSupport {
 
     @Test
-    void eagerMandatoryDecoderRuntimeFailuresAreTypedBeforeClaimAndLeaveRawSessionOpen() {
+    void eagerMandatoryDecoderRuntimeFailuresAreTypedAndRollbackTheProcess() {
         for (int failingCreation : List.of(1, 2, 3, 4)) {
             for (Throwable cause : List.of(
                     new IllegalArgumentException("decoder creation " + failingCreation + " failed"),
@@ -53,110 +49,36 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
                 TrackingInputStream stdout = new TrackingInputStream();
                 TrackingInputStream stderr = new TrackingInputStream();
                 ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-                DefaultSession rawSession = session(process);
-                try {
-                    ProtocolSessionException failure = assertThrows(
-                            ProtocolSessionException.class,
-                            () -> new DefaultProtocolSession<>(rawSession, noOpAdapter(), options(charset)));
-
-                    assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, failure.reason());
-                    assertSame(cause, failure.getCause());
-                    assertEquals(failingCreation, charset.decoderCreations());
-                    assertTrue(process.isAlive());
-                    assertFalse(rawSession.onExit().isDone());
-                    assertEquals(0, stdout.reads());
-                    assertEquals(0, stderr.reads());
-                } finally {
-                    rawSession.close();
-                }
-            }
-        }
-    }
-
-    @Test
-    void repeatedDecoderConstructionFailuresLeaveRawSessionReusable() throws Exception {
-        GatedEofInputStream stdout = new GatedEofInputStream();
-        ControllableProcess process =
-                new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
-        DefaultProtocolSession<String, Byte> protocol = null;
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        CountDownLatch responseReadStarted = new CountDownLatch(1);
-        try {
-            for (int iteration = 0; iteration < 1_000; iteration++) {
-                IllegalArgumentException cause = new IllegalArgumentException("decoder creation failed " + iteration);
-                DecoderCreationFailureCharset charset = new DecoderCreationFailureCharset(1, cause);
-
                 ProtocolSessionException failure = assertThrows(
                         ProtocolSessionException.class,
-                        () -> new DefaultProtocolSession<>(rawSession, noOpAdapter(), options(charset)));
+                        () -> protocolSession(process, noOpAdapter(), options(charset)));
 
                 assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, failure.reason());
                 assertSame(cause, failure.getCause());
-                assertTrue(process.isAlive());
-                assertFalse(rawSession.onExit().isDone());
+                assertEquals(failingCreation, charset.decoderCreations());
+                assertFalse(process.isAlive());
+                assertEquals(0, stdout.reads());
+                assertEquals(0, stderr.reads());
             }
-
-            protocol = new DefaultProtocolSession<>(
-                    rawSession,
-                    new ProtocolAdapter<>() {
-                        @Override
-                        public void writeRequest(String request, ProtocolWriter writer) {}
-
-                        @Override
-                        public Byte readResponse(ProtocolReaders readers) {
-                            responseReadStarted.countDown();
-                            return readers.stdout().readByte();
-                        }
-                    },
-                    ProtocolSessionSettings.defaults());
-            DefaultProtocolSession<String, Byte> activeProtocol = protocol;
-            Future<Throwable> request = executor.submit(() -> captureFailure(() -> activeProtocol.request("request")));
-            assertTrue(responseReadStarted.await(1, TimeUnit.SECONDS));
-            assertTrue(stdout.awaitReadEntered());
-
-            process.exitNaturally(17);
-            stdout.releaseEof();
-            ProtocolSessionException processExited =
-                    assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
-
-            assertEquals(ProtocolSessionException.Reason.PROCESS_EXITED, processExited.reason());
-            assertEquals(17, processExited.exitCode().orElseThrow());
-        } finally {
-            stdout.releaseEof();
-            if (protocol != null) {
-                protocol.close();
-            } else {
-                rawSession.close();
-            }
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
     }
 
     @Test
-    void eagerMandatoryDecoderFatalErrorsPreserveIdentityAndLeaveRawSessionOpen() {
+    void eagerMandatoryDecoderFatalErrorsPreserveIdentityAndRollbackTheProcess() {
         for (int failingCreation : List.of(1, 2, 3, 4)) {
             AssertionError cause = new AssertionError("fatal decoder creation " + failingCreation);
             DecoderCreationFailureCharset charset = new DecoderCreationFailureCharset(failingCreation, cause);
             TrackingInputStream stdout = new TrackingInputStream();
             TrackingInputStream stderr = new TrackingInputStream();
             ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-            DefaultSession rawSession = session(process);
-            try {
-                AssertionError thrown = assertThrows(
-                        AssertionError.class,
-                        () -> new DefaultProtocolSession<>(rawSession, noOpAdapter(), options(charset)));
+            AssertionError thrown =
+                    assertThrows(AssertionError.class, () -> protocolSession(process, noOpAdapter(), options(charset)));
 
-                assertSame(cause, thrown);
-                assertEquals(failingCreation, charset.decoderCreations());
-                assertTrue(process.isAlive());
-                assertFalse(rawSession.onExit().isDone());
-                assertEquals(0, stdout.reads());
-                assertEquals(0, stderr.reads());
-            } finally {
-                rawSession.close();
-            }
+            assertSame(cause, thrown);
+            assertEquals(failingCreation, charset.decoderCreations());
+            assertFalse(process.isAlive());
+            assertEquals(0, stdout.reads());
+            assertEquals(0, stderr.reads());
         }
     }
 
@@ -176,11 +98,13 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
             }
         };
         DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), adapter, ProtocolSessionSettings.defaults());
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults());
         try {
             AssertionError current = assertThrows(AssertionError.class, () -> protocol.request("request"));
             assertSame(callbackError, current);
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> protocol.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(current, exitFailure.getCause());
             assertFalse(process.isAlive());
 
             AssertionError followUp = assertThrows(AssertionError.class, () -> protocol.request("retry"));
@@ -192,7 +116,7 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
     }
 
     @Test
-    void callbackErrorSupersedesTheTypedFailureCaughtByTheCallback() throws Exception {
+    void callbackErrorDoesNotReplaceTheTypedFailureCaughtByTheCallback() throws Exception {
         AssertionError callbackError = new AssertionError("callback rejected oversized response");
         AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -217,25 +141,27 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
                 new java.io.ByteArrayInputStream("ab\n".getBytes(StandardCharsets.UTF_8)),
                 InputStream.nullInputStream());
         DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), adapter, ProtocolSessionSettings.defaults());
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults());
         try {
-            AssertionError current = assertThrows(AssertionError.class, () -> protocol.request("request"));
+            ProtocolSessionException current =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("request"));
             ProtocolSessionException responseFailure = caughtFailure.get();
-            assertSame(callbackError, current);
+            assertEquals(responseFailure.reason(), current.reason());
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
             assertFailureGraphDoesNotContain(responseFailure, callbackError);
             assertEquals(0, callbackError.getSuppressed().length);
             assertEquals(0, responseFailure.getSuppressed().length);
 
-            AssertionError followUp = assertThrows(AssertionError.class, () -> protocol.request("retry"));
-            assertSame(callbackError, followUp);
+            ProtocolSessionException followUp =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("retry"));
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         } finally {
             protocol.close();
         }
     }
 
     @Test
-    void callbackErrorLosingToConcurrentPumpErrorIsReportedSeparately() throws Exception {
+    void callbackErrorLosingToConcurrentPumpErrorDoesNotChangeThePumpOutcome() throws Exception {
         AssertionError pumpError = new AssertionError("stdout pump failed");
         AssertionError callbackError = new AssertionError("response callback failed");
         GatedErrorInputStream stdout = new GatedErrorInputStream(pumpError);
@@ -256,16 +182,11 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
         };
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        List<Throwable> reported = new CopyOnWriteArrayList<>();
-        ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "protocol-callback-race-test");
-            thread.setUncaughtExceptionHandler((ignored, failure) -> reported.add(failure));
-            return thread;
-        });
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         DefaultProtocolSession<String, String> protocol = null;
         try {
-            protocol = new DefaultProtocolSession<>(
-                    session(process),
+            protocol = protocolSession(
+                    process,
                     adapter,
                     ProtocolSessionSettings.defaults(),
                     ProtocolSessionTestDependencies.withCallbackRunner(new DirectProtocolCallbackRunner()));
@@ -278,12 +199,7 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
             releaseCallback.countDown();
 
             assertSame(pumpError, request.get(1, TimeUnit.SECONDS));
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(
-                    1,
-                    reported.stream()
-                            .filter(failure -> failure == callbackError)
-                            .count());
+            assertSame(pumpError, captureFailure(() -> activeProtocol.request("retry")));
         } finally {
             releaseCallback.countDown();
             if (protocol != null) {

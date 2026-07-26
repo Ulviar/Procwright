@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -83,7 +84,7 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
 
         try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), adapter, ProtocolSessionSettings.defaults())) {
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults())) {
             assertEquals("response", protocol.request("first"));
 
             assertThrows(IllegalStateException.class, () -> retained.get().writeLine("late"));
@@ -115,8 +116,8 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
 
-        try (DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(process), adapter, ProtocolSessionSettings.defaults().withMaxRequestBytes(4))) {
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(
+                process, adapter, ProtocolSessionSettings.defaults().withMaxRequestBytes(4))) {
             assertEquals("response", protocol.request("ignored"));
             assertArrayEquals(new byte[] {1, 2}, stdin.toByteArray());
         }
@@ -138,14 +139,16 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
         };
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        try (DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(process), adapter, ProtocolSessionSettings.defaults().withMaxRequestBytes(4))) {
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(
+                process, adapter, ProtocolSessionSettings.defaults().withMaxRequestBytes(4))) {
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("ignored"));
 
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
             assertEquals(0, stdin.size());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> protocol.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(failure, exitFailure.getCause());
             assertFalse(process.isAlive());
         }
     }
@@ -178,7 +181,7 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
                 InputStream.nullInputStream());
 
         try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), adapter, ProtocolSessionSettings.defaults())) {
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults())) {
             assertEquals("first", protocol.request("one"));
 
             assertThrows(IllegalStateException.class, () -> retained.get().readLine(16));
@@ -208,15 +211,16 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
                 .withMaxResponseBytes(1)
                 .withMaxResponseChars(2);
 
-        try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), adapter, settings)) {
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, settings)) {
             assertEquals("a", protocol.request("first"));
             assertEquals("b", protocol.request("second"));
 
             ProtocolSessionException eof =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("third"));
             assertEquals(ProtocolSessionException.Reason.EOF, eof.reason());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> protocol.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(eof, exitFailure.getCause());
             assertFalse(process.isAlive());
             assertEquals(0, stdin.size());
         }
@@ -275,7 +279,7 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
                 new ByteArrayInputStream("queued\n".getBytes(StandardCharsets.UTF_8)),
                 InputStream.nullInputStream());
         DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), adapter, ProtocolSessionSettings.defaults());
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
@@ -419,11 +423,11 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
                 return "response";
             }
         };
-        DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(new ControllableProcess(
+        DefaultProtocolSession<String, String> protocol = protocolSession(
+                new ControllableProcess(
                         stdin,
                         new ByteArrayInputStream("queued\n".getBytes(StandardCharsets.UTF_8)),
-                        new ByteArrayInputStream("diagnostic\n".getBytes(StandardCharsets.UTF_8)))),
+                        new ByteArrayInputStream("diagnostic\n".getBytes(StandardCharsets.UTF_8))),
                 adapter,
                 ProtocolSessionSettings.defaults());
         ExecutorService executor = Executors.newSingleThreadExecutor();

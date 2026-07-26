@@ -45,19 +45,21 @@ final class PublicApiSurfaceTest {
     private static final Set<Class<?>> SCENARIO_NAMESPACES = Set.of(
             RunScenario.class,
             InteractiveScenario.class,
+            ExpectScenario.class,
             LineSessionScenario.class,
             StreamScenario.class,
             ProtocolSessionScenario.class);
 
     private static final Map<Class<?>, Set<String>> DRAFT_TERMINALS = Map.ofEntries(
             Map.entry(RunScenario.Draft.class, Set.of("execute")),
+            Map.entry(InteractiveScenario.Entry.class, Set.of("open", "expect")),
             Map.entry(InteractiveScenario.Draft.class, Set.of("open")),
+            Map.entry(ExpectScenario.Draft.class, Set.of("open")),
             Map.entry(LineSessionScenario.Draft.class, Set.of("open", "pooled")),
             Map.entry(LineSessionScenario.PoolDraft.class, Set.of("open")),
             Map.entry(StreamScenario.Draft.class, Set.of("open")),
             Map.entry(ProtocolSessionScenario.Draft.class, Set.of("open", "pooled")),
-            Map.entry(ProtocolSessionScenario.PoolDraft.class, Set.of("open")),
-            Map.entry(Expect.Draft.class, Set.of("open")));
+            Map.entry(ProtocolSessionScenario.PoolDraft.class, Set.of("open")));
 
     @Test
     void corePublicTypesStayInsideTheApprovedPackages() throws Exception {
@@ -110,7 +112,7 @@ final class PublicApiSurfaceTest {
 
         assertEquals(5, declaredPublicMethods(CommandService.class).count());
         assertEntryPoint(CommandService.class, "run", RunScenario.Draft.class);
-        assertEntryPoint(CommandService.class, "interactive", InteractiveScenario.Draft.class);
+        assertEntryPoint(CommandService.class, "interactive", InteractiveScenario.Entry.class);
         assertEntryPoint(CommandService.class, "lineSession", LineSessionScenario.Draft.class);
         assertEntryPoint(CommandService.class, "listen", StreamScenario.Draft.class);
         assertEntryPoint(CommandService.class, "protocolSession", ProtocolSessionScenario.Draft.class, Supplier.class);
@@ -130,34 +132,43 @@ final class PublicApiSurfaceTest {
                         .map(Method::getName)
                         .collect(java.util.stream.Collectors.toSet()));
 
-        Method expect = Session.class.getDeclaredMethod("expect");
-        assertEquals(Expect.Draft.class, expect.getReturnType());
-        assertTrue(expect.isDefault());
+        assertFalse(Stream.of(Session.class.getDeclaredMethods())
+                .anyMatch(method -> method.getName().equals("expect")));
+        assertEntryPoint(InteractiveScenario.Entry.class, "expect", ExpectScenario.Draft.class);
+        assertEquals(
+                InteractiveScenario.Draft.class,
+                InteractiveScenario.Entry.class
+                        .getMethod("withArg", String.class)
+                        .getReturnType());
     }
 
     @Test
     void scenarioNamespacesExposeOnlyWriteOnlyDrafts() {
         assertEquals(Set.of("Draft"), publicNestedTypeNames(RunScenario.class));
-        assertEquals(Set.of("Draft"), publicNestedTypeNames(InteractiveScenario.class));
+        assertEquals(Set.of("Draft", "Entry"), publicNestedTypeNames(InteractiveScenario.class));
+        assertEquals(Set.of("Draft"), publicNestedTypeNames(ExpectScenario.class));
         assertEquals(Set.of("Draft", "PoolDraft"), publicNestedTypeNames(LineSessionScenario.class));
         assertEquals(Set.of("Draft"), publicNestedTypeNames(StreamScenario.class));
         assertEquals(Set.of("Draft", "PoolDraft"), publicNestedTypeNames(ProtocolSessionScenario.class));
 
         assertDraftOwner(RunScenario.Draft.class, RunScenario.class);
+        assertDraftOwner(InteractiveScenario.Entry.class, InteractiveScenario.class);
         assertDraftOwner(InteractiveScenario.Draft.class, InteractiveScenario.class);
+        assertDraftOwner(ExpectScenario.Draft.class, ExpectScenario.class);
         assertDraftOwner(LineSessionScenario.Draft.class, LineSessionScenario.class);
         assertDraftOwner(LineSessionScenario.PoolDraft.class, LineSessionScenario.class);
         assertDraftOwner(StreamScenario.Draft.class, StreamScenario.class);
         assertDraftOwner(ProtocolSessionScenario.Draft.class, ProtocolSessionScenario.class);
         assertDraftOwner(ProtocolSessionScenario.PoolDraft.class, ProtocolSessionScenario.class);
-        assertDraftOwner(Expect.Draft.class, Expect.class);
 
         for (Map.Entry<Class<?>, Set<String>> entry : DRAFT_TERMINALS.entrySet()) {
             Class<?> draft = entry.getKey();
             assertTrue(draft.isInterface(), draft.getName());
             for (Method method : draft.getMethods()) {
                 if (method.getName().startsWith("with") || method.getName().startsWith("on")) {
-                    assertEquals(draft, method.getReturnType(), method.toString());
+                    Class<?> expectedReturn =
+                            draft == InteractiveScenario.Entry.class ? InteractiveScenario.Draft.class : draft;
+                    assertEquals(expectedReturn, method.getReturnType(), method.toString());
                     assertFalse(hasConfigurationCarrier(method), method.toString());
                 } else {
                     assertTrue(

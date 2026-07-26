@@ -20,6 +20,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 final class SessionOutputOwnerLifecycleTest extends SessionOutputOwnershipTestSupport {
@@ -29,8 +30,12 @@ final class SessionOutputOwnerLifecycleTest extends SessionOutputOwnershipTestSu
         BlockingDrainInputStream stdout = new BlockingDrainInputStream();
         BlockingDrainInputStream stderr = new BlockingDrainInputStream();
         StubProcess process = new StubProcess(stdout, stderr);
-        DefaultSession rawSession = defaultSessionWith(process);
-        DefaultStreamSession session = new DefaultStreamSession(rawSession, streamPlan(Duration.ZERO), diagnostics());
+        OpenedHelper<DefaultStreamSession> opened = openHelper(
+                process,
+                SessionOutputMode.STREAM,
+                rawSession -> new DefaultStreamSession(rawSession, streamPlan(Duration.ZERO), diagnostics()));
+        DefaultSession rawSession = opened.rawSession();
+        DefaultStreamSession session = opened.helper();
 
         try {
             stdout.awaitReadStarted();
@@ -65,49 +70,60 @@ final class SessionOutputOwnerLifecycleTest extends SessionOutputOwnershipTestSu
     @Test
     void lineOwnerDrainsAndClosesOutputAfterNaturalProcessExit() throws Exception {
         assertHelperDrainsAndClosesOutput(
+                SessionOutputMode.LINE,
                 rawSession -> new DefaultLineSession(rawSession, LineSessionSettings.defaults()));
     }
 
     @Test
     void protocolOwnerDrainsAndClosesOutputAfterNaturalProcessExit() throws Exception {
-        assertHelperDrainsAndClosesOutput(rawSession ->
-                new DefaultProtocolSession<>(rawSession, noOpAdapter(), ProtocolSessionSettings.defaults()));
+        assertHelperDrainsAndClosesOutput(
+                SessionOutputMode.PROTOCOL,
+                rawSession ->
+                        new DefaultProtocolSession<>(rawSession, noOpAdapter(), ProtocolSessionSettings.defaults()));
     }
 
     @Test
     void expectOwnerDrainsAndClosesOutputAfterNaturalProcessExit() throws Exception {
-        assertHelperDrainsAndClosesOutput(rawSession -> new DefaultExpect(rawSession, ExpectSettings.defaults()));
+        assertHelperDrainsAndClosesOutput(
+                SessionOutputMode.EXPECT, rawSession -> new DefaultExpect(rawSession, ExpectSettings.defaults()));
     }
 
     @Test
     void streamOwnerClosesOutputOnceAfterForcedProcessExit() throws Exception {
         assertHelperClosesOutputAfterForcedExit(
+                SessionOutputMode.STREAM,
                 rawSession -> new DefaultStreamSession(rawSession, streamPlan(Duration.ZERO), diagnostics()));
     }
 
     @Test
     void lineOwnerClosesOutputOnceAfterForcedProcessExit() throws Exception {
         assertHelperClosesOutputAfterForcedExit(
+                SessionOutputMode.LINE,
                 rawSession -> new DefaultLineSession(rawSession, LineSessionSettings.defaults()));
     }
 
     @Test
     void protocolOwnerClosesOutputOnceAfterForcedProcessExit() throws Exception {
-        assertHelperClosesOutputAfterForcedExit(rawSession ->
-                new DefaultProtocolSession<>(rawSession, noOpAdapter(), ProtocolSessionSettings.defaults()));
+        assertHelperClosesOutputAfterForcedExit(
+                SessionOutputMode.PROTOCOL,
+                rawSession ->
+                        new DefaultProtocolSession<>(rawSession, noOpAdapter(), ProtocolSessionSettings.defaults()));
     }
 
     @Test
     void expectOwnerClosesOutputOnceAfterForcedProcessExit() throws Exception {
-        assertHelperClosesOutputAfterForcedExit(rawSession -> new DefaultExpect(rawSession, ExpectSettings.defaults()));
+        assertHelperClosesOutputAfterForcedExit(
+                SessionOutputMode.EXPECT, rawSession -> new DefaultExpect(rawSession, ExpectSettings.defaults()));
     }
 
-    private static void assertHelperDrainsAndClosesOutput(OutputHelperFactory helperFactory) throws Exception {
+    private static <T extends AutoCloseable> void assertHelperDrainsAndClosesOutput(
+            SessionOutputMode outputMode, Function<DefaultSession, T> helperFactory) throws Exception {
         BlockingDrainInputStream stdout = new BlockingDrainInputStream();
         BlockingDrainInputStream stderr = new BlockingDrainInputStream();
         StubProcess process = new StubProcess(stdout, stderr);
-        DefaultSession rawSession = defaultSessionWith(process);
-        AutoCloseable helper = helperFactory.open(rawSession);
+        OpenedHelper<T> opened = openHelper(process, outputMode, helperFactory);
+        DefaultSession rawSession = opened.rawSession();
+        T helper = opened.helper();
 
         try {
             stdout.awaitReadStarted();
@@ -136,15 +152,17 @@ final class SessionOutputOwnerLifecycleTest extends SessionOutputOwnershipTestSu
         }
     }
 
-    private static void assertHelperClosesOutputAfterForcedExit(OutputHelperFactory helperFactory) throws Exception {
+    private static <T extends AutoCloseable> void assertHelperClosesOutputAfterForcedExit(
+            SessionOutputMode outputMode, Function<DefaultSession, T> helperFactory) throws Exception {
         BlockingDrainInputStream stdout = new BlockingDrainInputStream();
         BlockingDrainInputStream stderr = new BlockingDrainInputStream();
         StubProcess process = new StubProcess(stdout, stderr, () -> {
             stdout.releaseEof();
             stderr.releaseEof();
         });
-        DefaultSession rawSession = defaultSessionWith(process);
-        AutoCloseable helper = helperFactory.open(rawSession);
+        OpenedHelper<T> opened = openHelper(process, outputMode, helperFactory);
+        DefaultSession rawSession = opened.rawSession();
+        T helper = opened.helper();
 
         try {
             stdout.awaitReadStarted();
@@ -232,11 +250,5 @@ final class SessionOutputOwnerLifecycleTest extends SessionOutputOwnershipTestSu
         private int closeCalls() {
             return closeCalls.get();
         }
-    }
-
-    @FunctionalInterface
-    private interface OutputHelperFactory {
-
-        AutoCloseable open(DefaultSession session);
     }
 }

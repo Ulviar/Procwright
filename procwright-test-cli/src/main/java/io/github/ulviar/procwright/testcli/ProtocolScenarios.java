@@ -2,9 +2,12 @@
 
 package io.github.ulviar.procwright.testcli;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
@@ -78,15 +81,19 @@ final class ProtocolScenarios {
         String responsePrefix = options.string("response-prefix", "response:");
         String exitCommand = options.string("exit-command", ":exit");
         boolean crlf = options.bool("crlf", false);
+        Charset inputCharset = Charset.forName(
+                options.string("input-charset", context.charset().name()));
+        Charset outputCharset = Charset.forName(
+                options.string("output-charset", context.charset().name()));
         if (!prompt.isEmpty()) {
-            context.stdoutText(prompt);
+            writeText(context.stdout(), prompt, outputCharset);
         }
-        try (var reader = context.stdinReader()) {
+        try (var reader = new BufferedReader(new InputStreamReader(context.stdin(), inputCharset))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith(exitCommand)) {
                     int exitCode = commandNumber(line, exitCommand, options.integer("exit-code", 0));
-                    context.stdoutLine(options.string("bye-text", "bye"));
+                    writeLine(context.stdout(), options.string("bye-text", "bye"), outputCharset);
                     return exitCode;
                 }
                 if (controlsEnabled && runControlRequest(line, context)) {
@@ -94,25 +101,34 @@ final class ProtocolScenarios {
                 } else if (line.startsWith(":sleep")) {
                     context.sleepMillis(commandNumber(line, ":sleep", 100));
                 } else if (line.startsWith(":stderr")) {
-                    context.stderrLine(commandText(line, ":stderr"));
+                    writeLine(context.stderr(), commandText(line, ":stderr"), outputCharset);
                 } else if (line.startsWith(":partial")) {
-                    context.stdoutText(commandText(line, ":partial"));
+                    writeText(context.stdout(), commandText(line, ":partial"), outputCharset);
                 } else if (line.startsWith(":multi")) {
                     int lines = commandNumber(line, ":multi", 2);
                     for (int index = 0; index < lines; index++) {
-                        context.stdoutLine("multi:" + index);
+                        writeLine(context.stdout(), "multi:" + index, outputCharset);
                     }
                 } else if (crlf) {
-                    context.stdoutText(responsePrefix + line + "\r\n");
+                    writeText(context.stdout(), responsePrefix + line + "\r\n", outputCharset);
                 } else {
-                    context.stdoutLine(responsePrefix + line);
+                    writeLine(context.stdout(), responsePrefix + line, outputCharset);
                 }
                 if (!prompt.isEmpty()) {
-                    context.stdoutText(prompt);
+                    writeText(context.stdout(), prompt, outputCharset);
                 }
             }
         }
         return options.integer("exit-code", 0);
+    }
+
+    private static void writeLine(java.io.OutputStream output, String text, Charset charset) throws IOException {
+        writeText(output, text + '\n', charset);
+    }
+
+    private static void writeText(java.io.OutputStream output, String text, Charset charset) throws IOException {
+        output.write(text.getBytes(charset));
+        output.flush();
     }
 
     static int lengthLineFrame(ScenarioContext context) throws Exception {

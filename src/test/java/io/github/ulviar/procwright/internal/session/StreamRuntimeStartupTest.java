@@ -11,11 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
-import io.github.ulviar.procwright.diagnostics.CommandEcho;
-import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
-import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.LaunchPlan;
 import io.github.ulviar.procwright.internal.SessionExecutionPlan;
@@ -85,8 +82,7 @@ final class StreamRuntimeStartupTest extends StreamRuntimeTestSupport {
         CloseCountingOutputStream stdin = new CloseCountingOutputStream();
         ReadinessInputStream stdout = new ReadinessInputStream();
         ControllableProcess process = new ControllableProcess(stdout, InputStream.nullInputStream(), null, stdin);
-        DefaultSession rawSession = session(process);
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        StreamSession stream = openStream(process, plan());
         try {
             assertTrue(stdout.awaitReadStarted(), "stdout pump did not reach its readiness barrier");
             assertTrue(eventually(() -> stdin.closeCalls() == 1), "listen must close stdin during construction");
@@ -98,28 +94,7 @@ final class StreamRuntimeStartupTest extends StreamRuntimeTestSupport {
     }
 
     @Test
-    void constructionErrorStopsTheAlreadyOpenedSession() {
-        ControllableProcess process = new ControllableProcess();
-        DefaultSession session = SessionTestFixtures.open(
-                process,
-                Duration.ZERO,
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8,
-                diagnostics());
-        AssertionError constructionFailure = new AssertionError("stream construction failed");
-
-        AssertionError thrown = assertThrows(
-                AssertionError.class,
-                () -> StreamRuntime.finishOpen(session, plan(), diagnostics(), (rawSession, plan, events) -> {
-                    throw constructionFailure;
-                }));
-
-        assertSame(constructionFailure, thrown);
-        assertFalse(process.isAlive(), "failed stream construction must close the opened process");
-    }
-
-    @Test
-    void postCommitConstructionFailureClosesOwnedOutputAndStopsPumpsExactlyOnce() throws Exception {
+    void transactionalConstructionFailureClosesOwnedOutputAndCancelsGuardedPumps() throws Exception {
         AtomicBoolean processAlive = new AtomicBoolean(true);
         ConstructionBlockingInputStream stdout = new ConstructionBlockingInputStream(processAlive);
         ConstructionBlockingInputStream stderr = new ConstructionBlockingInputStream(processAlive);
@@ -139,103 +114,41 @@ final class StreamRuntimeStartupTest extends StreamRuntimeTestSupport {
             pumpThreads.add(thread);
             return thread;
         };
-        CopyOnWriteArrayList<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        CountDownLatch shutdownDelivered = new CountDownLatch(1);
-        CountDownLatch processExitedDelivered = new CountDownLatch(1);
-        DiagnosticEmitter eventDiagnostics = DiagnosticEmitter.of(
-                DiagnosticsSettings.disabled().withListener(event -> {
-                    events.add(event);
-                    if (event.type() == DiagnosticEventType.SHUTDOWN_REQUESTED) {
-                        shutdownDelivered.countDown();
-                    }
-                    if (event.type() == DiagnosticEventType.PROCESS_EXITED) {
-                        processExitedDelivered.countDown();
-                    }
-                }),
-                "listen",
-                CommandEcho.empty());
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(3, 3, (name, task) -> {
             if (name.startsWith("procwright-process-stdin-close-")) {
-                awaitUninterruptibly(stdout.readStarted);
-                awaitUninterruptibly(stderr.readStarted);
                 throw constructionFailure;
             }
             Threading.start(name, task);
         });
-        DefaultSession rawSession = DefaultSession.openTransactionally(
-                process,
-                Duration.ZERO,
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8,
-                diagnostics(),
-                () -> {},
-                closeDispatcher,
-                Threading::start);
-        eventDiagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
-        eventDiagnostics.emit(DiagnosticEventType.PROCESS_STARTED, DiagnosticEmitter.attributes("pid", "42"));
-
         AssertionError thrown = assertThrows(
                 AssertionError.class,
-                () -> StreamRuntime.finishOpen(
-                        rawSession,
-                        plan(),
-                        eventDiagnostics,
-                        (session, streamPlan, streamDiagnostics) -> new DefaultStreamSession(
+                () -> SessionTestFixtures.openHandle(
+                        process,
+                        Duration.ZERO,
+                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                        StandardCharsets.UTF_8,
+                        diagnostics(),
+                        SessionOutputMode.STREAM,
+                        session -> new DefaultStreamSession(
                                 session,
-                                streamPlan,
-                                streamDiagnostics,
-                                StreamSessionTestDependencies.withPumpStarter(trackingStarter))));
+                                plan(),
+                                diagnostics(),
+                                StreamSessionTestDependencies.withPumpStarter(trackingStarter)),
+                        closeDispatcher,
+                        Threading::start));
 
         assertSame(constructionFailure, thrown);
         assertTrue(process.awaitDestroyed(), "process cleanup must complete before owned output closes");
         assertTrue(stdout.awaitClose());
         assertTrue(stderr.awaitClose());
-        assertTrue(pumpsStopped.await(1, TimeUnit.SECONDS), "committed pumps must terminate");
+        assertTrue(pumpsStopped.await(1, TimeUnit.SECONDS), "guarded pumps did not observe construction rollback");
         assertTrue(pumpThreads.stream().noneMatch(Thread::isAlive));
+        assertEquals(1, stdout.readStarted.getCount(), "stdout pump crossed an aborted construction gate");
+        assertEquals(1, stderr.readStarted.getCount(), "stderr pump crossed an aborted construction gate");
         assertTrue(stdout.destroyedBeforeClose());
         assertTrue(stderr.destroyedBeforeClose());
         assertEquals(1, stdout.closeCalls());
         assertEquals(1, stderr.closeCalls());
-
-        rawSession.close();
-        assertTrue(shutdownDelivered.await(2, TimeUnit.SECONDS));
-        eventDiagnostics.emit(DiagnosticEventType.PROCESS_EXITED, DiagnosticEmitter.attributes("timedOut", "false"));
-        assertTrue(processExitedDelivered.await(2, TimeUnit.SECONDS));
-        assertEquals(
-                List.of(
-                        DiagnosticEventType.COMMAND_PREPARED,
-                        DiagnosticEventType.PROCESS_STARTED,
-                        DiagnosticEventType.PROCESS_FAILED,
-                        DiagnosticEventType.SHUTDOWN_REQUESTED,
-                        DiagnosticEventType.PROCESS_EXITED),
-                events.stream().map(DiagnosticEvent::type).toList());
-        assertEquals(1, stdout.closeCalls(), "raw-session fallback must not physically close owned stdout");
-        assertEquals(1, stderr.closeCalls(), "raw-session fallback must not physically close owned stderr");
-    }
-
-    @Test
-    void cleanupFailureIsReportedWithoutMutatingTheConstructionFailure() throws Exception {
-        AssertionError cleanupFailure = new AssertionError("stream cleanup failed");
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicInteger matchingReports = new AtomicInteger();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            if (failure == cleanupFailure) {
-                matchingReports.incrementAndGet();
-                reported.countDown();
-            }
-        });
-
-        try {
-            StreamRuntime.closePreserving(() -> {
-                throw cleanupFailure;
-            });
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertEquals(1, matchingReports.get());
-            assertEquals(0, cleanupFailure.getSuppressed().length);
-        } finally {
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
     }
 
     private static StreamExecutionPlan ptyPlan(Process process, DiagnosticsSettings diagnostics) {

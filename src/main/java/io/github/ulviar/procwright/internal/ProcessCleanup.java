@@ -18,10 +18,12 @@ public final class ProcessCleanup {
     private ProcessCleanup() {}
 
     /**
-     * Performs one bounded process-tree force-stop and schedules every stream close on the shared bounded close owner.
+     * Performs one bounded process-tree force-stop and attempts to schedule every stream close on the shared bounded
+     * close owner.
      *
      * <p>Cleanup failures are reported best-effort and never replace the outcome that triggered rollback. Stream
-     * accessors and physical closes never run on the caller thread.
+     * accessors and physical closes never run on the caller thread. A close may be skipped when bounded dispatch
+     * capacity is exhausted or its worker cannot start.
      *
      * @param process process whose ownership is being rolled back
      * @param timeout process-tree cleanup budget
@@ -53,31 +55,20 @@ public final class ProcessCleanup {
 
     private static void scheduleStreamCloses(
             Process process, BoundedCloseDispatcher dispatcher, Consumer<? super Throwable> failureReporter) {
-        BoundedCloseDispatcher.Reservation reservation;
-        try {
-            reservation = dispatcher.reserve(3);
-        } catch (RuntimeException | Error admissionFailure) {
-            report(failureReporter, admissionFailure);
-            return;
-        }
-        BoundedCloseDispatcher.Permit stdin = reservation.takePermit();
-        BoundedCloseDispatcher.Permit stdout = reservation.takePermit();
-        BoundedCloseDispatcher.Permit stderr = reservation.takePermit();
-        reservation.release();
-        dispatch(stdin, process::getOutputStream, "stdin", failureReporter);
-        dispatch(stdout, process::getInputStream, "stdout", failureReporter);
-        dispatch(stderr, process::getErrorStream, "stderr", failureReporter);
+        dispatch(dispatcher, process::getOutputStream, "stdin", failureReporter);
+        dispatch(dispatcher, process::getInputStream, "stdout", failureReporter);
+        dispatch(dispatcher, process::getErrorStream, "stderr", failureReporter);
     }
 
     private static void dispatch(
-            BoundedCloseDispatcher.Permit permit,
+            BoundedCloseDispatcher dispatcher,
             Supplier<? extends Closeable> stream,
             String streamName,
             Consumer<? super Throwable> failureReporter) {
         Closeable closeOperation = () ->
                 Objects.requireNonNull(stream.get(), "process " + streamName).close();
         try {
-            permit.dispatchOutcome(BoundedCloseDispatcher.ownedCloseRequest(
+            dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
                     closeOperation,
                     "procwright-pty-" + streamName + "-close-",
                     ignored -> {},
@@ -85,8 +76,6 @@ public final class ProcessCleanup {
                     () -> {}));
         } catch (RuntimeException | Error dispatchFailure) {
             report(failureReporter, dispatchFailure);
-        } finally {
-            permit.release();
         }
     }
 

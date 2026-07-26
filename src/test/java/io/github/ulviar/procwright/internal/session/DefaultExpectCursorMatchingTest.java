@@ -6,8 +6,9 @@ import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.Co
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.FeedInputStream;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expect;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expectFailure;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.openExpect;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -41,20 +42,22 @@ final class DefaultExpectCursorMatchingTest {
         CountDownLatch firstEvaluations = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger evaluations = new AtomicInteger();
-        DefaultExpect expect = new DefaultExpect(
-                session(process),
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                new BoundedTaskLimiter(2),
-                (pattern, text, searchStart) -> {
-                    int invocation = evaluations.incrementAndGet();
-                    if (invocation <= 2) {
-                        firstEvaluations.countDown();
-                        awaitUninterruptibly(release);
-                    }
-                    return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
-                });
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        new BoundedTaskLimiter(2),
+                        (pattern, text, searchStart) -> {
+                            int invocation = evaluations.incrementAndGet();
+                            if (invocation <= 2) {
+                                firstEvaluations.countDown();
+                                awaitUninterruptibly(release);
+                            }
+                            return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
+                        }));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             assertTrue(eventually(() -> expect.transcript().text().contains("TOKEN|TOKEN")));
@@ -86,20 +89,21 @@ final class DefaultExpectCursorMatchingTest {
         FeedInputStream stderr = new FeedInputStream();
         stdout.offer("before:TOKEN");
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process);
         CountDownLatch matching = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        DefaultExpect expect = new DefaultExpect(
-                rawSession,
-                ExpectSettings.defaults().withTranscriptLimit(256).withMatchBufferLimit(24),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                new BoundedTaskLimiter(1),
-                (pattern, text, searchStart) -> {
-                    matching.countDown();
-                    awaitUninterruptibly(release);
-                    return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
-                });
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults().withTranscriptLimit(256).withMatchBufferLimit(24),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        new BoundedTaskLimiter(1),
+                        (pattern, text, searchStart) -> {
+                            matching.countDown();
+                            awaitUninterruptibly(release);
+                            return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
+                        }));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             assertTrue(eventually(() -> expect.transcript().text().contains("TOKEN")));
@@ -133,9 +137,8 @@ final class DefaultExpectCursorMatchingTest {
     void rolledMatchBufferPreservesTimeoutRecoveryAndCloseSemantics() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
         ControllableProcess process = new ControllableProcess(stdout, new FeedInputStream());
-        DefaultExpect expect = new DefaultExpect(
-                session(process),
-                ExpectSettings.defaults().withTranscriptLimit(512).withMatchBufferLimit(32));
+        DefaultExpect expect = expect(
+                process, ExpectSettings.defaults().withTranscriptLimit(512).withMatchBufferLimit(32));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             stdout.offer("x".repeat(128) + "READY");
@@ -168,8 +171,7 @@ final class DefaultExpectCursorMatchingTest {
     @Test
     void literalMatchesAdvanceCursorWithoutImplicitOverlap() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(stdout, new FeedInputStream())), ExpectSettings.defaults());
+        DefaultExpect expect = expect(new ControllableProcess(stdout, new FeedInputStream()));
         try {
             stdout.offer("ababa");
             assertEquals(
@@ -190,8 +192,8 @@ final class DefaultExpectCursorMatchingTest {
     @Test
     void oversizedLiteralTimesOutWithoutBreakingARecoverableExpectHelper() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(stdout, new FeedInputStream())),
+        DefaultExpect expect = expect(
+                new ControllableProcess(stdout, new FeedInputStream()),
                 ExpectSettings.defaults().withMatchBufferLimit(4));
         try {
             stdout.offer("abcdefgh");
@@ -211,8 +213,7 @@ final class DefaultExpectCursorMatchingTest {
     @Test
     void repeatedAndZeroWidthRegexMatchesPreserveCursorSemantics() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(stdout, new FeedInputStream())), ExpectSettings.defaults());
+        DefaultExpect expect = expect(new ControllableProcess(stdout, new FeedInputStream()));
         try {
             stdout.offer("abab");
             assertTrue(eventually(() -> expect.transcript().text().contains("abab")));
@@ -234,8 +235,8 @@ final class DefaultExpectCursorMatchingTest {
     @Test
     void literalMatchSurvivesRingWrapAndSplitUtf8CodePoint() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(stdout, new FeedInputStream())),
+        DefaultExpect expect = expect(
+                new ControllableProcess(stdout, new FeedInputStream()),
                 ExpectSettings.defaults().withMatchBufferLimit(8));
         byte[] emoji = "\uD83D\uDE03".getBytes(StandardCharsets.UTF_8);
         try {
@@ -258,8 +259,8 @@ final class DefaultExpectCursorMatchingTest {
         int limit = 32;
         String literal = "a".repeat(limit - 1) + "b";
         FeedInputStream stdout = new FeedInputStream();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(stdout, new FeedInputStream())),
+        DefaultExpect expect = expect(
+                new ControllableProcess(stdout, new FeedInputStream()),
                 ExpectSettings.defaults().withTranscriptLimit(1_024).withMatchBufferLimit(limit));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -299,8 +300,8 @@ final class DefaultExpectCursorMatchingTest {
         byte[] encoded = output.getBytes(StandardCharsets.UTF_8);
 
         FeedInputStream stdout = new FeedInputStream();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(stdout, new FeedInputStream())),
+        DefaultExpect expect = expect(
+                new ControllableProcess(stdout, new FeedInputStream()),
                 ExpectSettings.defaults().withTranscriptLimit(2_048).withMatchBufferLimit(limit));
         try {
             for (int offset = 0; offset < encoded.length; ) {

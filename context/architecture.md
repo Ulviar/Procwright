@@ -20,14 +20,15 @@ immutable базовой командой. Затем пользователь �
 
 - `run()` — конечная команда с `CommandResult`;
 - `interactive()` — raw process session;
+- `interactive().expect()` — prompt automation;
 - `lineSession()` — line-oriented request/response;
 - `protocolSession(adapterFactory)` — typed request/response с пользовательским framing;
 - `listen()` — потоковая обработка stdout/stderr;
 - `lineSession().pooled()` и `protocolSession(adapterFactory).pooled()` — пулы дорогих workers.
 
 Каждый scenario method возвращает immutable persistent `Draft`. Методы `with*` создают новый Draft и не меняют
-исходный. Процесс появляется только в явном terminal method: `execute()` или `open()`. `Session.expect()` также
-возвращает `Expect.Draft`; helper создается только через `open()`.
+исходный. Процесс появляется только в явном terminal method: `execute()` или `open()`. Output mode выбирается до launch;
+raw `Session` нельзя преобразовать в Expect или protocol helper.
 
 Protocol session принимает `Supplier<? extends ProtocolAdapter<I, O>>`. Для каждого `open()` и каждого pool worker
 до запуска процесса создается отдельный adapter. Concurrent terminal calls могут вызывать factory конкурентно, поэтому

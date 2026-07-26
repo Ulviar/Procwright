@@ -16,9 +16,7 @@ import java.util.List;
  * {@link LineSessionException} with reason {@link LineSessionException.Reason#DECODER_FAILED}. A callback-thrown
  * {@code LineSessionException} keeps its reason. The mapping applies when the callback failure wins request
  * arbitration; an already-selected terminal or fatal session outcome remains canonical. A callback-thrown
- * {@link Error} is rethrown as the same object when it wins arbitration. If a fatal {@code Error} was already selected,
- * that earlier object wins; the losing callback failure does not replace the canonical outcome. Neither source failure
- * is mutated.
+ * {@link Error} remains fatal when it wins arbitration; otherwise it does not replace the earlier outcome.
  */
 @FunctionalInterface
 public interface ResponseDecoder {

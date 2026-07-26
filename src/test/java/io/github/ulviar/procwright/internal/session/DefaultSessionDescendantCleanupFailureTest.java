@@ -12,7 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
+import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
+import io.github.ulviar.procwright.internal.DiagnosticEmitterTestSupport;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -114,6 +116,52 @@ final class DefaultSessionDescendantCleanupFailureTest {
             stdin.releaseClose();
             closer.join(1_000);
         }
+    }
+
+    @Test
+    void concurrentCloseCannotHideTheSharedProcessCleanupFailure() throws Exception {
+        AssertionError cleanupFailure = new AssertionError("descendant cleanup failed");
+        FailingDescendantProcess process = new FailingDescendantProcess(cleanupFailure);
+        CountDownLatch ownerEntered = new CountDownLatch(1);
+        CountDownLatch releaseOwner = new CountDownLatch(1);
+        DiagnosticEmitter diagnostics = DiagnosticEmitterTestSupport.blockOnceOn(
+                DiagnosticsSettings.disabled().withListener(ignored -> {}),
+                "session-test",
+                DiagnosticEventType.SHUTDOWN_REQUESTED,
+                ownerEntered,
+                releaseOwner);
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                diagnostics);
+        assertTrue(process.awaitDescendantObservation());
+        AtomicReference<Throwable> ownerFailure = new AtomicReference<>();
+        Thread owner = new Thread(() -> {
+            try {
+                session.close();
+            } catch (Throwable failure) {
+                ownerFailure.set(failure);
+            }
+        });
+        owner.start();
+        try {
+            assertTrue(ownerEntered.await(1, TimeUnit.SECONDS));
+
+            AssertionError losingFailure = assertThrows(AssertionError.class, session::close);
+
+            assertSame(cleanupFailure, losingFailure);
+        } finally {
+            releaseOwner.countDown();
+            owner.join(1_000);
+        }
+
+        assertFalse(owner.isAlive());
+        assertSame(cleanupFailure, ownerFailure.get());
+        ExecutionException terminal =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
+        assertSame(cleanupFailure, terminal.getCause());
     }
 
     private static final class FailingDescendantProcess extends Process {

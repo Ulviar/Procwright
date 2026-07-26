@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.session.StreamException;
 import io.github.ulviar.procwright.session.StreamSession;
 import java.io.IOException;
@@ -20,12 +19,12 @@ import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CoderMalfunctionError;
 import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -50,9 +49,7 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
             InputStream stderr = fatalSource.equals("stderr") ? fatalInput : gatedOther;
             ControllableProcess process = new ControllableProcess(stdout, stderr, null);
             AtomicInteger listenerCalls = new AtomicInteger();
-            DefaultSession rawSession = session(process);
-            StreamSession stream = new DefaultStreamSession(
-                    rawSession, plan(charset, 16, chunk -> listenerCalls.incrementAndGet()), diagnostics());
+            StreamSession stream = openStream(process, plan(charset, 16, chunk -> listenerCalls.incrementAndGet()));
             try {
                 assertTrue(process.awaitDestroyed());
                 gatedOther.release();
@@ -70,17 +67,32 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
     }
 
     @Test
-    void typedOutputFailureWinsWhenItOccursBeforeFatalError() throws Exception {
+    void coderMalfunctionErrorRemainsFatalByIdentity() throws Exception {
+        CoderMalfunctionError decoderFailure =
+                new CoderMalfunctionError(new IllegalStateException("broken stream decoder"));
+        Charset charset = new ThreadSelectedFatalDecoderCharset("stdout", decoderFailure);
+        ControllableProcess process = new ControllableProcess(
+                new CloseTrackingInputStream(new byte[] {1}), InputStream.nullInputStream(), null);
+        StreamSession stream = openStream(process, plan(charset, 16));
+        try {
+            ExecutionException failure =
+                    assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
+
+            assertSame(decoderFailure, failure.getCause());
+            assertFalse(process.isAlive());
+        } finally {
+            stream.close();
+        }
+    }
+
+    @Test
+    void laterFatalErrorCannotReplaceAnAcceptedTypedOutputFailure() throws Exception {
         IOException readFailure = new IOException("controlled stdout read failure");
         AssertionError fatalError = new AssertionError("controlled stderr fatal failure");
         GatedFailureInputStream typedStream = new GatedFailureInputStream(readFailure);
         GatedFailureInputStream fatalStream = new GatedFailureInputStream(fatalError);
         ControllableProcess process = new ControllableProcess(typedStream, fatalStream, null);
-        DefaultSession rawSession = session(process);
-        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> reported.add(failure));
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        StreamSession stream = openStream(process, plan());
         try {
             assertTrue(typedStream.awaitReadEntered());
             assertTrue(fatalStream.awaitReadEntered());
@@ -96,31 +108,24 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
             StreamException primary = assertInstanceOf(StreamException.class, failure.getCause());
             assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, primary.reason());
             assertSame(readFailure, primary.getCause());
-            assertEquals(0, primary.getSuppressed().length);
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, reported.size());
-            assertSame(fatalError, reported.get(0));
+            ExecutionException repeated =
+                    assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
+            assertSame(primary, repeated.getCause());
         } finally {
             typedStream.release();
             fatalStream.release();
             stream.close();
-            BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
     }
 
     @Test
-    void fatalErrorWinsWhenItOccursBeforeTypedOutputFailure() throws Exception {
+    void laterTypedOutputFailureCannotReplaceAnAcceptedFatalError() throws Exception {
         IOException readFailure = new IOException("controlled stdout read failure");
         AssertionError fatalError = new AssertionError("controlled stderr fatal failure");
         GatedFailureInputStream typedStream = new GatedFailureInputStream(readFailure);
         GatedFailureInputStream fatalStream = new GatedFailureInputStream(fatalError);
         ControllableProcess process = new ControllableProcess(typedStream, fatalStream, null);
-        DefaultSession rawSession = session(process);
-        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> reported.add(failure));
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        DefaultStreamSession stream = openStream(process, plan());
         try {
             assertTrue(typedStream.awaitReadEntered());
             assertTrue(fatalStream.awaitReadEntered());
@@ -134,18 +139,13 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
             ExecutionException failure =
                     assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
             assertSame(fatalError, failure.getCause());
-            assertEquals(0, fatalError.getSuppressed().length);
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, reported.size());
-            StreamException typedFailure = assertInstanceOf(StreamException.class, reported.get(0));
-            assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, typedFailure.reason());
-            assertSame(readFailure, typedFailure.getCause());
+            ExecutionException repeated =
+                    assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
+            assertSame(fatalError, repeated.getCause());
         } finally {
             typedStream.release();
             fatalStream.release();
             stream.close();
-            BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1));
-            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
     }
 
@@ -156,8 +156,9 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
         BlockingCloseInputStream stderr = new BlockingCloseInputStream(processAlive);
         ControllableProcess process =
                 new ControllableProcess(stdout, stderr, null, OutputStream.nullOutputStream(), processAlive);
-        DefaultSession rawSession = session(process);
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        AtomicReference<DefaultSession> nestedSession = new AtomicReference<>();
+        StreamSession stream = openStream(
+                process, plan(), diagnostics(), DefaultStreamSession.Dependencies.defaults(), nestedSession::set);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> close = null;
         try {
@@ -168,8 +169,9 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
 
             assertTrue(process.awaitDestroyed(), "process cleanup must precede helper output closure");
             close.get(1, TimeUnit.SECONDS);
-            assertTrue(rawSession.terminationPublished());
-            assertFalse(rawSession.onExit().isDone());
+            assertTrue(nestedSession.get().terminationPublished());
+            assertTrue(nestedSession.get().onExit().isDone());
+            assertTrue(stream.onExit().isDone());
             assertTrue(stdout.awaitCloseStarted());
             assertTrue(stderr.awaitCloseStarted());
             assertTrue(stdout.destroyedBeforeClose());
@@ -189,14 +191,65 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
 
         assertTrue(stdout.awaitCloseCompleted());
         assertTrue(stderr.awaitCloseCompleted());
-        rawSession.onExit().get(1, TimeUnit.SECONDS);
+        nestedSession.get().onExit().get(1, TimeUnit.SECONDS);
         stream.onExit().get(1, TimeUnit.SECONDS);
         assertEquals(1, stdout.closeCalls());
         assertEquals(1, stderr.closeCalls());
     }
 
     @Test
-    void ordinaryCloseWinsAndReportsLaterFatalAndPhysicalCloseFailuresByIdentity() throws Exception {
+    void stdinCloseFailureAbandonsBlockedOutputReadsAndSettlesExit() throws Exception {
+        IOException stdinFailure = new IOException("stdin close failed");
+        GatedFailingCloseOutputStream stdin = new GatedFailingCloseOutputStream(stdinFailure);
+        NonCooperativeInputStream stdout = new NonCooperativeInputStream();
+        NonCooperativeInputStream stderr = new NonCooperativeInputStream();
+        ControllableProcess process = new ControllableProcess(stdout, stderr, null, stdin);
+        StreamSession stream = openStream(process, plan());
+        try {
+            assertTrue(stdin.awaitCloseStarted());
+            assertTrue(stdout.awaitReadStarted());
+            assertTrue(stderr.awaitReadStarted());
+
+            stdin.releaseClose();
+
+            assertTrue(process.awaitDestroyed());
+            ExecutionException failure =
+                    assertThrows(ExecutionException.class, () -> stream.onExit().get(1, TimeUnit.SECONDS));
+            StreamException streamFailure = assertInstanceOf(StreamException.class, failure.getCause());
+            assertEquals(StreamException.Reason.PROCESS_FAILED, streamFailure.reason());
+            assertSame(stdinFailure, streamFailure.getCause());
+        } finally {
+            stdin.releaseClose();
+            stdout.releaseRead();
+            stderr.releaseRead();
+            stream.close();
+        }
+    }
+
+    @Test
+    void configuredTimeoutBoundsOutputDrainAfterNaturalRootExit() throws Exception {
+        NonCooperativeInputStream stdout = new NonCooperativeInputStream();
+        NonCooperativeInputStream stderr = new NonCooperativeInputStream();
+        ControllableProcess process = new ControllableProcess(stdout, stderr, null);
+        StreamSession stream =
+                openStream(process, DefaultStreamSessionTestSupport.plan(chunk -> {}, Duration.ofMillis(100)));
+        try {
+            assertTrue(stdout.awaitReadStarted());
+            assertTrue(stderr.awaitReadStarted());
+
+            process.alive.set(false);
+            process.exit.complete(0);
+
+            assertTrue(stream.onExit().get(1, TimeUnit.SECONDS).timedOut());
+        } finally {
+            stdout.releaseRead();
+            stderr.releaseRead();
+            stream.close();
+        }
+    }
+
+    @Test
+    void ordinaryCloseRemainsStableWhenPumpsFailDuringPhysicalCleanup() throws Exception {
         AssertionError fatalFailure = new AssertionError("fatal pump failure after close");
         AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
         AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
@@ -204,15 +257,7 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
         CloseFailingInputStream stdout = new CloseFailingInputStream(fatalReads, stdoutCloseFailure);
         CloseFailingInputStream stderr = new CloseFailingInputStream(InputStream.nullInputStream(), stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr, null);
-        DefaultSession rawSession = session(process);
-        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
-        CountDownLatch reports = new CountDownLatch(3);
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            reported.add(failure);
-            reports.countDown();
-        });
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        StreamSession stream = openStream(process, plan());
         try {
             assertTrue(fatalReads.awaitReadEntered());
 
@@ -226,28 +271,11 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
 
             assertTrue(exit.closed());
             assertFalse(exit.timedOut());
-            assertTrue(reports.await(1, TimeUnit.SECONDS));
-            assertEquals(
-                    1,
-                    reported.stream().filter(failure -> failure == fatalFailure).count());
-            assertEquals(
-                    1,
-                    reported.stream()
-                            .filter(failure -> failure == stdoutCloseFailure)
-                            .count());
-            assertEquals(
-                    1,
-                    reported.stream()
-                            .filter(failure -> failure == stderrCloseFailure)
-                            .count());
-            assertEquals(0, fatalFailure.getSuppressed().length);
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
         } finally {
             fatalReads.release();
             stream.close();
-            rawSession.close();
-            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
     }
 
@@ -256,8 +284,7 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
         IllegalStateException processFailure = new IllegalStateException("wait failed");
         ControllableProcess process =
                 new ControllableProcess(InputStream.nullInputStream(), InputStream.nullInputStream(), processFailure);
-        DefaultSession rawSession = session(process);
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        StreamSession stream = openStream(process, plan());
         try {
             assertTrue(process.awaitWaitFailure());
             process.releaseWaitFailure();
@@ -278,15 +305,7 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
         AssertionError processFailure = new AssertionError("fatal wait failure");
         ControllableProcess process =
                 new ControllableProcess(InputStream.nullInputStream(), InputStream.nullInputStream(), processFailure);
-        DefaultSession rawSession = session(process);
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
-        AtomicReference<Throwable> reportedFailure = new AtomicReference<>();
-        CountDownLatch uncaughtReported = new CountDownLatch(1);
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((ignored, failure) -> {
-            reportedFailure.compareAndSet(null, failure);
-            uncaughtReported.countDown();
-        });
+        StreamSession stream = openStream(process, plan());
         try {
             assertTrue(process.awaitWaitFailure());
             process.releaseWaitFailure();
@@ -294,13 +313,10 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
             ExecutionException failure =
                     assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
             assertSame(processFailure, failure.getCause());
-            assertTrue(uncaughtReported.await(1, TimeUnit.SECONDS));
-            assertSame(processFailure, reportedFailure.get());
             assertFalse(process.isAlive());
         } finally {
             process.releaseWaitFailure();
             stream.close();
-            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
     }
 
@@ -310,8 +326,7 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
         HostileCompletionException processFailure = new HostileCompletionException(causeAccessFailure);
         ControllableProcess process =
                 new ControllableProcess(InputStream.nullInputStream(), InputStream.nullInputStream(), processFailure);
-        DefaultSession rawSession = session(process);
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        StreamSession stream = openStream(process, plan());
         try {
             assertTrue(process.awaitWaitFailure());
             process.releaseWaitFailure();
@@ -531,12 +546,72 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
         }
     }
 
+    private static final class GatedFailingCloseOutputStream extends OutputStream {
+
+        private final IOException failure;
+        private final CountDownLatch closeStarted = new CountDownLatch(1);
+        private final CountDownLatch closeRelease = new CountDownLatch(1);
+
+        private GatedFailingCloseOutputStream(IOException failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void write(int value) {}
+
+        @Override
+        public void close() throws IOException {
+            closeStarted.countDown();
+            awaitUninterruptibly(closeRelease);
+            throw failure;
+        }
+
+        private boolean awaitCloseStarted() throws InterruptedException {
+            return closeStarted.await(1, TimeUnit.SECONDS);
+        }
+
+        private void releaseClose() {
+            closeRelease.countDown();
+        }
+    }
+
+    private static final class NonCooperativeInputStream extends InputStream {
+
+        private final CountDownLatch readStarted = new CountDownLatch(1);
+        private final CountDownLatch readRelease = new CountDownLatch(1);
+
+        @Override
+        public int read() {
+            readStarted.countDown();
+            awaitUninterruptibly(readRelease);
+            return -1;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) {
+            return length == 0 ? 0 : read();
+        }
+
+        @Override
+        public void close() {
+            // The fixture deliberately keeps the read blocked until the test releases it.
+        }
+
+        private boolean awaitReadStarted() throws InterruptedException {
+            return readStarted.await(1, TimeUnit.SECONDS);
+        }
+
+        private void releaseRead() {
+            readRelease.countDown();
+        }
+    }
+
     protected static final class ThreadSelectedFatalDecoderCharset extends Charset {
 
         protected final String failingThreadFragment;
-        protected final AssertionError failure;
+        protected final Error failure;
 
-        protected ThreadSelectedFatalDecoderCharset(String failingThreadFragment, AssertionError failure) {
+        protected ThreadSelectedFatalDecoderCharset(String failingThreadFragment, Error failure) {
             super("X-Procwright-Stream-Fatal-Decoder-" + failingThreadFragment, new String[0]);
             this.failingThreadFragment = failingThreadFragment;
             this.failure = failure;

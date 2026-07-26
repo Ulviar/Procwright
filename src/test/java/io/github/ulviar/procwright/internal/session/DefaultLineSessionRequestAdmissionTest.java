@@ -8,12 +8,13 @@ import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtur
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ResponseInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.LineSessionSettings;
@@ -25,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -60,8 +62,8 @@ final class DefaultLineSessionRequestAdmissionTest {
             return List.of(reader.readLine());
         });
         ControlledRequestLockWaiter lockWaiter = new ControlledRequestLockWaiter();
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
+        DefaultLineSession lineSession = openLineSession(
+                new ControllableProcess(stdin, stdout, InputStream.nullInputStream()),
                 settings,
                 LineSessionTestDependencies.withRequestLockWaiter(lockWaiter));
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -153,8 +155,8 @@ final class DefaultLineSessionRequestAdmissionTest {
             return List.of(reader.readLine());
         });
         ControlledRequestLockWaiter lockWaiter = new ControlledRequestLockWaiter();
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(process), settings, LineSessionTestDependencies.withRequestLockWaiter(lockWaiter));
+        DefaultLineSession lineSession =
+                openLineSession(process, settings, LineSessionTestDependencies.withRequestLockWaiter(lockWaiter));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         AtomicReference<Thread> waiterThread = new AtomicReference<>();
         AtomicBoolean waiterInterruptRestored = new AtomicBoolean();
@@ -171,9 +173,12 @@ final class DefaultLineSessionRequestAdmissionTest {
 
             if (selectedTerminal == SelectedTerminal.FATAL_OUTPUT) {
                 ((GatedErrorInputStream) stdout).releaseFailure();
-                lineSession.onExit().get(2, TimeUnit.SECONDS);
+                ExecutionException exitFailure = assertThrows(
+                        ExecutionException.class, () -> lineSession.onExit().get(2, TimeUnit.SECONDS));
+                assertSame(fatalError, exitFailure.getCause());
             } else {
                 lineSession.close();
+                lineSession.onExit().get(2, TimeUnit.SECONDS);
             }
             int fatalSuppressedBeforeWaiter = fatalError.getSuppressed().length;
 

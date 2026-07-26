@@ -42,7 +42,7 @@ Scenario-specific timeout, capture, readiness, terminal, diagnostics, protocol l
   immutable snapshot, getters не раскрываются;
 - terminal method — единственная точка создания процесса или result.
 
-`Expect.Draft` применяет ту же модель к helper, а `LineSessionScenario.PoolDraft` и
+`ExpectScenario.Draft` применяет ту же модель к prompt automation, а `LineSessionScenario.PoolDraft` и
 `ProtocolSessionScenario.PoolDraft` — к pool lifecycle. Worker settings фиксируются до перехода в `pooled()`.
 
 ### Internal settings
@@ -80,8 +80,8 @@ Runtime получает только согласованный plan и не у
 - декодирование завершенных one-shot captures и success/typed decode-failure `CommandResult` snapshot —
   `OneShotResultAssembler`;
 - session construction transaction — `SessionConstruction`;
-- session terminal state, accepted-failure cleanup barrier и internal outcome — `SessionTermination`, единый public
-  cleanup barrier raw/line/protocol handles — `SessionExitBarrier`;
+- выбор одного process terminal owner, process outcome, logical output-mode settlement и единый public exit
+  raw/line/protocol handles — `SessionTerminal`;
 - pipe process launch — `ProcessLauncher`; ordinary и provider-bounded liveness — `ProcessLiveness`;
 - ожидание natural exit — `ProcessExitWaiter`, накопление наблюдавшихся живых descendants —
   `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessTreeShutdown`, bounded tree state —
@@ -92,12 +92,16 @@ Runtime получает только согласованный plan и не у
   `BoundedTaskExecution`;
 - стабильные one-shot process streams — `OwnedStreams`, exact-once logical close одного stream — `OwnedStream`;
   physical close выполняется best effort и не входит в `CommandResult` publication;
-- транзакционное приобретение session streams и close permits — `ProcessIoAcquisition`, exact-once physical close и
-  локальная close failure одного stream — `ProcessStreamResource`, bundle-level close и rollback —
-  `ProcessIoResources`;
-- stdin serialization и logical close, output ownership и session-level close callbacks — `SessionResources`, output
-  failure classification и один immutable physical-close outcome — `SessionOutputCleanup`, производный physical view
-  строится из того же outcome, выбор aggregate/report перед public exit — `SessionExitBarrier`;
+- транзакционное приобретение session streams — `ProcessIoAcquisition`, exact-once claim и outcome best-effort close
+  одного stream — `ProcessStreamResource`, bundle-level close и rollback — `ProcessIoResources`; живые process streams
+  не резервируют глобальную close capacity. Готовые close operations попадают в bounded active set и bounded backlog;
+  saturation или невозможность запустить close фиксируется как cleanup failure без физического close и не задерживает
+  исходный terminal outcome;
+- stdin serialization и logical close, output ownership и session-level close callbacks — `SessionResources`; public
+  exit не зависит от physical close, а `SessionTerminal` ждёт только фиксированные при construction process outcome
+  и logical output-mode settlement. Первый принятый non-exit primary claim имеет приоритет, пока public outcome не
+  выбран; natural process success остаётся fallback. Пользовательский matcher/decoder не является дополнительным gate и
+  не переписывает выбранный exit;
 - выбор output consumer-а внутри resource owner — `SessionOutputOwnership`;
 - bounded immutable cleanup snapshot — `KnownDescendants`; bounded process/provider traversal — `ProcessTreeScanner`;
   fresh owner каждой provider operation —
@@ -105,8 +109,8 @@ Runtime получает только согласованный plan и не у
   `ProcessProviderOperationSettlement`;
 - line/protocol request serialization — `SerializedRequestGate`; active request и terminal arbitration —
   `LineSessionState` и `ProtocolSessionState`;
-- stream terminal outcome, nested raw-session terminal, output-pump barrier и exact-once publication claim —
-  `StreamSessionState`;
+- stream использует canonical outcome `SessionTerminal`; `DefaultStreamSession` владеет только stopping admission и
+  преобразованием canonical outcome в `StreamExit`;
 - protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader`, complete text fields —
   `ProtocolTextFieldDecoder`, global response limits — `ProtocolResponseBudget`;
 - output backlog — bounded queue владельца сценария;
@@ -124,15 +128,13 @@ Runtime получает только согласованный plan и не у
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.
 
-Cleanup phases выполняются независимо. Обязательный lifecycle outcome хранит failures как identity-дедуплицированные
-данные; владелец инварианта явно выбирает primary по своему контракту, а общая утилита создает новый стабильный
-aggregate без изменения исходных `Throwable`. Raw-session physical-close failure входит в public aggregate, если уже
-есть process или inline-output failure; одинокий physical failure после process success уходит в bounded best-effort
-report. Проигравшие line/protocol failures и helper-owned close failures не меняют canonical failure и отправляются
-отдельными bounded best-effort reports. Поэтому чужой `Throwable` monitor не задерживает request, helper или terminal
-publication. Ни одна из обязательных lifecycle-моделей не обходит cause/suppressed graph, не использует скрытый общий
-приоритет ошибок или глобальную блокировку между lifecycle owners. Fallback, который создает unbounded thread,
-недопустим.
+Lifecycle owner выбирает один обязательный public outcome. Process outcome и logical settlement выбранного output mode
+ограничивают его публикацию; potentially blocking physical stream close выполняется отдельно и не может переписать
+готовый результат. Проигравшие line/protocol failures и helper-owned close failures отправляются отдельными bounded
+best-effort reports. Mandatory runtime не мутирует переданный пользователем `Throwable`, но точная форма
+cause/suppressed graph для secondary failures не является public API. Поэтому чужой `Throwable` monitor не задерживает
+request, helper или terminal publication. Ни одна из обязательных lifecycle-моделей не обходит cause/suppressed graph,
+не использует глобальную блокировку между lifecycle owners и не создает unbounded fallback thread.
 
 ### Transport
 
@@ -172,8 +174,9 @@ scenario flags.
 
 - timeout, explicit close и failure используют общий shutdown policy;
 - process-tree cleanup повторно обнаруживает поздних descendants в пределах phase deadline;
-- `close()` идемпотентен; первое typed terminal outcome не заменяется другим typed outcome, но наблюдаемый поздний
-  JVM `Error` может стать каноническим fatal outcome до возврата request failure;
+- `close()` идемпотентен; первый terminal outcome не заменяется более поздним typed failure или JVM `Error`;
+- terminal failure helper-сценария выбирается в общем session lifecycle до shutdown и завершает helper `onExit()`
+  exceptionally;
 - `onExit()` завершается ровно один раз;
 - readiness выполняется после launch, но до возврата handle или перевода worker в idle;
 - partial construction failure закрывает все уже созданные ресурсы.
@@ -183,18 +186,17 @@ scenario flags.
 - terminal calls одного Draft создают независимые процессы;
 - raw `Session` не обещает request serialization;
 - `LineSession` и `ProtocolSession` допускают только один request/response cycle одновременно;
-- helper или runtime pump получает exclusive ownership stdout/stderr;
-- позднее raw чтение после helper claim и поздний helper claim после raw operation отклоняются;
-- stream listeners, readiness probes и worker hooks выполняются через независимые bounded admission domains; это
-  внутренняя защита от неограниченной служебной работы, а не квота на процессы или pools. Зависший callback удерживает
-  разрешение только своей категории до фактического возврата;
+- output mode выбирается до launch; raw streams и runtime pump нельзя получить из одного scenario handle;
+- runtime pump получает exclusive ownership stdout/stderr выбранного helper scenario;
+- readiness probes и worker hooks выполняются через независимые bounded admission domains; это внутренняя защита от
+  неограниченной служебной работы, а не квота на процессы или pools. Зависший callback удерживает разрешение только
+  своей категории до фактического возврата;
 - readiness, worker hooks, protocol callbacks, custom charset encoding, blocking stdin writes и regex evaluation
   используют task-scoped adaptive owner: Java 24+ дает каждому invocation non-inheriting virtual thread, Java 17–23 —
   fresh non-inheriting daemon platform thread; callback thread не переходит другому invocation, а раннее monitor pinning
   virtual threads не уменьшает фактическую bounded capacity;
-- stream listener использует lazy session-affine daemon owner: chunks одной session не создают новые потоки, owner не
-  переходит другой session и закрывается после pump completion либо начала остановки; аварийный выход owner либо
-  запускает replacement для уже принятой доставки, либо завершает admission ошибкой с точным возвратом разрешения;
+- stream listener вызывается синхронно на output pump; вызовы stdout/stderr сериализуются локально для одной session,
+  создают естественный backpressure и не используют отдельный поток или process-wide квоту;
 - process provider boundary принимает не более 32 operations одновременно; каждый accepted invocation выполняется на
   fresh disposable non-inheriting daemon owner-е, а permit удерживается до фактического возврата operation, включая
   abandoned call после timeout или interruption;
@@ -206,12 +208,15 @@ scenario flags.
   handoff;
 - после abandonment поздний результат или failure callback не меняет уже выбранный timeout/cancellation outcome и не
   публикуется отдельно; callback по-прежнему удерживает admission до фактического возврата;
+- request callback не удерживает public process `onExit()` после settlement output transport; его поздний failure
+  остаётся исходом синхронного request и не переписывает готовый process result;
 - асинхронный отказ injected `TaskStarter` до abandonment возвращается как execution failure; после abandonment это
   поздний execution outcome, который только завершает permit settlement и не заменяет выбранный outcome;
-- diagnostics сохраняют порядок для одного destination, но отдают dispatcher после bounded batch и продолжают с
-  конца общей FIFO-очереди, поэтому непрерывный producer не удерживает dispatcher slots бесконечно;
+- diagnostics сохраняют порядок для одного destination и отдают dispatcher после bounded batch; между разными
+  destination порядок и fairness не являются контрактом;
 - interrupt синхронного caller-а восстанавливает interrupt status и не обходит cleanup;
-- best-effort failure/completion notification выполняется только после mandatory physical close settlement;
+- поздняя physical-close failure может быть отправлена как best-effort report после своего settlement, но не задерживает
+  и не изменяет public terminal outcome;
 - terminal futures не резервируют отдельные publication threads; синхронные continuations следуют стандартному
   контракту `CompletableFuture`;
 - coroutine cancellation закрывает/retire только session или worker с недостоверным protocol state; ожидание общего

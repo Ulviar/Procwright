@@ -4,8 +4,8 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.openExpect;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.passthroughDecoder;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,9 +34,11 @@ final class DefaultExpectOutputPublicationTest {
         TrackingPumpStarter pumpStarter = new TrackingPumpStarter();
         ControllableProcess process =
                 new ControllableProcess(new ByteArrayInputStream(new byte[] {'x'}), InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
-        DefaultExpect expect = new DefaultExpect(
-                rawSession, ExpectSettings.defaults().withCharset(charset), ZeroReadBackoff.exponential(), pumpStarter);
+        DefaultExpect expect = openExpect(
+                process,
+                charset,
+                session -> new DefaultExpect(
+                        session, ExpectSettings.defaults(), ZeroReadBackoff.exponential(), pumpStarter));
         try {
             assertTrue(charset.awaitPublicationReady());
 

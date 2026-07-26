@@ -7,7 +7,6 @@ import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.fixture
 import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -48,7 +48,7 @@ final class LineSessionDecoderFailurePrecedenceIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("multi", Duration.ofSeconds(2)));
 
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request("again"));
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         } finally {
@@ -76,7 +76,7 @@ final class LineSessionDecoderFailurePrecedenceIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("multi", Duration.ofSeconds(2)));
 
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, failure);
             LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request("again"));
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         } finally {
@@ -85,7 +85,7 @@ final class LineSessionDecoderFailurePrecedenceIntegrationTest {
     }
 
     @Test
-    void caughtLineReaderFailurePrecedesSecondaryErrorButRethrowsThatError() throws Exception {
+    void caughtLineReaderFailurePrecedesSecondaryError() throws Exception {
         AssertionError secondaryFailure = new AssertionError("secondary line decoder error");
         ResponseDecoder decoder = reader -> {
             try {
@@ -100,11 +100,11 @@ final class LineSessionDecoderFailurePrecedenceIntegrationTest {
                 fixtureScenario().withMaxResponseLines(1).withResponseDecoder(decoder);
         LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"));
         try {
-            AssertionError thrown =
-                    assertThrows(AssertionError.class, () -> session.request("multi", Duration.ofSeconds(2)));
+            LineSessionException failure =
+                    assertThrows(LineSessionException.class, () -> session.request("multi", Duration.ofSeconds(2)));
 
-            assertSame(secondaryFailure, thrown);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
+            assertExitFailedWith(session, failure);
             LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request("again"));
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         } finally {
@@ -133,7 +133,7 @@ final class LineSessionDecoderFailurePrecedenceIntegrationTest {
             assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
             assertFalse(exception.transcript().text().contains("ok"));
             assertTrue(exception.transcript().text().length() <= 64 * 1024);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request(""));
             assertEquals(LineSessionException.Reason.DECODE_ERROR, followUp.reason());
         } finally {
@@ -162,10 +162,27 @@ final class LineSessionDecoderFailurePrecedenceIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("", Duration.ofSeconds(2)));
 
             assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
         } finally {
             session.close();
         }
+    }
+
+    private static void assertExitFailedWith(LineSession session, LineSessionException requestFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertTrue(causeChainContains(requestFailure, observed.getCause()));
+    }
+
+    private static boolean causeChainContains(Throwable failure, Throwable expected) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current == expected) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static final class OutputThenMalformedCharset extends Charset {

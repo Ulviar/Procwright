@@ -3,21 +3,21 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.EnvironmentPolicy;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
+import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticEmitterTestSupport;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.LaunchPlan;
+import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.SessionExecutionPlan;
+import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.terminal.PtyProvider;
 import io.github.ulviar.procwright.terminal.PtyRequest;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
@@ -40,35 +40,73 @@ import org.junit.jupiter.api.Test;
 final class SessionRuntimeTest {
 
     @Test
-    void processStartedDiagnosticFailureCleansUpCustomPtyProcessExactlyOnce() throws Exception {
+    void processStartedDiagnosticFailureDoesNotAbortCustomPtySession() throws Exception {
         AssertionError diagnosticFailure = new AssertionError("PROCESS_STARTED construction failed");
         TrackingProcess process = new TrackingProcess();
         CopyOnWriteArrayList<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        CountDownLatch processFailed = new CountDownLatch(1);
-        DiagnosticsSettings settings = DiagnosticsSettings.disabled().withListener(event -> {
-            events.add(event);
-            if (event.type() == DiagnosticEventType.PROCESS_FAILED) {
-                processFailed.countDown();
-            }
-        });
+        DiagnosticsSettings settings = DiagnosticsSettings.disabled().withListener(events::add);
         DiagnosticEmitter diagnostics = DiagnosticEmitterTestSupport.failOnceOn(
                 settings, "session-open-test", DiagnosticEventType.PROCESS_STARTED, diagnosticFailure);
 
-        AssertionError thrown =
-                assertThrows(AssertionError.class, () -> SessionRuntime.open(sessionPlan(process), diagnostics));
-
-        assertSame(diagnosticFailure, thrown);
-        assertTrue(process.awaitDestroyed());
+        try (DefaultSession session = SessionRuntime.open(sessionPlan(process), diagnostics)) {
+            process.exitNaturally();
+            assertEquals(
+                    137, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+        }
         assertTrue(process.stdin.awaitClose());
-        assertTrue(processFailed.await(1, TimeUnit.SECONDS));
-        assertFalse(process.isAlive());
         assertEquals(1, process.pidCalls());
         assertEquals(1, process.stdin.closeCalls());
-        assertEquals(1, process.stdout.closeCalls());
-        assertEquals(1, process.stderr.closeCalls());
-        assertEquals(
-                List.of(DiagnosticEventType.PROCESS_FAILED),
-                events.stream().map(DiagnosticEvent::type).toList());
+        assertTrue(events.stream().noneMatch(event -> event.type() == DiagnosticEventType.PROCESS_FAILED));
+    }
+
+    @Test
+    void shutdownDiagnosticFailureDoesNotAlterExplicitClose() throws Exception {
+        AssertionError diagnosticFailure = new AssertionError("SHUTDOWN_REQUESTED failed");
+        TrackingProcess process = new TrackingProcess();
+        DiagnosticEmitter diagnostics = DiagnosticEmitterTestSupport.failOnceOn(
+                DiagnosticsSettings.disabled().withListener(event -> {}),
+                "session-close-test",
+                DiagnosticEventType.SHUTDOWN_REQUESTED,
+                diagnosticFailure);
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                diagnostics);
+
+        session.close();
+
+        assertEquals(137, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+        assertEquals(1, process.stdin.closeCalls());
+    }
+
+    @Test
+    void concreteHelperFactoryInstallsOutputPumpsBeforeTheExitWatcherCanRun() throws Exception {
+        TrackingProcess process = new TrackingProcess();
+        process.exitNaturally();
+
+        LineSession session = SessionRuntime.openLineSession(
+                sessionPlan(process),
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "helper-start-test", CommandEcho.empty()),
+                LineSessionSettings.defaults());
+        try {
+            session.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);
+            assertTrue(eventually(() -> process.stdout.closeCalls() == 1 && process.stderr.closeCalls() == 1));
+        } finally {
+            session.close();
+        }
+    }
+
+    private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        do {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(5);
+        } while (System.nanoTime() < deadline);
+        return condition.getAsBoolean();
     }
 
     static SessionExecutionPlan sessionPlan(Process process) {
@@ -185,6 +223,10 @@ final class SessionRuntimeTest {
 
         boolean awaitDestroyed() throws InterruptedException {
             return destroyed.await(1, TimeUnit.SECONDS);
+        }
+
+        void exitNaturally() {
+            alive.set(false);
         }
     }
 

@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
@@ -95,7 +96,9 @@ final class SessionProcessCleanupTest {
             Future<Throwable> failingCleanup = executor.submit(cleanup::stopAfterFailure);
 
             observed = failingCleanup.get(1, TimeUnit.SECONDS);
-            assertTrue(executor.submit(cleanup::stop).get(1, TimeUnit.SECONDS).isEmpty());
+            ExecutionException repeated = assertThrows(ExecutionException.class, () -> executor.submit(cleanup::stop)
+                    .get(1, TimeUnit.SECONDS));
+            assertSame(observed, repeated.getCause());
         } finally {
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));

@@ -5,9 +5,11 @@ package io.github.ulviar.procwright.internal.session;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.CloseTrackingInputStream;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expect;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.openExpect;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.ExpectSettings;
@@ -18,6 +20,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,13 +29,37 @@ import org.junit.jupiter.api.Test;
 final class DefaultExpectOutputPumpLifecycleTest {
 
     @Test
+    void helperConstructionFailureRollsBackTheProcessAndOutputResources() throws Exception {
+        CloseTrackingInputStream stdout = new CloseTrackingInputStream(new byte[0]);
+        CloseTrackingInputStream stderr = new CloseTrackingInputStream(new byte[0]);
+        ControllableProcess process = new ControllableProcess(stdout, stderr);
+        RejectedExecutionException startupFailure = new RejectedExecutionException("pump rejected");
+
+        RejectedExecutionException actual = assertThrows(
+                RejectedExecutionException.class,
+                () -> openExpect(
+                        process,
+                        session -> new DefaultExpect(
+                                session, ExpectSettings.defaults(), ZeroReadBackoff.exponential(), (name, task) -> {
+                                    throw startupFailure;
+                                })));
+
+        assertEquals(startupFailure, actual);
+        assertTrue(process.awaitDestroyed());
+        assertTrue(stdout.awaitClose());
+        assertTrue(stderr.awaitClose());
+        assertFalse(process.isAlive());
+        assertEquals(1, stdout.closeCalls());
+        assertEquals(1, stderr.closeCalls());
+    }
+
+    @Test
     void closeStopsProcessBeforeBlockingOutputClosesAndDoesNotWaitForThem() throws Exception {
         AtomicBoolean processAlive = new AtomicBoolean(true);
         BlockingCloseInputStream stdout = new BlockingCloseInputStream(processAlive);
         BlockingCloseInputStream stderr = new BlockingCloseInputStream(processAlive);
         ControllableProcess process = new ControllableProcess(stdout, stderr, processAlive);
-        DefaultSession rawSession = session(process);
-        DefaultExpect expect = new DefaultExpect(rawSession, ExpectSettings.defaults());
+        DefaultExpect expect = expect(process);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> close = null;
         try {
@@ -43,8 +70,7 @@ final class DefaultExpectOutputPumpLifecycleTest {
 
             assertTrue(process.awaitDestroyed(), "process cleanup must precede helper output closure");
             close.get(1, TimeUnit.SECONDS);
-            assertTrue(rawSession.terminationPublished());
-            assertFalse(rawSession.onExit().isDone());
+            assertTrue(expect.onExit().isDone());
             assertTrue(stdout.awaitCloseStarted());
             assertTrue(stderr.awaitCloseStarted());
             assertTrue(stdout.destroyedBeforeClose());
@@ -64,7 +90,7 @@ final class DefaultExpectOutputPumpLifecycleTest {
 
         assertTrue(stdout.awaitCloseCompleted());
         assertTrue(stderr.awaitCloseCompleted());
-        rawSession.onExit().get(1, TimeUnit.SECONDS);
+        expect.onExit().get(1, TimeUnit.SECONDS);
         assertEquals(1, stdout.closeCalls());
         assertEquals(1, stderr.closeCalls());
     }
@@ -78,16 +104,16 @@ final class DefaultExpectOutputPumpLifecycleTest {
             InputStream stdout = zeroStdout ? zeroStream : eofStream;
             InputStream stderr = zeroStdout ? eofStream : zeroStream;
             ControllableProcess process = new ControllableProcess(stdout, stderr);
-            DefaultSession rawSession = session(process);
-            DefaultExpect expect =
-                    new DefaultExpect(rawSession, ExpectSettings.defaults(), backoff, PumpStarter.threading());
+            DefaultExpect expect = openExpect(
+                    process,
+                    session -> new DefaultExpect(session, ExpectSettings.defaults(), backoff, PumpStarter.threading()));
             try {
                 assertTrue(backoff.awaitEntered());
                 assertEquals(1, zeroStream.reads());
 
                 expect.close();
                 backoff.release();
-                rawSession.onExit().get(1, TimeUnit.SECONDS);
+                expect.onExit().get(1, TimeUnit.SECONDS);
 
                 Thread readerThread = zeroStream.readerThread();
                 readerThread.join(TimeUnit.SECONDS.toMillis(1));

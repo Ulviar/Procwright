@@ -5,7 +5,6 @@ package io.github.ulviar.procwright.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,7 +35,7 @@ import org.junit.jupiter.api.Test;
 final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupport {
 
     @Test
-    void idleStdoutIoFailureReleasesHelperExitBarrier() throws Exception {
+    void idleStdoutIoFailureSettlesPublicExit() throws Exception {
         IOException readFailure = new IOException("stdout read failed");
         InputStream stdout = new InputStream() {
             @Override
@@ -47,7 +46,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
         DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), noOpAdapter(), ProtocolSessionSettings.defaults());
+                protocolSession(process, noOpAdapter(), ProtocolSessionSettings.defaults());
         try {
             protocol.onExit().handle((ignored, failure) -> null).get(1, TimeUnit.SECONDS);
             ProtocolSessionException terminal =
@@ -72,26 +71,24 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
     }
 
     @Test
-    void fatalPumpErrorAfterCloseBecomesTheLaterTerminalObservationAndRetainsCleanupFailures() throws Exception {
+    void latePumpErrorAfterCloseDoesNotChangeTheClosedOutcome() throws Exception {
         AssertionError pumpError = new AssertionError("late protocol pump failure");
         AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
         AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
         ControlledPumpFailureInputStream stdout = new ControlledPumpFailureInputStream(pumpError, stdoutCloseFailure);
         ControlledPumpFailureInputStream stderr = new ControlledPumpFailureInputStream(null, stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        DefaultSession rawSession = session(process);
         List<Thread> pumpThreads = new ArrayList<>();
-        AtomicReference<Throwable> uncaughtPumpFailure = new AtomicReference<>();
         PumpStarter starter = (name, task) -> {
             Thread thread = new Thread(task, name);
             thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((ignored, failure) -> uncaughtPumpFailure.compareAndSet(null, failure));
+            thread.setUncaughtExceptionHandler((ignored, failure) -> {});
             pumpThreads.add(thread);
             thread.start();
             return thread;
         };
-        DefaultProtocolSession<String, String> protocolSession = new DefaultProtocolSession<>(
-                rawSession,
+        DefaultProtocolSession<String, String> protocolSession = protocolSession(
+                process,
                 noOpAdapter(),
                 ProtocolSessionSettings.defaults(),
                 ProtocolSessionTestDependencies.withPumpStarter(starter));
@@ -107,31 +104,20 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
                 pumpThread.join(TimeUnit.SECONDS.toMillis(1));
                 assertFalse(pumpThread.isAlive());
             }
-            assertNull(uncaughtPumpFailure.get());
 
             stdout.releaseCloseFailure();
             stderr.releaseCloseFailure();
             assertTrue(stdout.awaitCloseWorkerStopped());
             assertTrue(stderr.awaitCloseWorkerStopped());
-            ExecutionException cleanupFailure = assertThrows(
-                    ExecutionException.class,
-                    () -> rawSession.physicalOutputCleanup().get(1, TimeUnit.SECONDS));
-            assertSame(stdoutCloseFailure, cleanupFailure.getCause().getCause());
-            assertEquals(
-                    java.util.List.of(stderrCloseFailure),
-                    java.util.List.of(cleanupFailure.getCause().getSuppressed()));
-            assertEquals(0, stdoutCloseFailure.getSuppressed().length);
-            assertEquals(0, stderrCloseFailure.getSuppressed().length);
 
-            assertEquals(0, pumpError.getSuppressed().length);
-            AssertionError followUp = assertThrows(AssertionError.class, () -> protocolSession.request("after-close"));
-            assertSame(pumpError, followUp);
+            ProtocolSessionException followUp =
+                    assertThrows(ProtocolSessionException.class, () -> protocolSession.request("after-close"));
+            assertEquals(ProtocolSessionException.Reason.CLOSED, followUp.reason());
         } finally {
             stdout.releaseReadFailure();
             stdout.releaseCloseFailure();
             stderr.releaseCloseFailure();
             protocolSession.close();
-            rawSession.close();
         }
     }
 
@@ -139,7 +125,6 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
     void protocolPumpIgnoresZeroLengthReadBeforeRealByte() {
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), new ZeroThenByteInputStream((byte) 42), InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         ProtocolAdapter<String, Byte> adapter = new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {
@@ -153,7 +138,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
         };
 
         try (DefaultProtocolSession<String, Byte> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, ProtocolSessionSettings.defaults())) {
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults())) {
             assertEquals((byte) 42, protocol.request("ignored"));
         }
     }
@@ -188,8 +173,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
                 new java.io.ByteArrayInputStream(new byte[] {1, 2}));
         ProtocolSessionSettings settings = ProtocolSessionSettings.defaults().withOutputBacklogLimit(1);
 
-        try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), adapter, settings)) {
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, settings)) {
             ProtocolSessionException requestFailure =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("request"));
 
@@ -202,11 +186,11 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
     }
 
     @Test
-    void stderrOverflowUsesObservedExitCodeBeforePublicSessionExit() throws Exception {
+    void stderrOverflowRemainsRequestLocalAfterProcessAndOutputHaveSettled() throws Exception {
         BlockingPhysicalCloseInputStream stdout = new BlockingPhysicalCloseInputStream();
         GatedChunkInputStream stderr = new GatedChunkInputStream(new byte[] {1, 2});
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        DefaultSession rawSession = session(process);
+        AtomicReference<DefaultSession> rawSession = new AtomicReference<>();
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch allowRead = new CountDownLatch(1);
         ProtocolAdapter<String, Byte> adapter = new ProtocolAdapter<>() {
@@ -222,10 +206,11 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
                 return readers.stderr().readByte();
             }
         };
-        DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                rawSession,
+        DefaultProtocolSession<String, Byte> protocol = protocolSession(
+                process,
                 adapter,
-                ProtocolSessionSettings.defaults().withOutputBacklogLimit(1).withRequestTimeout(Duration.ofSeconds(5)));
+                ProtocolSessionSettings.defaults().withOutputBacklogLimit(1).withRequestTimeout(Duration.ofSeconds(5)),
+                rawSession::set);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -233,9 +218,10 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
             stderr.release();
             assertTrue(stderr.awaitEof(), "stderr pump did not retain the overflow marker");
             process.exitNaturally(23);
-            assertTrue(eventually(() -> rawSession.processExitCode().isPresent()));
+            assertTrue(eventually(() -> rawSession.get().processExitCode().isPresent()));
             assertTrue(stdout.closeEntered.await(1, TimeUnit.SECONDS));
-            assertFalse(rawSession.onExit().isDone());
+            assertEquals(
+                    23, protocol.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
 
             allowRead.countDown();
             ProtocolSessionException overflow =
@@ -259,7 +245,6 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
         BlockingZeroReadBackoff backoff = new BlockingZeroReadBackoff();
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         ProtocolAdapter<String, Byte> adapter = new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {
@@ -272,8 +257,8 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
             }
         };
 
-        DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                rawSession,
+        DefaultProtocolSession<String, Byte> protocol = protocolSession(
+                process,
                 adapter,
                 ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofMillis(50)),
                 ProtocolSessionTestDependencies.withBackoff(backoff));
@@ -289,7 +274,9 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
             }
 
             assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> protocol.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(timeout, exitFailure.getCause());
             assertFalse(process.isAlive());
             Thread readerThread = stdout.readerThread();
             readerThread.join(TimeUnit.SECONDS.toMillis(1));
@@ -309,12 +296,12 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
     }
 
     @Test
-    void interruptedZeroLengthPumpReleasesHelperExitBarrier() throws Exception {
+    void interruptedZeroLengthPumpSettlesPublicExit() throws Exception {
         ZeroForeverInputStream stdout = new ZeroForeverInputStream();
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
         DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(session(process), noOpAdapter(), ProtocolSessionSettings.defaults());
+                protocolSession(process, noOpAdapter(), ProtocolSessionSettings.defaults());
         try {
             assertTrue(stdout.awaitFirstRead());
             Thread readerThread = stdout.readerThread();
@@ -337,9 +324,8 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
         BlockingZeroReadBackoff backoff = new BlockingZeroReadBackoff();
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), InputStream.nullInputStream(), stderr);
-        DefaultSession rawSession = session(process);
-        DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                rawSession,
+        DefaultProtocolSession<String, String> protocol = protocolSession(
+                process,
                 noOpAdapter(),
                 ProtocolSessionSettings.defaults(),
                 ProtocolSessionTestDependencies.withBackoff(backoff));

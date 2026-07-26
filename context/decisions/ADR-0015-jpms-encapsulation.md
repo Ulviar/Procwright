@@ -43,8 +43,7 @@ diagnostics package описывает только пользовательск
 - package boundary tests проверяют не только список пакетов, но и направление production-зависимостей;
 - sealed session-family interfaces делают non-SPI nature compile-time свойством, а не только Javadoc предупреждением.
 
-Ограничение: публичные failure constructors нужны internal implementations из другого package. `Session.expect()`
-создает public `Expect.Draft`, не раскрывая implementation type в сигнатуре.
+Ограничение: публичные failure constructors нужны internal implementations из другого package.
 
 ## Проверка
 

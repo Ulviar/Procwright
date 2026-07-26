@@ -93,6 +93,12 @@ final class SessionConstruction {
         private volatile boolean committed;
 
         Runnable guard(Runnable task) {
+            return guard(task, () -> {});
+        }
+
+        Runnable guard(Runnable task, Runnable completion) {
+            Objects.requireNonNull(task, "task");
+            Objects.requireNonNull(completion, "completion");
             return () -> {
                 boolean restoreInterrupt = false;
                 while (true) {
@@ -108,8 +114,12 @@ final class SessionConstruction {
                         task.run();
                     }
                 } finally {
-                    if (restoreInterrupt) {
-                        Thread.currentThread().interrupt();
+                    try {
+                        completion.run();
+                    } finally {
+                        if (restoreInterrupt) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
                 }
             };

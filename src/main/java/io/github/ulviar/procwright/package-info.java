@@ -9,7 +9,8 @@
  * <ul>
  *   <li>{@code run()} — a finite process with a typed {@code CommandResult} (exit code, output, timeout,
  *       truncation);
- *   <li>{@code interactive()} — a raw long-lived session with stdin/stdout/stderr access and expect-style helpers;
+ *   <li>{@code interactive()} — a raw long-lived session with stdin/stdout/stderr access;
+ *   <li>{@code interactive().expect()} — prompt automation with output selected before launch;
  *   <li>{@code lineSession()} — serialized line-oriented request/response over stdin/stdout, optionally pooled;
  *   <li>{@code protocolSession(...)} — typed request/response through a caller-provided protocol adapter, optionally
  *       pooled;

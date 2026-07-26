@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.ExpectMatch;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,30 +22,54 @@ final class ExpectRegexMatcher {
     private final ExpectSessionState state;
     private final BoundedTaskLimiter limiter;
     private final Evaluator evaluator;
+    private final Consumer<? super Throwable> terminalShutdown;
 
-    ExpectRegexMatcher(ExpectSessionState state, BoundedTaskLimiter limiter, Evaluator evaluator) {
+    ExpectRegexMatcher(
+            ExpectSessionState state,
+            BoundedTaskLimiter limiter,
+            Evaluator evaluator,
+            Consumer<? super Throwable> terminalShutdown) {
         this.state = Objects.requireNonNull(state, "state");
         this.limiter = Objects.requireNonNull(limiter, "limiter");
         this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
+        this.terminalShutdown = Objects.requireNonNull(terminalShutdown, "terminalShutdown");
     }
 
     ExpectMatch match(Pattern pattern, long deadlineNanos, String timeoutMessage, String transcriptAction) {
         state.beginOperation(timeoutMessage, transcriptAction);
         AtomicReference<Thread> evaluatorThread = new AtomicReference<>();
+        AtomicReference<ExpectException> abandoned = new AtomicReference<>();
         while (true) {
             Attempt attempt;
             try {
-                attempt = BoundedTaskRunner.run(
-                        limiter, "procwright-expect-regex-", deadlineNanos, state.terminalCancellationToken(), () -> {
+                attempt = BoundedTaskRunner.runWithAbandonment(
+                        limiter,
+                        "procwright-expect-regex-",
+                        deadlineNanos,
+                        state.terminalCancellationSignal(),
+                        cause -> {
+                            ExpectSessionState.RegexAbandonmentDecision decision =
+                                    state.recordRegexAbandonment(timeoutMessage, cause);
+                            abandoned.set(decision.failure());
+                            if (decision.installed()) {
+                                terminalShutdown.accept(decision.failure());
+                            }
+                        },
+                        () -> {
                             evaluatorThread.set(Thread.currentThread());
                             ExpectSessionState.RegexSnapshot snapshot = state.regexSnapshot();
                             Evaluation evaluation = evaluator.find(pattern, snapshot.output(), snapshot.searchStart());
                             return new Attempt(snapshot, evaluation);
                         });
             } catch (TimeoutException exception) {
-                throw state.terminalFailureOrTimeout(timeoutMessage);
+                ExpectException failure = abandoned.get();
+                throw failure == null ? state.terminalFailureOrTimeout(timeoutMessage) : failure;
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
+                ExpectException failure = abandoned.get();
+                if (failure != null) {
+                    throw failure;
+                }
                 state.throwIfTerminal(timeoutMessage);
                 throw state.failure("Interrupted while matching expected output", exception);
             } catch (BoundedTaskRunner.TaskCancelledException exception) {

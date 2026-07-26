@@ -83,10 +83,8 @@ abstract class WorkerPoolControllerTestSupport {
     }
 
     static WorkerRetirement.Action<TestWorker> closeAction(java.util.function.Consumer<TestWorker> closer) {
-        return worker -> WorkerCloseSupport.closeOutcome(
-                () -> closer.accept(worker),
-                CompletableFuture.completedFuture(null),
-                CompletableFuture.completedFuture(null));
+        return worker ->
+                WorkerCloseSupport.closeOutcome(() -> closer.accept(worker), CompletableFuture.completedFuture(null));
     }
 
     private static WorkerRetirement.Action<TestWorker> inlineCloseAction(

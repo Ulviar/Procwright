@@ -11,36 +11,45 @@ public final class BoundedCloseDispatcherTestAccess {
     private BoundedCloseDispatcherTestAccess() {}
 
     public static void dispatch(
-            BoundedCloseDispatcher.Reservation reservation,
+            BoundedCloseDispatcher dispatcher,
             Closeable closeable,
             String threadPrefix,
             Consumer<? super Throwable> failureHandler,
             Runnable completionHandler) {
-        dispatch(reservation, request(closeable, threadPrefix, failureHandler, completionHandler));
+        dispatch(dispatcher, request(closeable, threadPrefix, failureHandler, completionHandler));
     }
 
     public static void dispatch(
-            BoundedCloseDispatcher.Reservation reservation,
+            BoundedCloseDispatcher dispatcher,
             Closeable closeable,
             String threadPrefix,
             Consumer<? super Throwable> failureHandler) {
-        dispatch(reservation, request(closeable, threadPrefix, failureHandler));
+        dispatch(dispatcher, request(closeable, threadPrefix, failureHandler));
     }
 
-    public static void dispatch(
-            BoundedCloseDispatcher.Reservation reservation, BoundedCloseDispatcher.CloseRequest request) {
+    public static void dispatch(BoundedCloseDispatcher dispatcher, BoundedCloseDispatcher.CloseRequest request) {
+        Objects.requireNonNull(dispatcher, "dispatcher");
         Objects.requireNonNull(request, "request");
-        reservation.takePermit().dispatchOutcome(request).rethrowStartFailure();
+        dispatcher.dispatch(request);
+    }
+
+    public static void dispatchRequired(
+            BoundedCloseDispatcher dispatcher,
+            Closeable closeable,
+            String threadPrefix,
+            Consumer<? super Throwable> failureHandler) {
+        Objects.requireNonNull(dispatcher, "dispatcher");
+        dispatcher.dispatchRequired(request(closeable, threadPrefix, failureHandler));
     }
 
     public static void dispatchPair(
-            BoundedCloseDispatcher.Permit firstPermit,
+            BoundedCloseDispatcher dispatcher,
             BoundedCloseDispatcher.CloseRequest first,
-            BoundedCloseDispatcher.Permit secondPermit,
             BoundedCloseDispatcher.CloseRequest second) {
+        Objects.requireNonNull(dispatcher, "dispatcher");
         Objects.requireNonNull(first, "first");
         Objects.requireNonNull(second, "second");
-        firstPermit.dispatchPairOutcome(first, secondPermit, second).rethrowStartFailure();
+        dispatcher.dispatchPair(first, second);
     }
 
     public static BoundedCloseDispatcher.CloseRequest request(
@@ -53,7 +62,7 @@ public final class BoundedCloseDispatcherTestAccess {
             String threadPrefix,
             Consumer<? super Throwable> failureHandler,
             Runnable completionHandler) {
-        return new BoundedCloseDispatcher.CloseRequest(
+        return BoundedCloseDispatcher.ownedCloseRequest(
                 closeable, threadPrefix, ignored -> {}, failureHandler, completionHandler);
     }
 }

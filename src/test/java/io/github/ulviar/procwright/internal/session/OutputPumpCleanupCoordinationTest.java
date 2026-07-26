@@ -5,273 +5,68 @@ package io.github.ulviar.procwright.internal.session;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.BlockingCloseInputStream;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.CloseTrackingInputStream;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.ControllableProcess;
-import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.FailureReportProbe;
-import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.GatedThrowingCloseInputStream;
-import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.ThrowingCloseInputStream;
-import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.awaitSettlement;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.drainToEof;
-import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.session;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.startCoordinator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
-import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
-import io.github.ulviar.procwright.internal.Threading;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 final class OutputPumpCleanupCoordinationTest {
 
     @Test
-    void closeFailuresWaitForAStillRunningPumpToSelectItsPrimaryBeforeReporting() throws Exception {
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        AssertionError workerFailure = new AssertionError("late worker failure");
-        ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
-        ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        AtomicInteger failureReportCount = new AtomicInteger();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((ignored, failure) -> failureReportCount.incrementAndGet());
-            thread.start();
-        });
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "deferred-report");
-        CountDownLatch outputCleanupCompleted = new CountDownLatch(1);
-        coordinator.publishAfterOutputCleanup(outputCleanupCompleted::countDown);
-        CountDownLatch stdoutPumpEntered = new CountDownLatch(1);
-        CountDownLatch releaseStdoutPump = new CountDownLatch(1);
-        CountDownLatch stdoutPumpDrained = new CountDownLatch(1);
-        CountDownLatch latePrimarySelected = new CountDownLatch(1);
-        CountDownLatch stderrPumpFinished = new CountDownLatch(1);
-        List<Thread> pumpThreads = new ArrayList<>();
-        PumpStarter reportingStarter = (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((ignored, failure) -> failureReportCount.incrementAndGet());
-            pumpThreads.add(thread);
-            thread.start();
-            return thread;
-        };
-        try {
-            coordinator.start(
-                    reportingStarter,
-                    "procwright-deferred-report-stdout-pump-",
-                    stream -> {
-                        stdoutPumpEntered.countDown();
-                        awaitUninterruptibly(releaseStdoutPump);
-                        drainToEof(stream, stdoutPumpDrained);
-                        coordinator.closeSessionPreserving(workerFailure);
-                        latePrimarySelected.countDown();
-                    },
-                    "procwright-deferred-report-stderr-pump-",
-                    stream -> drainToEof(stream, stderrPumpFinished),
-                    () -> {});
-            assertTrue(stdoutPumpEntered.await(1, TimeUnit.SECONDS));
-            assertTrue(stderrPumpFinished.await(1, TimeUnit.SECONDS));
-
-            coordinator.closeSession();
-            assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitCloseCompleted());
-            awaitSettlement(rawSession.physicalOutputCleanup());
-            assertTrue(rawSession.physicalOutputCleanup().isDone());
-            assertEquals(1, outputCleanupCompleted.getCount());
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(0, failureReportCount.get(), "cleanup failures must wait for the remaining pump outcome");
-
-            releaseStdoutPump.countDown();
-            assertTrue(latePrimarySelected.await(1, TimeUnit.SECONDS));
-            assertEquals(0, stdoutPumpDrained.getCount());
-            for (Thread pumpThread : pumpThreads) {
-                pumpThread.join(TimeUnit.SECONDS.toMillis(1));
-                assertFalse(pumpThread.isAlive());
-            }
-
-            assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(2, failureReportCount.get());
-            assertEquals(0, workerFailure.getSuppressed().length);
-            assertEquals(1, stdout.closeCalls());
-            assertEquals(1, stderr.closeCalls());
-        } finally {
-            releaseStdoutPump.countDown();
-            coordinator.closeSessionPreserving(workerFailure);
-            rawSession.close();
-        }
-    }
-
-    @Test
-    void rawSessionExitWaitsForPumpCompletionAndFinalFailureAggregation() throws Exception {
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        AssertionError pumpFailure = new AssertionError("pump failed after physical cleanup");
-        ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
-        ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2));
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "raw-exit-barrier");
-        CountDownLatch outputCleanupCompleted = new CountDownLatch(1);
-        coordinator.publishAfterOutputCleanup(outputCleanupCompleted::countDown);
-        CountDownLatch pumpEntered = new CountDownLatch(1);
-        CountDownLatch releasePump = new CountDownLatch(1);
-        try {
-            coordinator.start(
-                    PumpStarter.threading(),
-                    "procwright-raw-exit-barrier-stdout-pump-",
-                    stream -> {
-                        pumpEntered.countDown();
-                        awaitUninterruptibly(releasePump);
-                        coordinator.closeSessionPreserving(pumpFailure);
-                    },
-                    "procwright-raw-exit-barrier-stderr-pump-",
-                    stream -> drainToEof(stream, new CountDownLatch(0)),
-                    () -> {});
-            assertTrue(pumpEntered.await(1, TimeUnit.SECONDS));
-
-            coordinator.closeSession();
-            assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitCloseCompleted());
-            awaitSettlement(rawSession.physicalOutputCleanup());
-            assertTrue(rawSession.physicalOutputCleanup().isDone());
-            assertFalse(rawSession.onExit().isDone());
-
-            releasePump.countDown();
-            awaitSettlement(rawSession.onExit());
-            assertEquals(0, outputCleanupCompleted.getCount());
-            assertTrue(rawSession.physicalOutputCleanup().isDone());
-
-            assertEquals(0, pumpFailure.getSuppressed().length);
-        } finally {
-            releasePump.countDown();
-            coordinator.closeSessionPreserving(pumpFailure);
-            rawSession.close();
-        }
-    }
-
-    @Test
-    void latePrimaryInstalledAfterProcessExitOwnsFuturePhysicalCloseFailures() throws Exception {
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        AssertionError fallback = new AssertionError("fallback process outcome");
-        AssertionError pumpFailure = new AssertionError("pump failure selected after close started");
-        GatedThrowingCloseInputStream stdout = new GatedThrowingCloseInputStream(stdoutCloseFailure);
-        GatedThrowingCloseInputStream stderr = new GatedThrowingCloseInputStream(stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        FailureReportProbe reports = new FailureReportProbe();
-        BoundedCloseDispatcher closeDispatcher = reports.closeDispatcher();
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "late-pump-failure");
-        CountDownLatch outputCleanupCompleted = new CountDownLatch(1);
-        coordinator.publishAfterOutputCleanup(outputCleanupCompleted::countDown);
-        CountDownLatch pumpsFinished = new CountDownLatch(2);
-        List<Thread> pumpThreads = new ArrayList<>();
-        PumpStarter starter = (name, task) -> {
-            Thread thread = Threading.start(name, task);
-            pumpThreads.add(thread);
-            return thread;
-        };
-        try {
-            coordinator.start(
-                    starter,
-                    "procwright-late-primary-stdout-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    "procwright-late-primary-stderr-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    () -> {});
-            assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
-            for (Thread pumpThread : pumpThreads) {
-                pumpThread.join(TimeUnit.SECONDS.toMillis(1));
-                assertFalse(pumpThread.isAlive());
-            }
-
-            reports.retainFallbackFrom("late-pump-fallback-source", coordinator, fallback);
-            coordinator.closeSession();
-            assertTrue(stdout.awaitCloseStarted());
-            assertTrue(stderr.awaitCloseStarted());
-            assertTrue(rawSession.terminationPublished());
-            assertFalse(rawSession.onExit().isDone());
-
-            coordinator.closeSessionPreserving(pumpFailure);
-            stdout.releaseClose();
-            stderr.releaseClose();
-            assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitCloseCompleted());
-            assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
-            rawSession.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-
-            reports.assertReportedOnceFrom("late-pump-fallback-source", fallback);
-            reports.assertReportedOnceFromPrefix("procwright-late-pump-failure-stdout-close-", stdoutCloseFailure);
-            reports.assertReportedOnceFromPrefix("procwright-late-pump-failure-stderr-close-", stderrCloseFailure);
-            reports.assertNotReported(pumpFailure);
-            reports.assertReportCount(3);
-            assertEquals(0, pumpFailure.getSuppressed().length);
-        } finally {
-            stdout.releaseClose();
-            stderr.releaseClose();
-            coordinator.closeSessionPreserving(pumpFailure);
-            rawSession.close();
-        }
-    }
-
-    @Test
-    void eachOutputClosesWhenItsOwnPumpBecomesReadyAfterProcessCleanup() throws Exception {
+    void physicalOutputCloseWaitsForLogicalModeSettlement() throws Exception {
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2);
         CloseTrackingInputStream stdout = new CloseTrackingInputStream(closeDispatcher);
         CloseTrackingInputStream stderr = new CloseTrackingInputStream(closeDispatcher);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "asymmetric-eof");
         CountDownLatch stdoutFinished = new CountDownLatch(1);
         CountDownLatch stderrEntered = new CountDownLatch(1);
         CountDownLatch releaseStderr = new CountDownLatch(1);
         CountDownLatch stderrFinished = new CountDownLatch(1);
-        CountDownLatch cleanupCompleted = new CountDownLatch(1);
-        coordinator.publishAfterOutputCleanup(cleanupCompleted::countDown);
-
+        OutputPumpTestFixtures.CoordinatorHarness harness = startCoordinator(
+                process,
+                closeDispatcher,
+                SessionOutputMode.LINE,
+                PumpStarter.threading(),
+                "procwright-asymmetric-eof-stdout-pump-",
+                stream -> drainToEof(stream, stdoutFinished),
+                "procwright-asymmetric-eof-stderr-pump-",
+                stream -> {
+                    stderrEntered.countDown();
+                    awaitUninterruptibly(releaseStderr);
+                    drainToEof(stream, stderrFinished);
+                });
+        DefaultSession session = harness.session();
+        OutputPumpCoordinator coordinator = harness.coordinator();
         try {
-            coordinator.start(
-                    PumpStarter.threading(),
-                    "procwright-asymmetric-eof-stdout-pump-",
-                    stream -> drainToEof(stream, stdoutFinished),
-                    "procwright-asymmetric-eof-stderr-pump-",
-                    stream -> {
-                        stderrEntered.countDown();
-                        awaitUninterruptibly(releaseStderr);
-                        drainToEof(stream, stderrFinished);
-                    },
-                    () -> {});
             assertTrue(stdoutFinished.await(1, TimeUnit.SECONDS));
             assertTrue(stderrEntered.await(1, TimeUnit.SECONDS));
 
             process.exitNaturally(0);
 
-            assertTrue(stdout.awaitClose());
-            assertEquals(1, stdout.closeCalls());
+            assertEquals(0, stdout.closeCalls());
             assertEquals(0, stderr.closeCalls());
-            assertEquals(1, cleanupCompleted.getCount());
+            assertFalse(session.onExit().isDone());
 
             releaseStderr.countDown();
 
             assertTrue(stderrFinished.await(1, TimeUnit.SECONDS));
+            assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+            assertTrue(stdout.awaitClose());
+            assertEquals(1, stdout.closeCalls());
             assertTrue(stderr.awaitClose());
-            assertTrue(cleanupCompleted.await(1, TimeUnit.SECONDS));
-            rawSession.onExit().get(1, TimeUnit.SECONDS);
             assertEquals(1, stderr.closeCalls());
         } finally {
             releaseStderr.countDown();
             coordinator.closeSession();
-            rawSession.close();
+            session.close();
         }
     }
 
@@ -281,91 +76,80 @@ final class OutputPumpCleanupCoordinationTest {
         CloseTrackingInputStream stdout = new CloseTrackingInputStream(closeDispatcher);
         CloseTrackingInputStream stderr = new CloseTrackingInputStream(closeDispatcher);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "EOF-race");
         CountDownLatch pumpsFinished = new CountDownLatch(2);
-        List<Thread> pumpThreads = new ArrayList<>();
-        PumpStarter trackingStarter = (namePrefix, task) -> {
-            Thread thread = Threading.start(namePrefix, task);
-            pumpThreads.add(thread);
-            return thread;
-        };
+        OutputPumpTestFixtures.CoordinatorHarness harness = startCoordinator(
+                process,
+                closeDispatcher,
+                SessionOutputMode.LINE,
+                PumpStarter.threading(),
+                "procwright-eof-race-stdout-pump-",
+                stream -> drainToEof(stream, pumpsFinished),
+                "procwright-eof-race-stderr-pump-",
+                stream -> drainToEof(stream, pumpsFinished));
+        DefaultSession session = harness.session();
+        OutputPumpCoordinator coordinator = harness.coordinator();
 
         try {
-            coordinator.start(
-                    trackingStarter,
-                    "procwright-eof-race-stdout-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    "procwright-eof-race-stderr-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    () -> {});
-
-            assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS), "both pumps must observe EOF");
-            for (Thread pumpThread : pumpThreads) {
-                pumpThread.join(TimeUnit.SECONDS.toMillis(1));
-                assertFalse(pumpThread.isAlive(), "EOF pump thread must terminate");
-            }
-            assertEquals(0, stdout.closeCalls(), "pump try-with must not own physical stdout close");
-            assertEquals(0, stderr.closeCalls(), "pump try-with must not own physical stderr close");
-            assertTrue(process.isAlive(), "EOF alone must not stop the process");
+            assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
+            assertEquals(0, stdout.closeCalls());
+            assertEquals(0, stderr.closeCalls());
+            assertTrue(process.isAlive());
 
             coordinator.closeSession();
-            rawSession.onExit().get(1, TimeUnit.SECONDS);
+            session.onExit().get(1, TimeUnit.SECONDS);
 
-            assertTrue(stdout.awaitClose(), "dispatcher did not physically close stdout");
-            assertTrue(stderr.awaitClose(), "dispatcher did not physically close stderr");
-            assertTrue(stdout.closeThreadName().startsWith("procwright-eof-race-stdout-close-"));
-            assertTrue(stderr.closeThreadName().startsWith("procwright-eof-race-stderr-close-"));
-            assertTrue(stdout.activeDuringClose() > 0, "stdout physical close must occupy dispatcher capacity");
-            assertTrue(stderr.activeDuringClose() > 0, "stderr physical close must occupy dispatcher capacity");
+            assertTrue(stdout.awaitClose());
+            assertTrue(stderr.awaitClose());
+            assertTrue(stdout.activeDuringClose() > 0);
+            assertTrue(stderr.activeDuringClose() > 0);
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
         } finally {
             coordinator.closeSession();
-            rawSession.close();
+            session.close();
         }
     }
 
     @Test
-    void coordinatorDoesNotStrandAReservedCloseWhenDispatcherCapacityIsOccupied() throws Exception {
+    void occupiedDispatcherCapacityCannotStrandAReservedClose() throws Exception {
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         AtomicBoolean processAlive = new AtomicBoolean(true);
         BlockingCloseInputStream stdout = new BlockingCloseInputStream(processAlive);
         CloseTrackingInputStream stderr = new CloseTrackingInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr, processAlive);
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "queued-close");
         CountDownLatch pumpsFinished = new CountDownLatch(2);
+        OutputPumpTestFixtures.CoordinatorHarness harness = startCoordinator(
+                process,
+                closeDispatcher,
+                SessionOutputMode.LINE,
+                PumpStarter.threading(),
+                "procwright-queued-close-stdout-pump-",
+                stream -> drainToEof(stream, pumpsFinished),
+                "procwright-queued-close-stderr-pump-",
+                stream -> drainToEof(stream, pumpsFinished));
+        DefaultSession session = harness.session();
+        OutputPumpCoordinator coordinator = harness.coordinator();
 
         try {
-            coordinator.start(
-                    PumpStarter.threading(),
-                    "procwright-queued-close-stdout-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    "procwright-queued-close-stderr-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    () -> {});
             assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
 
             coordinator.closeSession();
 
-            assertTrue(process.awaitDestroyed(), "process cleanup must precede output close");
-            assertTrue(rawSession.terminationPublished());
-            assertFalse(rawSession.onExit().isDone());
-            assertTrue(stdout.awaitCloseStarted(), "stdout must own the only active close permit");
-            assertEquals(0, stderr.closeCalls(), "stderr must remain queued while stdout physical close blocks");
+            assertTrue(process.awaitDestroyed());
+            assertTrue(session.onExit().isDone());
+            assertTrue(stdout.awaitCloseStarted());
+            assertEquals(0, stderr.closeCalls());
 
             stdout.releaseClose();
 
             assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitClose(), "queued stderr close must run when stdout releases capacity");
-            rawSession.onExit().get(1, TimeUnit.SECONDS);
+            assertTrue(stderr.awaitClose());
             assertEquals(1, stdout.closeCalls());
             assertEquals(1, stderr.closeCalls());
         } finally {
             stdout.releaseClose();
             coordinator.closeSession();
-            rawSession.close();
+            session.close();
         }
     }
 }

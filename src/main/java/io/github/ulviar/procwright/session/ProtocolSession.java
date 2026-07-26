@@ -57,6 +57,13 @@ public sealed interface ProtocolSession<I extends Object, O extends Object> exte
     /**
      * Returns the underlying process exit future view.
      *
+     * <p>The future completes after the process has a terminal outcome and protocol output has either drained naturally
+     * or been logically abandoned during shutdown. After a request timeout, an adapter callback that ignores
+     * interruption or an output read blocked in the JDK may still be running; neither delays this future, and a late
+     * result cannot replace the selected outcome. The future does not wait for a potentially blocking physical close of
+     * the process streams. A terminal protocol-session failure accepted before the public outcome is selected completes
+     * it exceptionally.
+     *
      * @return process exit future
      */
     CompletableFuture<SessionExit> onExit();

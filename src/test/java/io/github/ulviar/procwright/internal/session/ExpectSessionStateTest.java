@@ -55,7 +55,8 @@ final class ExpectSessionStateTest {
         RuntimeException selected = state.arbitrateRegexFailure("not found", evaluatorError, new Thread());
 
         ExpectException failure = (ExpectException) selected;
-        assertTrue(decision.first());
+        assertEquals(ExpectException.Reason.FAILURE, decision.selectedFailure().reason());
+        assertSame(outputFailure, decision.selectedFailure().getCause());
         assertEquals(ExpectException.Reason.FAILURE, failure.reason());
         assertSame(outputFailure, failure.getCause());
         assertEquals(0, outputFailure.getSuppressed().length);
@@ -84,7 +85,7 @@ final class ExpectSessionStateTest {
 
         ExpectSessionState.OutputFailureDecision decision = state.recordOutputFailure(secondary);
 
-        assertFalse(decision.first());
+        assertNull(decision.selectedFailure());
         assertSame(secondary, decision.fatalToPublish());
         assertEquals(0, primary.getSuppressed().length);
     }
@@ -97,7 +98,7 @@ final class ExpectSessionStateTest {
         state.recordOutputFailure(canonical);
         ExpectSessionState.OutputFailureDecision repeated = state.recordOutputFailure(canonical);
 
-        assertFalse(repeated.first());
+        assertNull(repeated.selectedFailure());
         assertNull(repeated.fatalToPublish());
     }
 

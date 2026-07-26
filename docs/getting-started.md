@@ -87,7 +87,7 @@ complete `CommandResult`.
 ## Choose the next scenario
 
 - Use [`interactive()`](scenarios/interactive.md) for direct stdin/stdout control.
-- Add [`session.expect().open()`](scenarios/expect.md) for prompts.
+- Use [`interactive().expect().open()`](scenarios/expect.md) for prompts.
 - Use [`lineSession()`](scenarios/line-session.md) for one-line request/response workers.
 - Use [`protocolSession(adapterFactory)`](scenarios/protocol-session.md) for custom framing or typed messages.
 - Use [`listen()`](scenarios/streaming.md) for continuous output.

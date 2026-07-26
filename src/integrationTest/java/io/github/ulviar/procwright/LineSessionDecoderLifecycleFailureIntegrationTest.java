@@ -19,6 +19,7 @@ import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -66,7 +67,7 @@ final class LineSessionDecoderLifecycleFailureIntegrationTest {
                 assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
                 assertTrue(causeChainContains(exception, cause));
                 assertTrue(exception.transcript().text().length() <= 32);
-                session.onExit().get(2, TimeUnit.SECONDS);
+                assertExitFailedWith(session, exception.getCause());
             } finally {
                 session.close();
             }
@@ -88,10 +89,16 @@ final class LineSessionDecoderLifecycleFailureIntegrationTest {
             assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(causeChainContains(exception, cause));
             assertTrue(exception.transcript().text().length() <= 32);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception.getCause());
         } finally {
             session.close();
         }
+    }
+
+    private static void assertExitFailedWith(LineSession session, Throwable selectedFailureSource) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertSame(selectedFailureSource, observed.getCause());
     }
 
     private static boolean causeChainContains(Throwable failure, Throwable expected) {

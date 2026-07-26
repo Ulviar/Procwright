@@ -18,7 +18,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -206,33 +205,6 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
     }
 
     @Test
-    void poolObservesFailedFirstPhysicalCloseAfterWorkerSelfCloses() throws Exception {
-        IllegalStateException firstCloseFailure = new IllegalStateException("first physical close failed");
-        CloseAwareWorker session = new CloseAwareWorker();
-        WorkerPoolController<CloseAwareWorker> pool = WorkerPoolController.fromSettings(
-                () -> session,
-                worker -> WorkerCloseSupport.closeOutcome(worker, worker.terminal, worker.physicalCleanup),
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                Failures.INSTANCE,
-                "close-aware worker",
-                "test-close-aware-",
-                System::nanoTime);
-        WorkerPoolState.Lease<CloseAwareWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
-        session.failPhysicalClose(firstCloseFailure);
-
-        pool.retire(worker, PooledWorkerRetireReason.WORKER_FAILED);
-
-        assertTrue(pool.awaitMetrics(metrics -> metrics.failedWorkerCloses() == 1, Duration.ofSeconds(1)));
-        assertEquals(1, session.physicalCloseCalls.get());
-        assertPartition(pool, 0, 0, 0, 0, 0);
-        assertEquals(1, pool.metrics().retired());
-        assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.WORKER_FAILED));
-        assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
-        pool.closeAsync();
-        assertEquals(1, session.physicalCloseCalls.get(), "repeated pool close must use the memoized outcome");
-    }
-
-    @Test
     void releaseHandsRetirementToReaperWithoutBlockingCaller() throws Exception {
         CountDownLatch retirementEntered = new CountDownLatch(1);
         CountDownLatch releaseRetirement = new CountDownLatch(1);
@@ -280,28 +252,5 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
             }
         }
         assertEquals(1, matches);
-    }
-
-    private static final class CloseAwareWorker implements AutoCloseable {
-
-        final CompletableFuture<Void> terminal = CompletableFuture.completedFuture(null);
-        final CompletableFuture<Void> physicalCleanup = new CompletableFuture<>();
-        final AtomicBoolean physicallyClosed = new AtomicBoolean();
-        final AtomicInteger physicalCloseCalls = new AtomicInteger();
-
-        void failPhysicalClose(Throwable failure) {
-            if (physicallyClosed.compareAndSet(false, true)) {
-                physicalCloseCalls.incrementAndGet();
-                physicalCleanup.completeExceptionally(failure);
-            }
-        }
-
-        @Override
-        public void close() {
-            if (physicallyClosed.compareAndSet(false, true)) {
-                physicalCloseCalls.incrementAndGet();
-                physicalCleanup.complete(null);
-            }
-        }
     }
 }

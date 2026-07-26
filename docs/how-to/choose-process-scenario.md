@@ -6,8 +6,8 @@ Choose by the process's I/O contract, not by a list of low-level flags.
 | --- | --- |
 | Starts, produces bounded output, and exits | `run()` |
 | Needs direct stdin/stdout access | `interactive()` |
-| Prints prompts that must be matched | `interactive()` and `session.expect().open()` |
-| Accepts one line and returns one line | `lineSession()` |
+| Prints prompts that must be matched | `interactive().expect().open()` |
+| Uses line requests and line-oriented responses | `lineSession()` |
 | Uses custom framing, bytes, multi-line messages, or typed values | `protocolSession(adapterFactory)` |
 | Produces output continuously | `listen()` |
 | Is expensive to start and safely reusable | add `pooled()` to a line or factory-backed protocol Draft |
@@ -73,7 +73,6 @@ package io.github.ulviar.procwright.examples;
 
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.session.Expect;
-import io.github.ulviar.procwright.session.Session;
 import java.time.Duration;
 
 public final class ExpectExample {
@@ -81,12 +80,12 @@ public final class ExpectExample {
     private ExpectExample() {}
 
     public static void main(String[] args) {
-        try (Session session = Procwright.command(ExampleSupport.workerCommand("expect"))
-                        .interactive()
-                        .withIdleTimeout(Duration.ofSeconds(10))
-                        .open();
-                Expect expect =
-                        session.expect().withTimeout(Duration.ofSeconds(5)).open()) {
+        try (Expect expect = Procwright.command(ExampleSupport.workerCommand("expect"))
+                .interactive()
+                .expect()
+                .withIdleTimeout(Duration.ofSeconds(10))
+                .withTimeout(Duration.ofSeconds(5))
+                .open()) {
             expect.expectText("ready> ");
             expect.sendLine("café");
             expect.expectText("ok:café");

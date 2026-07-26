@@ -11,8 +11,8 @@
  * variants ({@link io.github.ulviar.procwright.session.PooledLineSession},
  * {@link io.github.ulviar.procwright.session.PooledProtocolSession}) that reuse worker processes.
  * {@link io.github.ulviar.procwright.session.StreamSession} delivers listen-only output chunks, and
- * {@link io.github.ulviar.procwright.session.Expect} automates prompts over a raw session with literal and regex
- * matching.
+ * {@link io.github.ulviar.procwright.session.Expect} automates prompts in its own pre-launch output mode with literal
+ * and regex matching.
  *
  * <p>Session configuration is exposed through immutable nested scenario {@code Draft} interfaces and each live handle
  * has a typed exception with a stable reason enum, so failures can be mapped to domain errors without parsing

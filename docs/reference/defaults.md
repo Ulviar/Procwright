@@ -7,7 +7,7 @@ Procwright starts every scenario from bounded, non-terminal defaults. These valu
 - text decoding uses UTF-8 and replaces malformed input unless a strict `CharsetPolicy` is selected;
 - interactive, line, and protocol sessions have no idle timeout;
 - `listen()` has no absolute timeout;
-- a pool starts with capacity for one worker and `close()` waits at most 15 seconds for requests and worker cleanup.
+- a pool starts with capacity for one worker and `close()` waits at most 15 seconds for requests and logical worker drain.
 
 The tables below are the authoritative user-facing defaults. A scenario inherits executable, base arguments, working
 directory, environment policy, and environment entries from the `CommandSpec` owned by its `CommandService`.
@@ -33,7 +33,7 @@ redirected or discarded output is not retained in the result.
 | --- | --- |
 | Idle timeout | disabled (`Duration.ZERO`) |
 | Shutdown | interrupt, wait 2 seconds, force kill, wait 5 seconds |
-| Charset | UTF-8 |
+| Text send charset | UTF-8; stdout and stderr remain caller-owned bytes decoded by the caller |
 | Terminal policy | `DISABLED` |
 | Terminal provider | built-in system provider, used only after selecting `AUTO` or `REQUIRED` |
 | Terminal size | 80 columns by 24 rows |
@@ -87,14 +87,14 @@ Per-call limits passed to `ProtocolReader` methods apply in addition to these re
 
 ## Expect
 
-`session.expect()` starts from these defaults. The session still owns its own shutdown and idle-timeout settings.
+`interactive().expect()` starts from these defaults. The same draft also configures process shutdown and idle timeout.
 
 | Setting | Default |
 | --- | --- |
 | Match timeout | 5 seconds |
 | Retained transcript | 65,536 characters |
 | Match buffer | 65,536 characters |
-| Charset | the underlying session charset |
+| Input and output charset | UTF-8; output follows input unless `withOutputCharset(...)` overrides it |
 | ANSI CSI stripping | disabled |
 | Transcript values | redacted |
 
@@ -117,8 +117,9 @@ come from the Draft on which `pooled()` was called.
 | Reset hook | no-op |
 | Health check | healthy while the worker process has not exited |
 
-The 15-second close timeout bounds the caller's wait. It does not abandon internal worker cleanup; use `closeAsync()` to
-observe eventual completion after a timed-out `close()`.
+The 15-second close timeout bounds the caller's wait. It does not abandon logical worker drain; use `closeAsync()` to
+observe eventual logical completion after a timed-out `close()`. Neither close method waits for potentially blocking
+physical process-stream close.
 
 Each pool applies its own maximum to starting, idle, leased, and retiring workers. Pools and directly opened sessions do
 not share a worker quota; the application controls the aggregate process count through the resources it creates.

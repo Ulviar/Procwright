@@ -68,14 +68,15 @@ Runtime не обязан гарантировать:
 - fairness или FIFO между внутренними cleanup, reporting и callback tasks разных handles;
 - восстановление служебного callback owner после его внутренней поломки;
 - доставку ошибки callback, возникшей после abandonment, через JVM uncaught-exception handler;
-- специальную identity-дедупликацию, неизменность исходного графа `Throwable` и продвижение позднего `Error`;
+- публичный контракт на точную форму secondary cause/suppressed graph, identity-дедупликацию и продвижение позднего
+  `Error`; mandatory runtime при этом не использует пользовательский `Throwable` как mutable failure ledger;
 - выбор terminal outcome на основании того, какой внутренний owner физически закрыл stdout/stderr;
 - ожидание physical stream close как самостоятельную часть public exit, если процесс и обязательный scenario cleanup
   уже завершены;
 - заранее запущенный publication owner или зарезервированный поток для каждой будущей lifecycle operation;
 - доказательство отсутствия любого когда-либо существовавшего descendant: cleanup остаётся честным best effort;
 - одинаковое поведение при зависшем пользовательском callback и при штатном отказе CLI protocol;
-- отдельный public `closeAsync()` и наблюдение физического завершения позднего worker callback после logical pool close.
+- наблюдение через public `closeAsync()` физического завершения позднего worker callback после logical pool close.
 
 Для одного callback owner выполняется не более одной scenario-critical операции одновременно: adapter/decoder,
 readiness, health/reset hook, regex или listener в зависимости от сценария. Если callback не реагирует на interruption
@@ -83,13 +84,33 @@ readiness, health/reset hook, regex или listener в зависимости о
 остаться до фактического возврата callback. Это per-handle containment, а не глобальный memory bound, который невозможно
 честно гарантировать на Java 17 без общей admission-зависимости.
 
-Abandonment после deadline является logical settlement callback и не ожидает его физического возврата. Выбранная
+Abandonment после deadline является logical settlement request callback и не ожидает его физического возврата. Выбранная
 request failure может быть возвращена после такого settlement; terminal future всего scenario публикуется только после
-bounded process termination и logical output-mode settlement. Физическое завершение callback или stream close не
-является publication gate.
+bounded process termination и logical output-mode settlement. `ModeSettlement` line/protocol/Expect принадлежит
+transport pumps, а не пользовательскому decoder, adapter или matcher: зависший callback не блокирует `onExit()` уже
+завершившегося процесса, а поздняя request-local failure не переписывает опубликованный result. Физическое завершение
+request callback или stream close не является publication gate.
+
+Streaming listener имеет другой, явно пользовательский контракт: его вызовы синхронны и создают backpressure. При
+natural process exit уже допущенная доставка chunk входит в logical settlement output mode, иначе библиотека могла бы
+молча потерять прочитанный output. Explicit `close()` и timeout прекращают ожидание некооперативного listener и запускают
+shutdown. Natural drain может ждать pipe, унаследованный живым потомком; абсолютный scenario timeout ограничивает это
+ожидание. Таким образом, различие определяется семантикой сценария, а не внутренним порядком потоков.
+
+Явный `Session.closeStdin()` сначала запрещает новые записи, затем обязан принять и запустить physical close через
+bounded dispatcher. После успешного handoff метод не ждёт physical close. Admission/start failure выполняет bounded
+terminal cleanup перед возвратом caller-у; отдельный async lifecycle только ради ускорения этой редкой infrastructure
+ошибки не создаётся. Поздний failure выбирает terminal outcome только до выбора public outcome.
+
+Живой process handle не резервирует close capacity. Terminal cleanup каждого ещё не закрытого stream делает одну попытку
+попасть в bounded close dispatcher. Saturation или невозможность запустить task означает best-effort cleanup failure:
+process termination остаётся обязательной, physical close может быть пропущен и результат не задерживается. Natural exit
+не закрывает caller-owned raw stdout/stderr, чтобы непрочитанный хвост оставался доступен. Это устраняет скрытую
+process-global квоту на число одновременно живых sessions и pools.
 
 Доставка diagnostics является отдельной best-effort операцией. Она не входит в critical callback admission, не может
-задерживать protocol, stream или pool operation и никогда не меняет уже выбранный или опубликованный terminal outcome.
+задерживать protocol, stream или pool operation и не меняет runtime outcome, включая construction, close и output
+truncation.
 
 Cleanup failure может быть suppressed exception или diagnostic event. Точная форма secondary failure graph не является
 API-контрактом и не должна создавать отдельный state machine.
@@ -98,45 +119,52 @@ API-контрактом и не должна создавать отдельн�
 
 Runtime строится вокруг небольшого числа владельцев:
 
-- `ManagedProcess` владеет только process lifecycle: процессом, stdin, exit observation и запуском termination;
-- `TerminalArbiter` принимает terminal claims, но публикует ровно один outcome только после двух известных при
-  construction входов: одного `ProcessSettlement` и одного `ModeSettlement`; поздняя регистрация gates запрещена;
-- `OutputMode` является единственным mode-specific owner: он владеет pump, framing, decoding, listener и memory bounds и
-  отдаёт arbiter один `ModeSettlement`;
-- `ProcessTerminator` выполняет одну последовательность `scan -> graceful -> bounded rescan/wait -> force -> wait`;
+- `DefaultSession` координирует raw handle, но делегирует physical resources `SessionResources`, а process termination —
+  `SessionProcessCleanup`;
+- `SessionTerminal` хранит natural process outcome как fallback, первый non-exit primary claim, один
+  `ModeSettlement` и publication flag; поздняя регистрация gates запрещена;
+- `OutputPumpCoordinator` и `OutputPumpCleanup` являются mode-specific transport owner: они владеют pumps, transport
+  drain и memory bounds и передают `SessionTerminal` один `ModeSettlement`; request callback владеет только
+  синхронным request outcome;
+- `ProcessTreeShutdown` выполняет одну последовательность `scan -> graceful -> bounded rescan/wait -> force -> wait`;
   rescan выполняется во время graceful phase и непосредственно перед force по root и уже найденным handles, поэтому
   может обнаружить descendant, созданный shutdown hook, но не обещает доказать отсутствие мгновенно переподчинённого
   процесса;
-- `OwnedStreams` обеспечивает один consumer на stdout/stderr и exact-once logical close;
-- `TimedOperation` ограничивает одну пользовательскую или потенциально блокирующую операцию с честным per-handle
-  containment без глобальных callback lanes и late-failure protocol;
-- `SerializedRequestExecutor` задаёт общий admission/deadline contract line и protocol sessions;
-- `WorkerPool` является одним consistency domain с простыми состояниями worker и выполняет внешние действия вне monitor.
+- `ProcessIoResources` и `ProcessStreamResource` обеспечивают stable stream identity и exact-once logical close;
+- `BoundedTaskRunner` ограничивает одну пользовательскую или потенциально блокирующую операцию с честным per-handle
+  containment;
+- `SerializedRequestGate` сериализует line/protocol requests; сценарные state owners сохраняют различия retryability и
+  failure attribution;
+- `WorkerPoolState` является одним consistency domain pool и выполняет внешние действия вне monitor.
 
-Output mode всегда выбирается до launch: raw interactive, Expect, line, protocol, listen или run. `Session.expect()` и
-dynamic raw-to-helper ownership удаляются; Expect становится веткой `interactive().expect()`. `OwnedStreams` после этого
-задаёт статическую topology и logical close, а не поддерживает transfer protocol.
+Output mode всегда выбирается до launch: raw interactive, Expect, line, protocol, listen или run. Expect уже является
+веткой `interactive().expect()`, а raw `Session` больше не создает helper. Non-raw handle и pumps создаются до открытия
+construction gate exit watcher-а; `SessionOutputOwnership` хранит выбранный mode и проверяет единственный helper claim
+и переход `PLANNED -> CLAIMED -> READY` после завершённого startup pumps до commit, но не выполняет transfer между raw и
+helper.
 
 ### Terminal outcome
 
-Для одного scenario существует ровно один `TerminalArbiter`. Scenario wrapper не создаёт второй arbiter. Arbiter хранит
-только primary claim, фиксированные `ProcessSettlement` и `ModeSettlement`, а также publication flag.
+Для одного session scenario существует ровно один `SessionTerminal`. Scenario wrapper не создаёт второй terminal owner.
+Он хранит primary claim, process outcome, причину успешного завершения (`NATURAL`, `CLOSED`, `TIMED_OUT`), фиксированный
+`ModeSettlement` и publication flag.
 
 | Claim | Когда может быть опубликован | Приоритет |
 |---|---|---|
 | launch/readiness failure | после bounded rollback начатого process lifecycle | во время construction выигрывает у exit |
-| timeout/caller close | после `ProcessSettlement` и logical `ModeSettlement` | после открытия первый из timeout, close или transport failure стабилен |
-| transport failure | после `ProcessSettlement` и logical `ModeSettlement` | после открытия первый из timeout, close или transport failure стабилен |
-| process exit | хранится в `ProcessSettlement` и рассматривается после обоих settlements | fallback, если non-exit primary claim нет |
+| timeout/caller close | после process outcome и logical `ModeSettlement` | после открытия первый из timeout, close или transport failure стабилен |
+| transport failure | после process outcome и logical `ModeSettlement` | после открытия первый из timeout, close или transport failure стабилен |
+| process exit | хранится как process outcome и рассматривается после mode settlement | fallback, если non-exit primary claim нет |
 | cleanup failure, известный до publication | вместе с основным outcome как bounded secondary detail | не заменяет основной outcome |
 
-Arbiter сразу и стабильно фиксирует только первый non-exit primary claim. Natural process exit хранится внутри
-`ProcessSettlement` как fallback, поэтому malformed output или timeout обязательного drain не маскируются более ранним
-exit observation. Settlement управляет только моментом публикации. Arbiter не знает framing, decoding, listener или
-process-tree алгоритмы.
+`SessionTerminal` сразу и стабильно фиксирует только первый non-exit primary claim. Natural process exit хранится как
+fallback, поэтому malformed output или timeout обязательного drain не маскируются более ранним exit observation.
+Settlement управляет только моментом публикации. `SessionTerminal` не знает framing, decoding, listener или process-tree
+алгоритмы.
 
-`ProcessSettlement` означает один из трёх исходов: natural exit observed; bounded termination attempt completed; launch
-не состоялся, а rollback завершён. `ModeSettlement` включает нормальный drain либо logical abandonment после deadline.
+Process outcome означает natural exit либо завершённую bounded termination attempt. Construction failure публикуется
+только после rollback и не возвращает session handle. `ModeSettlement` включает нормальный transport drain либо logical
+abandonment после shutdown. Возврат пользовательского matcher/decoder не является третьим settlement.
 
 ### Pool
 
@@ -194,9 +222,9 @@ Lifecycle самого pool имеет четыре состояния:
 pool state. Зависший factory/readiness callback не является close gate. Replenishment запускается только при
 `idle + replenishmentStarting < minIdle && occupied < maxSize`.
 
-Public `closeAsync()` удаляется. Он наблюдал физическое завершение callback после logical close и создавал отдельный
-completion protocol, хотя async request API не входит в библиотеку. Идемпотентный bounded `close()` и terminal metrics
-являются единственным public close contract.
+Public `closeAsync()` сохраняется как cancellation-isolated view того же logical drain, который ожидает `close()`. Он не
+создает второй cleanup, не является async request API и не наблюдает физический возврат abandoned callback или physical
+stream close.
 
 Обязательный смысл metrics не зависит от формы одного record:
 
@@ -217,41 +245,3 @@ completion protocol, хотя async request API не входит в библи�
 - external consumer examples и public surface tests изменяются вместе с осознанным API-решением;
 - после первого реального выпуска compatibility проверяется стандартным инструментом относительно опубликованного
   artifact.
-
-## Порядок реализации
-
-1. Сохранить black-box proofs контрольных пользовательских задач.
-2. Удалить преждевременный compatibility freeze и проверки внутренних обещаний, не являющихся целью.
-3. Упростить lifecycle publication, physical close и late failure reporting.
-4. Свести process termination и tree cleanup к честному best-effort владельцу.
-5. Выбирать output owner до launch и упростить direct session runtime.
-6. Объединить line/protocol admission и deadline вокруг одной операции на request.
-7. Перестроить pool вокруг одного state owner, сохранив `warmupSize`, `minIdle` и hooks.
-8. Упростить diagnostics, transcript values и optional PTY boundary только после runtime-срезов, которые докажут пользу.
-9. Удалить тесты прежней внутренней формы после появления более сильных black-box и локальных invariant tests.
-10. Сжать proof map, context и docs до остающихся пользовательских контрактов.
-
-## Проверка
-
-Каждый вертикальный срез проходит:
-
-- релевантные unit и black-box integration tests;
-- bounded stress tests для timeout, cleanup, memory и pool contention;
-- API consumer compilation;
-- JMH и memory comparison для затронутого сценария;
-- независимый аудит сохранения пользовательских гарантий;
-- независимый аудит реального уменьшения числа состояний, переходов и владельцев.
-
-До и после каждого среза фиксируются owners, mutable states, transitions, monitor domains, служебные threads и completion
-edges. Обязательные архитектурные gates: нет process-global callback lanes, prestarted publication threads и второго
-terminal arbiter в scenario wrappers.
-
-LOC не является gate, но итоговое упрощение должно дать заметное сокращение production и test code. Этап не считается
-успешным, если число типов уменьшилось за счёт giant controller либо если одновременно удерживаемые инварианты, служебные
-потоки или внутренние переходы не уменьшились.
-
-Context меняется атомарно с соответствующим вертикальным срезом:
-
-- ADR-0021 переписывается до остающихся `CommandSpec`, `LaunchPlan` и one-shot result contracts вместе с новым runtime;
-- ADR-0023 удаляется при переносе pool на минимальный автомат из этого ADR;
-- ADR-0024 удаляется при переходе на pre-launch output modes.

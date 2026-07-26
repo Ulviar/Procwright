@@ -56,7 +56,7 @@ final class StreamTimeoutWatcher {
 
     void stop() {
         Thread running = watcher.get();
-        if (running != null) {
+        if (running != null && running != Thread.currentThread()) {
             running.interrupt();
         }
     }

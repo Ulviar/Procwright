@@ -24,7 +24,8 @@
   известных процессов также не считается доказательством выхода.
 - Вызовы `Process.destroy()`/`destroyForcibly()`, которые сами зависают, выполняются через общую bounded capacity.
   Исчерпание capacity дает typed failure и не создаёт новый disposable thread; немедленный `Error` возвращается
-  caller-у, а поздний failure после окончания окна наблюдения передается uncaught-exception handler.
+  caller-у, а поздний failure после окончания окна наблюдения допускает только bounded best-effort reporting без
+  гарантии конкретного destination.
 - Очень большие значения `Duration` насыщаются во внутреннем runtime и не превращаются в сырой `ArithmeticException`.
 - Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
 - Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.
@@ -120,9 +121,8 @@
   сохраняется, но уже полученный response учитывается как completed request, а worker retires с `RESET_FAILED`.
 - `healthCheck` выполняется перед lease; unhealthy worker закрывается и заменяется.
 - `close()` запрещает новые requests, закрывает idle workers сразу и дает leased workers завершить текущий request.
-- Обычные worker cleanup failures при `close()` дают typed `WORKER_FAILED`: одна source failure является cause, а
-  несколько образуют стабильный identity-дедуплицированный aggregate. Единственный `Error` сохраняет identity;
-  несколько failures с `Error` образуют `Error` aggregate с ним в качестве primary. Исходные `Throwable` не изменяются.
+- Обычные worker cleanup failures при `close()` дают typed `WORKER_FAILED`; fatal cleanup failure может остаться
+  `Error`. Форма secondary failure graph не является контрактом.
 - `metrics()` возвращает snapshot counters для size, idle, leased, created, retired и request counts.
 
 ## Protocol integrations
@@ -159,17 +159,13 @@
 - Все raw-stdin close paths используют одну bounded capacity. Если она исчерпана, `closeStdin()` возвращает typed
   runtime failure и закрывает session; unbounded fallback thread не создается.
 - `onExit` завершается после выхода процесса.
-- Если process outcome и inline raw-output cleanup независимо завершаются ошибками, `onExit()` публикует один плоский
-  aggregate: первая terminal failure является cause, последующие source identities напрямую suppressed ровно один раз,
-  а исходные `Throwable` не изменяются.
+- Если process outcome и обязательный cleanup независимо завершаются ошибками, `onExit()` сохраняет выбранный terminal
+  outcome; secondary failure может быть доступна как дополнительный диагностический контекст без стабильной topology.
 - Единственный asynchronous physical stdout/stderr close failure не заменяет успешный raw process outcome и передается
-  bounded reporter-у best effort. После output ownership claim ответственность за такие failures принадлежит helper-у.
+  bounded reporter-у best effort.
 - Caller-visible idle timeout закрывает зависшую session; активность — успешные записи, закрытие stdin и успешные
   чтения через session streams.
-- После передачи output ownership higher-level helper публичные stdout/stderr wrappers не читают и не закрывают process
-  output streams.
-- Первая публичная operation над stdout/stderr выбирает raw stream mode; поздний helper claim fail fast, включая
-  in-flight raw read, `mark` и `reset`.
+- Raw `Session` всегда остается raw output mode; helper mode выбирается отдельным сценарием до launch.
 - `close()` и idle timeout проходят через общий shutdown helper (`ProcessLifecycle.stop`); escalation branch этого
   helper (процесс игнорирует interrupt signal и принудительно убивается после interrupt grace) доказан тестом
   `RunShutdownEscalationIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` (POSIX).
@@ -196,8 +192,7 @@
 - Незавершенный partial output попадает в transcript с корректной привязкой к потоку.
 - `maxLineChars` применяется повторно к последней незавершенной строке при EOF, включая строку с одиноким завершающим
   `\r`.
-- `LineSession` claims output ownership, и публичные raw stdout/stderr operations underlying session fail fast.
-- `LineSession` не создается после уже начатой или завершенной raw stdout/stderr operation.
+- `LineSession` запускается сразу в line output mode и не раскрывает underlying raw session.
 
 ## Протокольный workflow
 
@@ -205,18 +200,20 @@
   input consumption ограничены независимо от response/transcript retention.
 - Decoder rewind, отсутствие progress и некорректная replacement error length дают `DECODE_ERROR`, bounded transcript,
   закрывают process и сохраняют ту же terminal reason для следующего request.
-- Protocol request timeout после adapter admission дает `TIMEOUT`; `onExit()` завершается после cleanup, а следующий
-  request возвращает сохраненный `TIMEOUT`, а не generic `CLOSED`. Timeout/interrupt во время ожидания serialized slot
-  не допускает adapter к stdin, оставляет session открытой и не уступает уже выбранному terminal/fatal outcome.
-- Если adapter сам ловит typed protocol failure и выбрасывает собственный `Error`, этот `Error` становится terminal
-  outcome. Пойманная ошибка остается ответственностью adapter; runtime не связывает и не изменяет исходные
-  `Throwable`.
+- Protocol request timeout после adapter admission дает `TIMEOUT`; `onExit()` завершается после process outcome и
+  logical protocol-output settlement exceptionally с выбранной terminal failure, не ожидая potentially blocking
+  physical stream close. Следующий request возвращает сохраненный `TIMEOUT`, а не generic `CLOSED`. Timeout/interrupt во
+  время ожидания serialized slot не допускает adapter к stdin, оставляет session открытой и не уступает уже выбранному
+  terminal/fatal outcome.
+- Если adapter сам ловит уже выбранный typed protocol failure и затем выбрасывает собственный `Error`, первый typed
+  outcome сохраняется, а поздний `Error` передается best-effort reporter. Если terminal outcome еще не выбран, `Error`
+  сам становится terminal outcome. Runtime не связывает и не изменяет исходные `Throwable`.
 - `ResponseDecoder.Reader`, `ProtocolWriter` и `ProtocolReader` действуют только в одном callback invocation и на его
   thread; retained или cross-thread capability не может затронуть I/O текущего или следующего request.
 - UTF-8 framed examples считают длину тела в bytes и читают exact byte count, поэтому non-ASCII payload не нарушает
   framing.
 
-## Expect helper
+## Expect-сценарий
 
 - Совпадение с literal text.
 - Совпадение с regex.
@@ -227,12 +224,9 @@
 - Встроенное incremental CSI stripping удаляет полные 7-bit ECMA-48 CSI sequences с префиксом `ESC [` перед matching и
   transcript retention, сохраняет incomplete/malformed/overlong candidates и ведет независимое bounded state для
   stdout/stderr.
-- Один `Expect` владеет output streams сессии.
-- Создание `Expect.Draft` и получение raw stdout/stderr wrappers не выбирают ownership; его выбирает `open()` либо первая
-  фактическая raw operation.
-- Raw stdout/stderr wrappers, полученные до или после создания `Expect`, fail fast после output ownership claim.
-- `Expect` не создается после уже начатой или завершенной raw stdout/stderr operation.
-- Закрытие `Expect` закрывает underlying `Session` и не возвращает streams raw caller.
+- `interactive().expect()` выбирает Expect output mode до launch и возвращает только `Expect`.
+- Один `ExpectScenario.Draft` reusable; concurrent `open()` создают независимые процессы.
+- Закрытие `Expect` закрывает его процесс.
 - Match buffer ограничен и не растет бесконечно.
 
 ## PTY

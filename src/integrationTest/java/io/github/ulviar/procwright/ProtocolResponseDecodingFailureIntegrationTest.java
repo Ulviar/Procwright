@@ -8,6 +8,8 @@ import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fix
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.parseLength;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,6 +30,7 @@ import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -72,7 +75,7 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
 
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().length() <= 32);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, followUp.reason());
         } finally {
@@ -94,7 +97,7 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.getCause() instanceof CharacterCodingException);
             assertTrue(exception.transcript().text().length() <= 32);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, followUp.reason());
         } finally {
@@ -120,13 +123,21 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
 
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().length() <= 1024);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request("x"));
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, followUp.reason());
         } finally {
             session.close();
         }
+    }
+
+    private static void assertExitFailedWith(ProtocolSession<?, ?> session, ProtocolSessionException requestFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        ProtocolSessionException exitFailure = assertInstanceOf(ProtocolSessionException.class, observed.getCause());
+        assertEquals(requestFailure.reason(), exitFailure.reason());
+        assertSame(requestFailure, exitFailure);
     }
 
     private static final class FramedBytesAsLineAdapter implements ProtocolAdapter<byte[], String> {

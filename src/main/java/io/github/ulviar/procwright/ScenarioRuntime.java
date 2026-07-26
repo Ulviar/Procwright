@@ -5,10 +5,10 @@ package io.github.ulviar.procwright;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
-import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.CommandEchoSupport;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
+import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProcessKernel;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
@@ -22,6 +22,7 @@ import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.internal.session.ReadinessSupport;
 import io.github.ulviar.procwright.internal.session.SessionRuntime;
 import io.github.ulviar.procwright.internal.session.StreamRuntime;
+import io.github.ulviar.procwright.session.Expect;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
@@ -30,6 +31,7 @@ import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.StreamSession;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /** Package-private terminal-operation boundary for immutable scenario drafts. */
@@ -54,21 +56,28 @@ final class ScenarioRuntime {
     Session interactive(SessionSettings settings, ReadinessSettings<Session> readiness) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(readiness, "readiness");
-        OpenedSession opened = openSession("interactive", settings.plan(), settings.diagnostics());
-        try {
-            readiness
-                    .probe()
-                    .ifPresent(probe -> ReadinessSupport.check(
-                            opened.session(), probe, readiness.timeout(), opened.session()::close));
-            return opened.session();
-        } catch (RuntimeException | Error failure) {
-            failOpen(opened, failure);
-            throw failure;
-        }
+        return openReadyHandle(
+                "interactive",
+                settings.plan(),
+                settings.diagnostics(),
+                diagnostics -> SessionRuntime.open(settings.plan(), diagnostics),
+                readiness);
     }
 
     StreamSession listen(StreamSettings settings) {
         return StreamRuntime.open(Objects.requireNonNull(settings, "settings").plan());
+    }
+
+    Expect openExpect(SessionSettings settings, ExpectSettings expectSettings, ReadinessSettings<Expect> readiness) {
+        Objects.requireNonNull(settings, "settings");
+        Objects.requireNonNull(expectSettings, "expectSettings");
+        Objects.requireNonNull(readiness, "readiness");
+        return openReadyHandle(
+                "expect",
+                settings.plan(),
+                settings.diagnostics(),
+                diagnostics -> SessionRuntime.openExpect(settings.plan(), diagnostics, expectSettings),
+                readiness);
     }
 
     LineSession openLineSession(SessionScenarioSettings<LineSession, LineSessionSettings> settings) {
@@ -105,36 +114,39 @@ final class ScenarioRuntime {
         return Objects.requireNonNull(adapterFactory.get(), "adapterFactory returned null");
     }
 
-    private OpenedSession openSession(
-            String scenario, SessionExecutionPlan plan, DiagnosticsSettings diagnosticsSettings) {
+    private <T extends AutoCloseable> T openReadyHandle(
+            String scenario,
+            SessionExecutionPlan plan,
+            DiagnosticsSettings diagnosticsSettings,
+            Function<? super DiagnosticEmitter, ? extends T> opener,
+            ReadinessSettings<T> readiness) {
         DiagnosticEmitter diagnostics =
                 DiagnosticEmitter.of(diagnosticsSettings, scenario, () -> CommandEchoSupport.from(plan.launchPlan()));
-        diagnostics.emit(DiagnosticEventType.COMMAND_PREPARED);
+        diagnostics.emitBestEffort(DiagnosticEventType.COMMAND_PREPARED);
+        T handle = Objects.requireNonNull(opener.apply(diagnostics), "opener returned null");
         try {
-            return new OpenedSession(SessionRuntime.open(plan, diagnostics), diagnostics);
-        } catch (RuntimeException | Error exception) {
-            emitPreserving(
-                    diagnostics, DiagnosticEventType.PROCESS_FAILED, DiagnosticEmitter.failureAttributes(exception));
-            throw exception;
+            readiness
+                    .probe()
+                    .ifPresent(probe ->
+                            ReadinessSupport.check(handle, probe, readiness.timeout(), () -> closeHandle(handle)));
+            return handle;
+        } catch (RuntimeException | Error failure) {
+            diagnostics.emitBestEffort(
+                    DiagnosticEventType.PROCESS_FAILED, DiagnosticEmitter.failureAttributes(failure));
+            throw failure;
         }
     }
 
     private LineSession openLineSession(
             String scenario, SessionScenarioSettings<LineSession, LineSessionSettings> settings) {
         Objects.requireNonNull(settings, "settings");
-        OpenedSession opened = openSession(
-                scenario, settings.session().plan(), settings.session().diagnostics());
-        try {
-            LineSession lineSession = SessionRuntime.openLineSession(opened.session(), settings.protocol());
-            settings.readiness()
-                    .probe()
-                    .ifPresent(probe -> ReadinessSupport.check(
-                            lineSession, probe, settings.readiness().timeout(), lineSession::close));
-            return lineSession;
-        } catch (RuntimeException | Error exception) {
-            failOpen(opened, exception);
-            throw exception;
-        }
+        return openReadyHandle(
+                scenario,
+                settings.session().plan(),
+                settings.session().diagnostics(),
+                diagnostics ->
+                        SessionRuntime.openLineSession(settings.session().plan(), diagnostics, settings.protocol()),
+                settings.readiness());
     }
 
     private <I extends Object, O extends Object> ProtocolSession<I, O> openProtocolSession(
@@ -143,46 +155,22 @@ final class ScenarioRuntime {
             SessionScenarioSettings<ProtocolSession<I, O>, ProtocolSessionSettings> settings) {
         Objects.requireNonNull(adapter, "adapter");
         Objects.requireNonNull(settings, "settings");
-        OpenedSession opened = openSession(
-                scenario, settings.session().plan(), settings.session().diagnostics());
+        return openReadyHandle(
+                scenario,
+                settings.session().plan(),
+                settings.session().diagnostics(),
+                diagnostics -> SessionRuntime.openProtocolSession(
+                        settings.session().plan(), diagnostics, adapter, settings.protocol()),
+                settings.readiness());
+    }
+
+    private static void closeHandle(AutoCloseable handle) {
         try {
-            ProtocolSession<I, O> protocolSession =
-                    SessionRuntime.openProtocolSession(opened.session(), adapter, settings.protocol());
-            settings.readiness()
-                    .probe()
-                    .ifPresent(probe -> ReadinessSupport.check(
-                            protocolSession, probe, settings.readiness().timeout(), protocolSession::close));
-            return protocolSession;
-        } catch (RuntimeException | Error exception) {
-            failOpen(opened, exception);
-            throw exception;
+            handle.close();
+        } catch (RuntimeException | Error failure) {
+            throw failure;
+        } catch (Exception failure) {
+            throw new IllegalStateException("Could not close session handle", failure);
         }
     }
-
-    private static void failOpen(OpenedSession opened, Throwable primaryFailure) {
-        emitPreserving(
-                opened.diagnostics(),
-                DiagnosticEventType.PROCESS_FAILED,
-                DiagnosticEmitter.failureAttributes(primaryFailure));
-        closePreserving(opened.session());
-    }
-
-    private static void closePreserving(Session session) {
-        try {
-            session.close();
-        } catch (RuntimeException | Error closeFailure) {
-            BoundedFailureReporter.reportBestEffort(closeFailure);
-        }
-    }
-
-    private static void emitPreserving(
-            DiagnosticEmitter diagnostics, DiagnosticEventType type, java.util.Map<String, String> attributes) {
-        try {
-            diagnostics.emit(type, attributes);
-        } catch (RuntimeException | Error diagnosticFailure) {
-            BoundedFailureReporter.reportBestEffort(diagnosticFailure);
-        }
-    }
-
-    private record OpenedSession(Session session, DiagnosticEmitter diagnostics) {}
 }

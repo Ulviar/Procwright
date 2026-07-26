@@ -34,5 +34,8 @@ public record StreamExit(
         if (duration.isNegative()) {
             throw new IllegalArgumentException("duration must not be negative");
         }
+        if (timedOut && closed) {
+            throw new IllegalArgumentException("a stream exit cannot be both timed out and caller-closed");
+        }
     }
 }

@@ -13,59 +13,64 @@ public record ExpectSettings(
         Duration timeout,
         int transcriptLimit,
         int matchBufferLimit,
-        Optional<Charset> charset,
         boolean ansiControlSequenceStripping,
-        ExpectTranscriptValues transcriptValues) {
+        ExpectTranscriptValues transcriptValues,
+        Optional<Charset> outputCharset) {
 
     public ExpectSettings {
         timeout = DurationSupport.requirePositive(timeout, "timeout");
         transcriptLimit = positive(transcriptLimit, "transcriptLimit");
         matchBufferLimit = positive(matchBufferLimit, "matchBufferLimit");
-        charset = Objects.requireNonNull(charset, "charset");
         Objects.requireNonNull(transcriptValues, "transcriptValues");
+        Objects.requireNonNull(outputCharset, "outputCharset");
     }
 
     public static ExpectSettings defaults() {
         return new ExpectSettings(
-                Duration.ofSeconds(5), 64 * 1024, 64 * 1024, Optional.empty(), false, ExpectTranscriptValues.REDACTED);
-    }
-
-    public Charset charsetFor(Charset sessionCharset) {
-        return charset.orElse(Objects.requireNonNull(sessionCharset, "sessionCharset"));
+                Duration.ofSeconds(5), 64 * 1024, 64 * 1024, false, ExpectTranscriptValues.REDACTED, Optional.empty());
     }
 
     public ExpectSettings withTimeout(Duration value) {
         return new ExpectSettings(
-                value, transcriptLimit, matchBufferLimit, charset, ansiControlSequenceStripping, transcriptValues);
+                value,
+                transcriptLimit,
+                matchBufferLimit,
+                ansiControlSequenceStripping,
+                transcriptValues,
+                outputCharset);
     }
 
     public ExpectSettings withTranscriptLimit(int value) {
         return new ExpectSettings(
-                timeout, value, matchBufferLimit, charset, ansiControlSequenceStripping, transcriptValues);
+                timeout, value, matchBufferLimit, ansiControlSequenceStripping, transcriptValues, outputCharset);
     }
 
     public ExpectSettings withMatchBufferLimit(int value) {
         return new ExpectSettings(
-                timeout, transcriptLimit, value, charset, ansiControlSequenceStripping, transcriptValues);
-    }
-
-    public ExpectSettings withCharset(Charset value) {
-        return new ExpectSettings(
-                timeout,
-                transcriptLimit,
-                matchBufferLimit,
-                Optional.of(Objects.requireNonNull(value, "charset")),
-                ansiControlSequenceStripping,
-                transcriptValues);
+                timeout, transcriptLimit, value, ansiControlSequenceStripping, transcriptValues, outputCharset);
     }
 
     public ExpectSettings withAnsiControlSequenceStripping() {
-        return new ExpectSettings(timeout, transcriptLimit, matchBufferLimit, charset, true, transcriptValues);
+        return new ExpectSettings(timeout, transcriptLimit, matchBufferLimit, true, transcriptValues, outputCharset);
     }
 
     public ExpectSettings withTranscriptValues(ExpectTranscriptValues value) {
         return new ExpectSettings(
-                timeout, transcriptLimit, matchBufferLimit, charset, ansiControlSequenceStripping, value);
+                timeout, transcriptLimit, matchBufferLimit, ansiControlSequenceStripping, value, outputCharset);
+    }
+
+    public ExpectSettings withOutputCharset(Charset value) {
+        return new ExpectSettings(
+                timeout,
+                transcriptLimit,
+                matchBufferLimit,
+                ansiControlSequenceStripping,
+                transcriptValues,
+                Optional.of(Objects.requireNonNull(value, "outputCharset")));
+    }
+
+    public Charset outputCharsetOr(Charset fallback) {
+        return outputCharset.orElse(Objects.requireNonNull(fallback, "fallback"));
     }
 
     private static int positive(int value, String name) {

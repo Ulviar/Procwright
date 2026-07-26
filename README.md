@@ -94,7 +94,7 @@ be reused or branched safely.
 | --- | --- |
 | Exits after one command | `run()` |
 | Needs direct stdin/stdout control | `interactive()` |
-| Prompts for input | `interactive()` then `session.expect().open()` |
+| Prompts for input | `interactive().expect().open()` |
 | One long-lived worker with line request/response | `lineSession()` |
 | One long-lived worker with framed, binary, or typed messages | `protocolSession(adapterFactory)` |
 | Emits a continuous output stream | `listen()` |
@@ -106,7 +106,8 @@ concurrent callers may use different workers.
 
 Open sessions and pools with try-with-resources. Pool `close()` waits for bounded worker drain, using a 15-second default;
 configure it with `withCloseTimeout(...)`. Use `closeAsync()` only when the caller must start terminal cleanup without
-blocking. Do not read a session's raw stdout after an `Expect`, line-session, or protocol helper owns that output.
+blocking. Raw interactive, Expect, line, protocol, and listen are separate pre-launch output modes; their handles do not
+expose competing output consumers.
 
 ## Documentation
 

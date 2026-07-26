@@ -71,7 +71,7 @@ public final class ExpectException extends ProcwrightException {
         TIMEOUT,
         /** Process stdout reached EOF before expected output appeared. */
         EOF,
-        /** Expect helper was closed before the operation could complete. */
+        /** Expect handle was closed before the operation could complete. */
         CLOSED,
         /** Process output could not be read or decoded, or session input could not be written. */
         FAILURE

@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 abstract class ProtocolSessionContractSupport {
@@ -51,22 +52,81 @@ abstract class ProtocolSessionContractSupport {
         };
     }
 
-    static DefaultSession session(Process process) {
-        return SessionTestFixtures.open(
-                process,
-                Duration.ZERO,
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8);
+    static <I, O> DefaultProtocolSession<I, O> protocolSession(
+            Process process, ProtocolAdapter<I, O> adapter, ProtocolSessionSettings settings) {
+        return protocolSession(
+                process, adapter, settings, DefaultProtocolSession.Dependencies.defaults(), ignored -> {});
     }
 
-    static DefaultSession session(Process process, BoundedCloseDispatcher closeDispatcher) {
-        return DefaultSession.openTransactionally(
+    static <I, O> DefaultProtocolSession<I, O> protocolSession(
+            Process process,
+            ProtocolAdapter<I, O> adapter,
+            ProtocolSessionSettings settings,
+            DefaultProtocolSession.Dependencies dependencies) {
+        return protocolSession(process, adapter, settings, dependencies, ignored -> {});
+    }
+
+    static <I, O> DefaultProtocolSession<I, O> protocolSession(
+            Process process,
+            ProtocolAdapter<I, O> adapter,
+            ProtocolSessionSettings settings,
+            Consumer<? super DefaultSession> sessionObserver) {
+        return protocolSession(
+                process, adapter, settings, DefaultProtocolSession.Dependencies.defaults(), sessionObserver);
+    }
+
+    private static <I, O> DefaultProtocolSession<I, O> protocolSession(
+            Process process,
+            ProtocolAdapter<I, O> adapter,
+            ProtocolSessionSettings settings,
+            DefaultProtocolSession.Dependencies dependencies,
+            Consumer<? super DefaultSession> sessionObserver) {
+        return SessionTestFixtures.openHandle(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "protocol-test", CommandEcho.empty()),
+                SessionOutputMode.PROTOCOL,
+                session -> {
+                    DefaultProtocolSession<I, O> protocol =
+                            new DefaultProtocolSession<>(session, adapter, settings, dependencies);
+                    sessionObserver.accept(session);
+                    return protocol;
+                });
+    }
+
+    static <I, O> DefaultProtocolSession<I, O> protocolSession(
+            Process process,
+            ProtocolAdapter<I, O> adapter,
+            ProtocolSessionSettings settings,
+            DefaultProtocolSession.Dependencies dependencies,
+            DiagnosticEmitter diagnostics,
+            BoundedCloseDispatcher closeDispatcher,
+            DefaultSession.WatcherStarter watcherStarter) {
+        return SessionTestFixtures.openHandle(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                diagnostics,
+                SessionOutputMode.PROTOCOL,
+                session -> new DefaultProtocolSession<>(session, adapter, settings, dependencies),
+                closeDispatcher,
+                watcherStarter);
+    }
+
+    static <I, O> DefaultProtocolSession<I, O> protocolSession(
+            Process process,
+            ProtocolAdapter<I, O> adapter,
+            ProtocolSessionSettings settings,
+            BoundedCloseDispatcher closeDispatcher) {
+        return protocolSession(
+                process,
+                adapter,
+                settings,
+                DefaultProtocolSession.Dependencies.defaults(),
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "protocol-cleanup-test", CommandEcho.empty()),
-                () -> {},
                 closeDispatcher,
                 DefaultSession.WatcherStarter.threading());
     }
@@ -309,6 +369,7 @@ abstract class ProtocolSessionContractSupport {
 
         final CountDownLatch closeEntered = new CountDownLatch(1);
         final CountDownLatch releaseClose = new CountDownLatch(1);
+        final CountDownLatch closeFinished = new CountDownLatch(1);
 
         @Override
         public int read() {
@@ -318,7 +379,11 @@ abstract class ProtocolSessionContractSupport {
         @Override
         public void close() {
             closeEntered.countDown();
-            awaitUninterruptibly(releaseClose);
+            try {
+                awaitUninterruptibly(releaseClose);
+            } finally {
+                closeFinished.countDown();
+            }
         }
     }
 }

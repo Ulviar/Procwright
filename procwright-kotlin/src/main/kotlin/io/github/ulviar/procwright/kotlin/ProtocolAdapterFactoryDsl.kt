@@ -19,9 +19,8 @@ import io.github.ulviar.procwright.session.ProtocolWriter
  * mappings apply when the handler failure wins request arbitration; an already-selected terminal or
  * fatal session outcome remains canonical.
  *
- * A handler-thrown [Error] is rethrown as the same object. If a fatal [Error] was already selected,
- * that earlier object wins and the handler failure is attached as a suppressed exception. Fatal
- * errors preserve object identity.
+ * A handler-thrown [Error] remains fatal when it wins arbitration; otherwise it does not replace an
+ * already-selected terminal or fatal session outcome.
  */
 interface ProtocolAdapterFactoryDsl<I : Any, O : Any> {
 

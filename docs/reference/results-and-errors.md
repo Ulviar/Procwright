@@ -1,7 +1,7 @@
 # Results and errors
 
-All Procwright runtime failures extend `ProcwrightException`. Catch the scenario-specific type when code needs a stable
-reason, transcript, or process result.
+Procwright's ordinary runtime failures extend `ProcwrightException`. Catch the scenario-specific type when code needs a
+stable reason, transcript, or process result. Fatal `Error`s from application callbacks are not wrapped.
 
 ## Finite commands
 
@@ -20,13 +20,19 @@ snapshot.
   large, stdout backlog overflow, process exit, decoder failure, and other runtime failure. It preserves a bounded line
   transcript. Validation, request-size, encoding, and wait failures are retryable when the request was not handed off for
   stdin writing and cannot write later. Once handed off, timeout, interruption, write failure, and every response/protocol
-  failure are terminal even if no received byte can be confirmed. Retryable failures leave `onExit()` incomplete;
-  terminal failures complete it.
+  failure are terminal even if no received byte can be confirmed. Retryable failures leave `onExit()` incomplete.
+  Terminal failures close the process and complete a still-pending `onExit()` exceptionally with the selected session
+  failure. A late decoder result does not rewrite an exit already settled by the process and output transport.
 - `ProtocolSessionException` distinguishes timeout, closed, EOF, broken pipe, decode error, request or response too large,
   output backlog overflow, adapter decoder failure, process exit, and other runtime failure. It preserves a bounded
   protocol transcript. `exitCode()` is an `OptionalInt` snapshot and can be empty when the failure is selected.
-- `ExpectException` distinguishes timeout, EOF, closed, and helper failure, with a bounded transcript.
-- `StreamException` distinguishes listener failure, output-read failure, and process failure, with bounded diagnostics.
+- `ExpectException` distinguishes timeout, EOF, closed, and process I/O, decoding, or input-write failure, with a bounded
+  transcript. A timeout is retryable. Output and input failures close the process and complete `onExit()` exceptionally
+  with the selected failure when it is still pending. EOF reported before normal output drain also stops a process that
+  is still live; EOF materialized after normal drain does not rewrite the process result. A physical stdin-close failure that
+  arrives after `closeStdin()` returns can instead surface from `onExit()` as its original cause.
+- `StreamException` distinguishes ordinary listener, output-read, and process failures, with bounded diagnostics. A fatal
+  `Error` from listener or output processing completes `onExit()` with the same `Error` instance.
 
 A framing, decode, EOF, or post-handoff failure closes a direct request session because subsequent protocol state cannot
 be trusted.

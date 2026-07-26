@@ -66,29 +66,32 @@ try (Session session = Procwright.command("python")
 }
 ```
 
-`InteractiveScenario.Draft` предлагает session charset, idle timeout, readiness, terminal capability, shutdown и
-diagnostics. Получение raw stdout/stderr wrapper не выбирает режим: его выбирает первая фактическая stream operation либо
-`Expect.Draft.open()`. Смешивание режимов отклоняется через `IllegalStateException`.
+`InteractiveScenario.Entry` позволяет сразу открыть raw session или выбрать `expect()`. Первый raw `with*` возвращает
+`InteractiveScenario.Draft`, где ветка Expect уже недоступна: владелец output определяется до launch.
 
-## `Session.expect()`
+## `interactive().expect()`
 
-Prompt automation создается в два явных шага:
+Prompt automation является отдельной pre-launch веткой:
 
 ```java
-try (Session session = Procwright.command("python").interactive().withArg("-i").open();
-        Expect expect = session.expect()
-                .withTimeout(Duration.ofSeconds(2))
-                .withTranscriptLimit(8 * 1024)
-                .open()) {
+try (Expect expect = Procwright.command("python")
+        .interactive()
+        .expect()
+        .withArg("-i")
+        .withTimeout(Duration.ofSeconds(2))
+        .withTranscriptLimit(8 * 1024)
+        .open()) {
     expect.expectRegex(Pattern.compile("Python .*"));
     expect.sendLine("print(6 * 7)");
     expect.expectText("42");
 }
 ```
 
-`Session.expect()` только создает неизменяемый `Expect.Draft`; каждый `with*` возвращает новую ветку. `open()` атомарно
-захватывает output ownership. Закрытие `Expect` закрывает underlying `Session` и не возвращает raw streams caller. Values,
-отправленные через helper, редактируются в transcript по умолчанию.
+`ExpectScenario.Draft` объединяет process и matching settings; каждый `with*` возвращает новую ветку. `open()` запускает
+отдельный процесс с заранее выбранным Expect output mode. Raw streams не раскрываются. Закрытие `Expect` закрывает процесс.
+`closeStdin()` отдельно посылает EOF, не останавливая output matching. `withCharset(...)` задаёт input и output;
+`withOutputCharset(...)` является явным decoder-only override для асимметричных протоколов. Values, отправленные через
+handle, редактируются в transcript по умолчанию.
 
 ## `lineSession`
 

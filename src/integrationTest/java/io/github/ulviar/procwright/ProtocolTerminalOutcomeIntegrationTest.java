@@ -18,6 +18,7 @@ import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.time.Duration;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +46,7 @@ final class ProtocolTerminalOutcomeIntegrationTest {
 
             assertEquals(ProtocolSessionException.Reason.FAILURE, failure.reason());
             assertSame(adapterFailure, failure.getCause());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, failure);
         } finally {
             session.close();
         }
@@ -65,16 +66,19 @@ final class ProtocolTerminalOutcomeIntegrationTest {
     }
 
     @Test
-    void illegalArgumentExceptionFromProtocolAdapterRemainsProtocolDecoderFailure() {
+    void illegalArgumentExceptionFromProtocolAdapterRemainsProtocolDecoderFailure() throws Exception {
         IllegalArgumentException adapterFailure = new IllegalArgumentException("bad response");
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(),
-                        new FailingDecoderAdapter(adapterFailure),
-                        call -> call.withArgs("exit", "--stdout=ignored"))
-                .request(""));
+        try (ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                new FailingDecoderAdapter(adapterFailure),
+                call -> call.withArgs("exit", "--stdout=ignored"))) {
+            ProtocolSessionException exception =
+                    assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
-        assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, exception.reason());
-        assertSame(adapterFailure, exception.getCause());
+            assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, exception.reason());
+            assertSame(adapterFailure, exception.getCause());
+            assertExitFailedWith(session, exception);
+        }
     }
 
     @Test
@@ -100,7 +104,7 @@ final class ProtocolTerminalOutcomeIntegrationTest {
                     exception.getCause().getMessage());
             assertTrue(exception.transcript().truncated());
             assertTrue(exception.transcript().text().length() <= 8);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request("again"));
             assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, followUp.reason());
@@ -124,7 +128,7 @@ final class ProtocolTerminalOutcomeIntegrationTest {
                     assertThrows(AssertionError.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
             assertSame(decoderError, thrown);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, decoderError);
             AssertionError followUp =
                     assertThrows(AssertionError.class, () -> session.request("again", Duration.ofSeconds(1)));
             assertSame(decoderError, followUp);
@@ -147,11 +151,17 @@ final class ProtocolTerminalOutcomeIntegrationTest {
                     assertThrows(AssertionError.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
             assertSame(writerError, thrown);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, writerError);
             AssertionError followUp =
                     assertThrows(AssertionError.class, () -> session.request("again", Duration.ofSeconds(1)));
             assertSame(writerError, followUp);
         }
+    }
+
+    private static void assertExitFailedWith(ProtocolSession<String, String> session, Throwable selectedFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertSame(selectedFailure, observed.getCause());
     }
 
     private static final class FailingDecoderAdapter implements ProtocolAdapter<String, String> {

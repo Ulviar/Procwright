@@ -5,6 +5,7 @@ package io.github.ulviar.procwright;
 import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.fixtureScenario;
 import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +18,7 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -46,9 +48,10 @@ final class LineSessionDecoderSafetyIntegrationTest {
 
             assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().length() <= 1024);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception.getCause());
             LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request(""));
             assertEquals(LineSessionException.Reason.DECODE_ERROR, followUp.reason());
+            assertSame(exception.getCause(), followUp.getCause());
         } finally {
             session.close();
         }
@@ -68,9 +71,10 @@ final class LineSessionDecoderSafetyIntegrationTest {
 
             assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().length() <= 256);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception.getCause());
             LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request(""));
             assertEquals(LineSessionException.Reason.DECODE_ERROR, followUp.reason());
+            assertSame(exception.getCause(), followUp.getCause());
         } finally {
             session.close();
         }
@@ -90,12 +94,19 @@ final class LineSessionDecoderSafetyIntegrationTest {
 
             assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().length() <= 32);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception.getCause());
             LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request(""));
             assertEquals(LineSessionException.Reason.DECODE_ERROR, followUp.reason());
+            assertSame(exception.getCause(), followUp.getCause());
         } finally {
             session.close();
         }
+    }
+
+    private static void assertExitFailedWith(LineSession session, Throwable selectedFailureSource) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertSame(selectedFailureSource, observed.getCause());
     }
 
     private static final class NoProgressCharset extends Charset {

@@ -19,28 +19,17 @@ final class LineSessionState {
 
     private final Supplier<LineTranscript> transcript;
     private final Consumer<Throwable> discardedFailure;
-    private final Runnable sealFailureAttribution;
     private final AtomicBoolean closed = new AtomicBoolean();
     private Request activeRequest;
     private TerminalSnapshot terminalOutcome;
-    private boolean stdoutEof;
-    private boolean failureAttributionSealed;
 
     LineSessionState(Supplier<LineTranscript> transcript) {
-        this(transcript, ignored -> {}, () -> {});
+        this(transcript, ignored -> {});
     }
 
     LineSessionState(Supplier<LineTranscript> transcript, Consumer<Throwable> discardedFailure) {
-        this(transcript, discardedFailure, () -> {});
-    }
-
-    LineSessionState(
-            Supplier<LineTranscript> transcript,
-            Consumer<Throwable> discardedFailure,
-            Runnable sealFailureAttribution) {
         this.transcript = Objects.requireNonNull(transcript, "transcript");
         this.discardedFailure = Objects.requireNonNull(discardedFailure, "discardedFailure");
-        this.sealFailureAttribution = Objects.requireNonNull(sealFailureAttribution, "sealFailureAttribution");
     }
 
     boolean isClosed() {
@@ -77,36 +66,16 @@ final class LineSessionState {
     }
 
     private void endRequest(Request request) {
-        boolean seal;
         synchronized (this) {
             if (activeRequest != request) {
                 return;
             }
             activeRequest = null;
-            seal = claimFailureAttributionSeal();
-        }
-        if (seal) {
-            sealFailureAttribution.run();
-        }
-    }
-
-    void recordStdoutEof() {
-        boolean seal;
-        synchronized (this) {
-            stdoutEof = true;
-            seal = claimFailureAttributionSeal();
-        }
-        if (seal) {
-            sealFailureAttribution.run();
         }
     }
 
     synchronized boolean claimClose() {
         return !closed.getAndSet(true);
-    }
-
-    void markClosed() {
-        closed.set(true);
     }
 
     synchronized TerminalSnapshot terminal() {
@@ -120,45 +89,41 @@ final class LineSessionState {
     }
 
     TerminalSelection selectTerminalFailure(LineSessionException.Reason reason, String message, Throwable cause) {
-        LineTranscript terminalTranscript = transcript.get();
-        TerminalSnapshot selected;
-        Throwable discarded = null;
-        synchronized (this) {
-            if (terminalOutcome == null) {
-                terminalOutcome = new FailureSnapshot(reason, message, cause, terminalTranscript);
-            } else if (terminalOutcome.primary() != cause) {
-                discarded = cause;
-            }
-            if (activeRequest != null && terminalOutcome instanceof FailureSnapshot failure) {
-                selectActiveTerminalFailure(activeRequest, terminalException(failure));
-            }
-            selected = terminalOutcome;
-        }
-        return new TerminalSelection(selected, discarded);
+        FailureSelection selection =
+                selectFailure(reason, message, cause, Objects.requireNonNull(transcript.get(), "transcript"), false);
+        return new TerminalSelection(Objects.requireNonNull(selection.selected(), "selected"), selection.discarded());
     }
 
     void reportDiscarded(TerminalSelection selection) {
         retainDiscarded(Objects.requireNonNull(selection, "selection").discarded());
     }
 
+    OutputSelection recordOutputFailure(LineSessionException.Reason reason, String message, Throwable cause) {
+        OutputSelection selection = selectOutputFailure(reason, message, cause);
+        reportDiscarded(selection);
+        return selection;
+    }
+
+    OutputSelection selectOutputFailure(LineSessionException.Reason reason, String message, Throwable cause) {
+        FailureSelection selection =
+                selectFailure(reason, message, cause, Objects.requireNonNull(transcript.get(), "transcript"), true);
+        return new OutputSelection(selection.selected(), selection.discarded(), selection.rejectedAfterClose());
+    }
+
+    void reportDiscarded(OutputSelection selection) {
+        retainDiscarded(Objects.requireNonNull(selection, "selection").discarded());
+    }
+
     TerminalSnapshot recordFatalError(Error error) {
-        TerminalSnapshot selected;
-        Throwable discarded = null;
-        synchronized (this) {
-            if (terminalOutcome == null) {
-                terminalOutcome = new FatalSnapshot(error);
-            } else if (terminalOutcome instanceof FatalSnapshot failure) {
-                if (failure.error() != error) {
-                    discarded = error;
-                }
-            } else {
-                discarded = terminalOutcome.primary();
-                terminalOutcome = new FatalSnapshot(error);
-            }
-            selected = terminalOutcome;
-        }
-        retainDiscarded(discarded);
-        return selected;
+        FatalSelection selection = selectFatal(error, false);
+        retainDiscarded(selection.discarded());
+        return Objects.requireNonNull(selection.selected(), "selected");
+    }
+
+    OutputSelection recordOutputFatalError(Error error) {
+        FatalSelection selection = selectFatal(error, true);
+        retainDiscarded(selection.discarded());
+        return new OutputSelection(selection.selected(), selection.discarded(), selection.rejectedAfterClose());
     }
 
     LineSessionException recordRequestFailure(Request request, Supplier<LineSessionException> failureFactory) {
@@ -209,7 +174,6 @@ final class LineSessionState {
     }
 
     LineSessionException releaseRetryablePreWrite(Request request, LineSessionException candidate) {
-        boolean seal;
         FailureSnapshot terminalFailure;
         boolean sessionClosed;
         synchronized (this) {
@@ -226,9 +190,6 @@ final class LineSessionState {
             if (terminalFailure == null && !sessionClosed) {
                 requireActive(request);
                 activeRequest = null;
-                seal = claimFailureAttributionSeal();
-            } else {
-                seal = false;
             }
         }
         if (terminalFailure != null) {
@@ -240,9 +201,6 @@ final class LineSessionState {
             LineSessionException selected = closed(null);
             request.record(selected);
             throw selected;
-        }
-        if (seal) {
-            sealFailureAttribution.run();
         }
         return candidate;
     }
@@ -330,6 +288,13 @@ final class LineSessionState {
             LineSessionException selected = request.record(candidate);
             return selection(selected, candidate);
         }
+        if (closed.get() && terminalOutcome == null) {
+            LineSessionException selected = request.failure();
+            if (selected == null) {
+                selected = request.record(closed(null));
+            }
+            return selection(selected, candidate);
+        }
         if (terminalOutcome == null) {
             LineSessionException primary = request.failure();
             if (primary == null) {
@@ -362,7 +327,7 @@ final class LineSessionState {
         }
     }
 
-    private LineSessionException terminalException(FailureSnapshot failure) {
+    LineSessionException terminalException(FailureSnapshot failure) {
         return new LineSessionException(
                 failure.reason(),
                 failure.transcript(),
@@ -374,22 +339,60 @@ final class LineSessionState {
         return outcome instanceof FatalSnapshot failure ? failure.error() : null;
     }
 
+    private FailureSelection selectFailure(
+            LineSessionException.Reason reason,
+            String message,
+            Throwable cause,
+            LineTranscript terminalTranscript,
+            boolean rejectAfterClose) {
+        TerminalSnapshot selected;
+        Throwable discarded = null;
+        boolean rejected = false;
+        synchronized (this) {
+            if (rejectAfterClose && closed.get()) {
+                selected = terminalOutcome;
+                discarded = cause;
+                rejected = true;
+            } else {
+                if (terminalOutcome == null) {
+                    terminalOutcome = new FailureSnapshot(reason, message, cause, terminalTranscript);
+                } else if (terminalOutcome.primary() != cause) {
+                    discarded = cause;
+                }
+                if (activeRequest != null && terminalOutcome instanceof FailureSnapshot failure) {
+                    selectActiveTerminalFailure(activeRequest, terminalException(failure));
+                }
+                selected = terminalOutcome;
+            }
+        }
+        return new FailureSelection(selected, discarded, rejected);
+    }
+
+    private FatalSelection selectFatal(Error error, boolean rejectAfterClose) {
+        TerminalSnapshot selected;
+        Throwable discarded = null;
+        boolean rejected = false;
+        synchronized (this) {
+            if (rejectAfterClose && closed.get()) {
+                selected = terminalOutcome;
+                discarded = error;
+                rejected = true;
+            } else {
+                if (terminalOutcome == null) {
+                    terminalOutcome = new FatalSnapshot(error);
+                } else if (terminalOutcome.primary() != error) {
+                    discarded = error;
+                }
+                selected = terminalOutcome;
+            }
+        }
+        return new FatalSelection(selected, discarded, rejected);
+    }
+
     private void requireActive(Request request) {
         if (activeRequest != request) {
             throw new IllegalStateException("line request outcome is not active");
         }
-    }
-
-    private boolean claimFailureAttributionSeal() {
-        if (failureAttributionSealed
-                || !stdoutEof
-                || activeRequest != null
-                || terminalOutcome != null
-                || closed.get()) {
-            return false;
-        }
-        failureAttributionSealed = true;
-        return true;
     }
 
     private static RequestFailureResolution selection(LineSessionException selected, LineSessionException candidate) {
@@ -397,7 +400,7 @@ final class LineSessionState {
     }
 
     private void retainDiscarded(Throwable failure) {
-        if (failure != null) {
+        if (failure instanceof Error) {
             discardedFailure.accept(failure);
         }
     }
@@ -437,6 +440,12 @@ final class LineSessionState {
             Objects.requireNonNull(selected, "selected");
         }
     }
+
+    record OutputSelection(TerminalSnapshot selected, Throwable discarded, boolean rejectedAfterClose) {}
+
+    private record FailureSelection(TerminalSnapshot selected, Throwable discarded, boolean rejectedAfterClose) {}
+
+    private record FatalSelection(TerminalSnapshot selected, Throwable discarded, boolean rejectedAfterClose) {}
 
     private record RequestFailureResolution(LineSessionException returnedFailure, Throwable reportableFailure) {
 

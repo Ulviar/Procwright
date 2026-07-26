@@ -8,6 +8,7 @@ import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.openLin
 import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.sleep;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -22,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -51,11 +53,12 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
 
             assertEquals(LineSessionException.Reason.TIMEOUT, exception.reason());
             assertTrue(exception.transcript().text().contains("stdout: started:slow"));
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             assertTrue(session.onExit().isDone());
             LineSessionException followUp =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
             assertEquals(LineSessionException.Reason.TIMEOUT, followUp.reason());
+            assertSame(exception, followUp.getCause());
             assertTrue(followUp.getMessage().contains("closed by an earlier failure"));
         }
     }
@@ -89,9 +92,10 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
             assertTrue(
                     thrown.get() instanceof LineSessionException,
                     () -> "expected typed line-session failure, got " + thrown.get());
-            assertEquals(LineSessionException.Reason.FAILURE, ((LineSessionException) thrown.get()).reason());
+            LineSessionException requestFailure = (LineSessionException) thrown.get();
+            assertEquals(LineSessionException.Reason.FAILURE, requestFailure.reason());
             assertTrue(interruptedAfterCatch.get(), "caller interrupt status must be restored after the typed failure");
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, requestFailure);
         }
     }
 
@@ -215,6 +219,7 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofMillis(50)));
 
             assertEquals(LineSessionException.Reason.TIMEOUT, timeout.reason());
+            assertExitFailedWith(session, timeout);
         }
     }
 
@@ -246,11 +251,18 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
             assertEquals(LineSessionException.Reason.TIMEOUT, timeout.reason());
             assertTrue(elapsed.compareTo(Duration.ofMillis(1500)) < 0, () -> "decoder timeout took " + elapsed);
             assertEquals(0, decoderStarted.getCount());
+            assertExitFailedWith(session, timeout);
         } finally {
             releaseDecoder.countDown();
             assertTrue(decoderFinished.await(1, TimeUnit.SECONDS));
             assertTaskStopped(decoderThread.get(), "line response decoder");
         }
+    }
+
+    private static void assertExitFailedWith(LineSession session, LineSessionException selectedFailureSource) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertSame(selectedFailureSource, observed.getCause());
     }
 
     private static boolean eventuallyTranscriptContains(LineSession session, String expected)

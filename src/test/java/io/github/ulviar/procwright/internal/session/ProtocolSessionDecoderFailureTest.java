@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -46,7 +48,6 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
             InputStream stderr = fatalStdout ? InputStream.nullInputStream() : fatalStream;
             CountingOutputStream stdin = new CountingOutputStream();
             ControllableProcess process = new ControllableProcess(stdin, stdout, stderr);
-            DefaultSession rawSession = session(process);
             ProtocolAdapter<String, Byte> adapter = new ProtocolAdapter<>() {
                 @Override
                 public void writeRequest(String request, ProtocolWriter writer) {
@@ -59,8 +60,8 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
                     return readers.stdout().readByte();
                 }
             };
-            DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                    rawSession, adapter, options(charset).withTranscriptLimit(32));
+            DefaultProtocolSession<String, Byte> protocol =
+                    protocolSession(process, adapter, options(charset).withTranscriptLimit(32));
             ExecutorService executor = Executors.newSingleThreadExecutor();
             try {
                 Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -70,7 +71,7 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
                 charset.releaseFailure();
 
                 assertSame(fatalError, request.get(2, TimeUnit.SECONDS));
-                protocol.onExit().get(1, TimeUnit.SECONDS);
+                assertExitFailedWith(protocol, fatalError);
                 assertFalse(process.isAlive());
                 assertTrue(protocol.transcript().text().length() <= 32);
                 int writesAfterFailure = stdin.writeCalls();
@@ -93,12 +94,12 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
     }
 
     @Test
-    void protocolStderrDecoderErrorSupersedesEarlierResponseLimitFailure() throws Exception {
+    void lateProtocolStderrDecoderErrorDoesNotReplaceEarlierResponseLimitFailure() throws Exception {
         assertResponseLimitAndFatalErrorAreArbitrated(true);
     }
 
     @Test
-    void protocolStderrDecoderErrorRemainsPrimaryWhenResponseLimitFailsLater() throws Exception {
+    void protocolStderrDecoderErrorSelectedFirstRemainsPrimary() throws Exception {
         assertResponseLimitAndFatalErrorAreArbitrated(false);
     }
 
@@ -132,9 +133,7 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
             }
         };
         ControllableProcess process = new ControllableProcess(stdin, stdout, stderr);
-        DefaultSession rawSession = session(process);
-        DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, options(charset));
+        DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, options(charset));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -153,27 +152,34 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
             assertTrue(charset.awaitFatalDecoder(), "stderr decoder did not reach its controlled boundary");
             charset.releaseFatalDecoder();
             if (!responseFailureFirst) {
-                protocol.onExit().get(1, TimeUnit.SECONDS);
-                assertFalse(process.isAlive());
                 charset.releaseResponseDecoder();
-                assertTrue(
-                        responseFailureCaught.await(1, TimeUnit.SECONDS),
-                        "the later response limit must still be observed by the adapter");
             }
 
-            protocol.onExit().get(1, TimeUnit.SECONDS);
-            assertFalse(process.isAlive());
             allowCallbackReturn.countDown();
-
             Throwable thrown = request.get(2, TimeUnit.SECONDS);
             ProtocolSessionException responseFailure = observedResponseFailure.get();
-            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
-            assertSame(fatalError, thrown);
+            if (responseFailureFirst) {
+                assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
+                assertSame(responseFailure, thrown);
+                assertExitFailedWith(protocol, responseFailure);
+            } else {
+                assertSame(fatalError, thrown);
+                assertExitFailedWith(protocol, fatalError);
+                if (responseFailure != null) {
+                    assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseFailure.reason());
+                }
+            }
+            assertFalse(process.isAlive());
             assertEquals(0, fatalError.getSuppressed().length);
 
             int writesAfterFailure = stdin.writeCalls();
             Throwable followUp = captureFailure(() -> protocol.request("retry"));
-            assertSame(fatalError, followUp);
+            if (responseFailureFirst) {
+                ProtocolSessionException followUpFailure = assertInstanceOf(ProtocolSessionException.class, followUp);
+                assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUpFailure.reason());
+            } else {
+                assertSame(fatalError, followUp);
+            }
             assertEquals(writesAfterFailure, stdin.writeCalls());
         } finally {
             stdout.releaseByte();
@@ -188,6 +194,12 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
                 assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
             }
         }
+    }
+
+    private static void assertExitFailedWith(DefaultProtocolSession<?, ?> protocol, Throwable expectedFailure) {
+        ExecutionException exitFailure =
+                assertThrows(ExecutionException.class, () -> protocol.onExit().get(1, TimeUnit.SECONDS));
+        assertSame(expectedFailure, exitFailure.getCause());
     }
 
     private static final class LatchingFatalTranscriptCharset extends Charset {

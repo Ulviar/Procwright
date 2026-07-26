@@ -2,12 +2,12 @@
 
 package io.github.ulviar.procwright.kotlin
 
+import io.github.ulviar.procwright.ExpectScenario
 import io.github.ulviar.procwright.InteractiveScenario
 import io.github.ulviar.procwright.LineSessionScenario
 import io.github.ulviar.procwright.ProtocolSessionScenario
 import io.github.ulviar.procwright.RunScenario
 import io.github.ulviar.procwright.StreamScenario
-import io.github.ulviar.procwright.session.Expect
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -87,50 +87,57 @@ class DurationExtensionsTest {
         ) {
             it.withMaxWorkerAge(value)
         }
-        assertForwarded<Expect.Draft>("withTimeout", value) { it.withTimeout(value) }
+        assertForwarded<ExpectScenario.Draft>("withTimeout", value) { it.withTimeout(value) }
+        assertForwarded<ExpectScenario.Draft>("withIdleTimeout", value) {
+            it.withIdleTimeout(value)
+        }
+        assertForwarded<ExpectScenario.Draft>("withReadinessTimeout", value) {
+            it.withReadinessTimeout(value)
+        }
     }
 
     @Test
     fun `draft duration extensions inherit Java zero negative and infinite validation`() {
-        javaService().interactive().withArgs(*fixtureArgs("sleep", "30000")).open().use { session ->
-            val service = javaService()
-            val protocol = service.protocolSession(lineAdapterFactory())
-            val nonNegative =
-                listOf<(Duration) -> Any>(
-                    { service.run().withTimeout(it) },
-                    { service.interactive().withIdleTimeout(it) },
-                    { service.lineSession().withIdleTimeout(it) },
-                    { service.lineSession().pooled().withMaxWorkerAge(it) },
-                    { service.listen().withTimeout(it) },
-                    { protocol.withIdleTimeout(it) },
-                    { protocol.pooled().withMaxWorkerAge(it) },
-                )
-            val positive =
-                listOf<(Duration) -> Any>(
-                    { service.interactive().withReadinessTimeout(it) },
-                    { service.lineSession().withReadinessTimeout(it) },
-                    { service.lineSession().withRequestTimeout(it) },
-                    { service.lineSession().pooled().withAcquireTimeout(it) },
-                    { service.lineSession().pooled().withHookTimeout(it) },
-                    { service.lineSession().pooled().withCloseTimeout(it) },
-                    { protocol.withReadinessTimeout(it) },
-                    { protocol.withRequestTimeout(it) },
-                    { protocol.pooled().withAcquireTimeout(it) },
-                    { protocol.pooled().withHookTimeout(it) },
-                    { protocol.pooled().withCloseTimeout(it) },
-                    { session.expect().withTimeout(it) },
-                )
+        val service = javaService()
+        val protocol = service.protocolSession(lineAdapterFactory())
+        val expect = service.interactive().expect()
+        val nonNegative =
+            listOf<(Duration) -> Any>(
+                { service.run().withTimeout(it) },
+                { service.interactive().withIdleTimeout(it) },
+                { expect.withIdleTimeout(it) },
+                { service.lineSession().withIdleTimeout(it) },
+                { service.lineSession().pooled().withMaxWorkerAge(it) },
+                { service.listen().withTimeout(it) },
+                { protocol.withIdleTimeout(it) },
+                { protocol.pooled().withMaxWorkerAge(it) },
+            )
+        val positive =
+            listOf<(Duration) -> Any>(
+                { service.interactive().withReadinessTimeout(it) },
+                { expect.withReadinessTimeout(it) },
+                { expect.withTimeout(it) },
+                { service.lineSession().withReadinessTimeout(it) },
+                { service.lineSession().withRequestTimeout(it) },
+                { service.lineSession().pooled().withAcquireTimeout(it) },
+                { service.lineSession().pooled().withHookTimeout(it) },
+                { service.lineSession().pooled().withCloseTimeout(it) },
+                { protocol.withReadinessTimeout(it) },
+                { protocol.withRequestTimeout(it) },
+                { protocol.pooled().withAcquireTimeout(it) },
+                { protocol.pooled().withHookTimeout(it) },
+                { protocol.pooled().withCloseTimeout(it) },
+            )
 
-            nonNegative.forEach { extension ->
-                extension(Duration.ZERO)
-                extension(INFINITE)
-                assertFailsWith<IllegalArgumentException> { extension((-1).nanoseconds) }
-            }
-            positive.forEach { extension ->
-                extension(INFINITE)
-                assertFailsWith<IllegalArgumentException> { extension(Duration.ZERO) }
-                assertFailsWith<IllegalArgumentException> { extension((-1).nanoseconds) }
-            }
+        nonNegative.forEach { extension ->
+            extension(Duration.ZERO)
+            extension(INFINITE)
+            assertFailsWith<IllegalArgumentException> { extension((-1).nanoseconds) }
+        }
+        positive.forEach { extension ->
+            extension(INFINITE)
+            assertFailsWith<IllegalArgumentException> { extension(Duration.ZERO) }
+            assertFailsWith<IllegalArgumentException> { extension((-1).nanoseconds) }
         }
     }
 
@@ -188,27 +195,24 @@ class DurationExtensionsTest {
                 }
             }
 
-        javaService().interactive().withArgs(*fixtureArgs("expect-output")).open().use { session ->
-            session.expect().open().use { expect ->
-                expect.expectText("text", INFINITE)
-                expect.expectRegex(Pattern.compile("regex42"), INFINITE)
-                assertEquals("match", expect.expectTextMatch("match", INFINITE).matched())
-                assertEquals(
-                    "regex99",
-                    expect.expectRegexMatch(Pattern.compile("regex99"), INFINITE).matched(),
-                )
-                assertFailsWith<IllegalArgumentException> {
-                    expect.expectText("never", Duration.ZERO)
-                }
-                assertFailsWith<IllegalArgumentException> {
-                    expect.expectRegex(Pattern.compile("never"), (-1).nanoseconds)
-                }
-                assertFailsWith<IllegalArgumentException> {
-                    expect.expectTextMatch("never", Duration.ZERO)
-                }
-                assertFailsWith<IllegalArgumentException> {
-                    expect.expectRegexMatch(Pattern.compile("never"), (-1).nanoseconds)
-                }
+        javaService().interactive().expect().withArgs(*fixtureArgs("expect-output")).open().use {
+            expect ->
+            expect.expectText("text", INFINITE)
+            expect.expectRegex(Pattern.compile("regex42"), INFINITE)
+            assertEquals("match", expect.expectTextMatch("match", INFINITE).matched())
+            assertEquals(
+                "regex99",
+                expect.expectRegexMatch(Pattern.compile("regex99"), INFINITE).matched(),
+            )
+            assertFailsWith<IllegalArgumentException> { expect.expectText("never", Duration.ZERO) }
+            assertFailsWith<IllegalArgumentException> {
+                expect.expectRegex(Pattern.compile("never"), (-1).nanoseconds)
+            }
+            assertFailsWith<IllegalArgumentException> {
+                expect.expectTextMatch("never", Duration.ZERO)
+            }
+            assertFailsWith<IllegalArgumentException> {
+                expect.expectRegexMatch(Pattern.compile("never"), (-1).nanoseconds)
             }
         }
     }

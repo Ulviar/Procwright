@@ -4,10 +4,8 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
-import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DurationSupport;
-import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.StreamExecutionPlan;
 import io.github.ulviar.procwright.session.StreamChunk;
 import io.github.ulviar.procwright.session.StreamException;
@@ -17,15 +15,10 @@ import io.github.ulviar.procwright.session.StreamSource;
 import io.github.ulviar.procwright.session.StreamTranscript;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.CoderMalfunctionError;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongSupplier;
 
 /**
@@ -35,8 +28,6 @@ import java.util.function.LongSupplier;
  * output; only a bounded diagnostic window is kept for exit and failure signals.
  */
 public final class DefaultStreamSession implements StreamSession {
-
-    private static final String OUTPUT_OWNER = "StreamSession";
 
     private final DefaultSession session;
     private final Duration timeout;
@@ -48,8 +39,8 @@ public final class DefaultStreamSession implements StreamSession {
     private final LongSupplier nanoTime;
     private final long startedNanos;
     private final CompletableFuture<StreamExit> exit = new CompletableFuture<>();
-    private final StreamSessionState state = new StreamSessionState(2);
     private final StreamTimeoutWatcher timeoutWatcher = new StreamTimeoutWatcher();
+    private final AtomicBoolean stopping = new AtomicBoolean();
 
     DefaultStreamSession(DefaultSession session, StreamExecutionPlan plan, DiagnosticEmitter eventDiagnostics) {
         this(session, plan, eventDiagnostics, Dependencies.defaults());
@@ -64,7 +55,7 @@ public final class DefaultStreamSession implements StreamSession {
         Objects.requireNonNull(plan, "plan");
         Dependencies runtime = Objects.requireNonNull(dependencies, "dependencies");
         this.timeout = plan.timeout();
-        this.outputPumps = new OutputPumpCoordinator(session, OUTPUT_OWNER);
+        this.outputPumps = new OutputPumpCoordinator(session, SessionOutputMode.STREAM);
         this.outputReader = new StreamOutputReader(
                 CharsetPolicy.replace(plan.sessionPlan().charset()), plan.diagnosticLimit(), runtime.zeroReadBackoff());
         this.listenerDispatcher = new StreamListenerDispatcher(plan.listener());
@@ -72,25 +63,20 @@ public final class DefaultStreamSession implements StreamSession {
         this.nanoTime = runtime.nanoTime();
         this.startedNanos = nanoTime.getAsLong();
         this.diagnostics = new BoundedTranscriptBuffer(plan.diagnosticLimit());
-        boolean pumpsCommitted = false;
         try {
             startPumps(runtime.pumpStarter());
-            pumpsCommitted = true;
             startTimeoutWatcher();
             startExitWatcher();
             session.closeStdin();
         } catch (RuntimeException | Error failure) {
             abortStartup();
-            if (pumpsCommitted) {
-                outputPumps.closeSessionPreserving(failure);
-            }
             throw failure;
         }
     }
 
     /**
-     * Returns a stream-session exit future view. The future completes after the process exits, output pumps drain, and
-     * helper-owned physical output cleanup releases its internal ownership.
+     * Returns a stream-session exit future view. It completes after process supervision and logical stream-mode
+     * settlement; potentially blocking physical stream closes continue independently.
      *
      * @return stream exit future
      */
@@ -111,29 +97,13 @@ public final class DefaultStreamSession implements StreamSession {
         return timeoutWatcher.stopped();
     }
 
-    CompletableFuture<Void> physicalOutputCleanup() {
-        return session.physicalOutputCleanup();
-    }
-
     /**
      * Stops the underlying process through the configured shutdown policy. Calling this method more than once has no
      * effect.
      */
     @Override
     public void close() {
-        if (selectControlOutcome(StreamSessionState.Control.CLOSED)) {
-            Throwable failure = null;
-            if (!session.terminationPublished()) {
-                failure = emitCollecting(
-                        DiagnosticEventType.SHUTDOWN_REQUESTED,
-                        DiagnosticEmitter.attributes("reason", "close"),
-                        failure);
-            }
-            stopTimeoutWatcher();
-            failure = closeOutputPumpsCollecting(failure);
-            maybeComplete();
-            rethrow(failure);
-        }
+        stop(false);
     }
 
     private void startPumps(PumpStarter pumpStarter) {
@@ -142,204 +112,120 @@ public final class DefaultStreamSession implements StreamSession {
                 "procwright-stream-stdout-",
                 stream -> pump(StreamSource.STDOUT, stream),
                 "procwright-stream-stderr-",
-                stream -> pump(StreamSource.STDERR, stream),
-                this::abortStartup);
+                stream -> pump(StreamSource.STDERR, stream));
     }
 
     private void pump(StreamSource source, InputStream stream) {
-        AtomicReference<Throwable> lateFailure = new AtomicReference<>();
         try {
-            outputReader.read(
-                    stream,
-                    state::stopping,
-                    (chars, count) -> recordLate(lateFailure, publishDecoded(source, chars, count)));
+            outputReader.read(stream, stopping::get, (chars, count) -> publishDecoded(source, chars, count));
         } catch (IOException exception) {
-            if (!isControlledStop()) {
-                recordLate(lateFailure, failOutputRead(exception));
+            if (!stopping.get()) {
+                if (exception instanceof IncrementalTextDecoder.DecoderStateException
+                        && exception.getCause() instanceof Error decoderError) {
+                    failFatal(decoderError);
+                } else {
+                    failOutputRead(exception);
+                }
             }
-        } catch (RuntimeException | CoderMalfunctionError exception) {
-            if (isControlledStop()) {
-                recordLate(lateFailure, exception);
-            } else {
-                recordLate(lateFailure, failOutputRead(exception));
+        } catch (RuntimeException exception) {
+            if (!stopping.get()) {
+                failOutputRead(exception);
             }
         } catch (Error error) {
-            recordLate(lateFailure, failFatal(error));
-        } finally {
-            if (state.outputPumpCompleted()) {
-                listenerDispatcher.stop();
-                maybeComplete();
-            }
-            reportLate(lateFailure.get());
+            failFatal(error);
         }
     }
 
-    private Throwable publishDecoded(StreamSource source, char[] chars, int count) {
-        if (state.stopping()) {
-            return null;
+    private void publishDecoded(StreamSource source, char[] chars, int count) {
+        if (stopping.get()) {
+            return;
         }
         String text = new String(chars, 0, count);
         boolean truncated = diagnostics.appendStream(source.label(), text);
         if (truncated) {
-            eventDiagnostics.emit(
+            eventDiagnostics.emitBestEffort(
                     DiagnosticEventType.OUTPUT_TRUNCATED,
                     DiagnosticEmitter.attributes(
                             "source", "diagnostics", "limitChars", Integer.toString(diagnostics.limit())));
         }
-        return deliver(new StreamChunk(source, text));
+        deliver(new StreamChunk(source, text));
     }
 
-    private Throwable failOutputRead(Throwable failure) {
-        return recordFailure(StreamException.Reason.OUTPUT_READ_FAILED, "Could not read streaming output", failure);
+    private void failOutputRead(Throwable failure) {
+        recordFailure(StreamException.Reason.OUTPUT_READ_FAILED, "Could not read streaming output", failure);
     }
 
-    private Throwable deliver(StreamChunk chunk) {
+    private void deliver(StreamChunk chunk) {
         try {
-            listenerDispatcher.deliver(chunk, () -> !state.stopping() && !state.hasOutcome());
-            return null;
-        } catch (InterruptedException interruption) {
-            Thread.currentThread().interrupt();
-            if (isControlledStop()) {
-                return null;
-            }
-            return recordFailure(
-                    StreamException.Reason.LISTENER_FAILED,
-                    "Interrupted while delivering streaming output",
-                    interruption);
-        } catch (TimeoutException timeoutFailure) {
-            return recordFailure(
-                    StreamException.Reason.LISTENER_FAILED,
-                    "Streaming listener capacity was unavailable",
-                    timeoutFailure);
-        } catch (ExecutionException listenerFailure) {
-            Throwable cause = listenerFailure.getCause();
-            if (cause instanceof Error error) {
-                return failFatal(error);
-            }
-            return recordFailure(StreamException.Reason.LISTENER_FAILED, "Streaming listener failed", cause);
+            listenerDispatcher.deliver(chunk);
         } catch (RuntimeException failure) {
-            return recordFailure(
-                    StreamException.Reason.LISTENER_FAILED, "Could not invoke streaming listener", failure);
+            recordFailure(StreamException.Reason.LISTENER_FAILED, "Could not invoke streaming listener", failure);
         } catch (Error error) {
-            return failFatal(error);
+            failFatal(error);
         }
     }
 
     private void startExitWatcher() {
-        session.observeExit((value, throwable) -> {
-            if (throwable == null) {
-                state.nestedSucceeded(value);
-            } else {
-                Throwable processFailure = unwrapCompletionFailure(throwable);
-                state.nestedFailed(processFailure);
-                if (processFailure instanceof Error error) {
-                    reportLate(failFatal(error));
-                } else {
-                    reportLate(recordFailure(
-                            StreamException.Reason.PROCESS_FAILED, "Streaming process failed", processFailure));
-                }
-            }
-            maybeComplete();
-        });
+        session.observePublicOutcome(this::publish);
     }
 
     private void startTimeoutWatcher() {
-        timeoutWatcher.start(timeout, state::hasOutcome, this::expireTimeout);
+        timeoutWatcher.start(timeout, session::terminationPublished, this::expireTimeout);
     }
 
     void expireTimeout() {
-        if (!selectControlOutcome(StreamSessionState.Control.TIMED_OUT)) {
-            return;
-        }
-        Throwable failure = emitCollecting(DiagnosticEventType.TIMEOUT_REACHED, java.util.Map.of(), null);
-        failure = emitCollecting(
-                DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "timeout"), failure);
-        failure = closeOutputPumpsCollecting(failure);
-        maybeComplete();
-        rethrow(failure);
+        outputPumps.closeSession(true, () -> {
+            beginStopping();
+            emitBestEffort(DiagnosticEventType.TIMEOUT_REACHED);
+            stopTimeoutWatcher();
+        });
     }
 
-    private Throwable recordFailure(StreamException.Reason reason, String message, Throwable cause) {
+    private void recordFailure(StreamException.Reason reason, String message, Throwable cause) {
         StreamException exception = new StreamException(reason, message, streamTranscript(), cause);
-        StreamSessionState.FailureSelection selection = selectFailure(exception);
-        if (selection.installed() && reason == StreamException.Reason.LISTENER_FAILED) {
-            emitPreserving(DiagnosticEventType.LISTENER_FAILED, exception);
+        boolean selected = outputPumps.closeSessionAfterFailure(exception, this::beginStopping);
+        if (selected && reason == StreamException.Reason.LISTENER_FAILED) {
+            emitBestEffort(DiagnosticEventType.LISTENER_FAILED);
         }
-        activate(selection);
-        return selection.reportableFailure();
     }
 
-    private Throwable failFatal(Error error) {
-        StreamSessionState.FailureSelection selection = selectFailure(error);
-        activate(selection);
-        return selection.reportableFailure();
+    private void failFatal(Error error) {
+        outputPumps.closeSessionAfterFailure(error, this::beginStopping);
     }
 
-    private StreamSessionState.FailureSelection selectFailure(Throwable candidate) {
-        StreamSessionState.FailureSelection selection = state.selectFailure(candidate);
-        if (selection.installed()) {
+    private void stop(boolean timedOut) {
+        outputPumps.closeSession(timedOut, () -> {
             beginStopping();
-        }
-        return selection;
+            stopTimeoutWatcher();
+        });
     }
 
-    private void activate(StreamSessionState.FailureSelection selection) {
-        if (!selection.installed()) {
-            maybeComplete();
-            return;
-        }
-        Throwable primary = selection.primary();
-        emitPreserving(DiagnosticEventType.PROCESS_FAILED, DiagnosticEmitter.failureAttributes(primary), primary);
-        emitPreserving(
-                DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "failure"), primary);
-        outputPumps.closeSessionPreserving(primary);
-        maybeComplete();
-    }
-
-    private void maybeComplete() {
-        StreamSessionState.Completion completion = state.claimCompletion();
-        if (completion == null) {
-            return;
-        }
+    private void publish(SessionTerminal.PublicOutcome outcome) {
         beginStopping();
-        if (completion instanceof StreamSessionState.FailedCompletion failed) {
-            publishFailure(failed.primary());
+        stopTimeoutWatcherBeforePublication();
+        Throwable failure = streamFailure(outcome.failure());
+        if (failure != null) {
+            exit.completeExceptionally(failure);
             return;
         }
-        StreamSessionState.SuccessfulCompletion successful = (StreamSessionState.SuccessfulCompletion) completion;
-        stopTimeoutWatcherBeforePublication();
-        outputPumps.publishAfterOutputCleanup(() -> session.afterPhysicalOutputCleanup(() -> {
-            StreamExit terminal = new StreamExit(
-                    successful.exitCode(),
-                    successful.timedOut(),
-                    successful.closed(),
-                    streamTranscript(),
-                    DurationSupport.elapsed(startedNanos, nanoTime.getAsLong()));
-            Throwable diagnosticFailure = emitCollecting(
-                    DiagnosticEventType.PROCESS_EXITED,
-                    exitAttributes(successful.exitCode(), successful.timedOut()),
-                    null);
-            exit.complete(terminal);
-            reportLate(diagnosticFailure);
-        }));
+        var terminal = outcome.result();
+        exit.complete(new StreamExit(
+                terminal.exitCode(),
+                terminal.timedOut(),
+                outcome.successKind() == SessionTerminal.SuccessKind.CLOSED,
+                streamTranscript(),
+                DurationSupport.elapsed(startedNanos, nanoTime.getAsLong())));
     }
 
-    private void publishFailure(Throwable primary) {
-        stopTimeoutWatcherBeforePublication();
-        outputPumps.publishAfterOutputCleanup(
-                () -> session.afterPhysicalOutputCleanup(() -> exit.completeExceptionally(primary)));
-    }
-
-    private boolean selectControlOutcome(StreamSessionState.Control candidate) {
-        boolean selected = state.selectControl(candidate);
-        if (selected) {
-            beginStopping();
+    private Throwable streamFailure(Throwable processFailure) {
+        if (processFailure == null) {
+            return null;
         }
-        return selected;
-    }
-
-    private boolean isControlledStop() {
-        return state.controlledStop();
+        if (processFailure instanceof Error || processFailure instanceof StreamException) {
+            return processFailure;
+        }
+        return new StreamException(
+                StreamException.Reason.PROCESS_FAILED, "Streaming process failed", streamTranscript(), processFailure);
     }
 
     private void stopTimeoutWatcher() {
@@ -355,85 +241,16 @@ public final class DefaultStreamSession implements StreamSession {
         stopTimeoutWatcher();
     }
 
-    private void emitPreserving(DiagnosticEventType type, Throwable primary) {
-        emitPreserving(type, java.util.Map.of(), primary);
+    private void emitBestEffort(DiagnosticEventType type) {
+        eventDiagnostics.emitBestEffort(type);
     }
 
-    private void emitPreserving(DiagnosticEventType type, java.util.Map<String, String> attributes, Throwable primary) {
-        emitCollecting(type, attributes, primary);
-    }
-
-    private Throwable emitCollecting(
-            DiagnosticEventType type, java.util.Map<String, String> attributes, Throwable primary) {
-        try {
-            eventDiagnostics.emit(type, attributes);
-            return primary;
-        } catch (RuntimeException | Error diagnosticFailure) {
-            return FailureAggregation.combine(primary, diagnosticFailure, "Multiple stream diagnostic failures");
+    private boolean beginStopping() {
+        if (stopping.compareAndSet(false, true)) {
+            listenerDispatcher.stop();
+            return true;
         }
-    }
-
-    private void reportLate(Throwable failure) {
-        if (failure != null) {
-            BoundedFailureReporter.FailureTarget failureTarget = BoundedFailureReporter.captureFailureTarget();
-            exit.whenComplete((ignored, terminalFailure) ->
-                    BoundedFailureReporter.shared().report(failureTarget, failure));
-        }
-    }
-
-    private static void recordLate(AtomicReference<Throwable> target, Throwable failure) {
-        if (failure != null) {
-            target.accumulateAndGet(
-                    failure,
-                    (current, next) ->
-                            FailureAggregation.combine(current, next, "Multiple late stream-session failures"));
-        }
-    }
-
-    private void beginStopping() {
-        state.stop();
-        listenerDispatcher.stop();
-    }
-
-    private Throwable closeOutputPumpsCollecting(Throwable primary) {
-        try {
-            if (primary == null) {
-                outputPumps.closeSession();
-            } else {
-                outputPumps.closeSessionPreserving(primary);
-            }
-            return primary;
-        } catch (RuntimeException | Error closeFailure) {
-            return FailureAggregation.combine(primary, closeFailure, "Multiple stream-session shutdown failures");
-        }
-    }
-
-    private static void rethrow(Throwable failure) {
-        if (failure instanceof RuntimeException runtimeFailure) {
-            throw runtimeFailure;
-        }
-        if (failure instanceof Error error) {
-            throw error;
-        }
-    }
-
-    private static Throwable unwrapCompletionFailure(Throwable failure) {
-        if (!(failure instanceof CompletionException)) {
-            return failure;
-        }
-        try {
-            Throwable cause = failure.getCause();
-            return cause == null ? failure : cause;
-        } catch (Throwable ignored) {
-            return failure;
-        }
-    }
-
-    private static java.util.Map<String, String> exitAttributes(OptionalInt exitCode, boolean timedOut) {
-        java.util.LinkedHashMap<String, String> attributes = new java.util.LinkedHashMap<>();
-        attributes.put("timedOut", Boolean.toString(timedOut));
-        exitCode.ifPresent(value -> attributes.put("exitCode", Integer.toString(value)));
-        return attributes;
+        return false;
     }
 
     private StreamTranscript streamTranscript() {

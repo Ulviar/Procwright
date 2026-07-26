@@ -13,6 +13,7 @@ import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.LineSessionException;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -32,12 +33,13 @@ final class LineSessionResponseDecoderIntegrationTest {
     }
 
     @Test
-    void eofBeforeResponseIsDistinct() {
+    void eofBeforeResponseIsDistinct() throws Exception {
         try (LineSession session = openLineSession(fixtureScenario(), call -> call.withArgs("exit-after-read"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
             assertEquals(LineSessionException.Reason.EOF, exception.reason());
+            assertEquals(0, session.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
         }
     }
 
@@ -52,6 +54,7 @@ final class LineSessionResponseDecoderIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
             assertEquals(LineSessionException.Reason.DECODER_FAILED, exception.reason());
+            assertExitFailedWith(session, exception);
         }
     }
 
@@ -68,10 +71,18 @@ final class LineSessionResponseDecoderIntegrationTest {
                     assertThrows(AssertionError.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
             assertSame(decoderError, thrown);
-            session.onExit().get(2, TimeUnit.SECONDS);
-            LineSessionException followUp =
-                    assertThrows(LineSessionException.class, () -> session.request("again", Duration.ofSeconds(1)));
-            assertEquals(LineSessionException.Reason.DECODER_FAILED, followUp.reason());
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+            assertSame(decoderError, exitFailure.getCause());
+            AssertionError followUp =
+                    assertThrows(AssertionError.class, () -> session.request("again", Duration.ofSeconds(1)));
+            assertSame(decoderError, followUp);
         }
+    }
+
+    private static void assertExitFailedWith(LineSession session, LineSessionException selectedFailureSource) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertSame(selectedFailureSource, observed.getCause());
     }
 }

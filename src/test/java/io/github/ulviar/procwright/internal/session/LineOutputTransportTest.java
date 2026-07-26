@@ -4,8 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ResponseInputStream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -16,16 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.LineTranscript;
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -38,12 +32,12 @@ final class LineOutputTransportTest {
         LineSessionSettings options = LineSessionSettings.defaults().withStdoutBacklogChars(1);
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
         LineSessionState.Request request = state.beginRequest();
-        ControllableProcess process = new ControllableProcess(
-                OutputStream.nullOutputStream(),
-                new ByteArrayInputStream("oversized\n".getBytes(StandardCharsets.UTF_8)),
-                InputStream.nullInputStream());
-        DefaultSession session = openSession(process);
-        LineOutputTransport transport = transport(options, state, session);
+        ResponseInputStream stdout = new ResponseInputStream();
+        ControllableProcess process =
+                new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
+        TransportHarness harness = openStartedTransport(process, options, state);
+        DefaultSession session = harness.session();
+        LineOutputTransport transport = harness.transport();
         AtomicReference<LineOutputTransport.Event> returned = new AtomicReference<>();
         AtomicReference<Throwable> thrown = new AtomicReference<>();
         Thread waiter = new Thread(() -> {
@@ -58,7 +52,7 @@ final class LineOutputTransportTest {
         try {
             waiter.start();
             assertTrue(awaitState(waiter, Thread.State.TIMED_WAITING));
-            transport.start(PumpStarter.threading());
+            stdout.publish("oversized\n".getBytes(StandardCharsets.UTF_8));
             waiter.join(TimeUnit.SECONDS.toMillis(1));
 
             assertFalse(waiter.isAlive());
@@ -80,10 +74,7 @@ final class LineOutputTransportTest {
         LineSessionSettings options = LineSessionSettings.defaults();
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
         LineSessionState.Request request = state.beginRequest();
-        ControllableProcess process = new ControllableProcess(
-                OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = openSession(process);
-        LineOutputTransport transport = transport(options, state, session);
+        LineOutputTransport transport = transport(options, state);
         AtomicReference<LineOutputTransport.Event> returned = new AtomicReference<>();
         AtomicReference<Throwable> thrown = new AtomicReference<>();
         Thread waiter = new Thread(() -> {
@@ -112,148 +103,54 @@ final class LineOutputTransportTest {
         } finally {
             waiter.interrupt();
             waiter.join(TimeUnit.SECONDS.toMillis(1));
-            process.complete(0);
-            session.close();
         }
     }
 
     @Test
-    void losingTerminalFailureDoesNotHoldTheEventQueueLockOrMutateTheWinner() throws Exception {
+    void publishingSelectedTerminalDoesNotInspectItsFailureGraph() throws Exception {
         LineSessionSettings options = LineSessionSettings.defaults();
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
         IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
-        ControllableProcess process = new ControllableProcess(
-                OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = openSession(process);
-        LineOutputTransport transport = transport(options, state, session);
+        LineSessionState.TerminalSnapshot selected =
+                state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
+        LineOutputTransport transport = transport(options, state);
         try (var monitor = hold(primary)) {
             monitor.verifyHeld();
-            transport.publishFailure(LineSessionException.Reason.FAILURE, "secondary", secondary);
+            transport.publishTerminal(selected);
             transport.closeReaders();
-        } finally {
-            process.complete(0);
-            session.close();
         }
 
         assertEquals(0, primary.getSuppressed().length);
-        assertEquals(0, secondary.getSuppressed().length);
     }
 
     @Test
-    void losingFailureConsumerCannotHoldTheEventQueueLock() throws Exception {
-        CountDownLatch consumerEntered = new CountDownLatch(1);
-        CountDownLatch releaseConsumer = new CountDownLatch(1);
-        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), ignored -> {
-            consumerEntered.countDown();
-            awaitUninterruptibly(releaseConsumer);
-        });
-        IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
-        LineSessionState.Request request = state.beginRequest();
-        ControllableProcess process = new ControllableProcess(
-                OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = openSession(process);
-        LineOutputTransport transport = transport(LineSessionSettings.defaults(), state, session);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            Future<?> publication = executor.submit(
-                    () -> transport.publishFailure(LineSessionException.Reason.FAILURE, "secondary", secondary));
-            assertTrue(consumerEntered.await(1, TimeUnit.SECONDS));
-
-            Future<LineOutputTransport.Event> read = executor.submit(() ->
-                    transport.take(System.nanoTime() + Duration.ofSeconds(1).toNanos(), request));
-            assertSame(
-                    primary,
-                    assertInstanceOf(LineOutputTransport.FailureEvent.class, read.get(1, TimeUnit.SECONDS))
-                            .failure());
-
-            releaseConsumer.countDown();
-            publication.get(1, TimeUnit.SECONDS);
-        } finally {
-            releaseConsumer.countDown();
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            process.complete(0);
-            session.close();
-        }
-    }
-
-    @Test
-    void backlogOverflowReleasesTheEventQueueBeforeRoutingTheLosingFailure() throws Exception {
-        CountDownLatch consumerEntered = new CountDownLatch(1);
-        CountDownLatch releaseConsumer = new CountDownLatch(1);
-        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), ignored -> {
-            consumerEntered.countDown();
-            awaitUninterruptibly(releaseConsumer);
-        });
-        state.recordTerminalFailure(
-                LineSessionException.Reason.FAILURE, "primary", new IllegalStateException("primary"));
-        LineSessionState.Request request = state.beginRequest();
-        LineSessionSettings options = LineSessionSettings.defaults().withStdoutBacklogChars(1);
-        ControllableProcess process = new ControllableProcess(
-                OutputStream.nullOutputStream(),
-                new ByteArrayInputStream("overflow\n".getBytes(StandardCharsets.UTF_8)),
-                InputStream.nullInputStream());
-        DefaultSession session = openSession(process);
-        LineOutputTransport transport = transport(options, state, session);
-        try {
-            transport.start(PumpStarter.threading());
-            assertTrue(consumerEntered.await(1, TimeUnit.SECONDS));
-
-            LineOutputTransport.FailureEvent event = assertInstanceOf(
-                    LineOutputTransport.FailureEvent.class,
-                    transport.take(System.nanoTime() + Duration.ofSeconds(1).toNanos(), request));
-
-            assertEquals(LineSessionException.Reason.FAILURE, event.reason());
-            assertEquals("primary", event.message());
-        } finally {
-            releaseConsumer.countDown();
-            transport.closeReaders();
-            process.complete(0);
-            session.close();
-        }
-    }
-
-    @Test
-    void failureEventDoesNotWaitForOrMutateAnEarlierTerminalFailure() throws Exception {
+    void selectedFailureEventDoesNotWaitForOrMutateItsCause() throws Exception {
         LineSessionSettings options = LineSessionSettings.defaults();
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
         IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
+        LineSessionState.TerminalSnapshot selected =
+                state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
         LineSessionState.Request request = state.beginRequest();
-        ControllableProcess process = new ControllableProcess(
-                OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = openSession(process);
-        LineOutputTransport transport = transport(options, state, session);
+        LineOutputTransport transport = transport(options, state);
         try (var monitor = hold(primary)) {
             monitor.verifyHeld();
-            transport.publishFailure(LineSessionException.Reason.FAILURE, "secondary", secondary);
+            transport.publishTerminal(selected);
             LineOutputTransport.Event event =
                     transport.take(System.nanoTime() + Duration.ofSeconds(1).toNanos(), request);
             assertSame(
                     primary,
                     assertInstanceOf(LineOutputTransport.FailureEvent.class, event)
                             .failure());
-        } finally {
-            process.complete(0);
-            session.close();
         }
 
         assertEquals(0, primary.getSuppressed().length);
-        assertEquals(0, secondary.getSuppressed().length);
     }
 
-    private static LineOutputTransport transport(
-            LineSessionSettings options, LineSessionState state, DefaultSession session) {
+    private static LineOutputTransport transport(LineSessionSettings options, LineSessionState state) {
         return new LineOutputTransport(
                 options,
                 state,
                 ZeroReadBackoff.exponential(),
-                new OutputPumpCoordinator(session, "line-output-test"),
                 new BoundedTranscriptBuffer(options.transcriptLimit()),
                 new AtomicBoolean(),
                 decoder(options),
@@ -264,6 +161,28 @@ final class LineOutputTransportTest {
     private static IncrementalTextDecoder decoder(LineSessionSettings options) {
         return new IncrementalTextDecoder(
                 options.charsetPolicy(), IncrementalTextDecoder.pendingByteLimitFor(options.maxLineChars()));
+    }
+
+    private static TransportHarness openStartedTransport(
+            Process process, LineSessionSettings options, LineSessionState state) {
+        return SessionTestFixtures.openHandle(
+                process,
+                Duration.ZERO,
+                io.github.ulviar.procwright.command.ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                io.github.ulviar.procwright.internal.DiagnosticEmitter.of(
+                        io.github.ulviar.procwright.internal.DiagnosticsSettings.disabled(),
+                        "line-output-transport-test",
+                        io.github.ulviar.procwright.diagnostics.CommandEcho.empty()),
+                SessionOutputMode.LINE,
+                session -> {
+                    LineOutputTransport transport = transport(options, state);
+                    OutputPumpCoordinator pumps = new OutputPumpCoordinator(session, SessionOutputMode.LINE);
+                    transport.start(PumpStarter.threading(), pumps);
+                    return new TransportHarness(session, transport);
+                },
+                io.github.ulviar.procwright.internal.BoundedCloseDispatcher.shared(),
+                DefaultSession.WatcherStarter.threading());
     }
 
     private static Object eventLock(LineOutputTransport transport) throws ReflectiveOperationException {
@@ -294,4 +213,6 @@ final class LineOutputTransportTest {
         @Override
         public void closeQuietly(Throwable failure) {}
     }
+
+    private record TransportHarness(DefaultSession session, LineOutputTransport transport) {}
 }

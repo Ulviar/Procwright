@@ -66,7 +66,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
     }
 
     @Test
-    void closeAllDispatchesEveryOwnedStreamWhenAnyStarterFails() throws Exception {
+    void closeAllSettlesEveryOwnedStreamWhenAnyStarterFails() throws Exception {
         for (int failedOrdinal = 1; failedOrdinal <= 3; failedOrdinal++) {
             int expectedFailedOrdinal = failedOrdinal;
             for (Throwable expected : java.util.List.of(
@@ -95,15 +95,15 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
                 assertTrue(failureReported.await(1, TimeUnit.SECONDS));
                 assertSame(expected, reported.get());
                 assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
-                assertEquals(1, process.stdin.closeCalls.get(), "stdin close at starter " + failedOrdinal);
-                assertEquals(1, process.stdout.closeCalls.get(), "stdout close at starter " + failedOrdinal);
-                assertEquals(1, process.stderr.closeCalls.get(), "stderr close at starter " + failedOrdinal);
+                assertEquals(failedOrdinal == 1 ? 0 : 1, process.stdin.closeCalls.get());
+                assertEquals(failedOrdinal == 2 ? 0 : 1, process.stdout.closeCalls.get());
+                assertEquals(failedOrdinal == 3 ? 0 : 1, process.stderr.closeCalls.get());
             }
         }
     }
 
     @Test
-    void closeAllReportsSeveralDispatchFailuresAsOneFlatStableAggregate() throws Exception {
+    void closeAllKeepsStarterFailuresInsidePhysicalCloseOutcomes() throws Exception {
         IllegalStateException stdinFailure = new IllegalStateException("stdin starter failed");
         IllegalStateException stdoutFailure = new IllegalStateException("stdout starter failed");
         IllegalStateException stderrFailure = new IllegalStateException("stderr starter failed");
@@ -115,15 +115,15 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
         TrackingProcess process = new TrackingProcess();
         ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
 
-        Throwable aggregate = captureFailure(() -> resources.closeAllAsync(ignored -> {}));
+        Throwable synchronousFailure = captureFailure(() -> resources.closeAllAsync(ignored -> {}));
 
-        assertSame(stdinFailure, aggregate.getCause());
-        assertEquals(java.util.List.of(stdoutFailure, stderrFailure), java.util.List.of(aggregate.getSuppressed()));
+        assertNull(synchronousFailure);
+        assertTrue(resources.awaitClose(Duration.ofSeconds(1)) != null);
         failures.forEach(failure -> assertEquals(0, failure.getSuppressed().length));
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
-        assertEquals(1, process.stdin.closeCalls.get());
-        assertEquals(1, process.stdout.closeCalls.get());
-        assertEquals(1, process.stderr.closeCalls.get());
+        assertEquals(0, process.stdin.closeCalls.get());
+        assertEquals(0, process.stdout.closeCalls.get());
+        assertEquals(0, process.stderr.closeCalls.get());
     }
 
     private static void assertInvalidPairLeavesResourcesUsable(InvalidPairArgument invalidArgument) throws Exception {
@@ -139,7 +139,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
                     invalidArgument.toString());
             assertFalse(resources.stdout().closeStarted(), invalidArgument.toString());
             assertFalse(resources.stderr().closeStarted(), invalidArgument.toString());
-            assertEquals(6, dispatcher.outstandingCount(), invalidArgument.toString());
+            assertEquals(0, dispatcher.outstandingCount(), invalidArgument.toString());
 
             closeOutputPair(resources);
             resources.stdin().closeInline();

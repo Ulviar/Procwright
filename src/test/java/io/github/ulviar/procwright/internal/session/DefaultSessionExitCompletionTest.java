@@ -6,32 +6,79 @@ import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestF
 import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.awaitIgnoringInterrupts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
-import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.session.SessionExit;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 final class DefaultSessionExitCompletionTest {
 
     @Test
-    void failingInternalObserverUsesBestEffortReportingWithoutDelayingTerminalCompletion() throws Exception {
+    void helperStopClaimsItsOutcomeBeforeRunningTheStopAction() throws Exception {
+        DefaultStreamSessionTestSupport.ControllableProcess process =
+                new DefaultStreamSessionTestSupport.ControllableProcess(
+                        InputStream.nullInputStream(), InputStream.nullInputStream());
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+        CountDownLatch stopActionEntered = new CountDownLatch(1);
+        CountDownLatch releaseStopAction = new CountDownLatch(1);
+        CountDownLatch processOutcomeObserved = new CountDownLatch(1);
+        AtomicReference<SessionTerminal.SuccessKind> successKind = new AtomicReference<>();
+        session.observeTermination((ignored, failure) -> processOutcomeObserved.countDown());
+        session.observePublicOutcome(outcome -> successKind.set(outcome.successKind()));
+        Thread stopper = new Thread(
+                () -> session.closeFromHelper(false, () -> {
+                    stopActionEntered.countDown();
+                    awaitIgnoringInterrupts(releaseStopAction);
+                }),
+                "helper-stop-claim-test");
+        stopper.setDaemon(true);
+        try {
+            stopper.start();
+            assertTrue(stopActionEntered.await(1, TimeUnit.SECONDS));
+
+            process.complete(0);
+
+            assertTrue(processOutcomeObserved.await(1, TimeUnit.SECONDS));
+            assertFalse(session.onExit().isDone());
+            releaseStopAction.countDown();
+            stopper.join(TimeUnit.SECONDS.toMillis(1));
+
+            assertFalse(stopper.isAlive());
+            session.onExit().get(1, TimeUnit.SECONDS);
+            assertEquals(SessionTerminal.SuccessKind.CLOSED, successKind.get());
+        } finally {
+            releaseStopAction.countDown();
+            stopper.join(TimeUnit.SECONDS.toMillis(1));
+            session.close();
+        }
+    }
+
+    @Test
+    void failingInternalObserverDoesNotDelayOtherObserversOrTerminalCompletion() throws Exception {
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
         DefaultSession session = SessionTestFixtures.open(
                 process,
@@ -41,29 +88,19 @@ final class DefaultSessionExitCompletionTest {
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
         CountDownLatch laterObserverCalled = new CountDownLatch(1);
         session.observeExit((result, failure) -> laterObserverCalled.countDown());
-        AssertionError observerFailure = new AssertionError("observer failed");
         session.observeExit((result, failure) -> {
-            throw observerFailure;
+            throw new AssertionError("observer failed");
         });
-        CountDownLatch handlerEntered = new CountDownLatch(1);
-        CountDownLatch releaseHandler = new CountDownLatch(1);
         Thread closer = new Thread(session::close, "failing-internal-observer-close");
         closer.setDaemon(true);
-        closer.setUncaughtExceptionHandler((ignored, failure) -> {
-            assertSame(observerFailure, failure);
-            handlerEntered.countDown();
-            awaitIgnoringInterrupts(releaseHandler);
-        });
         try {
             closer.start();
 
-            assertTrue(handlerEntered.await(1, TimeUnit.SECONDS));
             assertTrue(laterObserverCalled.await(1, TimeUnit.SECONDS));
             session.onExit().get(1, TimeUnit.SECONDS);
             closer.join(TimeUnit.SECONDS.toMillis(1));
             assertFalse(closer.isAlive(), "failure reporting delayed terminal completion");
         } finally {
-            releaseHandler.countDown();
             closer.join(TimeUnit.SECONDS.toMillis(1));
             session.close();
         }
@@ -138,26 +175,151 @@ final class DefaultSessionExitCompletionTest {
     }
 
     @Test
-    void exhaustedCloseAdmissionFailsBeforeSessionPublicationAndTerminatesProcess() throws Exception {
-        ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
-        BoundedCloseDispatcher.Reservation occupied = dispatcher.reserve(3);
-        try {
-            assertThrows(
-                    RejectedExecutionException.class,
-                    () -> DefaultSession.openTransactionally(
-                            process,
-                            Duration.ZERO,
-                            ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                            StandardCharsets.UTF_8,
-                            DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()),
-                            () -> {},
-                            dispatcher,
-                            io.github.ulviar.procwright.internal.Threading::start));
+    void naturalExitLeavesUnreadRawOutputAvailableToTheCaller() throws Exception {
+        CloseSensitiveInputStream stdout = new CloseSensitiveInputStream("final output");
+        CompletedProcess process = new CompletedProcess(stdout);
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
 
-            assertFalse(process.isAlive(), "capacity exhaustion must retire the session process");
-        } finally {
-            occupied.release();
+        assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+        assertEquals("final output", new String(session.stdout().readAllBytes(), StandardCharsets.UTF_8));
+        assertFalse(stdout.closed.get());
+
+        session.close();
+    }
+
+    @Test
+    void naturalExitIgnoresPhysicalStdinCleanupFailure() throws Exception {
+        IOException cleanupFailure = new IOException("stdin cleanup failed");
+        CompletedProcess process = new CompletedProcess(
+                new CloseSensitiveInputStream("final output"), new FailingCloseOutputStream(cleanupFailure));
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+
+        assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+        assertEquals("final output", new String(session.stdout().readAllBytes(), StandardCharsets.UTF_8));
+
+        session.close();
+    }
+
+    private static final class CompletedProcess extends Process {
+
+        private final InputStream stdout;
+        private final OutputStream stdin;
+
+        private CompletedProcess(InputStream stdout) {
+            this(stdout, OutputStream.nullOutputStream());
+        }
+
+        private CompletedProcess(InputStream stdout, OutputStream stdin) {
+            this.stdout = stdout;
+            this.stdin = stdin;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return stdin;
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return stdout;
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            return true;
+        }
+
+        @Override
+        public int exitValue() {
+            return 0;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Process destroyForcibly() {
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return false;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+    }
+
+    private static final class FailingCloseOutputStream extends OutputStream {
+
+        private final IOException failure;
+
+        private FailingCloseOutputStream(IOException failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void write(int value) {}
+
+        @Override
+        public void close() throws IOException {
+            throw failure;
+        }
+    }
+
+    private static final class CloseSensitiveInputStream extends InputStream {
+
+        private final ByteArrayInputStream delegate;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private CloseSensitiveInputStream(String text) {
+            delegate = new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public int read() throws IOException {
+            ensureOpen();
+            return delegate.read();
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            ensureOpen();
+            return delegate.read(bytes, offset, length);
+        }
+
+        @Override
+        public void close() {
+            closed.set(true);
+        }
+
+        private void ensureOpen() throws IOException {
+            if (closed.get()) {
+                throw new IOException("stream already closed");
+            }
         }
     }
 }

@@ -6,16 +6,21 @@ import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.Expect;
+import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.ExpectMatch;
 import io.github.ulviar.procwright.session.ExpectTranscriptValues;
 import io.github.ulviar.procwright.session.LineTranscript;
+import io.github.ulviar.procwright.session.SessionExit;
+import io.github.ulviar.procwright.terminal.TerminalSignal;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 /**
- * Small expect-style prompt automation helper over a raw {@link Session}.
+ * Prompt-automation handle for a process launched in Expect output mode.
  *
  * <p>Matching is performed against decoded stdout, with optional built-in CSI stripping. Stderr is drained into the
  * transcript for diagnostics.
@@ -27,6 +32,7 @@ public final class DefaultExpect implements Expect {
     private final ExpectSessionState state;
     private final ExpectOutputTransport output;
     private final ExpectRegexMatcher regexMatcher;
+    private final AtomicBoolean stdinCloseRequested = new AtomicBoolean();
 
     public DefaultExpect(DefaultSession session, ExpectSettings options) {
         this(session, options, ZeroReadBackoff.exponential(), PumpStarter.threading());
@@ -69,7 +75,7 @@ public final class DefaultExpect implements Expect {
                 Objects.requireNonNull(lateFatalFailureReporter, "lateFatalFailureReporter"));
         output = new ExpectOutputTransport(
                 session, options, Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff"), state);
-        regexMatcher = new ExpectRegexMatcher(state, regexLimiter, regexEvaluator);
+        regexMatcher = new ExpectRegexMatcher(state, regexLimiter, regexEvaluator, output::closeSessionAfterFailure);
         output.start(Objects.requireNonNull(pumpStarter, "pumpStarter"));
     }
 
@@ -82,12 +88,15 @@ public final class DefaultExpect implements Expect {
     @Override
     public Expect send(String text) {
         Objects.requireNonNull(text, "text");
-        state.beginOperation("Could not send expect text", "send: " + transcriptValue(text));
+        beginOperation("Could not send expect text", "send: " + transcriptValue(text));
         try {
             session.send(text);
             return this;
         } catch (RuntimeException exception) {
-            throw state.failure("Could not send expect text", exception);
+            throw failInput("Could not send expect text", exception);
+        } catch (Error error) {
+            failFatalInput(error);
+            throw error;
         }
     }
 
@@ -100,12 +109,46 @@ public final class DefaultExpect implements Expect {
     @Override
     public Expect sendLine(String line) {
         requireLine(line);
-        state.beginOperation("Could not send expect line", "send line: " + transcriptValue(line));
+        beginOperation("Could not send expect line", "send line: " + transcriptValue(line));
         try {
             session.sendLine(line);
             return this;
         } catch (RuntimeException exception) {
-            throw state.failure("Could not send expect line", exception);
+            throw failInput("Could not send expect line", exception);
+        } catch (Error error) {
+            failFatalInput(error);
+            throw error;
+        }
+    }
+
+    @Override
+    public Expect sendSignal(TerminalSignal signal) {
+        Objects.requireNonNull(signal, "signal");
+        beginOperation("Could not send terminal signal", "send terminal signal: " + signal);
+        try {
+            session.sendSignal(signal);
+            return this;
+        } catch (RuntimeException exception) {
+            throw failInput("Could not send terminal signal", exception);
+        } catch (Error error) {
+            failFatalInput(error);
+            throw error;
+        }
+    }
+
+    @Override
+    public void closeStdin() {
+        if (!stdinCloseRequested.compareAndSet(false, true)) {
+            return;
+        }
+        beginOperation("Could not close expect stdin", "close stdin");
+        try {
+            session.closeStdin();
+        } catch (RuntimeException exception) {
+            throw failInput("Could not close expect stdin", exception);
+        } catch (Error error) {
+            failFatalInput(error);
+            throw error;
         }
     }
 
@@ -156,7 +199,11 @@ public final class DefaultExpect implements Expect {
         Objects.requireNonNull(text, "text");
         long deadlineNanos = deadline(timeout);
         String timeoutMessage = expectedMessage("Expected text not found", text);
-        return state.awaitLiteral(text, deadlineNanos, timeoutMessage, "expect text: " + transcriptValue(text));
+        try {
+            return state.awaitLiteral(text, deadlineNanos, timeoutMessage, "expect text: " + transcriptValue(text));
+        } catch (ExpectException failure) {
+            throw terminalizeObservedEof(failure);
+        }
     }
 
     /**
@@ -206,8 +253,12 @@ public final class DefaultExpect implements Expect {
         Objects.requireNonNull(pattern, "pattern");
         long deadlineNanos = deadline(timeout);
         String timeoutMessage = expectedMessage("Expected regex not found", pattern.pattern());
-        return regexMatcher.match(
-                pattern, deadlineNanos, timeoutMessage, "expect regex: " + transcriptValue(pattern.pattern()));
+        try {
+            return regexMatcher.match(
+                    pattern, deadlineNanos, timeoutMessage, "expect regex: " + transcriptValue(pattern.pattern()));
+        } catch (ExpectException failure) {
+            throw terminalizeObservedEof(failure);
+        }
     }
 
     /**
@@ -218,6 +269,11 @@ public final class DefaultExpect implements Expect {
     @Override
     public LineTranscript transcript() {
         return state.transcript();
+    }
+
+    @Override
+    public CompletableFuture<SessionExit> onExit() {
+        return session.onExit();
     }
 
     /**
@@ -255,5 +311,34 @@ public final class DefaultExpect implements Expect {
 
     private String expectedMessage(String prefix, String expected) {
         return prefix + ": " + transcriptValue(expected);
+    }
+
+    private ExpectException failInput(String message, RuntimeException cause) {
+        ExpectSessionState.InputFailureDecision decision = state.recordInputFailure(message, cause);
+        if (decision.installed()) {
+            output.closeSessionAfterFailure(decision.failure());
+        }
+        return decision.failure();
+    }
+
+    private void failFatalInput(Error failure) {
+        if (state.recordFatalInputFailure(failure)) {
+            output.closeSessionAfterFailure(failure);
+        }
+    }
+
+    private void beginOperation(String unavailableMessage, String action) {
+        try {
+            state.beginOperation(unavailableMessage, action);
+        } catch (ExpectException failure) {
+            throw terminalizeObservedEof(failure);
+        }
+    }
+
+    private ExpectException terminalizeObservedEof(ExpectException failure) {
+        if (failure.reason() == ExpectException.Reason.EOF) {
+            output.closeSessionAfterObservedEof(failure);
+        }
+        return failure;
     }
 }

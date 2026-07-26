@@ -19,33 +19,21 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     private final Supplier<ProtocolTranscript> transcript;
     private final Supplier<OptionalInt> exitCode;
     private final Consumer<Throwable> discardedFailure;
-    private final Runnable sealFailureAttribution;
     private volatile boolean closed;
     private RequestOutcome activeRequest;
     private TerminalSnapshot terminalOutcome;
-    private boolean stdoutEof;
-    private boolean failureAttributionSealed;
 
     ProtocolSessionState(Supplier<ProtocolTranscript> transcript, Supplier<OptionalInt> exitCode) {
-        this(transcript, exitCode, ignored -> {}, () -> {});
+        this(transcript, exitCode, ignored -> {});
     }
 
     ProtocolSessionState(
             Supplier<ProtocolTranscript> transcript,
             Supplier<OptionalInt> exitCode,
             Consumer<Throwable> discardedFailure) {
-        this(transcript, exitCode, discardedFailure, () -> {});
-    }
-
-    ProtocolSessionState(
-            Supplier<ProtocolTranscript> transcript,
-            Supplier<OptionalInt> exitCode,
-            Consumer<Throwable> discardedFailure,
-            Runnable sealFailureAttribution) {
         this.transcript = Objects.requireNonNull(transcript, "transcript");
         this.exitCode = Objects.requireNonNull(exitCode, "exitCode");
         this.discardedFailure = Objects.requireNonNull(discardedFailure, "discardedFailure");
-        this.sealFailureAttribution = Objects.requireNonNull(sealFailureAttribution, "sealFailureAttribution");
     }
 
     boolean isClosed() {
@@ -84,16 +72,11 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     }
 
     private void endRequest(RequestOutcome request) {
-        boolean seal;
         synchronized (this) {
             if (activeRequest != request) {
                 return;
             }
             activeRequest = null;
-            seal = claimFailureAttributionSeal();
-        }
-        if (seal) {
-            sealFailureAttribution.run();
         }
     }
 
@@ -119,15 +102,14 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         return fatalError;
     }
 
-    void recordStdoutEof() {
-        boolean seal;
-        synchronized (this) {
-            stdoutEof = true;
-            seal = claimFailureAttributionSeal();
+    ProtocolSessionException terminalException(TerminalSnapshot outcome) {
+        if (outcome instanceof FailureSnapshot failure) {
+            return terminalExceptionWithLatestExitCode(failure);
         }
-        if (seal) {
-            sealFailureAttribution.run();
+        if (outcome instanceof ClosedSnapshot closedSnapshot) {
+            return closedSnapshot.failure();
         }
+        throw new IllegalArgumentException("Fatal outcome does not have a protocol exception");
     }
 
     CloseDecision claimClose(boolean publishClosed) {
@@ -178,43 +160,39 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     }
 
     TerminalSnapshot recordTerminalFailure(ProtocolSessionException.Reason reason, String message, Throwable cause) {
-        ProtocolTranscript terminalTranscript = transcript.get();
-        OptionalInt terminalExitCode = exitCode.get();
-        TerminalSnapshot selected;
-        Throwable discarded = null;
-        synchronized (this) {
-            if (terminalOutcome == null) {
-                terminalOutcome = new FailureSnapshot(reason, message, cause, terminalTranscript, terminalExitCode);
-            } else if (primaryOrNull(terminalOutcome) != cause) {
-                discarded = cause;
-            }
-            if (activeRequest != null && terminalOutcome instanceof FailureSnapshot failure) {
-                selectActiveTerminalFailure(activeRequest, terminalExceptionFromSnapshot(failure));
-            }
-            selected = terminalOutcome;
-        }
-        retainDiscarded(discarded);
-        return selected;
+        FailureSelection selection = selectFailure(
+                reason,
+                message,
+                cause,
+                Objects.requireNonNull(transcript.get(), "transcript"),
+                Objects.requireNonNull(exitCode.get(), "exitCode"),
+                false);
+        retainDiscarded(selection.discarded());
+        return Objects.requireNonNull(selection.selected(), "selected");
+    }
+
+    OutputSelection recordOutputFailure(ProtocolSessionException.Reason reason, String message, Throwable cause) {
+        FailureSelection selection = selectFailure(
+                reason,
+                message,
+                cause,
+                Objects.requireNonNull(transcript.get(), "transcript"),
+                Objects.requireNonNull(exitCode.get(), "exitCode"),
+                true);
+        retainDiscarded(selection.discarded());
+        return new OutputSelection(selection.selected(), selection.rejectedAfterClose());
     }
 
     TerminalSnapshot recordFatalError(Error error) {
-        TerminalSnapshot selected;
-        Throwable discarded = null;
-        synchronized (this) {
-            if (terminalOutcome == null) {
-                terminalOutcome = new FatalSnapshot(error);
-            } else if (terminalOutcome instanceof FatalSnapshot failure) {
-                if (failure.error() != error) {
-                    discarded = error;
-                }
-            } else {
-                discarded = primaryOrNull(terminalOutcome);
-                terminalOutcome = new FatalSnapshot(error);
-            }
-            selected = terminalOutcome;
-        }
-        retainDiscarded(discarded);
-        return selected;
+        FatalSelection selection = selectFatal(error, false);
+        retainDiscarded(selection.discarded());
+        return Objects.requireNonNull(selection.selected(), "selected");
+    }
+
+    OutputSelection recordOutputFatalError(Error error) {
+        FatalSelection selection = selectFatal(error, true);
+        retainDiscarded(selection.discarded());
+        return new OutputSelection(selection.selected(), selection.rejectedAfterClose());
     }
 
     ProtocolSessionException recordRequestFailure(
@@ -431,12 +409,55 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         return outcome instanceof FatalSnapshot failure ? failure.error() : null;
     }
 
-    private boolean claimFailureAttributionSeal() {
-        if (failureAttributionSealed || !stdoutEof || activeRequest != null || terminalOutcome != null || closed) {
-            return false;
+    private FailureSelection selectFailure(
+            ProtocolSessionException.Reason reason,
+            String message,
+            Throwable cause,
+            ProtocolTranscript terminalTranscript,
+            OptionalInt terminalExitCode,
+            boolean rejectAfterClose) {
+        TerminalSnapshot selected;
+        Throwable discarded = null;
+        boolean rejected = false;
+        synchronized (this) {
+            if (rejectAfterClose && closed) {
+                selected = terminalOutcome;
+                discarded = cause;
+                rejected = true;
+            } else {
+                if (terminalOutcome == null) {
+                    terminalOutcome = new FailureSnapshot(reason, message, cause, terminalTranscript, terminalExitCode);
+                } else if (primaryOrNull(terminalOutcome) != cause) {
+                    discarded = cause;
+                }
+                if (activeRequest != null && terminalOutcome instanceof FailureSnapshot failure) {
+                    selectActiveTerminalFailure(activeRequest, terminalExceptionFromSnapshot(failure));
+                }
+                selected = terminalOutcome;
+            }
         }
-        failureAttributionSealed = true;
-        return true;
+        return new FailureSelection(selected, discarded, rejected);
+    }
+
+    private FatalSelection selectFatal(Error error, boolean rejectAfterClose) {
+        TerminalSnapshot selected;
+        Throwable discarded = null;
+        boolean rejected = false;
+        synchronized (this) {
+            if (rejectAfterClose && closed) {
+                selected = terminalOutcome;
+                discarded = error;
+                rejected = true;
+            } else {
+                if (terminalOutcome == null) {
+                    terminalOutcome = new FatalSnapshot(error);
+                } else if (primaryOrNull(terminalOutcome) != error) {
+                    discarded = error;
+                }
+                selected = terminalOutcome;
+            }
+        }
+        return new FatalSelection(selected, discarded, rejected);
     }
 
     sealed interface CloseDecision permits PublishTerminal, CloseSilently, AlreadyClosed {}
@@ -489,13 +510,19 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         }
     }
 
+    record OutputSelection(TerminalSnapshot selected, boolean rejectedAfterClose) {}
+
+    private record FailureSelection(TerminalSnapshot selected, Throwable discarded, boolean rejectedAfterClose) {}
+
+    private record FatalSelection(TerminalSnapshot selected, Throwable discarded, boolean rejectedAfterClose) {}
+
     private static RequestFailureResolution selection(
             ProtocolSessionException selected, ProtocolSessionException candidate) {
         return new RequestFailureResolution(selected, selected == candidate ? null : candidate);
     }
 
     private void retainDiscarded(Throwable failure) {
-        if (failure != null) {
+        if (failure instanceof Error) {
             discardedFailure.accept(failure);
         }
     }

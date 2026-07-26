@@ -6,7 +6,7 @@ import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAcc
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.CloseTrackingInputStream;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.awaitUninterruptibly;
-import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.session;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.startCoordinator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -25,8 +25,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -178,15 +178,113 @@ final class DefaultSessionConstructionTest {
     }
 
     @Test
-    void rejectedSessionAdmissionFailsBeforeOutputAndPumpPublication() throws Exception {
+    void constructionRollbackReturnsWhilePhysicalOutputCloseIsBlocked() throws Exception {
+        CountDownLatch releaseClose = new CountDownLatch(1);
+        TrackingInputStream blockingStdout = new TrackingInputStream(releaseClose);
+        TrackingProcess process = new TrackingProcess(blockingStdout, new TrackingInputStream());
+        IllegalStateException expected = new IllegalStateException("before commit");
+
+        CompletableFuture<Throwable> outcome = CompletableFuture.supplyAsync(() -> {
+            try {
+                DefaultSession.openTransactionally(
+                        process,
+                        Duration.ZERO,
+                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                        StandardCharsets.UTF_8,
+                        diagnostics(),
+                        () -> {
+                            throw expected;
+                        },
+                        new BoundedCloseDispatcher(3, 3),
+                        DefaultSession.WatcherStarter.threading());
+                return null;
+            } catch (Throwable failure) {
+                return failure;
+            }
+        });
+
+        try {
+            assertSame(expected, outcome.get(1, TimeUnit.SECONDS));
+            assertTrue(blockingStdout.closed.await(1, TimeUnit.SECONDS));
+            assertEquals(1, blockingStdout.closeCalls.get());
+        } finally {
+            releaseClose.countDown();
+        }
+        assertTrue(blockingStdout.closeFinished.await(1, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void helperTransactionRollsBackWhenTheFactoryDoesNotClaimOutput() throws Exception {
+        TrackingProcess process = new TrackingProcess();
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> DefaultSession.openHelperTransactionally(
+                        process,
+                        Duration.ZERO,
+                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                        StandardCharsets.UTF_8,
+                        diagnostics(),
+                        SessionOutputMode.LINE,
+                        session -> UnclaimedHandle.INSTANCE));
+
+        assertTrue(process.destroyed.await(1, TimeUnit.SECONDS));
+        assertFalse(process.isAlive());
+        assertTrue(process.stdin.closed.await(1, TimeUnit.SECONDS));
+        assertTrue(process.stdout.closed.await(1, TimeUnit.SECONDS));
+        assertTrue(process.stderr.closed.await(1, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void helperTransactionRollsBackWhenClaimedPumpsWereNotStarted() throws Exception {
+        TrackingProcess process = new TrackingProcess();
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> DefaultSession.openHelperTransactionally(
+                        process,
+                        Duration.ZERO,
+                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                        StandardCharsets.UTF_8,
+                        diagnostics(),
+                        SessionOutputMode.LINE,
+                        session -> new UnstartedHandle(new OutputPumpCoordinator(session, SessionOutputMode.LINE))));
+
+        assertTrue(process.destroyed.await(1, TimeUnit.SECONDS));
+        assertFalse(process.isAlive());
+    }
+
+    @Test
+    void helperTransactionRollsBackAClaimForTheWrongMode() throws Exception {
+        TrackingProcess process = new TrackingProcess();
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> DefaultSession.openHelperTransactionally(
+                        process,
+                        Duration.ZERO,
+                        ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                        StandardCharsets.UTF_8,
+                        diagnostics(),
+                        SessionOutputMode.LINE,
+                        session -> {
+                            new OutputPumpCoordinator(session, SessionOutputMode.PROTOCOL);
+                            return UnclaimedHandle.INSTANCE;
+                        }));
+
+        assertTrue(process.destroyed.await(1, TimeUnit.SECONDS));
+        assertFalse(process.isAlive());
+    }
+
+    @Test
+    void saturatedCloseCapacityDoesNotRejectSessionConstruction() throws Exception {
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
         CountDownLatch releaseOccupyingClose = new CountDownLatch(1);
         CountDownLatch pendingClosesFinished = new CountDownLatch(2);
         CountDownLatch acceptedClosesSettled = new CountDownLatch(3);
-        BoundedCloseDispatcher.Reservation occupiedCapacity = closeDispatcher.reserve(3);
         dispatch(
-                occupiedCapacity,
+                closeDispatcher,
                 () -> {
                     occupyingCloseStarted.countDown();
                     awaitUninterruptibly(releaseOccupyingClose);
@@ -196,13 +294,13 @@ final class DefaultSessionConstructionTest {
                 acceptedClosesSettled::countDown);
         assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
         dispatch(
-                occupiedCapacity,
+                closeDispatcher,
                 pendingClosesFinished::countDown,
                 "procwright-pending-output-close-",
                 failure -> {},
                 acceptedClosesSettled::countDown);
         dispatch(
-                occupiedCapacity,
+                closeDispatcher,
                 pendingClosesFinished::countDown,
                 "procwright-pending-output-close-",
                 failure -> {},
@@ -212,8 +310,17 @@ final class DefaultSessionConstructionTest {
         CloseTrackingInputStream stderr = new CloseTrackingInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         try {
-            assertThrows(RejectedExecutionException.class, () -> session(process, closeDispatcher));
+            OutputPumpTestFixtures.CoordinatorHarness harness = startCoordinator(
+                    process,
+                    closeDispatcher,
+                    SessionOutputMode.LINE,
+                    PumpStarter.threading(),
+                    "procwright-saturated-stdout-",
+                    stream -> {},
+                    "procwright-saturated-stderr-",
+                    stream -> {});
 
+            harness.coordinator().closeSession();
             assertTrue(process.awaitDestroyed());
             assertEquals(0, stdout.closeCalls());
             assertEquals(0, stderr.closeCalls());
@@ -233,6 +340,12 @@ final class DefaultSessionConstructionTest {
         return DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "construction-test", CommandEcho.empty());
     }
 
+    private enum UnclaimedHandle {
+        INSTANCE
+    }
+
+    private record UnstartedHandle(OutputPumpCoordinator outputPumps) {}
+
     private static void throwUnchecked(Throwable failure) {
         if (failure instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;
@@ -243,14 +356,23 @@ final class DefaultSessionConstructionTest {
     private static final class TrackingProcess extends Process {
 
         private final TrackingOutputStream stdin = new TrackingOutputStream();
-        private final TrackingInputStream stdout = new TrackingInputStream();
-        private final TrackingInputStream stderr = new TrackingInputStream();
+        private final TrackingInputStream stdout;
+        private final TrackingInputStream stderr;
         private final AtomicInteger stdinGets = new AtomicInteger();
         private final AtomicInteger stdoutGets = new AtomicInteger();
         private final AtomicInteger stderrGets = new AtomicInteger();
         private final AtomicInteger waitCalls = new AtomicInteger();
         private final AtomicBoolean alive = new AtomicBoolean(true);
         private final CountDownLatch destroyed = new CountDownLatch(1);
+
+        private TrackingProcess() {
+            this(new TrackingInputStream(), new TrackingInputStream());
+        }
+
+        private TrackingProcess(TrackingInputStream stdout, TrackingInputStream stderr) {
+            this.stdout = stdout;
+            this.stderr = stderr;
+        }
 
         @Override
         public OutputStream getOutputStream() {
@@ -338,6 +460,16 @@ final class DefaultSessionConstructionTest {
 
         private final AtomicInteger closeCalls = new AtomicInteger();
         private final CountDownLatch closed = new CountDownLatch(1);
+        private final CountDownLatch closeFinished = new CountDownLatch(1);
+        private final CountDownLatch releaseClose;
+
+        private TrackingInputStream() {
+            this(null);
+        }
+
+        private TrackingInputStream(CountDownLatch releaseClose) {
+            this.releaseClose = releaseClose;
+        }
 
         @Override
         public int read() {
@@ -348,6 +480,10 @@ final class DefaultSessionConstructionTest {
         public void close() {
             closeCalls.incrementAndGet();
             closed.countDown();
+            if (releaseClose != null) {
+                awaitUninterruptibly(releaseClose);
+            }
+            closeFinished.countDown();
         }
     }
 }

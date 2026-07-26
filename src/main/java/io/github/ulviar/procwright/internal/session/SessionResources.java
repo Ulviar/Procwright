@@ -3,13 +3,13 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.ProcessIoResources;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -24,29 +24,28 @@ final class SessionResources {
     private final CloseOnceInputStream stderrClose;
     private final InputStream stdout;
     private final InputStream stderr;
-    private final SessionOutputOwnership outputOwnership = new SessionOutputOwnership();
-    private final SessionOutputCleanup outputCleanup;
+    private final SessionOutputOwnership outputOwnership;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean stdinOpen = new AtomicBoolean(true);
     private final Runnable activity;
-    private final Consumer<CloseFailure> terminalCloseFailures;
+    private final Consumer<Throwable> terminalCloseFailures;
 
     static SessionResources acquire(
             Process process,
+            SessionOutputMode outputMode,
             BoundedCloseDispatcher closeDispatcher,
             Runnable activity,
-            Consumer<CloseFailure> terminalCloseFailures) {
+            Consumer<Throwable> terminalCloseFailures) {
         Objects.requireNonNull(process, "process");
+        Objects.requireNonNull(outputMode, "outputMode");
         Objects.requireNonNull(closeDispatcher, "closeDispatcher");
         Objects.requireNonNull(activity, "activity");
         Objects.requireNonNull(terminalCloseFailures, "terminalCloseFailures");
-        SessionOutputCleanup outputCleanup = new SessionOutputCleanup();
-        ProcessIoResources resources = ProcessIoResources.acquire(process, closeDispatcher, failure -> {
-            outputCleanup.inlineFailed(failure);
-            terminalCloseFailures.accept(CloseFailure.inlineOutput(failure));
-        });
+        SessionOutputOwnership outputOwnership = new SessionOutputOwnership(outputMode);
+        ProcessIoResources resources = ProcessIoResources.acquire(process, closeDispatcher);
         try {
-            return new SessionResources(process, resources, outputCleanup, activity, terminalCloseFailures);
+            return new SessionResources(
+                    process, outputMode, outputOwnership, resources, activity, terminalCloseFailures);
         } catch (RuntimeException | Error failure) {
             rethrow(FailureAggregation.combine(
                     failure,
@@ -58,13 +57,14 @@ final class SessionResources {
 
     private SessionResources(
             Process process,
+            SessionOutputMode outputMode,
+            SessionOutputOwnership outputOwnership,
             ProcessIoResources resources,
-            SessionOutputCleanup outputCleanup,
             Runnable activity,
-            Consumer<CloseFailure> terminalCloseFailures) {
+            Consumer<Throwable> terminalCloseFailures) {
         this.process = Objects.requireNonNull(process, "process");
+        this.outputOwnership = Objects.requireNonNull(outputOwnership, "outputOwnership");
         this.resources = Objects.requireNonNull(resources, "resources");
-        this.outputCleanup = Objects.requireNonNull(outputCleanup, "outputCleanup");
         this.activity = Objects.requireNonNull(activity, "activity");
         this.terminalCloseFailures = Objects.requireNonNull(terminalCloseFailures, "terminalCloseFailures");
         this.stdin = new SessionStdin(resources.stdin().stream());
@@ -74,7 +74,7 @@ final class SessionResources {
                 resources.stderr(), outputCloseReservation, OutputCloseReservation.Stream.STDERR);
         this.stdout = new ActivityInputStream(stdoutClose, activity);
         this.stderr = new ActivityInputStream(stderrClose, activity);
-        outputCleanup.bind(resources.stdout(), resources.stderr(), outputOwnership);
+        Objects.requireNonNull(outputMode, "outputMode");
     }
 
     OutputStream stdin() {
@@ -89,55 +89,32 @@ final class SessionResources {
         return outputOwnership.publicStream(stderr);
     }
 
-    void claimOutput(String owner) {
-        outputOwnership.claim(owner);
-    }
-
-    InputStream ownedStdout(String owner) {
-        outputOwnership.ensureOwnedBy(owner);
+    InputStream ownedStdout(SessionOutputMode mode) {
+        outputOwnership.ensureOwnedBy(mode);
         return stdout;
     }
 
-    InputStream ownedStderr(String owner) {
-        outputOwnership.ensureOwnedBy(owner);
+    void claimHelperOutput(SessionOutputMode mode) {
+        outputOwnership.claimHelper(mode);
+    }
+
+    void markHelperOutputReady(SessionOutputMode mode) {
+        outputOwnership.markHelperReady(mode);
+    }
+
+    void requireHelperOutputReady(SessionOutputMode mode) {
+        outputOwnership.requireHelperReady(mode);
+    }
+
+    InputStream ownedStderr(SessionOutputMode mode) {
+        outputOwnership.ensureOwnedBy(mode);
         return stderr;
     }
 
     OutputCloseReservation.Reservation reserveOutputClose(
-            String owner, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
-        outputOwnership.ensureOwnedBy(owner);
+            SessionOutputMode mode, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
+        outputOwnership.ensureOwnedBy(mode);
         return outputCloseReservation.reserve(stdoutClose, stderrClose, pumpCloseObserver);
-    }
-
-    void dispatchUnreservedOutputClose(
-            String owner,
-            Consumer<? super Throwable> stdoutFailureHandler,
-            Runnable stdoutCompletionHandler,
-            Consumer<? super Throwable> stderrFailureHandler,
-            Runnable stderrCompletionHandler) {
-        outputOwnership.ensureOwnedBy(owner);
-        io.github.ulviar.procwright.internal.ProcessStreamResource.closePairAsync(
-                        resources.stdout(),
-                        "procwright-helper-stdout-construction-rollback-",
-                        stdoutFailureHandler,
-                        stdoutCompletionHandler,
-                        resources.stderr(),
-                        "procwright-helper-stderr-construction-rollback-",
-                        stderrFailureHandler,
-                        stderrCompletionHandler)
-                .rethrowStartFailure();
-    }
-
-    CompletableFuture<SessionOutputCleanup.Outcome> outputCleanupCompletion() {
-        return outputCleanup.completion();
-    }
-
-    CompletableFuture<Void> physicalOutputView() {
-        return outputCleanup.physicalView();
-    }
-
-    void afterPhysicalOutputCleanup(Runnable publication) {
-        outputCleanup.afterSettlement(publication);
     }
 
     Throwable rollbackConstruction() {
@@ -148,27 +125,25 @@ final class SessionResources {
         if (!stdinOpen.compareAndSet(true, false)) {
             return;
         }
-        try {
-            closeStdinAsync();
-        } catch (RuntimeException | Error failure) {
-            terminalCloseFailures.accept(CloseFailure.stdin(failure));
-            throw failure;
-        }
+        resources.stdin().closeRequiredAsync("procwright-process-stdin-close-", terminalCloseFailures, () -> {});
         activity.run();
     }
 
-    void closeStdinAsync() {
-        closeStdinAsync(failure -> terminalCloseFailures.accept(CloseFailure.stdin(failure)));
+    void closeStdinForCleanup() {
+        if (!stdinOpen.compareAndSet(true, false)) {
+            return;
+        }
+        attemptBestEffort(this::closeStdinBestEffort);
+        activity.run();
     }
 
-    void closeStdinAsync(Consumer<? super Throwable> failureHandler) {
+    private void closeStdinAsync(Consumer<? super Throwable> failureHandler) {
         resources
                 .stdin()
                 .closeOwnedAsync(
                         "procwright-process-stdin-close-",
                         Objects.requireNonNull(failureHandler, "failureHandler"),
-                        () -> {})
-                .rethrowStartFailure();
+                        () -> {});
     }
 
     void close() {
@@ -176,41 +151,30 @@ final class SessionResources {
             return;
         }
         stdinOpen.set(false);
-        Throwable failure = null;
         if (!resources.stdin().closeStarted()) {
-            try {
-                closeStdinAsync();
-            } catch (RuntimeException | Error closeFailure) {
-                failure = closeFailure;
-            }
+            attemptBestEffort(this::closeStdinBestEffort);
         }
-        if (outputOwnership.claimLifecycleClose()) {
-            try {
-                resources
-                        .stdout()
-                        .closeOwnedAsync("procwright-process-stdout-close-", ignored -> {}, () -> {})
-                        .rethrowStartFailure();
-            } catch (RuntimeException | Error closeFailure) {
-                failure = FailureAggregation.combine(failure, closeFailure, "Multiple session stream closes failed");
-            }
-            try {
-                resources
-                        .stderr()
-                        .closeOwnedAsync("procwright-process-stderr-close-", ignored -> {}, () -> {})
-                        .rethrowStartFailure();
-            } catch (RuntimeException | Error closeFailure) {
-                failure = FailureAggregation.combine(failure, closeFailure, "Multiple session stream closes failed");
-            }
+        if (outputOwnership.raw()) {
+            attemptBestEffort(() -> resources
+                    .stdout()
+                    .closeOwnedAsync(
+                            "procwright-process-stdout-close-", BoundedFailureReporter::reportBestEffort, () -> {}));
+            attemptBestEffort(() -> resources
+                    .stderr()
+                    .closeOwnedAsync(
+                            "procwright-process-stderr-close-", BoundedFailureReporter::reportBestEffort, () -> {}));
         }
-        rethrow(failure);
     }
 
-    Throwable closeAfterFailure() {
+    private void closeStdinBestEffort() {
+        closeStdinAsync(BoundedFailureReporter::reportBestEffort);
+    }
+
+    private static void attemptBestEffort(Runnable action) {
         try {
-            close();
-            return null;
-        } catch (RuntimeException | Error closeFailure) {
-            return closeFailure;
+            action.run();
+        } catch (RuntimeException | Error failure) {
+            BoundedFailureReporter.reportBestEffort(failure);
         }
     }
 
@@ -220,21 +184,6 @@ final class SessionResources {
         }
         if (failure instanceof Error error) {
             throw error;
-        }
-    }
-
-    record CloseFailure(Throwable failure, boolean reportWhenLate) {
-
-        CloseFailure {
-            Objects.requireNonNull(failure, "failure");
-        }
-
-        private static CloseFailure stdin(Throwable failure) {
-            return new CloseFailure(failure, true);
-        }
-
-        private static CloseFailure inlineOutput(Throwable failure) {
-            return new CloseFailure(failure, false);
         }
     }
 

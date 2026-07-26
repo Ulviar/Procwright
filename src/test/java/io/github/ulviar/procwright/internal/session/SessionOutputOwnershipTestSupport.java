@@ -30,13 +30,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 abstract class SessionOutputOwnershipTestSupport {
 
     protected static void awaitProcessTerminal(DefaultSession session) throws InterruptedException {
         CountDownLatch terminal = new CountDownLatch(1);
-        session.observeExit((result, failure) -> terminal.countDown());
+        session.observeTermination((result, failure) -> terminal.countDown());
         assertTrue(terminal.await(2, TimeUnit.SECONDS), "process terminal signal did not complete");
     }
 
@@ -51,6 +53,23 @@ abstract class SessionOutputOwnershipTestSupport {
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 StandardCharsets.UTF_8,
                 diagnostics());
+    }
+
+    protected static <T> OpenedHelper<T> openHelper(
+            StubProcess process, SessionOutputMode outputMode, Function<DefaultSession, T> helperFactory) {
+        AtomicReference<DefaultSession> rawSession = new AtomicReference<>();
+        T helper = SessionTestFixtures.openHandle(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                diagnostics(),
+                outputMode,
+                session -> {
+                    rawSession.set(session);
+                    return helperFactory.apply(session);
+                });
+        return new OpenedHelper<>(rawSession.get(), helper);
     }
 
     protected static StreamExecutionPlan streamPlan(Duration timeout) {
@@ -74,6 +93,8 @@ abstract class SessionOutputOwnershipTestSupport {
     protected static DiagnosticEmitter diagnostics() {
         return DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty());
     }
+
+    protected record OpenedHelper<T>(DefaultSession rawSession, T helper) {}
 
     protected static final class StubProcess extends Process {
 

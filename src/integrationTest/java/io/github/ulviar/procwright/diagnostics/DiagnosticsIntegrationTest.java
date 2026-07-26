@@ -35,6 +35,7 @@ import io.github.ulviar.procwright.session.StreamSession;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -94,6 +95,69 @@ final class DiagnosticsIntegrationTest {
         assertSame(readinessFailure, thrown.getCause());
         assertEquals(CommandExecutionException.Reason.READINESS_FAILED, thrown.reason());
         assertOpenFailureLifecycle(recorder, "protocolSession", CommandExecutionException.class);
+    }
+
+    @Test
+    void expectReadinessFailureEmitsOneOrderedProcessFailureAfterCleanup() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        IllegalStateException readinessFailure = new IllegalStateException("expect not ready");
+
+        CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                .interactive()
+                .expect()
+                .withDiagnosticListener(recorder)
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withReadiness(ignored -> {
+                    throw readinessFailure;
+                })
+                .open());
+
+        assertSame(readinessFailure, thrown.getCause());
+        assertEquals(CommandExecutionException.Reason.READINESS_FAILED, thrown.reason());
+        assertOpenFailureLifecycle(recorder, "expect", CommandExecutionException.class);
+        assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+    }
+
+    @Test
+    void expectFatalReadinessFailureEmitsOneOrderedProcessFailureAfterCleanup() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        AssertionError readinessFailure = new AssertionError("fatal expect readiness failure");
+
+        AssertionError thrown = assertThrows(AssertionError.class, () -> fixtureService()
+                .interactive()
+                .expect()
+                .withDiagnosticListener(recorder)
+                .withArgs("sleep", "--millis=5000", "--finished=false")
+                .withReadiness(ignored -> {
+                    throw readinessFailure;
+                })
+                .open());
+
+        assertSame(readinessFailure, thrown);
+        assertOpenFailureLifecycle(recorder, "expect", AssertionError.class);
+        assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+    }
+
+    @Test
+    void expectReadinessTimeoutEmitsOneOrderedProcessFailureAfterCleanup() {
+        DiagnosticRecorder recorder = new DiagnosticRecorder();
+        CountDownLatch releaseProbe = new CountDownLatch(1);
+        try {
+            CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
+                    .interactive()
+                    .expect()
+                    .withDiagnosticListener(recorder)
+                    .withArgs("sleep", "--millis=5000", "--finished=false")
+                    .withReadiness(ignored -> awaitUninterruptibly(releaseProbe))
+                    .withReadinessTimeout(Duration.ofMillis(50))
+                    .open());
+
+            assertEquals(CommandExecutionException.Reason.READINESS_TIMEOUT, thrown.reason());
+            assertOpenFailureLifecycle(recorder, "expect", CommandExecutionException.class);
+            assertTrue(recorder.awaitContains(DiagnosticEventType.PROCESS_EXITED));
+        } finally {
+            releaseProbe.countDown();
+        }
     }
 
     @Test
@@ -509,6 +573,21 @@ final class DiagnosticsIntegrationTest {
         Set<String> runIds =
                 events.stream().map(DiagnosticEvent::runId).collect(java.util.stream.Collectors.toUnmodifiableSet());
         assertEquals(1, runIds.size(), () -> "events of one process lifecycle must share one runId: " + runIds);
+    }
+
+    private static void awaitUninterruptibly(CountDownLatch latch) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException exception) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void assertOpenFailureLifecycle(

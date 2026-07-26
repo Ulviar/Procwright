@@ -29,11 +29,14 @@ public final class CommandService {
     }
 
     /**
-     * Selects a raw interactive session.
+     * Selects the interactive scenario family.
      *
-     * @return a new interactive-session draft
+     * <p>The returned entry can open a raw interactive session or branch to prompt automation with
+     * {@link InteractiveScenario.Entry#expect()} before a process is launched.
+     *
+     * @return a new interactive scenario entry
      */
-    public InteractiveScenario.Draft interactive() {
+    public InteractiveScenario.Entry interactive() {
         return InteractiveScenario.draft(runtime);
     }
 

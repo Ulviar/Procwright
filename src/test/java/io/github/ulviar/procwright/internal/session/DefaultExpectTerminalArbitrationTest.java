@@ -9,7 +9,7 @@ import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.Ga
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expectFailure;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.openExpect;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -118,7 +118,10 @@ final class DefaultExpectTerminalArbitrationTest {
 
             assertEquals(ExpectException.Reason.EOF, failure.reason());
             assertNull(failure.getCause());
-            assertTrue(process.isAlive());
+            assertTrue(process.awaitDestroyed());
+            assertFalse(process.isAlive());
+            assertEquals(
+                    143, expect.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
             assertEquals(0, limiter.availablePermits());
         } finally {
             stdout.finish();
@@ -142,14 +145,16 @@ final class DefaultExpectTerminalArbitrationTest {
         Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> uncaughtReports.incrementAndGet());
         ControllableProcess process = new ControllableProcess(stdout, new FeedInputStream());
-        DefaultExpect expect = new DefaultExpect(
-                session(process),
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                limiter,
-                evaluator,
-                (thread, error) -> lateReports.incrementAndGet());
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        limiter,
+                        evaluator,
+                        (thread, error) -> lateReports.incrementAndGet()));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ExpectMatch> match =
@@ -184,14 +189,16 @@ final class DefaultExpectTerminalArbitrationTest {
         AssertionError evaluatorError = new AssertionError("regex evaluator failed first");
         BlockingErrorRegexEvaluator evaluator = new BlockingErrorRegexEvaluator(evaluatorError);
         AtomicInteger reports = new AtomicInteger();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(new FeedInputStream(), new FeedInputStream())),
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                new BoundedTaskLimiter(1),
-                evaluator,
-                (thread, error) -> reports.incrementAndGet());
+        DefaultExpect expect = openExpect(
+                new ControllableProcess(new FeedInputStream(), new FeedInputStream()),
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        new BoundedTaskLimiter(1),
+                        evaluator,
+                        (thread, error) -> reports.incrementAndGet()));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ExpectMatch> match =
@@ -243,7 +250,7 @@ final class DefaultExpectTerminalArbitrationTest {
         IllegalStateException outputFailure = new IllegalStateException("output failed");
         GatedFailureInputStream stdout = new GatedFailureInputStream(outputFailure);
         ControllableProcess process = new ControllableProcess(stdout, new FeedInputStream());
-        DefaultExpect expect = new DefaultExpect(session(process), ExpectSettings.defaults());
+        DefaultExpect expect = openExpect(process, session -> new DefaultExpect(session, ExpectSettings.defaults()));
         try {
             stdout.fail();
             assertTrue(process.awaitDestroyed());
@@ -263,16 +270,18 @@ final class DefaultExpectTerminalArbitrationTest {
     void terminalClaimBeforeRegexCommitPreventsAStaleSuccess() {
         ControllableProcess process = new ControllableProcess(new FeedInputStream(), new FeedInputStream());
         AtomicReference<DefaultExpect> reference = new AtomicReference<>();
-        DefaultExpect expect = new DefaultExpect(
-                session(process),
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                new BoundedTaskLimiter(1),
-                (pattern, text, searchStart) -> {
-                    reference.get().close();
-                    return new ExpectRegexMatcher.Evaluation(0, 0, "", List.of());
-                });
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        new BoundedTaskLimiter(1),
+                        (pattern, text, searchStart) -> {
+                            reference.get().close();
+                            return new ExpectRegexMatcher.Evaluation(0, 0, "", List.of());
+                        }));
         reference.set(expect);
 
         ExpectException failure = assertThrows(
@@ -284,15 +293,17 @@ final class DefaultExpectTerminalArbitrationTest {
     @Test
     void regexEvaluatorErrorKeepsExactIdentity() {
         AssertionError evaluatorError = new AssertionError("regex evaluator failed");
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(new FeedInputStream(), new FeedInputStream())),
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                new BoundedTaskLimiter(1),
-                (pattern, text, searchStart) -> {
-                    throw evaluatorError;
-                });
+        DefaultExpect expect = openExpect(
+                new ControllableProcess(new FeedInputStream(), new FeedInputStream()),
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        new BoundedTaskLimiter(1),
+                        (pattern, text, searchStart) -> {
+                            throw evaluatorError;
+                        }));
         try {
             AssertionError actual = assertThrows(
                     AssertionError.class,
@@ -310,8 +321,10 @@ final class DefaultExpectTerminalArbitrationTest {
             ExpectRegexMatcher.Evaluator evaluator,
             ExpectSettings settings,
             PumpStarter pumpStarter) {
-        return new DefaultExpect(
-                session(process), settings, ZeroReadBackoff.exponential(), pumpStarter, limiter, evaluator);
+        return openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session, settings, ZeroReadBackoff.exponential(), pumpStarter, limiter, evaluator));
     }
 
     static final class BlockingErrorRegexEvaluator implements ExpectRegexMatcher.Evaluator {

@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,25 +25,54 @@ import org.junit.jupiter.api.TestFactory;
 
 final class DefaultStreamSessionListenerIsolationTest extends DefaultStreamSessionTestSupport {
 
-    @TestFactory
-    Stream<DynamicTest> blockedListenerCannotDelayControlOutcomeOrLateFailureAccounting() {
-        return Stream.of(ControlAction.values()).flatMap(control -> Stream.of(NestedFailureKind.values())
-                .map(failureKind -> DynamicTest.dynamicTest(
-                        control + " / late listener " + failureKind,
-                        () -> assertBlockedListenerCannotDelayControlOutcome(control, failureKind))));
+    @Test
+    void naturalExitWaitsForStartedListenerDelivery() throws Exception {
+        GatedChunkInputStream stdout = new GatedChunkInputStream("chunk");
+        ControllableProcess process = new ControllableProcess(stdout, new CountingEofInputStream());
+        CountDownLatch listenerEntered = new CountDownLatch(1);
+        CountDownLatch releaseListener = new CountDownLatch(1);
+        DefaultStreamSession stream = openStream(
+                process,
+                plan(chunk -> {
+                    listenerEntered.countDown();
+                    awaitUninterruptibly(releaseListener);
+                }),
+                diagnostics());
+        try {
+            assertTrue(stdout.awaitReadStarted());
+            stdout.release();
+            assertTrue(listenerEntered.await(1, TimeUnit.SECONDS));
+
+            process.complete(0);
+
+            assertFalse(stream.onExit().isDone());
+            releaseListener.countDown();
+            assertEquals(0, stream.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+        } finally {
+            releaseListener.countDown();
+            stdout.release();
+            process.complete(0);
+            stream.close();
+        }
     }
 
-    private static void assertBlockedListenerCannotDelayControlOutcome(
-            ControlAction control, NestedFailureKind failureKind) throws Exception {
+    @TestFactory
+    Stream<DynamicTest> blockedListenerCannotDelayControlOutcome() {
+        return Stream.of(ControlAction.values())
+                .map(control -> DynamicTest.dynamicTest(
+                        control.toString(), () -> assertBlockedListenerCannotDelayControlOutcome(control)));
+    }
+
+    private static void assertBlockedListenerCannotDelayControlOutcome(ControlAction control) throws Exception {
         GatedChunkInputStream stdout = new GatedChunkInputStream("chunk");
         CountingEofInputStream stderr = new CountingEofInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         CountDownLatch listenerEntered = new CountDownLatch(1);
         CountDownLatch releaseListener = new CountDownLatch(1);
         CountDownLatch listenerExited = new CountDownLatch(1);
-        Throwable expected = failureKind.newFailure();
-        DefaultStreamSession stream = new DefaultStreamSession(
-                session(process),
+        RuntimeException expected = new IllegalStateException("late listener failure");
+        DefaultStreamSession stream = openStream(
+                process,
                 plan(chunk -> {
                     listenerEntered.countDown();
                     try {
@@ -96,9 +126,8 @@ final class DefaultStreamSessionListenerIsolationTest extends DefaultStreamSessi
         AtomicReference<StreamSource> firstSource = new AtomicReference<>();
         AtomicReference<StreamSource> secondSource = new AtomicReference<>();
 
-        DefaultSession rawSession = session(process);
-        DefaultStreamSession stream = new DefaultStreamSession(
-                rawSession,
+        DefaultStreamSession stream = openStream(
+                process,
                 plan(chunk -> {
                     int active = activeCallbacks.incrementAndGet();
                     maxActiveCallbacks.accumulateAndGet(active, Math::max);
@@ -285,18 +314,6 @@ final class DefaultStreamSessionListenerIsolationTest extends DefaultStreamSessi
                 case CLOSE -> stream.close();
                 case TIMEOUT -> stream.expireTimeout();
             }
-        }
-    }
-
-    private enum NestedFailureKind {
-        RUNTIME,
-        ERROR;
-
-        private Throwable newFailure() {
-            return switch (this) {
-                case RUNTIME -> new IllegalStateException("liveness failed");
-                case ERROR -> new AssertionError("liveness failed");
-            };
         }
     }
 }

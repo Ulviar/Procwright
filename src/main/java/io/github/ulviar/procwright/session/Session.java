@@ -12,34 +12,23 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Raw handle for an interactive command process.
  *
- * <p>A session exposes process streams directly and owns process lifecycle coordination. It does not serialize
- * line-oriented request/response workflows; higher-level scenarios should build those guarantees on top of this raw
- * handle.
+ * <p>A session exposes process streams directly and owns process lifecycle coordination. Choose {@code lineSession()},
+ * {@code protocolSession()}, {@code listen()}, or {@code interactive().expect()} before launch when Procwright should
+ * consume output instead.
  *
  * <p>This sealed interface is a Procwright-owned handle contract, not a service-provider interface. Applications receive
- * session instances from {@code CommandService}; custom implementations are not supported because higher-level helpers
- * rely on Procwright's internal output-ownership invariant.
+ * session instances from {@code CommandService}; custom implementations are not supported.
  */
 public sealed interface Session extends AutoCloseable permits DefaultSession {
 
     /**
      * Returns raw process stdout.
-     *
-     * <p>Obtaining the stream wrapper does not claim output ownership. The first effective stream operation, including a
-     * read, inspection, mark, reset, or close, atomically selects raw caller ownership for both process output streams.
-     * If a higher-level helper already owns output, that operation throws {@link IllegalStateException}; after raw
-     * ownership is selected, opening such a helper throws the same exception.
-     *
      * @return stdout stream
      */
     InputStream stdout();
 
     /**
      * Returns raw process stderr.
-     *
-     * <p>Obtaining the stream wrapper does not claim output ownership. The first effective operation follows the same
-     * ownership rules as {@link #stdout()}; do not combine raw operations with a Procwright helper that drains output.
-     *
      * @return stderr stream
      */
     InputStream stderr();
@@ -73,63 +62,42 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
     void send(CommandInput input);
 
     /**
-     * Writes a terminal control signal and flushes stdin.
+     * Writes the control byte represented by a terminal signal and flushes stdin.
+     *
+     * <p>With a PTY, the terminal driver may interpret the byte and deliver an operating-system signal to the process.
+     * With ordinary pipes, this method only writes the byte to stdin; it does not signal the process.
      *
      * @param signal terminal signal
      */
     void sendSignal(TerminalSignal signal);
 
     /**
-     * Closes process stdin. The session may keep running until the process exits or is closed.
+     * Logically closes process stdin for further writes without stopping the process.
      *
-     * <p>The close has bounded execution admission before the session is returned, but its physical stream operation
-     * is asynchronous because a concurrent write may hold the stream monitor indefinitely.
+     * <p>After close work is admitted and started, the method returns without waiting for physical stream close or EOF
+     * delivery; a concurrent write may hold the stream monitor indefinitely. If close work cannot be admitted or started,
+     * the failure path performs bounded terminal cleanup before this method throws. If an admitted close fails later
+     * while the session is still running, {@link #onExit()} completes exceptionally with the original failure. Calling
+     * this method more than once has no effect.
      */
     void closeStdin();
 
     /**
      * Returns an isolated view of the session's terminal future.
      *
-     * <p>Completion follows process-tree cleanup, both physical stdout and stderr close attempts, and, when a Procwright
-     * output helper owns those streams, both helper pump tasks and final close-failure settlement. The internal process
-     * outcome does not wait on helper cleanup, so helper observation cannot form a lifecycle dependency cycle; only this
-     * public view applies the full cleanup barrier. A helper failure does not replace the raw process outcome.
-     *
-     * <p>A failure from a caller's inline raw-output close becomes the terminal session failure, by identity, if no other
-     * terminal failure already owns the session. An inline close already in flight remains part of the public barrier and
-     * can therefore replace a selected natural-success outcome until that physical close settles. When the process or
-     * an inline raw-output close fails, independently observed raw-output cleanup failures join one stable aggregate:
-     * the first terminal failure is its cause and later failures are directly suppressed on the aggregate. The source
-     * failures are not mutated. A physical raw-output failure by itself does not replace a successful process outcome;
-     * it is submitted to the bounded diagnostic reporter on a best-effort basis and may be dropped if reporting capacity
-     * is unavailable. Output helpers report non-selected close diagnostics separately, and other late asynchronous
-     * failures do not rewrite a published outcome.
-     *
-     * <p>The barrier does not wait for a physical stdin close blocked by a concurrent write. Cancelling the returned
-     * view cannot cancel the session's terminal outcome. Synchronous continuations use the normal {@link
-     * CompletableFuture} execution rules and should therefore return promptly or select an asynchronous executor.
+     * <p>Completion confirms the selected terminal process outcome. On natural exit, raw stdout and stderr remain owned
+     * by the caller until their streams or this session are explicitly closed. Potentially blocking physical stream
+     * closes continue independently. A late stdin-close failure can complete a still-running session exceptionally as
+     * described by {@link #closeStdin()}; it cannot change a public outcome that has already been selected. Cancelling
+     * the returned view cannot cancel the session.
      *
      * @return process exit future
      */
     CompletableFuture<SessionExit> onExit();
 
     /**
-     * Returns an immutable expect configuration draft using default options.
-     *
-     * <p>Creating or configuring the draft does not claim output ownership. {@link Expect.Draft#open()} claims both output
-     * streams and may fail with {@link IllegalStateException} if raw code, another helper, or session cleanup selected the
-     * ownership mode first.
-     *
-     * @return immutable expect draft
-     */
-    default Expect.Draft expect() {
-        return new ImmutableExpectDraft(this, io.github.ulviar.procwright.internal.ExpectSettings.defaults());
-    }
-
-    /**
      * Stops the process through the configured shutdown policy. Calling this method more than once has no effect.
-     * Potentially blocking physical stream closes run asynchronously under the contract documented by
-     * {@link #onExit()}.
+     * Potentially blocking physical stream closes run asynchronously.
      */
     @Override
     void close();

@@ -15,7 +15,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,18 +40,48 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
     }
 
     @Test
-    void capacityExhaustionFailsBeforeAnyStreamIsObserved() {
+    void closeCapacityDoesNotLimitLiveProcessResources() throws Exception {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
-        BoundedCloseDispatcher.Reservation occupied = dispatcher.reserve(3);
+        CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
+        CountDownLatch releaseCloses = new CountDownLatch(1);
+        for (int index = 0; index < 3; index++) {
+            dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                    () -> {
+                        occupyingCloseStarted.countDown();
+                        awaitUninterruptibly(releaseCloses);
+                    },
+                    "occupying-close-",
+                    ignored -> {},
+                    ignored -> {},
+                    () -> {}));
+        }
+        assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
         TrackingProcess process = new TrackingProcess();
 
-        assertThrows(RejectedExecutionException.class, () -> ProcessIoResources.acquire(process, dispatcher));
+        ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
 
-        assertEquals(0, process.stdinGets.get());
-        assertEquals(0, process.stdoutGets.get());
-        assertEquals(0, process.stderrGets.get());
-        assertFalse(process.isAlive());
-        occupied.release();
+        assertEquals(1, process.stdinGets.get());
+        assertEquals(1, process.stdoutGets.get());
+        assertEquals(1, process.stderrGets.get());
+        assertTrue(process.isAlive());
+        releaseCloses.countDown();
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+        resources.closeAllAsync(ignored -> {});
+    }
+
+    private static void awaitUninterruptibly(CountDownLatch latch) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException exception) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test
@@ -95,14 +124,14 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         assertEquals(java.util.List.of(acquisitionFailure, cleanupFailure), FailureAggregation.sources(actual));
         assertEquals(0, acquisitionFailure.getSuppressed().length);
         assertEquals(0, cleanupFailure.getSuppressed().length);
-        assertEquals(1, process.stdin.closeCalls.get());
-        assertEquals(1, process.stdout.closeCalls.get());
+        assertTrue(eventually(() -> process.stdin.closeCalls.get() == 1));
+        assertTrue(eventually(() -> process.stdout.closeCalls.get() == 1));
         assertEquals(0, process.stderr.closeCalls.get());
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
 
     @Test
-    void partialAcquisitionAggregatesEveryRollbackFailureWithoutMutatingSources() throws Exception {
+    void partialAcquisitionKeepsAsynchronousCloseFailuresSecondary() throws Exception {
         for (Throwable acquisitionFailure : java.util.List.of(
                 new IllegalStateException("stderr getter failed"), new AssertionError("stderr getter failed"))) {
             IOException stdinCloseFailure = new IOException("stdin rollback close failed");
@@ -113,14 +142,10 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
 
             Throwable actual = captureFailure(() -> ProcessIoResources.acquire(process, dispatcher));
 
-            assertTrue(
-                    acquisitionFailure instanceof Error ? actual instanceof Error : actual instanceof RuntimeException);
-            assertSame(acquisitionFailure, FailureAggregation.primary(actual));
+            assertSame(acquisitionFailure, actual);
             assertTrue(process.stdin.closed.await(1, TimeUnit.SECONDS));
             assertTrue(process.stdout.closed.await(1, TimeUnit.SECONDS));
-            assertEquals(
-                    java.util.List.of(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure),
-                    FailureAggregation.sources(actual));
+            assertEquals(java.util.List.of(acquisitionFailure), FailureAggregation.sources(actual));
             assertEquals(0, acquisitionFailure.getSuppressed().length);
             assertEquals(0, stdinCloseFailure.getSuppressed().length);
             assertEquals(0, stdoutCloseFailure.getSuppressed().length);
@@ -131,55 +156,25 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
     }
 
     @Test
-    void rollbackDoesNotInspectHostileFailureGraphs() throws Exception {
-        AssertionError acquisitionFailure = new AssertionError("stderr getter failed");
-        HostileCauseIOException stdinCloseFailure = new HostileCauseIOException();
-        AssertionError stdoutCloseFailure = new AssertionError("stdout rollback close failed");
-        RollbackFailureProcess process =
-                new RollbackFailureProcess(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1);
-
-        Throwable failure = captureFailure(() -> ProcessIoResources.acquire(process, dispatcher));
-
-        assertSame(acquisitionFailure, FailureAggregation.primary(failure));
-        assertEquals(
-                java.util.List.of(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure),
-                FailureAggregation.sources(failure));
-        assertTrue(process.stdin.closed.await(1, TimeUnit.SECONDS));
-        assertTrue(process.stdout.closed.await(1, TimeUnit.SECONDS));
-        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
-        assertEquals(0, stdinCloseFailure.causeReads.get());
-        assertEquals(1, process.stdin.closeCalls.get());
-        assertEquals(1, process.stdout.closeCalls.get());
-    }
-
-    @Test
-    void rollbackDoesNotAcquireTheAcquisitionFailureMonitor() throws Exception {
-        AssertionError acquisitionFailure = new AssertionError("stderr getter failed");
-        IOException stdinCloseFailure = new IOException("stdin rollback close failed");
-        AssertionError stdoutCloseFailure = new AssertionError("stdout rollback close failed");
-        RollbackFailureProcess process =
-                new RollbackFailureProcess(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure);
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 1);
+    void partialAcquisitionReturnsWhilePhysicalCloseIsBlocked() throws Exception {
+        IllegalStateException acquisitionFailure = new IllegalStateException("stderr getter failed");
+        BlockingCloseInputStream stdout = new BlockingCloseInputStream();
+        BlockingRollbackProcess process = new BlockingRollbackProcess(acquisitionFailure, stdout);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
         ExecutorService executor = Executors.newSingleThreadExecutor();
-        try (var monitor = ThrowableMonitorTestSupport.hold(acquisitionFailure)) {
-            monitor.verifyHeld();
+        try {
             Future<Throwable> acquisition =
                     executor.submit(() -> captureFailure(() -> ProcessIoResources.acquire(process, dispatcher)));
-
+            assertTrue(stdout.closeStarted.await(1, TimeUnit.SECONDS));
             Throwable failure = acquisition.get(1, TimeUnit.SECONDS);
-            assertSame(acquisitionFailure, FailureAggregation.primary(failure));
-            assertEquals(
-                    java.util.List.of(acquisitionFailure, stdinCloseFailure, stdoutCloseFailure),
-                    FailureAggregation.sources(failure));
+            assertSame(acquisitionFailure, failure);
             assertFalse(process.isAlive());
-            assertEquals(1, process.stdin.closeCalls.get());
-            assertEquals(1, process.stdout.closeCalls.get());
-            assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
         } finally {
+            stdout.releaseClose.countDown();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
 
     private static final class TerminationFailureProcess extends TrackingProcess {
@@ -318,34 +313,43 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         }
     }
 
-    @SuppressWarnings("serial")
-    private static final class HostileCauseIOException extends IOException {
+    private static final class BlockingRollbackProcess extends TrackingProcess {
 
-        private final AtomicInteger causeReads = new AtomicInteger();
+        private final RuntimeException acquisitionFailure;
 
-        private HostileCauseIOException() {
-            super("stdin rollback close failed", null);
+        private BlockingRollbackProcess(RuntimeException acquisitionFailure, TrackingInputStream stdout) {
+            super(stdout, new TrackingInputStream());
+            this.acquisitionFailure = acquisitionFailure;
         }
 
         @Override
-        public synchronized Throwable getCause() {
-            causeReads.incrementAndGet();
-            throw new AssertionError("rollback diagnostics must not inspect the failure graph");
+        public InputStream getErrorStream() {
+            stderrGets.incrementAndGet();
+            throw acquisitionFailure;
         }
     }
 
-    private static void awaitUninterruptibly(CountDownLatch latch) {
-        boolean interrupted = false;
-        while (true) {
-            try {
-                latch.await();
-                break;
-            } catch (InterruptedException exception) {
-                interrupted = true;
+    private static final class BlockingCloseInputStream extends TrackingInputStream {
+
+        private final CountDownLatch closeStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseClose = new CountDownLatch(1);
+
+        @Override
+        public void close() {
+            closeCalls.incrementAndGet();
+            closeStarted.countDown();
+            boolean interrupted = false;
+            while (true) {
+                try {
+                    releaseClose.await();
+                    break;
+                } catch (InterruptedException exception) {
+                    interrupted = true;
+                }
             }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }

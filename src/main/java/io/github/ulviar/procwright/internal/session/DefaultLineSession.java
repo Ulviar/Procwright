@@ -25,8 +25,6 @@ import java.util.function.LongSupplier;
  */
 public final class DefaultLineSession implements LineSession {
 
-    private static final String OUTPUT_OWNER = "LineSession";
-
     private final DefaultSession session;
     private final LineSessionSettings options;
     private final OutputPumpCoordinator outputPumps;
@@ -49,11 +47,9 @@ public final class DefaultLineSession implements LineSession {
         Dependencies runtime = Objects.requireNonNull(dependencies, "dependencies");
         this.nanoTime = runtime.nanoTime();
         this.requestGate = new SerializedRequestGate(runtime.requestLockWaiter());
-        this.outputPumps = new OutputPumpCoordinator(
-                session, OUTPUT_OWNER, OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
+        this.outputPumps = new OutputPumpCoordinator(session, SessionOutputMode.LINE);
         this.transcript = new BoundedTranscriptBuffer(options.transcriptLimit());
-        this.state = new LineSessionState(
-                this::lineTranscript, outputPumps::retainFailure, outputPumps::sealFailureAttribution);
+        this.state = new LineSessionState(this::lineTranscript, outputPumps::reportFailure);
         IncrementalTextDecoder stdoutTextDecoder;
         IncrementalTextDecoder stderrTextDecoder;
         try {
@@ -74,7 +70,6 @@ public final class DefaultLineSession implements LineSession {
                 options,
                 state,
                 runtime.zeroReadBackoff(),
-                outputPumps,
                 transcript,
                 malformed,
                 stdoutTextDecoder,
@@ -98,7 +93,7 @@ public final class DefaultLineSession implements LineSession {
                 });
         this.requestWriter = new LineRequestWriter(session, state, runtime.writeTaskRunner());
         this.responseDecoder = new LineResponseDecoder(options, state, output, outputPumps);
-        output.start(runtime.pumpStarter());
+        output.start(runtime.pumpStarter(), outputPumps);
     }
 
     /**
@@ -151,14 +146,10 @@ public final class DefaultLineSession implements LineSession {
 
     private LineResponse executeRequest(
             byte[] encodedLine, long startedNanos, long deadlineNanos, LineSessionState.Request requestFailures) {
-        LineSessionException.Reason errorReason = LineSessionException.Reason.FAILURE;
-        String errorMessage = "Line-session request writer failed";
         try {
             state.ensureOpen();
             requestWriter.write(encodedLine, deadlineNanos, requestFailures);
 
-            errorReason = LineSessionException.Reason.DECODER_FAILED;
-            errorMessage = "Response decoder failed";
             List<String> lines = responseDecoder.decode(deadlineNanos, requestFailures);
             recordDeadlineFailure(deadlineNanos, requestFailures);
             state.completeRequest(requestFailures);
@@ -181,19 +172,14 @@ public final class DefaultLineSession implements LineSession {
             }
             throw primary;
         } catch (Error error) {
-            LineSessionException primary = requestFailures.failure();
-            LineSessionState.TerminalSnapshot outcome;
-            if (primary == null || primary.reason() == LineSessionException.Reason.CLOSED) {
-                outcome = state.recordTerminalFailure(errorReason, errorMessage, error);
-            } else {
-                outcome = state.recordTerminalFailure(primary.reason(), primary.getMessage(), error);
-            }
+            LineSessionState.TerminalSnapshot outcome = state.recordFatalError(error);
             if (outcome instanceof LineSessionState.FatalSnapshot fatal) {
                 closePreserving(fatal.error());
                 throw fatal.error();
             }
-            closePreserving(error);
-            throw error;
+            LineSessionException selected = state.terminalException((LineSessionState.FailureSnapshot) outcome);
+            closePreserving(selected);
+            throw selected;
         }
     }
 
@@ -235,8 +221,8 @@ public final class DefaultLineSession implements LineSession {
     }
 
     /**
-     * Returns the line-session exit future view. It completes after process supervision, both output pumps, and
-     * helper-owned physical output cleanup have released their internal ownership.
+     * Returns the line-session exit future view. It completes after process supervision and both output pumps settle
+     * logically; potentially blocking physical stream closes continue independently.
      *
      * @return line-session exit future
      */
@@ -246,10 +232,6 @@ public final class DefaultLineSession implements LineSession {
 
     boolean publicExitCompleted() {
         return session.publicExitCompleted();
-    }
-
-    CompletableFuture<Void> physicalOutputCleanup() {
-        return session.physicalOutputCleanup();
     }
 
     /**
@@ -275,7 +257,7 @@ public final class DefaultLineSession implements LineSession {
             }
         } finally {
             if (primary != null) {
-                outputPumps.closeSessionPreserving(primary);
+                outputPumps.closeSessionAfterFailure(primary);
             } else if (lifecycleOwner) {
                 outputPumps.closeSession();
             }
@@ -291,9 +273,30 @@ public final class DefaultLineSession implements LineSession {
 
     private void closePreserving(Throwable failure) {
         try {
-            closeWithEvent(true, failure);
+            if (failure instanceof LineSessionException lineFailure
+                    && lineFailure.reason() == LineSessionException.Reason.EOF) {
+                closeWithObservedEof(lineFailure);
+            } else {
+                closeWithEvent(true, failure);
+            }
         } catch (Throwable closeFailure) {
-            outputPumps.retainFailure(closeFailure);
+            outputPumps.reportFailure(closeFailure);
+        }
+    }
+
+    private void closeWithObservedEof(LineSessionException failure) {
+        boolean lifecycleOwner = state.claimClose();
+        if (lifecycleOwner) {
+            responseDecoder.cancel();
+        }
+        try {
+            if (lifecycleOwner) {
+                output.closeReaders();
+            }
+        } finally {
+            if (lifecycleOwner) {
+                outputPumps.closeSessionAfterObservedEof(failure);
+            }
         }
     }
 
@@ -301,7 +304,7 @@ public final class DefaultLineSession implements LineSession {
         try {
             closeWithEvent(false, failure);
         } catch (Throwable closeFailure) {
-            outputPumps.retainFailure(closeFailure);
+            outputPumps.reportFailure(closeFailure);
         }
     }
 
@@ -316,24 +319,27 @@ public final class DefaultLineSession implements LineSession {
     }
 
     private void failFatalOutput(Error error) {
-        LineSessionState.TerminalSnapshot outcome = state.recordFatalError(error);
-        Throwable primary = outcome.primary();
-        if (outcome instanceof LineSessionState.FatalSnapshot fatal) {
-            output.publishFatal(fatal.error());
+        LineSessionState.OutputSelection selection = state.recordOutputFatalError(error);
+        if (selection.rejectedAfterClose()) {
+            return;
         }
+        LineSessionState.TerminalSnapshot outcome = selection.selected();
+        Throwable primary = Objects.requireNonNull(outcome, "outcome").primary();
+        output.publishTerminal(outcome);
         closeTerminalPreserving(primary);
     }
 
     private void failRuntimeOutput(LineSessionException.Reason reason, String message, RuntimeException failure) {
-        boolean publishFailure = !state.isClosed();
-        LineSessionState.TerminalSnapshot outcome = state.recordTerminalFailure(reason, message, failure);
+        LineSessionState.OutputSelection selection = state.recordOutputFailure(reason, message, failure);
+        if (selection.rejectedAfterClose()) {
+            return;
+        }
+        LineSessionState.TerminalSnapshot outcome = Objects.requireNonNull(selection.selected(), "outcome");
         Throwable primary = outcome.primary();
         try {
-            if (publishFailure && outcome instanceof LineSessionState.FailureSnapshot failureSnapshot) {
-                output.publishFailure(failureSnapshot.reason(), failureSnapshot.message(), failureSnapshot.primary());
-            }
+            output.publishTerminal(outcome);
         } catch (Throwable publicationFailure) {
-            outputPumps.retainFailure(publicationFailure);
+            outputPumps.reportFailure(publicationFailure);
         } finally {
             closeTerminalPreserving(primary);
         }

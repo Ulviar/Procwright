@@ -10,7 +10,6 @@ package io.github.ulviar.procwright.examples;
 
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.session.Expect;
-import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.SessionExit;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import java.time.Duration;
@@ -22,18 +21,18 @@ public final class TerminalExample {
     private TerminalExample() {}
 
     public static void main(String[] args) {
-        try (Session session = Procwright.command(ExampleSupport.javaExecutable())
-                        .interactive()
-                        .withArgs("--version")
-                        .withTerminal(TerminalPolicy.REQUIRED)
-                        .withIdleTimeout(Duration.ofSeconds(10))
-                        .open();
-                Expect expect =
-                        session.expect().withTimeout(Duration.ofSeconds(5)).open()) {
+        try (Expect expect = Procwright.command(ExampleSupport.javaExecutable())
+                .interactive()
+                .expect()
+                .withArgs("--version")
+                .withTerminal(TerminalPolicy.REQUIRED)
+                .withIdleTimeout(Duration.ofSeconds(10))
+                .withTimeout(Duration.ofSeconds(5))
+                .open()) {
             expect.expectRegex(Pattern.compile("(?i)(java|openjdk)"));
-            SessionExit exit = session.onExit().orTimeout(5, TimeUnit.SECONDS).join();
+            SessionExit exit = expect.onExit().orTimeout(5, TimeUnit.SECONDS).join();
             if (exit.exitCode().orElse(-1) != 0) {
-                throw new IllegalStateException("Terminal command did not exit cleanly");
+                throw new IllegalStateException("java --version failed: " + exit.exitCode());
             }
         }
     }
@@ -47,3 +46,6 @@ public final class TerminalExample {
 `TerminalPolicy.AUTO` only when ordinary pipes are an acceptable fallback. The built-in Unix provider requires trusted
 `script`, `stty`, `env`, and `dd` executables in `/usr/bin` or `/bin` and executable `/bin/sh`; Windows ConPTY is not
 shipped in the planned `0.1.0` release.
+
+`sendSignal(...)` sends a control byte. A PTY normally turns it into a signal for the foreground command; pipe fallback
+does not. Use `REQUIRED` when the operation depends on signal semantics.

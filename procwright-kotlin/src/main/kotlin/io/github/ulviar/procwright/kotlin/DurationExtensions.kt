@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.kotlin
 
+import io.github.ulviar.procwright.ExpectScenario
 import io.github.ulviar.procwright.InteractiveScenario
 import io.github.ulviar.procwright.LineSessionScenario
 import io.github.ulviar.procwright.ProtocolSessionScenario
@@ -101,8 +102,16 @@ fun <I : Any, O : Any> ProtocolSessionScenario.PoolDraft<I, O>.withMaxWorkerAge(
 ): ProtocolSessionScenario.PoolDraft<I, O> = withMaxWorkerAge(age.toJavaDuration())
 
 /** Returns an expect draft with its default match timeout set from a Kotlin duration. */
-fun Expect.Draft.withTimeout(timeout: Duration): Expect.Draft =
+fun ExpectScenario.Draft.withTimeout(timeout: Duration): ExpectScenario.Draft =
     withTimeout(timeout.toJavaDuration())
+
+/** Returns an expect draft with its process idle timeout set from a Kotlin duration. */
+fun ExpectScenario.Draft.withIdleTimeout(timeout: Duration): ExpectScenario.Draft =
+    withIdleTimeout(timeout.toJavaDuration())
+
+/** Returns an expect draft with its readiness timeout set from a Kotlin duration. */
+fun ExpectScenario.Draft.withReadinessTimeout(timeout: Duration): ExpectScenario.Draft =
+    withReadinessTimeout(timeout.toJavaDuration())
 
 /** Performs a line-session request with a Kotlin duration timeout. */
 fun LineSession.request(line: String, timeout: Duration): LineResponse =

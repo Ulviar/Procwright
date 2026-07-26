@@ -1,6 +1,7 @@
 # Line sessions
 
-`lineSession()` models one request line followed by one stdout response line.
+`lineSession()` models a line-oriented worker. The default decoder returns the next stdout line; a custom decoder can
+combine several lines into one response.
 
 <!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java -->
 ```java
@@ -53,7 +54,11 @@ checks, encoding, and deadlines while waiting for another request or for stdin w
 remains incomplete unless the worker exits independently.
 Once the request is handed off, a timeout, interruption, or write failure closes the session even if no received byte can
 be confirmed. EOF, malformed text, oversized output, backlog overflow, and other response/protocol failures are also
-terminal. Use `protocolSession` when messages may contain embedded newlines or need custom framing.
+terminal and close the process. The first accepted non-exit terminal claim wins while the public outcome has not yet been
+selected; process exit is the fallback. After a request timeout, a decoder that ignores interruption or an output read
+blocked in the JDK may keep running on a daemon thread. It does not delay `onExit()`, and its eventual return or failure
+cannot replace the timeout.
+Use `protocolSession` when messages may contain embedded newlines or need custom framing.
 
 Readiness runs after launch and before `open()` returns. A pooled worker also completes readiness before it becomes idle.
 A failed or timed-out readiness probe closes the process.

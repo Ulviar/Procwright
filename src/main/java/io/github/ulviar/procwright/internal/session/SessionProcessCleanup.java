@@ -18,8 +18,7 @@ final class SessionProcessCleanup {
     private final Process process;
     private final ShutdownPolicy shutdownPolicy;
     private final LiveDescendantSnapshot liveDescendants = new LiveDescendantSnapshot();
-    private boolean completed;
-    private OptionalInt exitCode = OptionalInt.empty();
+    private CleanupOutcome cleanupOutcome;
     private volatile OptionalInt exitCodeSnapshot = OptionalInt.empty();
 
     SessionProcessCleanup(Process process, ShutdownPolicy shutdownPolicy) {
@@ -38,53 +37,62 @@ final class SessionProcessCleanup {
         return exitCodeSnapshot;
     }
 
-    synchronized OptionalInt stop() {
-        if (completed) {
-            return exitCode;
-        }
-        try {
-            exitCode = ProcessLifecycle.stop(process, knownDescendants(), shutdownPolicy);
-            exitCodeSnapshot = exitCode;
-            return exitCode;
-        } finally {
-            completed = true;
-        }
+    OptionalInt stop() {
+        CleanupOutcome outcome = cleanup(CleanupMode.NORMAL);
+        rethrow(outcome.failure());
+        return outcome.exitCode();
     }
 
     Throwable forceAfterFailure() {
-        synchronized (this) {
-            if (completed) {
-                return null;
-            }
-            try {
-                ProcessLifecycle.forceStop(process, knownDescendants(), FAILURE_CLEANUP_TIMEOUT);
-                return null;
-            } catch (RuntimeException | Error failure) {
-                return failure;
-            } finally {
-                completed = true;
-            }
-        }
+        return cleanup(CleanupMode.FORCE).failure();
     }
 
     Throwable stopAfterFailure() {
-        synchronized (this) {
-            if (completed) {
-                return null;
-            }
-            try {
+        return cleanup(CleanupMode.NORMAL).failure();
+    }
+
+    private synchronized CleanupOutcome cleanup(CleanupMode mode) {
+        if (cleanupOutcome != null) {
+            return cleanupOutcome;
+        }
+        try {
+            OptionalInt exitCode;
+            if (mode == CleanupMode.NORMAL) {
                 exitCode = ProcessLifecycle.stop(process, knownDescendants(), shutdownPolicy);
                 exitCodeSnapshot = exitCode;
-                return null;
-            } catch (RuntimeException | Error failure) {
-                return failure;
-            } finally {
-                completed = true;
+            } else {
+                ProcessLifecycle.forceStop(process, knownDescendants(), FAILURE_CLEANUP_TIMEOUT);
+                exitCode = OptionalInt.empty();
             }
+            cleanupOutcome = new CleanupOutcome(exitCode, null);
+        } catch (RuntimeException | Error failure) {
+            cleanupOutcome = new CleanupOutcome(OptionalInt.empty(), failure);
         }
+        return cleanupOutcome;
     }
 
     private KnownDescendants knownDescendants() {
         return liveDescendants.sealForCleanup();
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    private enum CleanupMode {
+        NORMAL,
+        FORCE
+    }
+
+    private record CleanupOutcome(OptionalInt exitCode, Throwable failure) {
+
+        private CleanupOutcome {
+            Objects.requireNonNull(exitCode, "exitCode");
+        }
     }
 }

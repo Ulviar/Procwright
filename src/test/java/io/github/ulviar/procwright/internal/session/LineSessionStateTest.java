@@ -4,6 +4,8 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,7 +19,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 final class LineSessionStateTest {
@@ -50,35 +51,63 @@ final class LineSessionStateTest {
     }
 
     @Test
-    void activeRequestOwnsExactOnceFailureAttributionSettlement() {
-        AtomicInteger seals = new AtomicInteger();
-        LineSessionState state =
-                new LineSessionState(() -> new LineTranscript("", false, false), ignored -> {}, seals::incrementAndGet);
+    void closeClaimRejectsEofBeforeTheTransportPublishesItsClosedEvent() {
+        List<Throwable> discarded = new ArrayList<>();
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
         LineSessionState.Request request = state.beginRequest();
 
-        state.recordStdoutEof();
-        assertEquals(0, seals.get());
-        state.completeRequest(request);
-        request.close();
-        request.close();
+        assertTrue(state.claimClose());
+        LineSessionException selected = state.recordRequestFailure(request, state::eof);
 
-        assertEquals(1, seals.get());
+        assertEquals(LineSessionException.Reason.CLOSED, selected.reason());
+        assertNull(state.terminal());
+        assertTrue(discarded.isEmpty());
     }
 
     @Test
-    void retrySafeReleaseSettlesIdleEofBeforeTheRequestScopeCloses() {
-        AtomicInteger seals = new AtomicInteger();
-        LineSessionState state =
-                new LineSessionState(() -> new LineTranscript("", false, false), ignored -> {}, seals::incrementAndGet);
+    void eofSelectedBeforeCloseRemainsTerminal() {
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
         LineSessionState.Request request = state.beginRequest();
-        LineSessionException retryable = state.timeout();
 
-        state.recordStdoutEof();
-        assertSame(retryable, state.releaseRetryablePreWrite(request, retryable));
-        assertEquals(1, seals.get());
+        LineSessionException eof = state.recordRequestFailure(request, state::eof);
+        assertTrue(state.claimClose());
 
-        request.close();
-        assertEquals(1, seals.get());
+        assertSame(eof, state.terminal().primary());
+        LineSessionException selected = assertThrows(LineSessionException.class, () -> state.completeRequest(request));
+        assertEquals(LineSessionException.Reason.EOF, selected.reason());
+    }
+
+    @Test
+    void ordinaryOutputFailureAfterCloseIsDiscardedSilently() {
+        List<Throwable> discarded = new ArrayList<>();
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
+        IllegalStateException late = new IllegalStateException("late output");
+
+        state.claimClose();
+        LineSessionState.OutputSelection selection =
+                state.recordOutputFailure(LineSessionException.Reason.FAILURE, "late", late);
+
+        assertTrue(selection.rejectedAfterClose());
+        assertNull(selection.selected());
+        assertSame(late, selection.discarded());
+        assertNull(state.terminal());
+        assertTrue(discarded.isEmpty());
+    }
+
+    @Test
+    void fatalOutputFailureAfterCloseIsOnlyReported() {
+        List<Throwable> discarded = new ArrayList<>();
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
+        AssertionError late = new AssertionError("late output");
+
+        state.claimClose();
+        LineSessionState.OutputSelection selection = state.recordOutputFatalError(late);
+
+        assertTrue(selection.rejectedAfterClose());
+        assertNull(selection.selected());
+        assertSame(late, selection.discarded());
+        assertNull(state.terminal());
+        assertEquals(List.of(late), discarded);
     }
 
     @Test
@@ -95,13 +124,13 @@ final class LineSessionStateTest {
 
         assertSame(responseLimit, selected);
         assertSame(fatal, ((LineSessionState.FatalSnapshot) state.terminal()).error());
-        assertEquals(List.of(responseLimit), discarded);
+        assertTrue(discarded.isEmpty());
         assertEquals(0, fatal.getSuppressed().length);
         assertEquals(0, responseLimit.getSuppressed().length);
     }
 
     @Test
-    void laterRequestFailureIsReportedWithoutMutatingTheSelectedRequestFailure() {
+    void laterRequestFailureIsDiscardedWithoutMutatingTheSelectedRequestFailure() {
         List<Throwable> discarded = new ArrayList<>();
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
         LineSessionState.Request request = state.beginRequest();
@@ -111,13 +140,13 @@ final class LineSessionStateTest {
         assertSame(first, state.recordRequestFailure(request, () -> first));
         assertSame(first, state.recordRequestFailure(request, () -> second));
 
-        assertEquals(List.of(second), discarded);
+        assertTrue(discarded.isEmpty());
         assertEquals(0, first.getSuppressed().length);
         assertEquals(0, second.getSuppressed().length);
     }
 
     @Test
-    void fatalFailureReplacesARecoverableRequestFailure() {
+    void lateFatalFailureDoesNotReplaceSelectedRequestFailure() {
         List<Throwable> discarded = new ArrayList<>();
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
         LineSessionState.Request request = state.beginRequest();
@@ -128,9 +157,12 @@ final class LineSessionStateTest {
         state.recordRequestFailure(request, () -> responseLimit);
         LineSessionState.TerminalSnapshot selected = state.recordFatalError(fatal);
 
-        assertSame(fatal, selected.primary());
-        assertSame(fatal, ((LineSessionState.FatalSnapshot) selected).error());
-        assertEquals(List.of(responseLimit), discarded);
+        assertSame(responseLimit, selected.primary());
+        assertSame(
+                responseLimit,
+                assertInstanceOf(LineSessionState.FailureSnapshot.class, selected)
+                        .primary());
+        assertEquals(List.of(fatal), discarded);
         assertSame(responseLimit, request.failure());
         assertEquals(0, fatal.getSuppressed().length);
         assertEquals(0, responseLimit.getSuppressed().length);
@@ -150,7 +182,7 @@ final class LineSessionStateTest {
             selection = executor.submit(
                     () -> state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "secondary", secondary));
             selection.get(1, TimeUnit.SECONDS);
-            assertEquals(List.of(secondary), discarded);
+            assertTrue(discarded.isEmpty());
 
             Future<LineSessionState.TerminalSnapshot> observation = executor.submit(state::terminal);
             assertSame(primary, observation.get(1, TimeUnit.SECONDS).primary());
@@ -166,7 +198,7 @@ final class LineSessionStateTest {
     }
 
     @Test
-    void fatalSelectionDoesNotWaitForOrMutateEarlierFailures() throws Exception {
+    void lateFatalFailureDoesNotWaitForOrReplaceEarlierTerminalFailure() throws Exception {
         List<Throwable> discarded = new ArrayList<>();
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
         IllegalStateException primary = new IllegalStateException("primary");
@@ -184,15 +216,15 @@ final class LineSessionStateTest {
             losingSelection.get(1, TimeUnit.SECONDS);
 
             fatalSelection = executor.submit(() -> state.recordFatalError(fatal));
-            assertSame(fatal, fatalSelection.get(1, TimeUnit.SECONDS).primary());
-            assertEquals(List.of(secondary, primary), discarded);
-            assertSame(fatal, state.terminal().primary());
+            assertSame(primary, fatalSelection.get(1, TimeUnit.SECONDS).primary());
+            assertEquals(List.of(fatal), discarded);
+            assertSame(primary, state.terminal().primary());
         } finally {
             if (losingSelection != null) {
                 losingSelection.get(1, TimeUnit.SECONDS);
             }
             if (fatalSelection != null) {
-                assertSame(fatal, fatalSelection.get(1, TimeUnit.SECONDS).primary());
+                assertSame(primary, fatalSelection.get(1, TimeUnit.SECONDS).primary());
             }
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
@@ -220,7 +252,7 @@ final class LineSessionStateTest {
                 state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "secondary", secondary);
             });
             losingSelection.get(1, TimeUnit.SECONDS);
-            assertEquals(List.of(secondary), discarded);
+            assertTrue(discarded.isEmpty());
 
             completion = executor.submit(() -> {
                 return assertThrows(LineSessionException.class, () -> state.completeRequest(request));

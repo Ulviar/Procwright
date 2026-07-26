@@ -7,10 +7,7 @@ import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.ExpectMatch;
 import io.github.ulviar.procwright.session.LineTranscript;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 
@@ -31,7 +28,6 @@ final class ExpectSessionState {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean stopping = new AtomicBoolean();
     private final AtomicBoolean malformed = new AtomicBoolean();
-    private final Set<Error> scheduledFatalOutputFailures = Collections.newSetFromMap(new IdentityHashMap<>());
 
     private long cursorOffset;
     private long cursorRevision;
@@ -68,6 +64,10 @@ final class ExpectSessionState {
 
     BoundedTaskRunner.CancellationToken terminalCancellationToken() {
         return terminalCancellationToken;
+    }
+
+    BoundedTaskRunner.CancellationSignal terminalCancellationSignal() {
+        return terminalCancellation;
     }
 
     synchronized void beginOperation(String unavailableMessage, String action) {
@@ -148,23 +148,57 @@ final class ExpectSessionState {
         boolean first;
         boolean selected = false;
         Error fatalToPublish = null;
+        ExpectException selectedFailure = null;
         synchronized (this) {
             first = outputFailure == null;
             if (first) {
                 outputFailure = failure;
                 stopping.set(true);
-                selected = claimTerminalLocked(new Terminal(TerminalKind.FAILURE, failure));
+                ExpectException candidate = failure("Could not read expect output", failure);
+                selected = claimTerminalLocked(new Terminal(TerminalKind.FAILURE, candidate));
+                if (selected) {
+                    selectedFailure = candidate;
+                }
             }
-            if (failure instanceof Error error
-                    && terminal != null
-                    && (first ? terminal.kind() != TerminalKind.FAILURE : error != outputFailure)
-                    && scheduledFatalOutputFailures.add(error)) {
+            if (failure instanceof Error error && !selected && (first || error != outputFailure)) {
                 fatalToPublish = error;
             }
             notifyAll();
         }
         signalTerminal(selected);
-        return new OutputFailureDecision(first, fatalToPublish);
+        return new OutputFailureDecision(selectedFailure, fatalToPublish);
+    }
+
+    InputFailureDecision recordInputFailure(String message, RuntimeException cause) {
+        Objects.requireNonNull(message, "message");
+        Objects.requireNonNull(cause, "cause");
+        boolean selected;
+        ExpectException selectedFailure;
+        synchronized (this) {
+            ExpectException candidate = failure(message, cause);
+            selected = claimTerminalLocked(new Terminal(TerminalKind.FAILURE, candidate));
+            if (selected) {
+                stopping.set(true);
+            }
+            selectedFailure = selected ? candidate : terminalFailure(message);
+            notifyAll();
+        }
+        signalTerminal(selected);
+        return new InputFailureDecision(selectedFailure, selected);
+    }
+
+    boolean recordFatalInputFailure(Error failure) {
+        Objects.requireNonNull(failure, "failure");
+        boolean selected;
+        synchronized (this) {
+            selected = claimTerminalLocked(new Terminal(TerminalKind.FAILURE, failure));
+            if (selected) {
+                stopping.set(true);
+            }
+            notifyAll();
+        }
+        signalTerminal(selected);
+        return selected;
     }
 
     boolean close() {
@@ -174,23 +208,12 @@ final class ExpectSessionState {
             if (closed.compareAndSet(false, true)) {
                 first = true;
                 stopping.set(true);
-                selected = claimTerminalLocked(new Terminal(TerminalKind.CLOSED, null));
+                selected = claimTerminalLocked(new Terminal(TerminalKind.CLOSED, closed()));
                 notifyAll();
             }
         }
         signalTerminal(selected);
         return first;
-    }
-
-    void abortStartup() {
-        boolean selected;
-        synchronized (this) {
-            stopping.set(true);
-            closed.set(true);
-            selected = claimTerminalLocked(new Terminal(TerminalKind.CLOSED, null));
-            notifyAll();
-        }
-        signalTerminal(selected);
     }
 
     synchronized void throwIfTerminal(String message) {
@@ -233,6 +256,26 @@ final class ExpectSessionState {
         return resolution.selectedFailure();
     }
 
+    RegexAbandonmentDecision recordRegexAbandonment(String timeoutMessage, Throwable cause) {
+        Objects.requireNonNull(timeoutMessage, "timeoutMessage");
+        Objects.requireNonNull(cause, "cause");
+        boolean selected = false;
+        ExpectException failure;
+        synchronized (this) {
+            failure = terminalFailure(timeoutMessage);
+            if (failure == null) {
+                failure = cause instanceof java.util.concurrent.TimeoutException
+                        ? timeout(timeoutMessage)
+                        : failure("Interrupted while matching expected output", cause);
+                stopping.set(true);
+                selected = claimTerminalLocked(new Terminal(TerminalKind.FAILURE, failure));
+                notifyAll();
+            }
+        }
+        signalTerminal(selected);
+        return new RegexAbandonmentDecision(failure, selected);
+    }
+
     void reportLateFatal(Thread failureThread, Error failure) {
         BoundedFailureReporter.shared()
                 .execute(failureThread, () -> lateFatalFailureReporter.accept(failureThread, failure));
@@ -272,11 +315,17 @@ final class ExpectSessionState {
         if (terminal == null) {
             return null;
         }
-        return switch (terminal.kind()) {
-            case CLOSED -> closed();
-            case FAILURE -> failure("Could not read expect output", terminal.cause());
-            case EOF -> eof(message);
-        };
+        if (terminal.kind() == TerminalKind.EOF && terminal.failure() == null) {
+            terminal = new Terminal(TerminalKind.EOF, eof(message));
+        }
+        Throwable failure = terminal.failure();
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        if (failure instanceof ExpectException expectFailure) {
+            return expectFailure;
+        }
+        throw new IllegalStateException("Expect terminal failure has an unsupported type", failure);
     }
 
     private ExpectException timeout(String message) {
@@ -321,14 +370,18 @@ final class ExpectSessionState {
 
     record RegexSnapshot(String output, long outputOffset, int searchStart, long outputRevision, long cursorRevision) {}
 
-    record OutputFailureDecision(boolean first, Error fatalToPublish) {}
+    record OutputFailureDecision(ExpectException selectedFailure, Error fatalToPublish) {}
 
-    private record Terminal(TerminalKind kind, Throwable cause) {
+    record InputFailureDecision(ExpectException failure, boolean installed) {}
+
+    record RegexAbandonmentDecision(ExpectException failure, boolean installed) {}
+
+    private record Terminal(TerminalKind kind, Throwable failure) {
 
         private Terminal {
             Objects.requireNonNull(kind, "kind");
-            if ((kind == TerminalKind.FAILURE) != (cause != null)) {
-                throw new IllegalArgumentException("only a failure terminal carries a cause");
+            if (kind != TerminalKind.EOF) {
+                Objects.requireNonNull(failure, "failure");
             }
         }
     }

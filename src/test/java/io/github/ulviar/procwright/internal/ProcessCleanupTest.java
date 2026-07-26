@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -114,31 +113,51 @@ final class ProcessCleanupTest {
     }
 
     @Test
-    void saturatedCloseAdmissionReportsFailureWithoutLeakingCapacity() {
+    void saturatedCloseAdmissionReportsEachSkippedCloseWithoutLeakingCapacity() throws Exception {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
-        BoundedCloseDispatcher.Reservation occupied = dispatcher.reserve(3);
+        CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
+        CountDownLatch releaseCloses = new CountDownLatch(1);
+        for (int index = 0; index < 3; index++) {
+            dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                    () -> {
+                        occupyingCloseStarted.countDown();
+                        boolean interrupted = false;
+                        while (true) {
+                            try {
+                                releaseCloses.await();
+                                break;
+                            } catch (InterruptedException ignored) {
+                                interrupted = true;
+                            }
+                        }
+                        if (interrupted) {
+                            Thread.currentThread().interrupt();
+                        }
+                    },
+                    "occupying-close-",
+                    ignored -> {},
+                    ignored -> {},
+                    () -> {}));
+        }
+        assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
         RecordingProcess process = new RecordingProcess();
-        AtomicReference<Throwable> reported = new AtomicReference<>();
-        AtomicInteger reportCount = new AtomicInteger();
+        CopyOnWriteArrayList<Throwable> reported = new CopyOnWriteArrayList<>();
         try {
             ProcessCleanup.forceStopAndCloseAsync(
-                    process, Duration.ofMillis(250), (actual, budget) -> {}, dispatcher, failure -> {
-                        reportCount.incrementAndGet();
-                        reported.set(failure);
-                    });
+                    process, Duration.ofMillis(250), (actual, budget) -> {}, dispatcher, reported::add);
 
-            assertInstanceOf(RejectedExecutionException.class, reported.get());
-            assertEquals(1, reportCount.get());
+            assertEquals(3, reported.size());
+            assertTrue(reported.stream().allMatch(RejectedExecutionException.class::isInstance));
             assertEquals(3, dispatcher.outstandingCount());
             process.assertNoStreamAccess();
         } finally {
-            occupied.release();
+            releaseCloses.countDown();
         }
-        assertEquals(0, dispatcher.outstandingCount());
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
 
     @Test
-    void closeStarterFailureFallsBackAndReleasesEveryAcceptedPermit() throws Exception {
+    void closeStarterFailureIsReportedAndReleasesEveryAcceptedSlot() throws Exception {
         List<IllegalStateException> startFailures = List.of(
                 new IllegalStateException("stdin close starter failed"),
                 new IllegalStateException("stdout close starter failed"),
@@ -157,15 +176,25 @@ final class ProcessCleanupTest {
                     reported.countDown();
                 });
 
-        assertTrue(process.closed.await(1, TimeUnit.SECONDS));
         assertTrue(reported.await(1, TimeUnit.SECONDS));
         assertEquals(3, failures.size());
         for (Throwable expected : startFailures) {
             assertEquals(
                     1, failures.stream().filter(failure -> failure == expected).count());
         }
-        process.assertEachStreamAccessedAndClosedOnce();
+        process.assertNoStreamAccess();
         assertEquals(0, dispatcher.outstandingCount());
+    }
+
+    private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        do {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(5);
+        } while (System.nanoTime() < deadline);
+        return condition.getAsBoolean();
     }
 
     private static BoundedCloseDispatcher dispatcher() {

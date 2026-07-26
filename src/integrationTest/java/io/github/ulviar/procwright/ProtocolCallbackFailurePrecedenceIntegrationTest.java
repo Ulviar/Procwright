@@ -5,7 +5,6 @@ package io.github.ulviar.procwright;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -14,6 +13,7 @@ import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -46,7 +46,7 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                     assertThrows(ProtocolSessionException.class, () -> session.request("too-large"));
 
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, failure);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request("x"));
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, followUp.reason());
@@ -56,7 +56,7 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
     }
 
     @Test
-    void writerErrorSupersedesTheTypedFailureHandledByTheAdapter() throws Exception {
+    void caughtWriterFailurePrecedesSecondaryError() throws Exception {
         AssertionError secondaryFailure = new AssertionError("secondary writer error");
         AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -79,15 +79,18 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 openProtocolSession(fixtureService(), adapter, call -> call.withArgs("ignore-stdin", "--millis=5000")
                         .withMaxRequestBytes(1));
         try {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> session.request("too-large"));
+            ProtocolSessionException failure =
+                    assertThrows(ProtocolSessionException.class, () -> session.request("too-large"));
 
-            assertSame(secondaryFailure, thrown);
+            assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
             ProtocolSessionException requestLimit = caughtFailure.get();
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, requestLimit.reason());
-            assertIndependentFailures(secondaryFailure, requestLimit);
-            session.onExit().get(2, TimeUnit.SECONDS);
-            AssertionError followUp = assertThrows(AssertionError.class, () -> session.request("x"));
-            assertSame(secondaryFailure, followUp);
+            assertSame(requestLimit, failure.getCause());
+            assertExitFailedWith(session, failure);
+            ProtocolSessionException followUp =
+                    assertThrows(ProtocolSessionException.class, () -> session.request("x"));
+            assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, followUp.reason());
+            assertSame(requestLimit, followUp.getCause());
         } finally {
             session.close();
         }
@@ -118,7 +121,7 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, failure);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         } finally {
@@ -127,7 +130,7 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
     }
 
     @Test
-    void lineReaderErrorSupersedesTheTypedFailureHandledByTheAdapter() throws Exception {
+    void caughtLineReaderFailurePrecedesSecondaryError() throws Exception {
         AssertionError secondaryFailure = new AssertionError("secondary line reader error");
         AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -150,15 +153,16 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                         "partial", "--stdout=ab\n", "--stderr=", "--hold-millis=5000")
                 .withMaxResponseChars(1));
         try {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> session.request(""));
+            ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
-            assertSame(secondaryFailure, thrown);
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
             ProtocolSessionException responseLimit = caughtFailure.get();
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseLimit.reason());
-            assertIndependentFailures(secondaryFailure, responseLimit);
-            session.onExit().get(2, TimeUnit.SECONDS);
-            AssertionError followUp = assertThrows(AssertionError.class, () -> session.request(""));
-            assertSame(secondaryFailure, followUp);
+            assertSame(responseLimit, failure.getCause());
+            assertExitFailedWith(session, failure);
+            ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
+            assertSame(responseLimit, followUp.getCause());
         } finally {
             session.close();
         }
@@ -190,7 +194,7 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, failure);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         } finally {
@@ -199,7 +203,7 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
     }
 
     @Test
-    void byteReaderErrorSupersedesTheTypedFailureHandledByTheAdapter() throws Exception {
+    void caughtByteReaderFailurePrecedesSecondaryError() throws Exception {
         AssertionError secondaryFailure = new AssertionError("secondary byte reader error");
         AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -223,35 +227,25 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                         "partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
                 .withMaxResponseBytes(1));
         try {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> session.request(""));
+            ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
-            assertSame(secondaryFailure, thrown);
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
             ProtocolSessionException responseLimit = caughtFailure.get();
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseLimit.reason());
-            assertIndependentFailures(secondaryFailure, responseLimit);
-            session.onExit().get(2, TimeUnit.SECONDS);
-            AssertionError followUp = assertThrows(AssertionError.class, () -> session.request(""));
-            assertSame(secondaryFailure, followUp);
+            assertSame(responseLimit, failure.getCause());
+            assertExitFailedWith(session, failure);
+            ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
+            assertSame(responseLimit, followUp.getCause());
         } finally {
             session.close();
         }
     }
 
-    private static boolean causeChainContains(Throwable failure, Throwable expected) {
-        Throwable current = failure;
-        while (current != null) {
-            if (current == expected) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    private static void assertIndependentFailures(Throwable terminalFailure, Throwable handledFailure) {
-        assertFalse(causeChainContains(terminalFailure, handledFailure));
-        assertFalse(causeChainContains(handledFailure, terminalFailure));
-        assertEquals(0, terminalFailure.getSuppressed().length);
-        assertEquals(0, handledFailure.getSuppressed().length);
+    private static void assertExitFailedWith(
+            ProtocolSession<String, String> session, ProtocolSessionException selectedFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertSame(selectedFailure, observed.getCause());
     }
 }

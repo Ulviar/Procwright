@@ -12,7 +12,7 @@ Scorecard фиксирует текущее состояние source и нал�
 | Область | Состояние | Текущий контракт |
 | --- | --- | --- |
 | Scenario API | Готово | `Procwright.command(...)` -> scenario -> persistent `Draft.with*` -> `execute/open`. |
-| Draft semantics | Готово | Branching, defensive copying, no-launch-before-terminal, repeated/concurrent terminals, pool snapshots, factory behavior и `Expect.Draft` ownership покрыты. |
+| Draft semantics | Готово | Branching, defensive copying, no-launch-before-terminal, repeated/concurrent terminals, pool snapshots, factory behavior и `ExpectScenario.Draft` reuse покрыты. |
 | Command model | Готово | Immutable `CommandSpec`, direct argv default, explicit shell/environment policy. |
 | One-shot | Готово | Input, bounded/file/discard capture, strict decoding, timeout, tree shutdown и typed result/failure. |
 | Interactive | Готово | Guarded stdin, raw output ownership, readiness, idle timeout, PTY и idempotent lifecycle. |

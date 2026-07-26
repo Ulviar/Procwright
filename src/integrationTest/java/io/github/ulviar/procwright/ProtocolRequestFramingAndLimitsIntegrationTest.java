@@ -7,6 +7,8 @@ import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.Tex
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
@@ -22,6 +24,7 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 import java.time.Duration;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -83,7 +86,7 @@ final class ProtocolRequestFramingAndLimitsIntegrationTest {
                     assertThrows(ProtocolSessionException.class, () -> session.request("too-large"));
 
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, exception.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request("x"));
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, followUp.reason());
@@ -119,10 +122,18 @@ final class ProtocolRequestFramingAndLimitsIntegrationTest {
                     assertThrows(ProtocolSessionException.class, () -> session.request("ignored"));
 
             assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, exception.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
         } finally {
             session.close();
         }
+    }
+
+    private static void assertExitFailedWith(ProtocolSession<?, ?> session, ProtocolSessionException requestFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        ProtocolSessionException exitFailure = assertInstanceOf(ProtocolSessionException.class, observed.getCause());
+        assertEquals(requestFailure.reason(), exitFailure.reason());
+        assertSame(requestFailure, exitFailure);
     }
 
     @Test

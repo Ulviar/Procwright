@@ -18,7 +18,16 @@ import java.util.concurrent.CompletableFuture;
 public sealed interface StreamSession extends AutoCloseable permits DefaultStreamSession {
 
     /**
-     * Returns a process exit future view. The future completes after the process exits and output pumps drain.
+     * Returns a process exit future view. After natural process exit completes this future, all listener calls have
+     * returned and no later call can begin. Explicit close and timeout admit no further deliveries, but a delivery
+     * admitted immediately before stopping may invoke or remain inside the listener after this future completes.
+     * Potentially blocking physical stream closes continue independently. Natural completion waits for stdout/stderr EOF;
+     * configure the scenario timeout when a descendant may inherit and keep either pipe open after the root process
+     * exits.
+     *
+     * <p>Listener {@link RuntimeException}s, output I/O failures, and other ordinary callback failures complete the future
+     * exceptionally with {@link StreamException}. A fatal {@link Error} is not wrapped: the future completes
+     * exceptionally with the same {@code Error} instance.
      *
      * @return stream exit future
      */

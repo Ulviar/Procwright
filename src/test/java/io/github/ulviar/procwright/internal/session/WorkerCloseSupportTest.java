@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import io.github.ulviar.procwright.internal.Threading;
@@ -26,7 +27,6 @@ final class WorkerCloseSupportTest {
                     throw expected;
                 },
                 CompletableFuture.completedFuture(null),
-                CompletableFuture.completedFuture(null),
                 (prefix, owner) -> {
                     owner.run();
                     return Thread.currentThread();
@@ -44,7 +44,6 @@ final class WorkerCloseSupportTest {
                     throw expected;
                 },
                 CompletableFuture.completedFuture(null),
-                CompletableFuture.completedFuture(null),
                 (prefix, owner) -> {
                     owner.run();
                     return Thread.currentThread();
@@ -54,35 +53,16 @@ final class WorkerCloseSupportTest {
     }
 
     @Test
-    void terminalCompletionExceptionKeepsItsIdentity() throws Exception {
+    void terminalFailureIsSettlementRatherThanRetirementFailure() throws Exception {
         CompletionException expected = new CompletionException(new IllegalStateException("terminal failed"));
 
-        CompletableFuture<WorkerRetirement.Outcome> retirement = WorkerCloseSupport.closeOutcome(
-                () -> {},
-                CompletableFuture.failedFuture(expected),
-                CompletableFuture.completedFuture(null),
-                (prefix, owner) -> {
+        CompletableFuture<WorkerRetirement.Outcome> retirement =
+                WorkerCloseSupport.closeOutcome(() -> {}, CompletableFuture.failedFuture(expected), (prefix, owner) -> {
                     owner.run();
                     return Thread.currentThread();
                 });
 
-        assertSame(expected, retirement.get(1, TimeUnit.SECONDS).failure());
-    }
-
-    @Test
-    void physicalCleanupCompletionExceptionKeepsItsIdentity() throws Exception {
-        CompletionException expected = new CompletionException(new IllegalStateException("physical cleanup failed"));
-
-        CompletableFuture<WorkerRetirement.Outcome> retirement = WorkerCloseSupport.closeOutcome(
-                () -> {},
-                CompletableFuture.completedFuture(null),
-                CompletableFuture.failedFuture(expected),
-                (prefix, owner) -> {
-                    owner.run();
-                    return Thread.currentThread();
-                });
-
-        assertSame(expected, retirement.get(1, TimeUnit.SECONDS).failure());
+        assertNull(retirement.get(1, TimeUnit.SECONDS).failure());
     }
 
     @Test
@@ -108,10 +88,7 @@ final class WorkerCloseSupportTest {
         AtomicReference<Thread> ownerThread = new AtomicReference<>();
 
         CompletableFuture<WorkerRetirement.Outcome> retirement = WorkerCloseSupport.closeOutcome(
-                closeRuns::incrementAndGet,
-                CompletableFuture.completedFuture(null),
-                CompletableFuture.completedFuture(null),
-                (prefix, owner) -> {
+                closeRuns::incrementAndGet, CompletableFuture.completedFuture(null), (prefix, owner) -> {
                     ownerThread.set(Threading.start(prefix, () -> {
                         awaitIgnoringInterrupt(releaseOwner);
                         owner.run();
@@ -133,10 +110,7 @@ final class WorkerCloseSupportTest {
         AtomicInteger closeRuns = new AtomicInteger();
 
         CompletableFuture<WorkerRetirement.Outcome> retirement = WorkerCloseSupport.closeOutcome(
-                closeRuns::incrementAndGet,
-                CompletableFuture.completedFuture(null),
-                CompletableFuture.completedFuture(null),
-                (prefix, owner) -> {
+                closeRuns::incrementAndGet, CompletableFuture.completedFuture(null), (prefix, owner) -> {
                     if (runBeforeFailure) {
                         owner.run();
                     }

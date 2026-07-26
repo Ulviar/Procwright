@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.kotlin
 
 import io.github.ulviar.procwright.RunScenario
 import io.github.ulviar.procwright.command.CommandResult
+import io.github.ulviar.procwright.session.Expect
 import io.github.ulviar.procwright.session.LineResponse
 import io.github.ulviar.procwright.session.LineSession
 import io.github.ulviar.procwright.session.PooledLineSession
@@ -41,6 +42,14 @@ suspend fun RunScenario.Draft.executeAwait(): CommandResult = runProcwrightInter
  * cancel the session's shared exit state or close the session.
  */
 suspend fun Session.awaitExit(): SessionExit = onExit().awaitDetached()
+
+/**
+ * Waits for an Expect process to exit without blocking the caller thread.
+ *
+ * Cancelling this wait cancels only the per-call future view returned by `onExit()`. It does not
+ * cancel the handle's shared exit state or close the process.
+ */
+suspend fun Expect.awaitExit(): SessionExit = onExit().awaitDetached()
 
 /**
  * Waits for a line session to exit without blocking the caller thread.

@@ -52,7 +52,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 lineOptions,
                 options,
                 metricsClock,
-                session -> WorkerCloseSupport.closeOutcome(session, session.onExit(), session.physicalOutputCleanup()));
+                session -> WorkerCloseSupport.closeOutcome(session, session.onExit()));
     }
 
     DefaultPooledLineSession(

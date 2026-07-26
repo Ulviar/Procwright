@@ -38,10 +38,14 @@ final class ExpectRegexMatcherTest {
         ExpectSessionState state = new ExpectSessionState(
                 new BoundedTranscriptBuffer(256), new BoundedMatchBuffer(256, workProbe), (thread, error) -> {});
         AtomicInteger evaluations = new AtomicInteger();
-        ExpectRegexMatcher matcher = new ExpectRegexMatcher(state, limiter, (pattern, text, searchStart) -> {
-            evaluations.incrementAndGet();
-            return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
-        });
+        ExpectRegexMatcher matcher = new ExpectRegexMatcher(
+                state,
+                limiter,
+                (pattern, text, searchStart) -> {
+                    evaluations.incrementAndGet();
+                    return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
+                },
+                ignored -> {});
         state.publishDecoded("stdout", true, "ready");
 
         try {

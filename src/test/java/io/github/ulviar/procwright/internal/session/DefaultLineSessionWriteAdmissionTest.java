@@ -7,7 +7,7 @@ import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtur
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ResponseInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -51,8 +51,7 @@ final class DefaultLineSessionWriteAdmissionTest {
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
-        DefaultSession rawSession = openSession(process);
-        DefaultLineSession lineSession = new DefaultLineSession(rawSession, LineSessionSettings.defaults());
+        DefaultLineSession lineSession = openLineSession(process, LineSessionSettings.defaults());
         try {
             for (int index = 0; index < capacity; index++) {
                 ResponseInputStream occupyingStdout = new ResponseInputStream();
@@ -60,8 +59,7 @@ final class DefaultLineSessionWriteAdmissionTest {
                         new BlockingReplyOutputStream(occupyingStdout, callbacksStarted, releaseCallbacks);
                 ControllableProcess occupyingProcess =
                         new ControllableProcess(occupyingStdin, occupyingStdout, InputStream.nullInputStream());
-                DefaultLineSession occupyingSession =
-                        new DefaultLineSession(openSession(occupyingProcess), LineSessionSettings.defaults());
+                DefaultLineSession occupyingSession = openLineSession(occupyingProcess, LineSessionSettings.defaults());
                 occupyingStdinStreams.add(occupyingStdin);
                 occupyingSessions.add(occupyingSession);
                 occupied.add(occupiers.submit(() -> occupyingSession.requestEncoded(
@@ -119,8 +117,8 @@ final class DefaultLineSessionWriteAdmissionTest {
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
         CountDownLatch writeAdmissionAttempted = new CountDownLatch(1);
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(process),
+        DefaultLineSession lineSession = openLineSession(
+                process,
                 LineSessionSettings.defaults(),
                 LineSessionTestDependencies.withTaskRunner(
                         (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> {
@@ -214,10 +212,8 @@ final class DefaultLineSessionWriteAdmissionTest {
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(process),
-                LineSessionSettings.defaults(),
-                LineSessionTestDependencies.withTaskRunner(taskRunner));
+        DefaultLineSession lineSession = openLineSession(
+                process, LineSessionSettings.defaults(), LineSessionTestDependencies.withTaskRunner(taskRunner));
         try {
             LineSessionException failure = assertThrows(
                     LineSessionException.class,

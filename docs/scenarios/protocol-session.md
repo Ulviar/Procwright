@@ -147,7 +147,10 @@ A timeout or interruption while waiting for the serialized request slot happens 
 request bytes and leaves the direct session open. The caller can retry after the active request completes. If the session
 has already selected a terminal failure or fatal error, that outcome wins instead. Once the serialized slot is acquired,
 the request owns the session; a timeout, interruption, callback-start failure, or protocol failure closes the direct
-session because the runtime can no longer prove that request processing did not begin.
+session because the runtime can no longer prove that request processing did not begin. That selected
+`ProtocolSessionException` also completes a still-pending `onExit()` exceptionally. After a request timeout, an adapter
+callback that ignores interruption may keep running on its daemon thread. It does not delay `onExit()`, and its eventual
+return or failure cannot replace the timeout.
 
 `ProtocolWriter` and `ProtocolReader` are callback-scoped and thread-confined. Use them only on the thread executing the
 adapter callback and do not retain them after it returns. A late or cross-thread call fails before touching process I/O,
@@ -161,8 +164,14 @@ the declared body bytes as one complete field, applies strict UTF-8 decoding, an
 limit and the response-global character budget. The adapter bounds the header at 64 characters and accepts only an
 ASCII decimal body length from 0 through 8192 bytes.
 
-Every `ProtocolReader` method enforces the session deadline, response-global byte budget, and unread backlog limit. Text
-methods additionally apply the configured `CharsetPolicy` and response-global character budget. Raw methods such as
+Stdout and stderr have separate bounded unread queues. Stdout overflow fails the session immediately because stdout is
+the normal response channel. Stderr overflow discards its queued bytes and stores an overflow marker; it becomes
+`OUTPUT_BACKLOG_OVERFLOW` if the adapter reads stderr. This lets adapters that never use stderr continue while retained
+diagnostics remain independently bounded.
+
+Every `ProtocolReader` method enforces the session deadline, response-global byte budget, and the selected stream's
+unread backlog state. Text methods additionally apply the configured `CharsetPolicy` and response-global character
+budget. Raw methods such as
 `readExactly` return bytes without decoding and therefore do not count characters. Use `readTextExactly` for a
 length-framed complete text field; use `readLine` or `readTextUntil` for a continuous text stream. Switch modes only at
 complete character boundaries. Procwright rejects a raw or exact-field read before consumption when continuous decoding

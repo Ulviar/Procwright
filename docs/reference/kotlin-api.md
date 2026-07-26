@@ -65,8 +65,8 @@ a bounded synchronous drain.
   reusable. A line request remains retryable until stdin handoff; a protocol request becomes terminal once it acquires the
   serialized slot, even if callback scheduling has not written yet. Cancelling an active pooled request retires its worker,
   while cancellation during worker acquisition abandons only that wait.
-- `awaitExit()` waits for interactive, line, protocol, or stream exit. Cancelling the waiter does not close the session or
-  cancel its shared exit future.
+- `awaitExit()` waits for Expect, interactive, line, protocol, or stream exit. Cancelling the waiter does not close the
+  handle or cancel its shared exit future.
 
 There is no suspending `openAwait()`. Resource-returning terminals remain explicit `open()` calls so ownership cannot be
 lost in a cancellation race.

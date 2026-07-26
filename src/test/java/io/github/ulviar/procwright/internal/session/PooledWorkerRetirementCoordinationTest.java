@@ -2,23 +2,21 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.BlockingReadFailingCloseInputStream;
 import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.TestProcess;
 import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.TrackingInputStream;
 import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.TrackingOutputStream;
 import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.assertNoDispatcherLeak;
 import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.awaitUninterruptibly;
-import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.noOpAdapter;
-import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.openSession;
+import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.openLineWorker;
+import static io.github.ulviar.procwright.internal.session.PooledWorkerPhysicalCleanupTestSupport.openProtocolWorker;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
-import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.LineSession;
@@ -30,12 +28,42 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 final class PooledWorkerRetirementCoordinationTest {
+
+    @Test
+    void linePoolRetiresWorkerWithoutWaitingForPhysicalOutputClose() throws Exception {
+        BlockingReadFailingCloseInputStream stdout = new BlockingReadFailingCloseInputStream(null);
+        TestProcess process = new TestProcess(new TrackingOutputStream(), stdout, new TrackingInputStream());
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2);
+        DefaultLineSession worker = openLineWorker(process, dispatcher);
+        assertTrue(stdout.awaitReadStarted(), "line stdout pump did not enter the blocked read");
+        DefaultPooledLineSession pool = new DefaultPooledLineSession(
+                () -> worker,
+                LineSessionSettings.defaults(),
+                WorkerPoolSettings.<LineSession>defaults().withWarmupSize(1));
+        try {
+            CompletableFuture<Void> close = pool.closeAsync();
+
+            assertTrue(stdout.awaitCloseInvoked(), "line stdout physical close was not dispatched");
+            close.get(1, TimeUnit.SECONDS);
+            assertTrue(worker.onExit().isDone());
+            assertEquals(1, pool.metrics().retired());
+            assertEquals(0, pool.metrics().retiring());
+            assertEquals(0, pool.metrics().size());
+
+            stdout.releaseRead();
+            assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));
+            assertNoDispatcherLeak(dispatcher);
+        } finally {
+            stdout.releaseRead();
+            process.complete(143);
+            pool.closeAsync().handle((ignored, failure) -> null).get(1, TimeUnit.SECONDS);
+        }
+    }
 
     @Test
     void linePoolStartsEveryWorkerTerminationBeforeAwaitingSlowClose() throws Exception {
@@ -46,13 +74,11 @@ final class PooledWorkerRetirementCoordinationTest {
                 new TestProcess(new TrackingOutputStream(), new TrackingInputStream(), new TrackingInputStream());
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 4);
         List<LineSession> workers = List.of(
-                new DefaultLineSession(
-                        openSession(
-                                firstProcess,
-                                dispatcher,
-                                ShutdownPolicy.interruptThenKill(Duration.ofSeconds(30), Duration.ZERO)),
-                        LineSessionSettings.defaults()),
-                new DefaultLineSession(openSession(secondProcess, dispatcher), LineSessionSettings.defaults()));
+                openLineWorker(
+                        firstProcess,
+                        dispatcher,
+                        ShutdownPolicy.interruptThenKill(Duration.ofSeconds(30), Duration.ZERO)),
+                openLineWorker(secondProcess, dispatcher));
         AtomicInteger workerIndex = new AtomicInteger();
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
                 () -> workers.get(workerIndex.getAndIncrement()),
@@ -73,7 +99,7 @@ final class PooledWorkerRetirementCoordinationTest {
             close.get(1, TimeUnit.SECONDS);
             assertEquals(2, pool.metrics().retired());
             assertEquals(0, pool.metrics().retiring());
-            assertNoDispatcherLeak(dispatcher, 6);
+            assertNoDispatcherLeak(dispatcher);
         } finally {
             releaseFirstDestroy.countDown();
             firstProcess.complete(143);
@@ -91,8 +117,7 @@ final class PooledWorkerRetirementCoordinationTest {
         TrackingInputStream stderr = new TrackingInputStream();
         TestProcess process = new TestProcess(stdin, stdout, stderr);
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
-        DefaultLineSession worker =
-                new DefaultLineSession(openSession(process, closeDispatcher), LineSessionSettings.defaults());
+        DefaultLineSession worker = openLineWorker(process, closeDispatcher);
         DefaultPooledLineSession pool = new DefaultPooledLineSession(
                 () -> worker,
                 LineSessionSettings.defaults(),
@@ -103,14 +128,12 @@ final class PooledWorkerRetirementCoordinationTest {
                             closeStarted.countDown();
                             session.close();
                         },
-                        allowTerminalObservation.thenCompose(ignored -> session.onExit()),
-                        session.physicalOutputCleanup()));
+                        allowTerminalObservation.thenCompose(ignored -> session.onExit())));
         try {
             CompletableFuture<Void> close = pool.closeAsync();
 
             assertTrue(closeStarted.await(1, TimeUnit.SECONDS));
             worker.onExit().get(1, TimeUnit.SECONDS);
-            worker.physicalOutputCleanup().get(1, TimeUnit.SECONDS);
             assertFalse(process.isAlive());
             assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
             assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));
@@ -132,7 +155,7 @@ final class PooledWorkerRetirementCoordinationTest {
     }
 
     @Test
-    void delayedLineTerminalErrorResolvesSlotAndClosesWorkerExactlyOnce() throws Exception {
+    void delayedLineTerminalFailureSettlesRetirementAndClosesWorkerExactlyOnce() throws Exception {
         AssertionError terminalFailure = new AssertionError("delayed line terminal failed fatally");
         CompletableFuture<Void> delayedTerminal = new CompletableFuture<>();
         CompletableFuture<Void> closeTask = new CompletableFuture<>();
@@ -142,8 +165,7 @@ final class PooledWorkerRetirementCoordinationTest {
         TrackingInputStream stderr = new TrackingInputStream();
         TestProcess process = new TestProcess(stdin, stdout, stderr);
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
-        DefaultLineSession worker =
-                new DefaultLineSession(openSession(process, closeDispatcher), LineSessionSettings.defaults());
+        DefaultLineSession worker = openLineWorker(process, closeDispatcher);
         WorkerPoolController<DefaultLineSession> pool = WorkerPoolController.fromSettings(
                 () -> worker,
                 session -> WorkerCloseSupport.closeOutcome(
@@ -157,8 +179,7 @@ final class PooledWorkerRetirementCoordinationTest {
                                 throw failure;
                             }
                         },
-                        delayedTerminal,
-                        session.physicalOutputCleanup()),
+                        delayedTerminal),
                 WorkerPoolSettings.defaults().withWarmupSize(1).withBackgroundReplenishment(false),
                 TestPoolFailures.INSTANCE,
                 "delayed-terminal line worker",
@@ -173,7 +194,6 @@ final class PooledWorkerRetirementCoordinationTest {
 
             closeTask.get(1, TimeUnit.SECONDS);
             worker.onExit().get(1, TimeUnit.SECONDS);
-            worker.physicalOutputCleanup().get(1, TimeUnit.SECONDS);
             assertFalse(process.isAlive());
             assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
             assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));
@@ -187,20 +207,17 @@ final class PooledWorkerRetirementCoordinationTest {
 
             delayedTerminal.completeExceptionally(terminalFailure);
 
-            ExecutionException observed = assertThrows(ExecutionException.class, () -> drain.get(1, TimeUnit.SECONDS));
-            assertSame(terminalFailure, observed.getCause());
+            drain.get(1, TimeUnit.SECONDS);
             assertEquals(0, pool.metrics().size());
             assertEquals(0, pool.metrics().retiring());
             assertEquals(1, pool.metrics().retired());
-            assertEquals(1, pool.metrics().failedWorkerCloses());
+            assertEquals(0, pool.metrics().failedWorkerCloses());
             assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.CLOSED));
 
             for (int attempt = 0; attempt < 10; attempt++) {
-                ExecutionException repeated = assertThrows(
-                        ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
-                assertSame(terminalFailure, repeated.getCause());
+                pool.closeAsync().get(1, TimeUnit.SECONDS);
             }
-            assertEquals(1, pool.metrics().failedWorkerCloses());
+            assertEquals(0, pool.metrics().failedWorkerCloses());
             assertEquals(1, closeCalls.get(), "repeated close views must share one worker close");
             assertNoDispatcherLeak(closeDispatcher);
         } finally {
@@ -219,8 +236,7 @@ final class PooledWorkerRetirementCoordinationTest {
         TrackingInputStream stderr = new TrackingInputStream();
         TestProcess process = new TestProcess(stdin, stdout, stderr);
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
-        DefaultProtocolSession<String, String> worker = new DefaultProtocolSession<>(
-                openSession(process, closeDispatcher), noOpAdapter(), ProtocolSessionSettings.defaults());
+        DefaultProtocolSession<String, String> worker = openProtocolWorker(process, closeDispatcher);
         DefaultPooledProtocolSession<String, String> pool = new DefaultPooledProtocolSession<>(
                 () -> worker,
                 WorkerPoolSettings.<ProtocolSession<String, String>>defaults().withWarmupSize(1),
@@ -229,14 +245,12 @@ final class PooledWorkerRetirementCoordinationTest {
                             closeStarted.countDown();
                             session.close();
                         },
-                        allowTerminalObservation.thenCompose(ignored -> session.onExit()),
-                        session.physicalOutputCleanup()));
+                        allowTerminalObservation.thenCompose(ignored -> session.onExit())));
         try {
             CompletableFuture<Void> close = pool.closeAsync();
 
             assertTrue(closeStarted.await(1, TimeUnit.SECONDS));
             worker.onExit().get(1, TimeUnit.SECONDS);
-            worker.physicalOutputCleanup().get(1, TimeUnit.SECONDS);
             assertFalse(process.isAlive());
             assertTrue(stdin.awaitCloseFinished(Duration.ofSeconds(1)));
             assertTrue(stdout.awaitCloseFinished(Duration.ofSeconds(1)));

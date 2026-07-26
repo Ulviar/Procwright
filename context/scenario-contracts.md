@@ -11,7 +11,7 @@
 - `Procwright.command(...).listen()`;
 - `lineSession().pooled()`;
 - `protocolSession(adapterFactory).pooled()`;
-- `Session.expect()`.
+- `interactive().expect()`.
 
 Все configuration objects в этих путях — immutable persistent Draft. Методы `with*` fail fast для локально
 невалидного скалярного значения и возвращают новый snapshot. Проверки, зависящие от сочетания settings или
@@ -58,33 +58,34 @@ Caller выбирает timeout, capture budget, charset policy, input, output m
 
 - `close()` идемпотентен;
 - `closeStdin()` и session cleanup используют bounded close capacity и не ждут бесконечно заблокированный stream;
-- `onExit()` завершается после process exit и cleanup;
+- `onExit()` завершается после process outcome и logical settlement выбранного output mode; potentially blocking
+  physical stream close выполняется независимо;
 - idle timeout учитывает caller-visible I/O activity;
 - terminal policy относится только к session family;
 - readiness probe выполняется до возврата handle;
-- первая raw stdout/stderr operation выбирает raw ownership mode;
-- после helper claim raw stream wrappers отклоняют read/close, а helper claim после raw operation fail fast.
+- raw output mode выбирается до launch и не может быть заменен helper mode после открытия.
 
 Caller владеет parsing и ordering raw protocol. Для сериализованного line/typed workflow используются отдельные
 сценарии.
 
-## `Session.expect()`
+## `interactive().expect()`
 
-`Session.expect()` возвращает неизменяемый `Expect.Draft` и не захватывает output ownership; каждый `with*` создает новую
-ветку. `Expect.Draft.open()` захватывает оба output streams. Получение raw wrapper само по себе не конфликтует с `open()`,
-но первая фактическая raw operation, другой helper claim или session cleanup приводят к `IllegalStateException`.
+`interactive().expect()` возвращает неизменяемый `ExpectScenario.Draft`; каждый `with*` создает новую ветку.
+`open()` запускает независимый процесс с Expect output mode, выбранным до launch. Raw output API в этой ветке отсутствует.
 
 Гарантии:
 
 - literal/regex matching имеет bounded timeout и match buffer;
 - transcript bounded и доступен в `ExpectException`;
 - send/expect values редактируются в transcript по умолчанию;
-- EOF, timeout, closed session и read failure имеют разные reasons;
+- EOF, timeout, closed Expect handle и read failure имеют разные reasons;
+- `closeStdin()` посылает EOF без остановки процесса и matcher;
+- input/output используют общий charset по умолчанию, но output может иметь отдельный явный override;
 - встроенное incremental stripping для 7-bit CSI sequences с префиксом `ESC [` применяется до matching и transcript
   retention, ведет независимое bounded state для stdout/stderr и сохраняет incomplete, malformed и overlong candidates
   как text;
-- закрытие `Expect` закрывает underlying `Session` и не возвращает output streams raw caller;
-- concurrent `open()` одного `Expect.Draft` не может создать двух владельцев: только один claim успешен.
+- закрытие `Expect` закрывает его процесс;
+- concurrent `open()` одного `ExpectScenario.Draft` создает независимые процессы.
 
 ## `lineSession`
 
@@ -139,7 +140,10 @@ Adapter владеет framing и domain decoding. Runtime владеет про
 - timeout и любой listener failure, включая `Error`, проходят через общий shutdown path;
 - reason различает listener, output-read и process failure;
 - construction failure после launch закрывает уже открытый процесс;
-- `onExit()` завершается после process exit и pump completion;
+- при natural exit `onExit()` ждёт завершения уже допущенной синхронной listener delivery, чтобы не терять прочитанный
+  chunk;
+- explicit close и timeout не ждут listener, который игнорирует interruption;
+- potentially blocking physical close выполняется best effort и независимо от `onExit()`;
 - retained diagnostics bounded.
 
 Listener должен быстро завершаться; тяжелая обработка выносится во внешнюю bounded очередь/executor.

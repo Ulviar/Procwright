@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,6 +25,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class DiagnosticEmitterTest {
+
+    @Test
+    void bestEffortEmissionDoesNotChangeRuntimeOutcomeWhenEventCreationFails() {
+        AssertionError diagnosticFailure = new AssertionError("diagnostic event creation failed");
+        DiagnosticEmitter emitter = DiagnosticEmitterTestSupport.failOnceOn(
+                DiagnosticsSettings.disabled().withListener(ignored -> {}),
+                "session",
+                DiagnosticEventType.COMMAND_PREPARED,
+                diagnosticFailure);
+
+        assertDoesNotThrow(() -> emitter.emitBestEffort(DiagnosticEventType.COMMAND_PREPARED));
+    }
 
     @Test
     void fourSelfEmittingDestinationsCannotStarveAFifthAcceptedDestination() throws Exception {

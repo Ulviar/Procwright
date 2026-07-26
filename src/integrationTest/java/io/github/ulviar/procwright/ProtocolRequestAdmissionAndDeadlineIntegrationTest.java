@@ -12,6 +12,7 @@ import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.ope
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,6 +26,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -45,7 +47,7 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
                     assertThrows(ProtocolSessionException.class, () -> session.request("", Duration.ofMillis(100)));
 
             assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, timeout);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request("again", Duration.ofSeconds(1)));
             assertEquals(ProtocolSessionException.Reason.TIMEOUT, followUp.reason());
@@ -161,6 +163,8 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
 
                 assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
                 assertEquals(0, decoderStarted.getCount());
+                assertEquals(1, decoderFinished.getCount());
+                assertExitFailedWith(session, timeout);
             } finally {
                 executor.shutdownNow();
                 assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
@@ -218,6 +222,14 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
         assertTrue(thread != null, task + " thread was not captured");
         thread.join(TimeUnit.SECONDS.toMillis(1));
         assertFalse(thread.isAlive(), task + " thread retained its bounded-runner permit");
+    }
+
+    private static void assertExitFailedWith(ProtocolSession<?, ?> session, ProtocolSessionException requestFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        ProtocolSessionException exitFailure = assertInstanceOf(ProtocolSessionException.class, observed.getCause());
+        assertEquals(requestFailure.reason(), exitFailure.reason());
+        assertSame(requestFailure, exitFailure);
     }
 
     private static final class CoordinatedTwoLineAdapter implements ProtocolAdapter<String, String> {

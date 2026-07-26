@@ -37,13 +37,15 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         reader.start();
         assertTrue(stdout.readStarted.await(1, TimeUnit.SECONDS));
 
-        long started = System.nanoTime();
-        resources.stdout().closeAsync("test-output-close-", failure -> {
+        Thread closeCaller = new Thread(() -> resources.stdout().closeAsync("test-output-close-", failure -> {
             reported.set(failure);
             failureReported.countDown();
-        });
+        }));
+        closeCaller.start();
+        closeCaller.join(1_000);
 
-        assertTrue(System.nanoTime() - started < Duration.ofMillis(250).toNanos());
+        assertFalse(closeCaller.isAlive(), "closeAsync waited for the active read");
+        assertFalse(stdout.closeCompleted.await(20, TimeUnit.MILLISECONDS));
         stdout.releaseRead.countDown();
         assertTrue(stdout.closeCompleted.await(1, TimeUnit.SECONDS));
         assertSame(
@@ -77,10 +79,9 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
     }
 
     @Test
-    void acceptedCloseFallsBackWhenItsWorkerCannotStart() throws Exception {
+    void closeStarterFailureSettlesWithoutRunningPhysicalClose() throws Exception {
         IllegalStateException startFailure = new IllegalStateException("starter failed");
-        IOException closeFailure = new IOException("close failed");
-        TrackingInputStream stdout = failingInput(closeFailure);
+        TrackingInputStream stdout = new TrackingInputStream();
         AtomicInteger starts = new AtomicInteger();
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, (name, task) -> {
             if (starts.getAndIncrement() == 0) {
@@ -91,17 +92,35 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         ProcessIoResources resources =
                 ProcessIoResources.acquire(new TrackingProcess(stdout, new TrackingInputStream()), dispatcher);
 
-        assertSame(startFailure, assertThrows(IllegalStateException.class, () -> resources
-                .stdout()
-                .closeAsync("fallback-close-", ignored -> {})));
+        assertNull(captureFailure(() -> resources.stdout().closeAsync("fallback-close-", ignored -> {})));
 
         Throwable outcome =
                 resources.stdout().closeOutcome().get(1, TimeUnit.SECONDS).failure();
-        assertSame(startFailure, outcome.getCause());
-        assertEquals(java.util.List.of(closeFailure), java.util.List.of(outcome.getSuppressed()));
-        assertEquals(1, stdout.closeCalls.get());
+        assertSame(startFailure, outcome);
+        assertEquals(0, stdout.closeCalls.get());
         resources.closeAllAsync(ignored -> {});
         assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+    }
+
+    @Test
+    void requiredCloseReportsAnImmediateStarterFailureAndSettlesOwnership() throws Exception {
+        AssertionError startFailure = new AssertionError("required close starter failed");
+        TrackingInputStream stdout = new TrackingInputStream();
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 2, (name, task) -> {
+            throw startFailure;
+        });
+        ProcessIoResources resources =
+                ProcessIoResources.acquire(new TrackingProcess(stdout, new TrackingInputStream()), dispatcher);
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+
+        AssertionError thrown = assertThrows(
+                AssertionError.class,
+                () -> resources.stdout().closeRequiredAsync("required-close-", reported::set, () -> {}));
+
+        assertSame(startFailure, thrown);
+        assertSame(startFailure, reported.get());
+        assertSame(startFailure, resources.stdout().closeOutcome().join().failure());
+        assertEquals(0, stdout.closeCalls.get());
     }
 
     @Test
@@ -117,6 +136,36 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
 
         assertNull(resources.awaitClose(Duration.ofSeconds(1)));
         assertEquals(1, stdout.closeCalls.get());
+    }
+
+    @Test
+    void invalidPairDoesNotClaimEitherResource() throws Exception {
+        Object sharedClaimLock = new Object();
+        TrackingInputStream firstStream = new TrackingInputStream();
+        TrackingInputStream secondStream = new TrackingInputStream();
+        ProcessStreamResource<TrackingInputStream> first = new ProcessStreamResource<>(
+                firstStream, new BoundedCloseDispatcher(1, 1), sharedClaimLock, ignored -> {});
+        ProcessStreamResource<TrackingInputStream> second = new ProcessStreamResource<>(
+                secondStream, new BoundedCloseDispatcher(1, 1), sharedClaimLock, ignored -> {});
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProcessStreamResource.closePairAsync(
+                        first,
+                        "first-close-",
+                        ignored -> {},
+                        () -> {},
+                        second,
+                        "second-close-",
+                        ignored -> {},
+                        () -> {}));
+
+        assertFalse(first.closeStarted());
+        assertFalse(second.closeStarted());
+        first.closeInline();
+        second.closeInline();
+        assertEquals(1, firstStream.closeCalls.get());
+        assertEquals(1, secondStream.closeCalls.get());
     }
 
     private static final class BlockingCloseInputStream extends TrackingInputStream {

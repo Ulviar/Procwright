@@ -65,11 +65,11 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
                 throw (Error) lateFailure;
             }
         };
-        DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(new ControllableProcess(
+        DefaultProtocolSession<String, String> protocol = protocolSession(
+                new ControllableProcess(
                         OutputStream.nullOutputStream(),
                         new BlockingUntilClosedInputStream(),
-                        InputStream.nullInputStream())),
+                        InputStream.nullInputStream()),
                 adapter,
                 ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofMillis(40)));
         ExecutorService caller = Executors.newSingleThreadExecutor();
@@ -183,7 +183,6 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
         BlockingUntilClosedInputStream stdout = new BlockingUntilClosedInputStream();
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
         AtomicReference<ProtocolSessionException> decoderFailure = new AtomicReference<>();
@@ -208,8 +207,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
                 }
             }
         };
-        DefaultProtocolSession<String, Byte> protocol = new DefaultProtocolSession<>(
-                rawSession, adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofMinutes(1)));
+        DefaultProtocolSession<String, Byte> protocol = protocolSession(
+                process, adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofMinutes(1)));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> {
@@ -268,8 +267,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             }
         };
         ControllableProcess process = new ControllableProcess();
-        DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(process), adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)));
+        DefaultProtocolSession<String, String> protocol = protocolSession(
+                process, adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)));
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -339,8 +338,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
         ControlledRequestLockWaiter lockWaiter = new ControlledRequestLockWaiter();
-        DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(process),
+        DefaultProtocolSession<String, String> protocol = protocolSession(
+                process,
                 adapter,
                 ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)),
                 ProtocolSessionTestDependencies.withRequestLockWaiter(lockWaiter));
@@ -441,8 +440,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             }
         };
         ControllableProcess process = new ControllableProcess();
-        DefaultProtocolSession<String, String> protocol = new DefaultProtocolSession<>(
-                session(process), adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)));
+        DefaultProtocolSession<String, String> protocol = protocolSession(
+                process, adapter, ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -470,8 +469,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
 
     private static <I, O> DefaultProtocolSession<I, O> protocolWithCallbackRunner(
             ProtocolAdapter<I, O> adapter, DefaultProtocolSession.ProtocolCallbackRunner callbackRunner) {
-        return new DefaultProtocolSession<>(
-                session(new ControllableProcess()),
+        return protocolSession(
+                new ControllableProcess(),
                 adapter,
                 ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)),
                 ProtocolSessionTestDependencies.withCallbackRunner(callbackRunner));

@@ -40,15 +40,16 @@ Pool runtime перестраивается вокруг следующих вл
   future в стабильный outcome;
 - `WorkerRetirementCoordinator` владеет post-monitor batch: сначала инициирует все closes, затем обрабатывает outcomes и
   включает все outcomes в state и только после этого публикует late failures;
-- `WorkerCloseSupport` владеет запуском exact-once physical close на отдельном owner, fallback в bounded retirement
-  domain и объединением close, terminal и physical-output-cleanup outcomes;
+- `WorkerCloseSupport` владеет exact-once запуском worker close, fallback в bounded retirement domain и ожиданием
+  logical terminal outcome. Potentially blocking physical stream close наблюдается session runtime независимо и не
+  удерживает pool capacity;
 - `PoolStateEffects` является одноразовым `AutoCloseable`: накапливает выбранные state-транзакцией retirement,
   terminal-publication effects и при закрытии пытается выполнить их все вне monitor, даже если один effect завершился
   ошибкой;
 - `PoolReplenisher` поддерживает не более одного активного цикла `minIdle` и владеет backoff;
 - `WorkerPoolConstruction` владеет внешней транзакцией создания пула: warmup, запуск replenishment, commit и bounded
-  rollback. При отказе он дожидается физического cleanup в пределах `closeTimeout`, сохраняет interruption и объединяет
-  construction/cleanup failures без изменения исходных `Throwable`;
+  rollback. При отказе он дожидается logical retirement в пределах `closeTimeout`, сохраняет interruption и не позволяет
+  physical stream close переписать startup failure;
 - `PoolTermination` сам владеет construction phase и pending reports и возвращает отдельные завершённые construction
   success/failure variants вместо tag, nullable payload и обязательного второго transition;
 - `WorkerPoolSettings` является единственным configuration dialect и проходит полную validation до создания
@@ -56,15 +57,14 @@ Pool runtime перестраивается вокруг следующих вл
 - `PooledRequestRunner` владеет observation, preparation и exact-once `WorkerPoolState.Lease`, не получая сырой
   `PoolWorker`;
 - `PoolTermination` владеет решением construction, состоянием closing, приоритетом terminal failures и готовностью к
-  drain; принятые failures хранятся как ordered identity-дедуплицированные данные. `PoolDrain` атомарно выдает
-  единственный publication token, публикует зафиксированный outcome после освобождения pool monitor и сохраняет
-  cancellation-isolated views;
+  drain. `PoolDrain` атомарно выдает единственный publication token, публикует зафиксированный outcome после освобождения
+  pool monitor и сохраняет cancellation-isolated views;
 - `PoolMetrics` владеет накопительными счетчиками и snapshot type, а текущие state counts получает от `PoolPartition`;
 - `PoolFailurePublisher` владеет bounded late-failure publication;
 - `PoolLifecycleDispatcher` ограничивает очереди retirement, reporting и replenishment как внутреннюю защиту runtime.
   Переполнение retirement queue выполняет обязательную работу на caller thread; эти пределы не задают пользовательскую
   квоту workers или процессов. Terminal publication в dispatcher не входит;
-- controller координирует factory, hooks, physical close и reporting, но не содержит monitor и не дублирует mutable
+- controller координирует factory, hooks, worker close и reporting, но не содержит monitor и не дублирует mutable
   state. Каждая state-транзакция получает новый `PoolStateEffects` того же pool; metrics clock является внутренним
   total/non-throwing monotonic source. Сырой `PoolWorker` остаётся внутренней деталью state/startup/retirement
   collaborators и не достигает request runner или public pooled wrappers.
@@ -85,7 +85,7 @@ taxonomy, retirement reasons и worker reuse сохраняются.
   владельцев;
 - startup terminal winner выбирается ровно один раз, а поздний успешный startup обязательно retire-ится;
 - каждый зарегистрированный worker уже имеет cleanup owner до запуска factory;
-- retirement удерживает capacity до полного retirement outcome;
+- retirement удерживает capacity до worker close и logical terminal outcome, но не до physical stream close;
 - lease завершается ровно один раз;
 - одна acquire attempt атомарно получает idle lease или зарегистрированную startup reservation; attempt либо
   возвращает заранее подготовленный lease, либо сама завершает reservation; retries используют один исходный absolute
@@ -109,12 +109,11 @@ taxonomy, retirement reasons и worker reuse сохраняются.
 - fatal background startup входит в terminal outcome до освобождения последнего startup slot; новая failure после drain
   claim публикуется ровно один раз как bounded late failure, а не меняет уже выбранный outcome;
 - ни один внешний callback и ни одно завершение public future не выполняются под pool monitor;
-- terminal failures фиксируются под pool monitor как ordered identity-дедуплицированные данные; стабильный aggregate
-  создается без обхода cause/suppressed graph, вызова пользовательских accessors или изменения исходных `Throwable`, а
-  его публикация выполняется после освобождения monitor;
-- перед выходом через public pooled API aggregate с runtime primary разворачивается в свежую scenario-specific
-  exception с сохраненными reason и message; aggregate с `Error` primary раскрывается напрямую, чтобы сохранить fatal
-  type. Только свежая оболочка получает дополнительные diagnostics, пользовательские failures не изменяются;
+- первый terminal outcome и дополнительный диагностический контекст фиксируются под pool monitor без обхода
+  cause/suppressed graph; точная форма secondary failures не является контрактом, публикация выполняется после
+  освобождения monitor;
+- перед выходом через public pooled API ordinary terminal outcome получает scenario-specific exception с сохраненными
+  reason и message; fatal outcome может распространяться как `Error`;
 - startup reservation создается до регистрации worker; terminal publication capability выбирается под pool monitor, а
   отдельный post-monitor effects batch выполняет её после освобождения monitor;
 - controller не содержит `synchronized` и не получает ссылку на monitor или partition;

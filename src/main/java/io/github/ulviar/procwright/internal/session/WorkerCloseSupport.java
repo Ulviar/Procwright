@@ -15,28 +15,20 @@ final class WorkerCloseSupport {
     private WorkerCloseSupport() {}
 
     static CompletableFuture<WorkerRetirement.Outcome> closeOutcome(
-            AutoCloseable session, CompletableFuture<?> terminalOutcome, CompletableFuture<?> physicalOutputCleanup) {
-        return closeOutcome(session, terminalOutcome, physicalOutputCleanup, Threading::start);
+            AutoCloseable session, CompletableFuture<?> terminalOutcome) {
+        return closeOutcome(session, terminalOutcome, Threading::start);
     }
 
     static CompletableFuture<WorkerRetirement.Outcome> closeOutcome(
-            AutoCloseable session,
-            CompletableFuture<?> terminalOutcome,
-            CompletableFuture<?> physicalOutputCleanup,
-            CloseStarter starter) {
+            AutoCloseable session, CompletableFuture<?> terminalOutcome, CloseStarter starter) {
         Objects.requireNonNull(session, "session");
         Objects.requireNonNull(terminalOutcome, "terminalOutcome");
-        Objects.requireNonNull(physicalOutputCleanup, "physicalOutputCleanup");
         Objects.requireNonNull(starter, "starter");
 
         CompletableFuture<Throwable> closeFailure = observe(initiateClose(session, starter));
-        CompletableFuture<Throwable> terminalFailure = observe(terminalOutcome);
-        CompletableFuture<Throwable> physicalCleanupFailure = observe(physicalOutputCleanup);
-        CompletableFuture<WorkerRetirement.Outcome> cleanupOutcome = CompletableFuture.allOf(
-                        closeFailure, terminalFailure, physicalCleanupFailure)
-                .thenApply(ignored ->
-                        aggregate(closeFailure.join(), terminalFailure.join(), physicalCleanupFailure.join()));
-        return cleanupOutcome;
+        CompletableFuture<Void> terminalSettlement = terminalOutcome.handle((ignored, failure) -> null);
+        return CompletableFuture.allOf(closeFailure, terminalSettlement)
+                .thenApply(ignored -> aggregate(closeFailure.join()));
     }
 
     private static CompletableFuture<Void> initiateClose(AutoCloseable session, CloseStarter starter) {

@@ -32,10 +32,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
 
     DefaultPooledProtocolSession(
             Supplier<ProtocolSession<I, O>> workerFactory, WorkerPoolSettings<ProtocolSession<I, O>> options) {
-        this(
-                workerFactory,
-                options,
-                session -> WorkerCloseSupport.closeOutcome(session, session.onExit(), session.physicalOutputCleanup()));
+        this(workerFactory, options, session -> WorkerCloseSupport.closeOutcome(session, session.onExit()));
     }
 
     DefaultPooledProtocolSession(

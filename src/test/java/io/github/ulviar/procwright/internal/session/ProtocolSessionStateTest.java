@@ -102,10 +102,30 @@ final class ProtocolSessionStateTest {
                 state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "late", late);
 
         assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, selected);
-        assertEquals(List.of(late), discarded);
+        assertTrue(discarded.isEmpty());
         ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertEquals(ProtocolSessionException.Reason.CLOSED, followUp.reason());
         assertEquals(0, followUp.getSuppressed().length);
+    }
+
+    @Test
+    void outputFailuresAfterCloseAreOnlyReported() {
+        List<Throwable> discarded = new ArrayList<>();
+        ProtocolSessionState state = state(discarded);
+        IllegalStateException runtime = new IllegalStateException("late output");
+        AssertionError fatal = new AssertionError("late fatal output");
+
+        state.claimClose(true);
+        ProtocolSessionState.OutputSelection runtimeSelection =
+                state.recordOutputFailure(ProtocolSessionException.Reason.FAILURE, "late", runtime);
+        ProtocolSessionState.OutputSelection fatalSelection = state.recordOutputFatalError(fatal);
+
+        assertTrue(runtimeSelection.rejectedAfterClose());
+        assertTrue(fatalSelection.rejectedAfterClose());
+        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, runtimeSelection.selected());
+        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, fatalSelection.selected());
+        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, state.terminal());
+        assertEquals(List.of(fatal), discarded);
     }
 
     @Test
@@ -162,8 +182,9 @@ final class ProtocolSessionStateTest {
     }
 
     @Test
-    void fatalFailurePromotesClosedWithoutMutatingTheActiveClosedFailure() {
-        ProtocolSessionState state = state();
+    void lateFatalFailureDoesNotReplaceClosedOutcome() {
+        List<Throwable> discarded = new ArrayList<>();
+        ProtocolSessionState state = state(discarded);
         ProtocolSessionState.RequestOutcome request = state.beginRequest();
         ProtocolSessionException closed = state.recordRequestFailure(request, () -> state.closed(null));
         AssertionError fatal = new AssertionError("fatal");
@@ -171,14 +192,15 @@ final class ProtocolSessionStateTest {
         state.claimClose(true);
         ProtocolSessionState.TerminalSnapshot selected = state.recordFatalError(fatal);
 
-        assertSame(
-                fatal,
-                assertInstanceOf(ProtocolSessionState.FatalSnapshot.class, selected)
-                        .error());
+        ProtocolSessionException selectedClosed = assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, selected)
+                .failure();
+        assertEquals(ProtocolSessionException.Reason.CLOSED, selectedClosed.reason());
         assertSame(closed, request.failure());
+        assertEquals(List.of(fatal), discarded);
         assertEquals(0, fatal.getSuppressed().length);
         assertEquals(0, closed.getSuppressed().length);
-        assertSame(fatal, assertThrows(AssertionError.class, state::ensureOpen));
+        ProtocolSessionException observed = assertThrows(ProtocolSessionException.class, state::ensureOpen);
+        assertEquals(ProtocolSessionException.Reason.CLOSED, observed.reason());
     }
 
     @Test
@@ -194,39 +216,42 @@ final class ProtocolSessionStateTest {
     }
 
     @Test
-    void fatalFailureWinsWhetherItArrivesBeforeOrAfterTimeout() {
-        for (boolean fatalFirst : new boolean[] {true, false}) {
-            List<Throwable> discarded = new ArrayList<>();
-            ProtocolSessionState state = state(discarded);
-            ProtocolSessionState.RequestOutcome request = state.beginRequest();
-            AssertionError fatal = new AssertionError("fatal-" + fatalFirst);
-            ProtocolSessionException timeout;
-            if (fatalFirst) {
-                state.recordFatalError(fatal);
-                timeout = state.recordRequestTimeout(request);
-            } else {
-                timeout = state.recordRequestTimeout(request);
-                state.recordFatalError(fatal);
-            }
+    void fatalFailureSelectedBeforeTimeoutRemainsTerminal() {
+        List<Throwable> discarded = new ArrayList<>();
+        ProtocolSessionState state = state(discarded);
+        ProtocolSessionState.RequestOutcome request = state.beginRequest();
+        AssertionError fatal = new AssertionError("fatal");
 
-            ProtocolSessionState.TerminalSnapshot selected = state.terminal();
-            assertSame(
-                    fatal,
-                    assertInstanceOf(ProtocolSessionState.FatalSnapshot.class, selected)
-                            .error());
-            if (fatalFirst) {
-                assertNull(request.failure());
-            } else {
-                assertSame(timeout, request.failure());
-            }
-            assertEquals(List.of(timeout), discarded);
-            assertEquals(0, fatal.getSuppressed().length);
-            assertEquals(0, timeout.getSuppressed().length);
-        }
+        state.recordFatalError(fatal);
+        ProtocolSessionException timeout = state.recordRequestTimeout(request);
+
+        assertSame(
+                fatal,
+                assertInstanceOf(ProtocolSessionState.FatalSnapshot.class, state.terminal())
+                        .error());
+        assertNull(request.failure());
+        assertTrue(discarded.isEmpty());
     }
 
     @Test
-    void laterRequestFailureIsReportedWithoutMutatingTheSelectedRequestFailure() {
+    void timeoutSelectedBeforeFatalFailureRemainsTerminal() {
+        List<Throwable> discarded = new ArrayList<>();
+        ProtocolSessionState state = state(discarded);
+        ProtocolSessionState.RequestOutcome request = state.beginRequest();
+        AssertionError fatal = new AssertionError("fatal");
+
+        ProtocolSessionException timeout = state.recordRequestTimeout(request);
+        state.recordFatalError(fatal);
+
+        ProtocolSessionState.FailureSnapshot selected =
+                assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, state.terminal());
+        assertSame(timeout, selected.primary());
+        assertSame(timeout, request.failure());
+        assertEquals(List.of(fatal), discarded);
+    }
+
+    @Test
+    void laterRequestFailureIsDiscardedWithoutMutatingTheSelectedRequestFailure() {
         List<Throwable> discarded = new ArrayList<>();
         ProtocolSessionState state = state(discarded);
         ProtocolSessionState.RequestOutcome request = state.beginRequest();
@@ -237,7 +262,7 @@ final class ProtocolSessionStateTest {
         assertSame(first, state.recordRequestFailure(request, () -> first));
         assertSame(first, state.recordRequestFailure(request, () -> second));
 
-        assertEquals(List.of(second), discarded);
+        assertTrue(discarded.isEmpty());
         assertEquals(0, first.getSuppressed().length);
         assertEquals(0, second.getSuppressed().length);
     }
@@ -257,43 +282,19 @@ final class ProtocolSessionStateTest {
     }
 
     @Test
-    void eofSealsAttributionOnlyAfterActiveRequestEnds() {
-        AtomicInteger seals = new AtomicInteger();
-        ProtocolSessionState state = new ProtocolSessionState(
-                () -> new ProtocolTranscript("diagnostic", false, false),
-                OptionalInt::empty,
-                ignored -> {},
-                seals::incrementAndGet);
-        ProtocolSessionState.RequestOutcome request = state.beginRequest();
-
-        state.recordStdoutEof();
-        assertEquals(0, seals.get());
-        state.completeRequest(request);
-        request.close();
-        request.close();
-
-        assertEquals(1, seals.get());
-    }
-
-    @Test
     void staleRequestCannotCompleteOrEndTheActiveRequest() {
-        AtomicInteger seals = new AtomicInteger();
-        ProtocolSessionState state = new ProtocolSessionState(
-                () -> new ProtocolTranscript("diagnostic", false, false),
-                OptionalInt::empty,
-                ignored -> {},
-                seals::incrementAndGet);
+        ProtocolSessionState state =
+                new ProtocolSessionState(() -> new ProtocolTranscript("diagnostic", false, false), OptionalInt::empty);
         ProtocolSessionState.RequestOutcome stale = state.beginRequest();
         stale.close();
         ProtocolSessionState.RequestOutcome active = state.beginRequest();
-        state.recordStdoutEof();
 
         assertThrows(IllegalStateException.class, () -> state.completeRequest(stale));
         stale.close();
-        assertEquals(0, seals.get());
+        assertThrows(IllegalStateException.class, state::beginRequest);
         state.completeRequest(active);
         active.close();
-        assertEquals(1, seals.get());
+        state.beginRequest().close();
     }
 
     @Test
@@ -348,7 +349,7 @@ final class ProtocolSessionStateTest {
             selection = executor.submit(
                     () -> state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "secondary", secondary));
             selection.get(1, TimeUnit.SECONDS);
-            assertEquals(List.of(secondary), discarded);
+            assertTrue(discarded.isEmpty());
 
             Future<ProtocolSessionState.TerminalSnapshot> observation = executor.submit(state::terminal);
             assertSame(
@@ -412,7 +413,7 @@ final class ProtocolSessionStateTest {
                 state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "secondary", secondary);
             });
             losingSelection.get(1, TimeUnit.SECONDS);
-            assertEquals(List.of(secondary), discarded);
+            assertTrue(discarded.isEmpty());
 
             completion = executor.submit(() -> {
                 return assertThrows(ProtocolSessionException.class, () -> state.completeRequest(request));

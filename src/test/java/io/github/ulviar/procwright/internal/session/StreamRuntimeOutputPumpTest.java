@@ -19,6 +19,7 @@ import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CoderMalfunctionError;
 import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -35,8 +36,7 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
         IOException readFailure = new IOException("read failed");
         ControllableProcess process =
                 new ControllableProcess(new FailingInputStream(readFailure), InputStream.nullInputStream(), null);
-        DefaultSession rawSession = session(process);
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(), diagnostics());
+        StreamSession stream = openStream(process, plan());
         try {
             ExecutionException failure =
                     assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
@@ -55,8 +55,7 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
             IllegalArgumentException cause = new IllegalArgumentException(source + " decoder initialization failed");
             Charset charset = new ThreadSelectedNewDecoderFailureCharset(source, cause);
             ControllableProcess process = new ControllableProcess();
-            DefaultSession rawSession = session(process);
-            StreamSession stream = new DefaultStreamSession(rawSession, plan(charset, 16), diagnostics());
+            StreamSession stream = openStream(process, plan(charset, 16));
             try {
                 ExecutionException failure = assertThrows(
                         ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
@@ -73,21 +72,18 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
     }
 
     @Test
-    void decoderRuntimeFailureHasStableReasonAndCleansUp() throws Exception {
+    void decoderRuntimeFailureRemainsAFatalCoderMalfunction() throws Exception {
         IllegalArgumentException cause = new IllegalArgumentException("stream decoder failed");
         Charset charset = new RuntimeFailureCharset(cause);
         ControllableProcess process =
                 new ControllableProcess(new ByteArrayInputStream(new byte[] {1}), InputStream.nullInputStream(), null);
-        DefaultSession rawSession = session(process);
-        StreamSession stream = new DefaultStreamSession(rawSession, plan(charset, 16), diagnostics());
+        StreamSession stream = openStream(process, plan(charset, 16));
         try {
             ExecutionException failure =
                     assertThrows(ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
-            StreamException streamFailure = assertInstanceOf(StreamException.class, failure.getCause());
+            CoderMalfunctionError decoderFailure = assertInstanceOf(CoderMalfunctionError.class, failure.getCause());
 
-            assertEquals(StreamException.Reason.OUTPUT_READ_FAILED, streamFailure.reason());
-            assertEquals(true, causeChainContains(streamFailure, cause));
-            assertEquals(true, streamFailure.diagnostics().text().length() <= 16);
+            assertSame(cause, decoderFailure.getCause());
             assertFalse(process.isAlive());
         } finally {
             stream.close();
@@ -104,9 +100,7 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
             InputStream stderr = failingSource.equals("stderr") ? failing : other;
             ControllableProcess process = new ControllableProcess(stdout, stderr, null);
             AtomicInteger listenerCalls = new AtomicInteger();
-            DefaultSession rawSession = session(process);
-            StreamSession stream = new DefaultStreamSession(
-                    rawSession, plan(charset, 16, chunk -> listenerCalls.incrementAndGet()), diagnostics());
+            StreamSession stream = openStream(process, plan(charset, 16, chunk -> listenerCalls.incrementAndGet()));
             try {
                 ExecutionException failure = assertThrows(
                         ExecutionException.class, () -> stream.onExit().get(2, TimeUnit.SECONDS));
@@ -135,9 +129,8 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
             InputStream stdout = zeroStdout ? zeroStream : eofStream;
             InputStream stderr = zeroStdout ? eofStream : zeroStream;
             ControllableProcess process = new ControllableProcess(stdout, stderr, null);
-            DefaultSession rawSession = session(process);
-            StreamSession stream = new DefaultStreamSession(
-                    rawSession,
+            StreamSession stream = openStream(
+                    process,
                     plan(),
                     diagnostics(),
                     StreamSessionTestDependencies.withBackoffAndPumpStarter(backoff, PumpStarter.threading()));

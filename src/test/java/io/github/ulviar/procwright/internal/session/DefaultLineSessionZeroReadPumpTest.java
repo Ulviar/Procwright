@@ -4,7 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -31,9 +31,8 @@ final class DefaultLineSessionZeroReadPumpTest {
             InputStream stdout = zeroStdout ? zeroStream : InputStream.nullInputStream();
             InputStream stderr = zeroStdout ? InputStream.nullInputStream() : zeroStream;
             ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-            DefaultSession rawSession = openSession(process);
-            DefaultLineSession lineSession = new DefaultLineSession(
-                    rawSession, LineSessionSettings.defaults(), LineSessionTestDependencies.withBackoff(backoff));
+            DefaultLineSession lineSession = openLineSession(
+                    process, LineSessionSettings.defaults(), LineSessionTestDependencies.withBackoff(backoff));
             try {
                 assertTrue(backoff.awaitEntered());
                 assertEquals(1, zeroStream.reads(), "the pump must enter backoff before attempting another read");
@@ -64,8 +63,7 @@ final class DefaultLineSessionZeroReadPumpTest {
         ZeroForeverInputStream stdout = new ZeroForeverInputStream();
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        DefaultSession rawSession = openSession(process);
-        try (DefaultLineSession lineSession = new DefaultLineSession(rawSession, LineSessionSettings.defaults())) {
+        try (DefaultLineSession lineSession = openLineSession(process, LineSessionSettings.defaults())) {
             assertTrue(stdout.awaitFirstRead());
             Thread readerThread = stdout.readerThread();
 

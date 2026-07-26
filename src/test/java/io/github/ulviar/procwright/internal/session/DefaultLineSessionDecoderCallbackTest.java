@@ -8,7 +8,7 @@ import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtur
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.eventually;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.strictSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -67,8 +67,8 @@ final class DefaultLineSessionDecoderCallbackTest {
         CountDownLatch releaseDecoder = new CountDownLatch(1);
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
+        DefaultLineSession lineSession = openLineSession(
+                new ControllableProcess(stdin, stdout, InputStream.nullInputStream()),
                 LineSessionSettings.defaults().withResponseDecoder(reader -> {
                     decoderEntered.countDown();
                     awaitUninterruptibly(releaseDecoder);
@@ -120,8 +120,8 @@ final class DefaultLineSessionDecoderCallbackTest {
         AtomicLong nanoTime = new AtomicLong(100);
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
+        DefaultLineSession lineSession = openLineSession(
+                new ControllableProcess(stdin, stdout, InputStream.nullInputStream()),
                 LineSessionSettings.defaults(),
                 LineSessionTestDependencies.withNanoTime(() -> nanoTime.getAndSet(50)));
         try {
@@ -163,7 +163,7 @@ final class DefaultLineSessionDecoderCallbackTest {
             return List.of(reader.readLine());
         });
 
-        try (DefaultLineSession lineSession = new DefaultLineSession(openSession(process), settings)) {
+        try (DefaultLineSession lineSession = openLineSession(process, settings)) {
             assertEquals("ok", lineSession.request("first").text());
 
             assertThrows(IllegalStateException.class, retained.get()::readLine);
@@ -200,8 +200,8 @@ final class DefaultLineSessionDecoderCallbackTest {
                 callbackFinished.countDown();
             }
         });
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
+        DefaultLineSession lineSession =
+                openLineSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream()), settings);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
@@ -277,8 +277,8 @@ final class DefaultLineSessionDecoderCallbackTest {
                 return List.of();
             }
         });
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
+        DefaultLineSession lineSession =
+                openLineSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream()), settings);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
@@ -341,8 +341,8 @@ final class DefaultLineSessionDecoderCallbackTest {
                 decoderFinished.countDown();
             }
         });
-        DefaultLineSession lineSession = new DefaultLineSession(
-                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
+        DefaultLineSession lineSession =
+                openLineSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream()), settings);
         try {
             LineSessionException timeout = assertThrows(
                     LineSessionException.class, () -> lineSession.request("request", Duration.ofMillis(100)));
@@ -364,7 +364,7 @@ final class DefaultLineSessionDecoderCallbackTest {
     }
 
     @Test
-    void eagerDecoderRuntimeFailuresAreTypedBeforeClaimAndLeaveRawSessionOpen() {
+    void eagerDecoderRuntimeFailuresAreTypedAndRollbackTheProcess() {
         for (int failingCreation : List.of(1, 2)) {
             for (Throwable cause : List.of(
                     new IllegalArgumentException("decoder creation " + failingCreation + " failed"),
@@ -373,48 +373,35 @@ final class DefaultLineSessionDecoderCallbackTest {
                 TrackingInputStream stdout = new TrackingInputStream();
                 TrackingInputStream stderr = new TrackingInputStream();
                 ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-                DefaultSession rawSession = openSession(process);
-                try {
-                    LineSessionException failure = assertThrows(
-                            LineSessionException.class,
-                            () -> new DefaultLineSession(rawSession, strictSettings(charset)));
+                LineSessionException failure = assertThrows(
+                        LineSessionException.class, () -> openLineSession(process, strictSettings(charset)));
 
-                    assertEquals(LineSessionException.Reason.DECODE_ERROR, failure.reason());
-                    assertSame(cause, failure.getCause());
-                    assertEquals(failingCreation, charset.decoderCreations());
-                    assertTrue(process.isAlive());
-                    assertFalse(rawSession.onExit().isDone());
-                    assertEquals(0, stdout.reads());
-                    assertEquals(0, stderr.reads());
-                } finally {
-                    rawSession.close();
-                }
+                assertEquals(LineSessionException.Reason.DECODE_ERROR, failure.reason());
+                assertSame(cause, failure.getCause());
+                assertEquals(failingCreation, charset.decoderCreations());
+                assertFalse(process.isAlive());
+                assertEquals(0, stdout.reads());
+                assertEquals(0, stderr.reads());
             }
         }
     }
 
     @Test
-    void eagerDecoderFatalErrorsPreserveIdentityAndLeaveRawSessionOpen() {
+    void eagerDecoderFatalErrorsPreserveIdentityAndRollbackTheProcess() {
         for (int failingCreation : List.of(1, 2)) {
             AssertionError cause = new AssertionError("fatal decoder creation " + failingCreation);
             DecoderCreationFailureCharset charset = new DecoderCreationFailureCharset(failingCreation, cause);
             TrackingInputStream stdout = new TrackingInputStream();
             TrackingInputStream stderr = new TrackingInputStream();
             ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-            DefaultSession rawSession = openSession(process);
-            try {
-                AssertionError thrown = assertThrows(
-                        AssertionError.class, () -> new DefaultLineSession(rawSession, strictSettings(charset)));
+            AssertionError thrown =
+                    assertThrows(AssertionError.class, () -> openLineSession(process, strictSettings(charset)));
 
-                assertSame(cause, thrown);
-                assertEquals(failingCreation, charset.decoderCreations());
-                assertTrue(process.isAlive());
-                assertFalse(rawSession.onExit().isDone());
-                assertEquals(0, stdout.reads());
-                assertEquals(0, stderr.reads());
-            } finally {
-                rawSession.close();
-            }
+            assertSame(cause, thrown);
+            assertEquals(failingCreation, charset.decoderCreations());
+            assertFalse(process.isAlive());
+            assertEquals(0, stdout.reads());
+            assertEquals(0, stderr.reads());
         }
     }
 

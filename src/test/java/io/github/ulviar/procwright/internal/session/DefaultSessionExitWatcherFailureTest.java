@@ -100,9 +100,19 @@ final class DefaultSessionExitWatcherFailureTest {
                 assertThrows(ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
 
         assertSame(process.failure(), exitFailure.getCause());
-        assertTrue(process.stdoutClosed());
-        assertTrue(process.stderrClosed());
+        assertTrue(eventually(() -> process.stdoutClosed() && process.stderrClosed()));
         assertEquals(0, process.failure().getSuppressed().length);
+    }
+
+    private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        do {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(5);
+        } while (System.nanoTime() < deadline);
+        return condition.getAsBoolean();
     }
 
     private static final class WatcherFailureProcess extends Process {

@@ -116,33 +116,37 @@ final class CommandServiceApiExamples {
     void expectScenario() {
         CommandService repl = Procwright.command("tool");
 
-        try (Session session = repl.interactive().withArgs("repl").open();
-                Expect expect =
-                        session.expect().withTimeout(Duration.ofSeconds(2)).open()) {
+        try (Expect expect = repl.interactive()
+                .expect()
+                .withArgs("repl")
+                .withOutputCharset(StandardCharsets.UTF_8)
+                .withTimeout(Duration.ofSeconds(2))
+                .open()) {
             expect.expectText("ready> ");
             expect.sendLine("status");
             expect.expectRegex(java.util.regex.Pattern.compile("ok|ready"));
+            expect.closeStdin();
         }
     }
 
     void terminalRequiredSessionScenario() {
         CommandService shell = Procwright.command("sh");
 
-        try (Session session = shell.interactive()
-                        .withArgs(
-                                "-c",
-                                "trap 'echo procwright-interrupted; exit 0' INT; "
-                                        + "echo procwright-ready; while :; do sleep 1; done")
-                        .withTerminal(TerminalPolicy.REQUIRED)
-                        .withIdleTimeout(Duration.ofSeconds(10))
-                        .open();
-                Expect expect =
-                        session.expect().withTimeout(Duration.ofSeconds(2)).open()) {
+        try (Expect expect = shell.interactive()
+                .expect()
+                .withArgs(
+                        "-c",
+                        "trap 'echo procwright-interrupted; exit 0' INT; "
+                                + "echo procwright-ready; while :; do sleep 1; done")
+                .withTerminal(TerminalPolicy.REQUIRED)
+                .withIdleTimeout(Duration.ofSeconds(10))
+                .withTimeout(Duration.ofSeconds(2))
+                .open()) {
             expect.expectText("procwright-ready");
-            session.sendSignal(TerminalSignal.INTERRUPT);
+            expect.sendSignal(TerminalSignal.INTERRUPT);
             expect.expectText("procwright-interrupted");
 
-            SessionExit exit = session.onExit().orTimeout(2, TimeUnit.SECONDS).join();
+            SessionExit exit = expect.onExit().orTimeout(2, TimeUnit.SECONDS).join();
             if (exit.exitCode().orElse(-1) != 0) {
                 throw new IllegalStateException("terminal command did not exit cleanly");
             }

@@ -155,24 +155,27 @@ After a worker is leased, failure does not prove that no bytes were written or n
 retry handed-off, non-idempotent work; use an application idempotency key or protocol-level acknowledgement.
 
 `close()` is a bounded synchronous close-and-drain, so use try-with-resources or Kotlin `use` on the normal path. It
-atomically rejects new requests, allows a healthy in-flight request to finish, closes every worker, and either returns or
-throws a typed cleanup failure. The default close timeout is exactly 15 seconds: the 5-second normal request budget plus
-the default 2-second interrupt grace and 5-second kill grace, with a 3-second scheduling and stream-cleanup reserve.
-Override it with `withCloseTimeout(...)`.
+atomically rejects new requests, allows a healthy in-flight request to finish, closes every worker, and either reaches
+logical drain or throws a typed cleanup failure. The default close timeout is exactly 15 seconds: the 5-second normal
+request budget plus the default 2-second interrupt grace and 5-second kill grace, with a 3-second lifecycle-scheduling
+and logical-output-settlement reserve. Override it with `withCloseTimeout(...)`.
 
 A close timeout reports `DRAIN_TIMEOUT` without cancelling internal cleanup. Call `closeAsync()` when cleanup must start
-without waiting for worker drain, or after a timeout to observe eventual completion. Each call returns a
-cancellation-isolated future view; cancelling or completing that view cannot mutate cleanup. Completion actions never run
-while internal pool state is locked. Worker-close failure reports `WORKER_FAILED`, and caller interruption reports
-`INTERRUPTED` after restoring the interrupt flag.
+without waiting for worker drain, or after a timeout to observe eventual logical completion. Logical drain means that no
+pool slots remain, worker close has been invoked, and every worker's process outcome and output-mode processing have
+settled. It does not wait for a potentially blocking physical close of process streams, and a later physical-close
+failure cannot change the result. Each call returns a cancellation-isolated future view; cancelling or completing that
+view cannot mutate cleanup. Completion actions never run while internal pool state is locked. Worker-close failure
+reports `WORKER_FAILED`, and caller interruption reports `INTERRUPTED` after restoring the interrupt flag.
 
 The [close-timeout handling variant](../how-to/reuse-workers.md#observe-cleanup-after-a-close-timeout) declares the pool
 before `try (pool)` and registers a `closeAsync()` observer in `finally`. It therefore observes cleanup even when a
 request exception remains primary and `DRAIN_TIMEOUT` is suppressed by try-with-resources.
 
-Java cannot forcibly stop a callback that ignores interruption. `close()` still returns at its configured timeout, but
-`closeAsync()` remains incomplete until that callback returns and the leased worker can retire. A close invoked by an
-active request callback has the same bounded behavior and cannot permanently deadlock the pool.
+Java cannot forcibly stop a callback that ignores interruption. `close()` still returns at its configured timeout.
+After the callback's operation deadline, logical abandonment can let pool drain complete while the callback thread
+continues running; `closeAsync()` does not observe that thread's physical return. A close invoked by an active request
+callback has the same bounded behavior and cannot permanently deadlock the pool.
 
 See [scenario defaults](../reference/defaults.md#line-and-protocol-pools) for capacity, warmup, replenishment, hook,
 retirement, acquisition, and close values.

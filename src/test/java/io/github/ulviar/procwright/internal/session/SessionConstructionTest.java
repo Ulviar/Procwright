@@ -6,7 +6,6 @@ import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.h
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.FailureAggregation;
@@ -44,7 +43,8 @@ final class SessionConstructionTest {
         IllegalArgumentException cleanupFailure = new IllegalArgumentException("stdout close failed");
         TrackingProcess process = new CloseFailingProcess(cleanupFailure);
         SessionConstruction construction = SessionConstruction.begin(process);
-        construction.own(SessionResources.acquire(process, new BoundedCloseDispatcher(3, 3), () -> {}, ignored -> {}));
+        construction.own(SessionResources.acquire(
+                process, SessionOutputMode.RAW, new BoundedCloseDispatcher(3, 3), () -> {}, ignored -> {}));
         AtomicReference<Throwable> result = new AtomicReference<>();
         Thread rollback =
                 new Thread(() -> result.set(construction.rollback(primary)), "session-construction-monitor-regression");
@@ -57,7 +57,7 @@ final class SessionConstructionTest {
 
             assertFalse(rollback.isAlive(), "rollback waited for the caller-owned Throwable monitor");
             assertSame(primary, FailureAggregation.primary(result.get()));
-            assertTrue(FailureAggregation.sources(result.get()).contains(cleanupFailure));
+            assertEquals(1, FailureAggregation.sources(result.get()).size());
         } finally {
             rollback.join(TimeUnit.SECONDS.toMillis(1));
         }

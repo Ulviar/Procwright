@@ -41,10 +41,9 @@ Diagnostics — наблюдательный слой поверх сценар�
 
 ## Сценарная граница
 
-- `run`, `interactive`, `lineSession`, `protocolSession`, `listen` и worker launches внутри nested pooled сценариев
+- `run`, `interactive`, `expect`, `lineSession`, `protocolSession`, `listen` и worker launches внутри nested pooled сценариев
   испускают lifecycle events.
-- `Expect` не испускает отдельные process lifecycle events, потому что работает поверх уже открытого `Session`.
 - Scenario transcripts (`LineTranscript`, `StreamTranscript`, `Expect` transcript) — это диагностические снимки
   конкретного helper-а, а не global diagnostics bus.
 - `Expect` transcript redacts caller-provided send/expect values by default. Verbatim action values допустимы только
-  через явный `Expect.Draft.withTranscriptValues(...)` и не должны использоваться для секретов.
+  через явный `ExpectScenario.Draft.withTranscriptValues(...)` и не должны использоваться для секретов.

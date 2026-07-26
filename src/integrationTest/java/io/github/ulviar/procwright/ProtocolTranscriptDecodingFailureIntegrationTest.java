@@ -26,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -64,7 +65,7 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
 
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(causeChainContains(exception, charset.failure()));
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWithSelectedSource(session, exception);
         } finally {
             session.close();
         }
@@ -105,7 +106,7 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(causeChainContains(exception, charset.failure()));
             assertTrue(exception.transcript().text().length() <= 32);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWithSelectedSource(session, exception);
         } finally {
             session.close();
         }
@@ -124,7 +125,7 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
 
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().length() <= 32);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWithSelectedSource(session, exception);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, followUp.reason());
         } finally {
@@ -145,12 +146,19 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
 
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().length() <= 32);
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWithSelectedSource(session, exception);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, followUp.reason());
         } finally {
             session.close();
         }
+    }
+
+    private static void assertExitFailedWithSelectedSource(
+            ProtocolSession<String, String> session, ProtocolSessionException terminalFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        assertTrue(causeChainContains(terminalFailure, observed.getCause()));
     }
 
     private static boolean causeChainContains(Throwable failure, Throwable expected) {

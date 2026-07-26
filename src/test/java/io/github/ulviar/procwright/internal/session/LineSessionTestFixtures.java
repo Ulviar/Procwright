@@ -35,22 +35,40 @@ final class LineSessionTestFixtures {
         return LineSessionSettings.defaults().withCharsetPolicy(CharsetPolicy.report(charset));
     }
 
-    static DefaultSession openSession(Process process) {
-        return SessionTestFixtures.open(
+    static DefaultLineSession openLineSession(Process process, LineSessionSettings settings) {
+        return openLineSession(process, settings, DefaultLineSession.Dependencies.defaults());
+    }
+
+    static DefaultLineSession openLineSession(
+            Process process, LineSessionSettings settings, DefaultLineSession.Dependencies dependencies) {
+        return SessionTestFixtures.openHandle(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "line-test", CommandEcho.empty()),
+                SessionOutputMode.LINE,
+                session -> new DefaultLineSession(session, settings, dependencies));
     }
 
-    static DefaultSession openSession(Process process, BoundedCloseDispatcher closeDispatcher) {
-        return DefaultSession.openTransactionally(
+    static DefaultLineSession openLineSession(
+            Process process, LineSessionSettings settings, BoundedCloseDispatcher closeDispatcher) {
+        return openLineSession(process, settings, DefaultLineSession.Dependencies.defaults(), closeDispatcher);
+    }
+
+    static DefaultLineSession openLineSession(
+            Process process,
+            LineSessionSettings settings,
+            DefaultLineSession.Dependencies dependencies,
+            BoundedCloseDispatcher closeDispatcher) {
+        return DefaultSession.openHelperTransactionally(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 StandardCharsets.UTF_8,
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "line-cleanup-test", CommandEcho.empty()),
-                () -> {},
+                SessionOutputMode.LINE,
+                session -> new DefaultLineSession(session, settings, dependencies),
                 closeDispatcher,
                 DefaultSession.WatcherStarter.threading());
     }

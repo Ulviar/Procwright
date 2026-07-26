@@ -23,7 +23,6 @@ final class LineOutputTransport {
     private final LineSessionSettings options;
     private final LineSessionState state;
     private final ZeroReadBackoff zeroReadBackoff;
-    private final OutputPumpCoordinator outputPumps;
     private final BoundedTranscriptBuffer transcript;
     private final AtomicBoolean malformed;
     private final IncrementalTextDecoder stdoutDecoder;
@@ -40,7 +39,6 @@ final class LineOutputTransport {
             LineSessionSettings options,
             LineSessionState state,
             ZeroReadBackoff zeroReadBackoff,
-            OutputPumpCoordinator outputPumps,
             BoundedTranscriptBuffer transcript,
             AtomicBoolean malformed,
             IncrementalTextDecoder stdoutDecoder,
@@ -49,7 +47,6 @@ final class LineOutputTransport {
         this.options = Objects.requireNonNull(options, "options");
         this.state = Objects.requireNonNull(state, "state");
         this.zeroReadBackoff = Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
-        this.outputPumps = Objects.requireNonNull(outputPumps, "outputPumps");
         this.transcript = Objects.requireNonNull(transcript, "transcript");
         this.malformed = Objects.requireNonNull(malformed, "malformed");
         this.stdoutDecoder = Objects.requireNonNull(stdoutDecoder, "stdoutDecoder");
@@ -57,14 +54,14 @@ final class LineOutputTransport {
         this.failureHandler = Objects.requireNonNull(failureHandler, "failureHandler");
     }
 
-    void start(PumpStarter pumpStarter) {
+    void start(PumpStarter pumpStarter, OutputPumpCoordinator outputPumps) {
+        Objects.requireNonNull(outputPumps, "outputPumps");
         outputPumps.start(
                 pumpStarter,
                 "procwright-line-stdout-",
                 stream -> runPump("stdout", stream, true, stdoutDecoder),
                 "procwright-line-stderr-",
-                stream -> runPump("stderr", stream, false, stderrDecoder),
-                state::markClosed);
+                stream -> runPump("stderr", stream, false, stderrDecoder));
     }
 
     void closeReaders() {
@@ -78,7 +75,8 @@ final class LineOutputTransport {
         }
     }
 
-    void publishFatal(Error error) {
+    void publishTerminal(LineSessionState.TerminalSnapshot terminal) {
+        Objects.requireNonNull(terminal, "terminal");
         synchronized (eventLock) {
             if (closedEventPublished) {
                 return;
@@ -86,13 +84,9 @@ final class LineOutputTransport {
             events.clear();
             pendingLines = 0;
             pendingCharacters = 0;
-            events.addLast(new FatalEvent(error));
+            events.addLast(eventFor(terminal));
             eventLock.notifyAll();
         }
-    }
-
-    void publishFailure(LineSessionException.Reason reason, String message, Throwable failure) {
-        offerFailure(reason, message, failure);
     }
 
     Event take(long deadlineNanos, LineSessionState.Request request) {
@@ -198,15 +192,11 @@ final class LineOutputTransport {
             }
             if (responseStream) {
                 offerSignal(EofEvent.INSTANCE);
-                state.recordStdoutEof();
             }
         } catch (IOException exception) {
             malformed.compareAndSet(false, decoder.malformed());
-            if (!state.isClosed()) {
-                LineSessionException.Reason reason = reasonFor(exception);
-                offerFailure(reason, failureMessage(streamName, reason), exception);
-                failureHandler.closeQuietly(exception);
-            }
+            LineSessionException.Reason reason = reasonFor(exception);
+            closeAfter(offerFailure(reason, failureMessage(streamName, reason), exception));
         }
     }
 
@@ -238,11 +228,10 @@ final class LineOutputTransport {
     private void failOversizedLine() {
         CommandExecutionException failure =
                 new CommandExecutionException("Line-session stdout line exceeds maxLineChars");
-        offerFailure(
+        closeAfter(offerFailure(
                 LineSessionException.Reason.RESPONSE_TOO_LARGE,
                 failureMessage("stdout", LineSessionException.Reason.RESPONSE_TOO_LARGE),
-                failure);
-        failureHandler.closeQuietly(failure);
+                failure));
     }
 
     private void offerSignal(Event event) {
@@ -261,22 +250,26 @@ final class LineOutputTransport {
         }
     }
 
-    private void offerFailure(LineSessionException.Reason reason, String message, Throwable failure) {
-        LineSessionState.TerminalSelection selection;
+    private LineSessionState.OutputSelection offerFailure(
+            LineSessionException.Reason reason, String message, Throwable failure) {
+        LineSessionState.OutputSelection selection;
         synchronized (eventLock) {
             if (closedEventPublished) {
-                return;
+                return null;
             }
-            selection = state.selectTerminalFailure(reason, message, failure);
-            events.addLast(eventFor(selection.selected()));
+            selection = state.selectOutputFailure(reason, message, failure);
+            if (!selection.rejectedAfterClose()) {
+                events.addLast(eventFor(Objects.requireNonNull(selection.selected(), "selected")));
+            }
             eventLock.notifyAll();
         }
         state.reportDiscarded(selection);
+        return selection;
     }
 
     private boolean offerLine(StringBuilder line) {
         boolean overflow = false;
-        LineSessionState.TerminalSelection overflowSelection = null;
+        LineSessionState.OutputSelection overflowSelection = null;
         synchronized (eventLock) {
             if (closedEventPublished) {
                 return false;
@@ -289,11 +282,13 @@ final class LineOutputTransport {
                 events.clear();
                 pendingLines = 0;
                 pendingCharacters = 0;
-                overflowSelection = state.selectTerminalFailure(
+                overflowSelection = state.selectOutputFailure(
                         LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW,
                         failureMessage("stdout", LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW),
                         overflowFailure);
-                events.addLast(eventFor(overflowSelection.selected()));
+                if (!overflowSelection.rejectedAfterClose()) {
+                    events.addLast(eventFor(Objects.requireNonNull(overflowSelection.selected(), "selected")));
+                }
                 overflow = true;
             } else {
                 String publishedLine = line.toString();
@@ -304,12 +299,19 @@ final class LineOutputTransport {
             eventLock.notifyAll();
         }
         if (overflow) {
-            LineSessionState.TerminalSelection selected =
-                    Objects.requireNonNull(overflowSelection, "overflowSelection");
+            LineSessionState.OutputSelection selected = Objects.requireNonNull(overflowSelection, "overflowSelection");
             state.reportDiscarded(selected);
-            failureHandler.closeQuietly(selected.selected().primary());
+            closeAfter(selected);
         }
         return !overflow;
+    }
+
+    private void closeAfter(LineSessionState.OutputSelection selection) {
+        if (selection == null || selection.rejectedAfterClose()) {
+            return;
+        }
+        failureHandler.closeQuietly(
+                Objects.requireNonNull(selection.selected(), "selected").primary());
     }
 
     private static Event eventFor(LineSessionState.TerminalSnapshot terminal) {

@@ -10,7 +10,6 @@ package io.github.ulviar.procwright.examples;
 
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.session.Expect;
-import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.SessionExit;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import java.time.Duration;
@@ -22,18 +21,18 @@ public final class TerminalExample {
     private TerminalExample() {}
 
     public static void main(String[] args) {
-        try (Session session = Procwright.command(ExampleSupport.javaExecutable())
-                        .interactive()
-                        .withArgs("--version")
-                        .withTerminal(TerminalPolicy.REQUIRED)
-                        .withIdleTimeout(Duration.ofSeconds(10))
-                        .open();
-                Expect expect =
-                        session.expect().withTimeout(Duration.ofSeconds(5)).open()) {
+        try (Expect expect = Procwright.command(ExampleSupport.javaExecutable())
+                .interactive()
+                .expect()
+                .withArgs("--version")
+                .withTerminal(TerminalPolicy.REQUIRED)
+                .withIdleTimeout(Duration.ofSeconds(10))
+                .withTimeout(Duration.ofSeconds(5))
+                .open()) {
             expect.expectRegex(Pattern.compile("(?i)(java|openjdk)"));
-            SessionExit exit = session.onExit().orTimeout(5, TimeUnit.SECONDS).join();
+            SessionExit exit = expect.onExit().orTimeout(5, TimeUnit.SECONDS).join();
             if (exit.exitCode().orElse(-1) != 0) {
-                throw new IllegalStateException("Terminal command did not exit cleanly");
+                throw new IllegalStateException("java --version failed: " + exit.exitCode());
             }
         }
     }
@@ -46,6 +45,10 @@ public final class TerminalExample {
 - `DISABLED` uses ordinary process pipes.
 - `AUTO` requests a terminal but permits pipe fallback.
 - `REQUIRED` fails if the configured `PtyProvider` cannot create one.
+
+`sendSignal(...)` writes the terminal control byte. A PTY normally translates that byte into an operating-system signal
+for its foreground command; an ordinary pipe receives only the byte. Do not rely on signal semantics when `AUTO` falls
+back to pipes.
 
 The built-in Unix provider requires trusted `script`, `stty`, `env`, and `dd` executables in `/usr/bin` or `/bin` and
 executable `/bin/sh`; it does not use `PATH` to find transport helpers. It enables only an exact BSD or util-linux

@@ -8,6 +8,8 @@ import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.awa
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +20,7 @@ import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -67,7 +70,7 @@ final class ProtocolOutputBacklogIntegrationTest {
 
             assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
             assertTrue(overflow.transcript().text().contains(parseableSuffix));
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, overflow);
 
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, followUp.reason());
@@ -153,6 +156,14 @@ final class ProtocolOutputBacklogIntegrationTest {
                         .withOutputBacklogLimit(1024))) {
             assertEquals("ping", session.request("ping", Duration.ofSeconds(2)));
         }
+    }
+
+    private static void assertExitFailedWith(ProtocolSession<?, ?> session, ProtocolSessionException requestFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        ProtocolSessionException exitFailure = assertInstanceOf(ProtocolSessionException.class, observed.getCause());
+        assertEquals(requestFailure.reason(), exitFailure.reason());
+        assertSame(requestFailure, exitFailure);
     }
 
     private static final class StderrLineAdapter implements ProtocolAdapter<String, String> {

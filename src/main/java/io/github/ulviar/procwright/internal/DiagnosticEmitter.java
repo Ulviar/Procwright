@@ -110,6 +110,18 @@ public final class DiagnosticEmitter {
         }
     }
 
+    public void emitBestEffort(DiagnosticEventType type) {
+        emitBestEffort(type, Map.of());
+    }
+
+    public void emitBestEffort(DiagnosticEventType type, Map<String, String> attributes) {
+        try {
+            emit(type, attributes);
+        } catch (RuntimeException | Error diagnosticFailure) {
+            BoundedFailureReporter.reportBestEffort(diagnosticFailure);
+        }
+    }
+
     private void deliverListener(DiagnosticEvent event) {
         try {
             settings.listener().onEvent(event);
@@ -156,11 +168,7 @@ public final class DiagnosticEmitter {
 
     public void emitProcessFailure(Throwable primaryFailure) {
         Objects.requireNonNull(primaryFailure, "primaryFailure");
-        try {
-            emit(DiagnosticEventType.PROCESS_FAILED, failureAttributes(primaryFailure));
-        } catch (RuntimeException | Error diagnosticFailure) {
-            BoundedFailureReporter.reportBestEffort(diagnosticFailure);
-        }
+        emitBestEffort(DiagnosticEventType.PROCESS_FAILED, failureAttributes(primaryFailure));
     }
 
     @FunctionalInterface
@@ -179,9 +187,8 @@ public final class DiagnosticEmitter {
      * Per-destination sequential asynchronous delivery.
      *
      * <p>Events for one emitter are delivered to one destination in submission order without blocking the emitting
-     * thread. A single drainer runs at a time for a bounded turn. A non-empty destination then rejoins the tail of the
-     * shared FIFO dispatcher, so continuous emission cannot starve another accepted destination and no idle thread
-     * outlives a run.
+     * thread. A single drainer runs at a time for a bounded turn, then releases the dispatcher for other accepted work.
+     * Ordering and fairness between different destinations are intentionally unspecified.
      */
     private static final class SerialDelivery {
 

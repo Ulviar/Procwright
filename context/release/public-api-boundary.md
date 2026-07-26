@@ -40,14 +40,14 @@ metadata, а его strict consumers обязаны видеть JSpecify contra
 ```text
 Procwright.command(String | CommandSpec) -> CommandService
 CommandService.run() -> RunScenario.Draft -> execute()
-CommandService.interactive() -> InteractiveScenario.Draft -> open()
+CommandService.interactive() -> InteractiveScenario.Entry -> open()
+CommandService.interactive() -> InteractiveScenario.Entry -> expect() -> ExpectScenario.Draft -> open()
 CommandService.lineSession() -> LineSessionScenario.Draft -> open()
 CommandService.listen() -> StreamScenario.Draft -> open()
 CommandService.protocolSession(Supplier<ProtocolAdapter<I,O>>)
   -> ProtocolSessionScenario.Draft<I,O> -> open()
 LineSessionScenario.Draft.pooled() -> LineSessionScenario.PoolDraft -> open()
 ProtocolSessionScenario.Draft.pooled() -> ProtocolSessionScenario.PoolDraft -> open()
-Session.expect() -> Expect.Draft -> open()
 ```
 
 Обязательные surface-инварианты:

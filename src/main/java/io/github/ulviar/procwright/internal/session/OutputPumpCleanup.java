@@ -5,44 +5,26 @@ package io.github.ulviar.procwright.internal.session;
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Owns process-output close ordering, completion publication, and cleanup-failure settlement. */
+/** Owns logical mode settlement and process-output close ordering. */
 final class OutputPumpCleanup {
 
     private final DefaultSession session;
-    private final String owner;
-    private final AtomicBoolean shutdownStarted = new AtomicBoolean();
+    private final SessionOutputMode outputMode;
     private final Object lock = new Object();
-    private final OutputCloseFailures closeFailures = new OutputCloseFailures();
-    private final CompletableFuture<Void> cleanupCompleted = new CompletableFuture<>();
-    private final StreamCloseState stdoutClose = new StreamCloseState(OutputCloseReservation.Stream.STDOUT);
-    private final StreamCloseState stderrClose = new StreamCloseState(OutputCloseReservation.Stream.STDERR);
-    private boolean failureAttributionSealed;
+    private final StreamCloseState stdoutClose = new StreamCloseState();
+    private final StreamCloseState stderrClose = new StreamCloseState();
     private OutputCloseReservation.Reservation closeReservation;
-    private boolean helperCleanupInstalled;
-    private boolean processCleanupCompleted;
+    private SessionTerminal.ModeSettlement modeFailure;
+    private boolean processOutcomeObserved;
+    private ModeLifecycle modeLifecycle = ModeLifecycle.DRAINING;
+    private ShutdownLifecycle shutdownLifecycle = ShutdownLifecycle.IDLE;
     private int pumpTasksRemaining = 2;
-    private boolean outputCloseFailureRecorded;
-    private FailureSettlement failureSettlement = FailureSettlement.OPEN;
 
-    OutputPumpCleanup(
-            DefaultSession session, String owner, OutputPumpCoordinator.FailureAttribution failureAttribution) {
+    OutputPumpCleanup(DefaultSession session, SessionOutputMode outputMode) {
         this.session = Objects.requireNonNull(session, "session");
-        this.owner = Objects.requireNonNull(owner, "owner");
-        failureAttributionSealed = failureAttribution == OutputPumpCoordinator.FailureAttribution.PUMP_COMPLETION;
-    }
-
-    void installHelperCleanup(SessionExitBarrier.Registration registration) {
-        Objects.requireNonNull(registration, "registration");
-        synchronized (lock) {
-            if (helperCleanupInstalled) {
-                throw new IllegalStateException("Output helper cleanup has already been installed");
-            }
-            helperCleanupInstalled = true;
-        }
-        cleanupCompleted.whenComplete((ignored, impossible) -> completeRegistration(registration));
+        this.outputMode = Objects.requireNonNull(outputMode, "outputMode");
+        outputMode.requireHelper();
     }
 
     void installCloseReservation(OutputCloseReservation.Reservation reservation) {
@@ -55,17 +37,13 @@ final class OutputPumpCleanup {
         }
     }
 
-    boolean hasCloseReservation() {
-        synchronized (lock) {
-            return closeReservation != null;
-        }
-    }
-
     void observeProcessCleanup() {
-        session.observeExit((ignored, exitFailure) -> {
-            closeFailures.retainFallback(exitFailure);
-            processCleanupCompleted();
+        session.observePrimaryOutcome((ignored, failure) -> {
+            if (failure != null) {
+                abandonAfterPrimaryFailure();
+            }
         });
+        session.observeTermination((ignored, failure) -> processOutcomeObserved());
     }
 
     void pumpClosed(OutputCloseReservation.Stream stream) {
@@ -76,172 +54,154 @@ final class OutputPumpCleanup {
     }
 
     void pumpTaskFinished() {
+        SessionTerminal.ModeSettlement settlement;
         synchronized (lock) {
             if (pumpTasksRemaining == 0) {
                 throw new IllegalStateException("Output pump completion accounting overflow");
             }
             pumpTasksRemaining--;
+            settlement = claimSettlementLocked();
         }
-        maybeFinalizeCloseFailures();
+        publishSettlement(settlement);
     }
 
-    void retainPrimaryPreserving(Throwable primary) {
-        closeFailures.retainPrimary(primary);
+    void reportFailure(Throwable failure) {
+        if (failure != null) {
+            BoundedFailureReporter.reportBestEffort(failure);
+        }
     }
 
-    void retainFailure(Throwable failure) {
-        closeFailures.retainFallback(Objects.requireNonNull(failure, "failure"));
+    boolean closeSessionAfterFailure(Throwable failure) {
+        return closeSessionAfterFailure(failure, () -> {});
     }
 
-    void sealFailureAttribution(Throwable primary) {
-        retainPrimaryPreserving(Objects.requireNonNull(primary, "primary"));
-        sealFailureAttribution();
+    boolean closeSessionAfterFailure(Throwable failure, Runnable afterClaim) {
+        Throwable terminalFailure = recordModeFailure(SessionTerminal.ModeSettlement.completed(failure));
+        ShutdownResult result = initiateSessionClose(terminalFailure, false, afterClaim);
+        reportFailure(result.failure());
+        return result.selected();
     }
 
-    void sealFailureAttribution() {
+    void closeSessionAfterObservedEof(Throwable failure) {
         synchronized (lock) {
-            failureAttributionSealed = true;
+            if (modeLifecycle != ModeLifecycle.SETTLED) {
+                recordModeFailureLocked(SessionTerminal.ModeSettlement.processSuccessPreferred(failure));
+            }
         }
-        maybeFinalizeCloseFailures();
-    }
-
-    void closeSessionPreserving(Throwable primary) {
-        sealFailureAttribution(Objects.requireNonNull(primary, "primary"));
-        initiateSessionClose();
-    }
-
-    void closeSessionPreserving(Throwable primary, Runnable afterOutputCleanup) {
-        registerPublication(Objects.requireNonNull(afterOutputCleanup, "afterOutputCleanup"));
-        closeSessionPreserving(primary);
-    }
-
-    void publishAfterOutputCleanup(Runnable publication) {
-        registerPublication(Objects.requireNonNull(publication, "publication"));
+        reportFailure(initiateSessionClose(null, false, () -> {}).failure());
     }
 
     void closeSession() {
-        sealFailureAttribution();
-        rethrow(initiateSessionClose());
+        closeSession(false);
     }
 
-    void dispatchUnreservedOutputClosePreserving(Throwable primary) {
+    boolean closeSession(boolean timedOut) {
+        return closeSession(timedOut, () -> {});
+    }
+
+    boolean closeSession(boolean timedOut, Runnable afterClaim) {
+        ShutdownResult result = initiateSessionClose(null, timedOut, afterClaim);
+        rethrow(result.failure());
+        return result.selected();
+    }
+
+    private ShutdownResult initiateSessionClose(Throwable terminalFailure, boolean timedOut, Runnable afterClaim) {
+        Objects.requireNonNull(afterClaim, "afterClaim");
         synchronized (lock) {
-            if (closeReservation != null) {
-                throw new IllegalStateException("Reserved process output cannot use construction rollback close");
+            if (shutdownLifecycle != ShutdownLifecycle.IDLE) {
+                return new ShutdownResult(false, terminalFailure);
             }
-            stdoutClose.readyToClose();
-            stderrClose.readyToClose();
-            stdoutClose.dispatchRequired();
-            stderrClose.dispatchRequired();
-        }
-        try {
-            session.dispatchUnreservedOwnedOutputClose(
-                    owner,
-                    this::recordOutputCloseFailure,
-                    () -> outputCloseCompleted(stdoutClose),
-                    this::recordOutputCloseFailure,
-                    () -> outputCloseCompleted(stderrClose));
-        } catch (RuntimeException | Error closeFailure) {
-            closeFailures.retainFallback(closeFailure);
-        }
-    }
-
-    private Throwable initiateSessionClose() {
-        if (!shutdownStarted.compareAndSet(false, true)) {
-            return null;
+            shutdownLifecycle = ShutdownLifecycle.STOPPING;
+            markOutputsReadyLocked();
         }
 
-        requestForcedOutputClose();
         Throwable sessionFailure = null;
+        boolean selected = false;
         try {
-            session.close();
+            if (terminalFailure == null) {
+                selected = session.closeFromHelper(timedOut, afterClaim);
+            } else {
+                selected = session.terminateAfterHelperFailure(terminalFailure, afterClaim);
+            }
         } catch (RuntimeException | Error failure) {
             sessionFailure = failure;
-            closeFailures.retainFallback(failure);
         } finally {
-            if (session.terminationPublished()) {
-                processCleanupCompleted();
-            }
-        }
-        return sessionFailure;
-    }
-
-    private void requestForcedOutputClose() {
-        synchronized (lock) {
-            stdoutClose.readyToClose();
-            stderrClose.readyToClose();
-        }
-        dispatchReadyCloses();
-    }
-
-    private void processCleanupCompleted() {
-        synchronized (lock) {
-            processCleanupCompleted = true;
-        }
-        dispatchReadyCloses();
-        maybeFinalizeCloseFailures();
-    }
-
-    private void outputCloseCompleted(StreamCloseState closeState) {
-        synchronized (lock) {
-            closeState.settle();
-        }
-        maybeFinalizeCloseFailures();
-    }
-
-    private void maybeFinalizeCloseFailures() {
-        boolean finalize;
-        synchronized (lock) {
-            finalize = processCleanupCompleted
-                    && pumpTasksRemaining == 0
-                    && (failureAttributionSealed || (outputClosesSettled() && !outputCloseFailureRecorded))
-                    && failureSettlement == FailureSettlement.OPEN;
-            if (finalize) {
-                failureSettlement = FailureSettlement.FINALIZING;
-            }
-        }
-        try {
-            if (finalize) {
-                closeFailures.finish();
-            }
-        } finally {
-            if (finalize) {
-                synchronized (lock) {
-                    failureSettlement = FailureSettlement.FINISHED;
+            SessionTerminal.ModeSettlement settlement;
+            synchronized (lock) {
+                if (shutdownLifecycle == ShutdownLifecycle.STOPPING) {
+                    shutdownLifecycle = ShutdownLifecycle.STOPPED;
                 }
+                settlement = claimSettlementLocked();
             }
-            completeCleanupIfReady();
+            publishSettlement(settlement);
+            if (session.terminationPublished()) {
+                processOutcomeObserved();
+            }
         }
+        return new ShutdownResult(selected, sessionFailure);
     }
 
-    private void registerPublication(Runnable publication) {
-        cleanupCompleted.whenComplete((ignored, impossible) -> publish(publication));
+    private void markOutputsReadyLocked() {
+        stdoutClose.readyToClose();
+        stderrClose.readyToClose();
     }
 
-    private void completeCleanupIfReady() {
-        boolean complete;
+    private void processOutcomeObserved() {
+        SessionTerminal.ModeSettlement settlement;
         synchronized (lock) {
-            complete = failureSettlement == FailureSettlement.FINISHED && outputClosesSettled();
+            processOutcomeObserved = true;
+            settlement = claimSettlementLocked();
         }
-        if (complete) {
-            cleanupCompleted.complete(null);
+        publishSettlement(settlement);
+        dispatchReadyCloses();
+    }
+
+    private void abandonAfterPrimaryFailure() {
+        SessionTerminal.ModeSettlement settlement;
+        synchronized (lock) {
+            shutdownLifecycle = ShutdownLifecycle.STOPPED;
+            markOutputsReadyLocked();
+            settlement = claimSettlementLocked();
+        }
+        publishSettlement(settlement);
+        dispatchReadyCloses();
+    }
+
+    private SessionTerminal.ModeSettlement claimSettlementLocked() {
+        if (modeLifecycle == ModeLifecycle.SETTLED) {
+            return null;
+        }
+        boolean naturallyDrained = pumpTasksRemaining == 0;
+        if (shutdownLifecycle != ShutdownLifecycle.STOPPED && !naturallyDrained) {
+            return null;
+        }
+        modeLifecycle = ModeLifecycle.SETTLED;
+        return modeFailure != null ? modeFailure : SessionTerminal.ModeSettlement.completed(null);
+    }
+
+    private void publishSettlement(SessionTerminal.ModeSettlement settlement) {
+        if (settlement == null) {
+            return;
+        }
+        session.settleOutputMode(settlement);
+        dispatchReadyCloses();
+    }
+
+    private Throwable recordModeFailure(SessionTerminal.ModeSettlement failure) {
+        synchronized (lock) {
+            return recordModeFailureLocked(failure);
         }
     }
 
-    private static void completeRegistration(SessionExitBarrier.Registration registration) {
-        try {
-            registration.complete();
-        } catch (Throwable failure) {
-            BoundedFailureReporter.reportBestEffort(failure);
+    private Throwable recordModeFailureLocked(SessionTerminal.ModeSettlement failure) {
+        SessionTerminal.ModeSettlement terminalFailure = Objects.requireNonNull(failure, "failure");
+        if (modeLifecycle == ModeLifecycle.SETTLED) {
+            return terminalFailure.failure();
         }
-    }
-
-    private static void publish(Runnable publication) {
-        try {
-            publication.run();
-        } catch (Throwable failure) {
-            BoundedFailureReporter.reportBestEffort(failure);
+        if (modeFailure == null) {
+            modeFailure = terminalFailure;
         }
+        return modeFailure.failure();
     }
 
     private void dispatchReadyCloses() {
@@ -250,7 +210,7 @@ final class OutputPumpCleanup {
         boolean dispatchStderr;
         synchronized (lock) {
             reservation = closeReservation;
-            if (!processCleanupCompleted || reservation == null) {
+            if (!processOutcomeObserved || modeLifecycle != ModeLifecycle.SETTLED || reservation == null) {
                 return;
             }
             dispatchStdout = stdoutClose.dispatchIfReady();
@@ -266,33 +226,27 @@ final class OutputPumpCleanup {
     }
 
     private void dispatchClosePair(OutputCloseReservation.Reservation reservation) {
-        String threadPrefix = "procwright-" + owner.toLowerCase(Locale.ROOT);
+        String threadPrefix = "procwright-" + outputMode.owner().toLowerCase(Locale.ROOT);
         reservation.dispatchPair(
                 threadPrefix + "-stdout-close-",
                 this::recordOutputCloseFailure,
-                () -> outputCloseCompleted(stdoutClose),
+                () -> {},
                 threadPrefix + "-stderr-close-",
                 this::recordOutputCloseFailure,
-                () -> outputCloseCompleted(stderrClose));
+                () -> {});
     }
 
     private void dispatchClose(
             OutputCloseReservation.Reservation reservation, OutputCloseReservation.Stream stream, String streamName) {
-        StreamCloseState closeState = closeState(stream);
         reservation.dispatchClose(
                 stream,
-                "procwright-" + owner.toLowerCase(Locale.ROOT) + '-' + streamName + "-close-",
+                "procwright-" + outputMode.owner().toLowerCase(Locale.ROOT) + '-' + streamName + "-close-",
                 this::recordOutputCloseFailure,
-                () -> outputCloseCompleted(closeState));
+                () -> {});
     }
 
     private void recordOutputCloseFailure(Throwable failure) {
-        closeFailures.record(failure);
-        if (failure != null) {
-            synchronized (lock) {
-                outputCloseFailureRecorded = true;
-            }
-        }
+        reportFailure(failure);
     }
 
     private StreamCloseState closeState(OutputCloseReservation.Stream stream) {
@@ -302,10 +256,6 @@ final class OutputPumpCleanup {
         };
     }
 
-    private boolean outputClosesSettled() {
-        return stdoutClose.settled() && stderrClose.settled();
-    }
-
     private static void rethrow(Throwable failure) {
         if (failure instanceof RuntimeException runtimeException) {
             throw runtimeException;
@@ -313,25 +263,11 @@ final class OutputPumpCleanup {
         if (failure instanceof Error error) {
             throw error;
         }
-        if (failure != null) {
-            throw new IllegalStateException("Could not close helper-owned process output", failure);
-        }
-    }
-
-    private enum FailureSettlement {
-        OPEN,
-        FINALIZING,
-        FINISHED
     }
 
     private static final class StreamCloseState {
 
-        private final OutputCloseReservation.Stream stream;
         private State state = State.PUMP_RUNNING;
-
-        private StreamCloseState(OutputCloseReservation.Stream stream) {
-            this.stream = stream;
-        }
 
         private void readyToClose() {
             if (state == State.PUMP_RUNNING) {
@@ -347,32 +283,23 @@ final class OutputPumpCleanup {
             return true;
         }
 
-        private void dispatchRequired() {
-            if (!dispatchIfReady()) {
-                throw new IllegalStateException(stream.name().toLowerCase(Locale.ROOT)
-                        + " close cannot be dispatched while it is "
-                        + state.name().toLowerCase(Locale.ROOT));
-            }
-        }
-
-        private void settle() {
-            if (state != State.CLOSE_DISPATCHED) {
-                throw new IllegalStateException(stream.name().toLowerCase(Locale.ROOT)
-                        + " close cannot settle while it is "
-                        + state.name().toLowerCase(Locale.ROOT));
-            }
-            state = State.SETTLED;
-        }
-
-        private boolean settled() {
-            return state == State.SETTLED;
-        }
-
         private enum State {
             PUMP_RUNNING,
             READY_TO_CLOSE,
-            CLOSE_DISPATCHED,
-            SETTLED
+            CLOSE_DISPATCHED
         }
     }
+
+    private enum ModeLifecycle {
+        DRAINING,
+        SETTLED
+    }
+
+    private enum ShutdownLifecycle {
+        IDLE,
+        STOPPING,
+        STOPPED
+    }
+
+    private record ShutdownResult(boolean selected, Throwable failure) {}
 }

@@ -117,19 +117,21 @@ startup, surfaced hook or lifecycle failures, and close.
 The default close timeout is 15 seconds and `withCloseTimeout(...)` accepts any positive duration. Java resource scopes
 automatically suppress a close failure when the body already failed.
 
-Use `closeAsync()` when you need a future for terminal cleanup. It starts the same idempotent cleanup without waiting for
-workers to drain and returns a cancellation-isolated future. Completion actions never run while internal pool state is
-locked. `DRAIN_TIMEOUT` does not cancel cleanup; another `closeAsync()` view can observe its eventual completion. Healthy
-in-flight requests are allowed to finish, while a callback that ignores interruption can keep the future incomplete even
-after bounded `close()` returns.
+Use `closeAsync()` when you need a future for logical worker drain. It starts the same idempotent cleanup without waiting
+for workers to drain and returns a cancellation-isolated future. Completion actions never run while internal pool state
+is locked. `DRAIN_TIMEOUT` does not cancel cleanup; another `closeAsync()` view can observe its eventual logical
+completion. Healthy in-flight requests are allowed to finish, while a callback that ignores interruption can keep the
+future incomplete until its operation reaches logical abandonment. The callback thread may then continue after the
+future completes. Logical completion observes neither that physical return nor a potentially blocking close of process
+streams; a later physical-close failure cannot change the future.
 
 ## Observe cleanup after a close timeout
 
 Keep the pool handle outside the resource declaration and register the `closeAsync()` observer in `finally`. This also
 covers a request failure whose `close()` failure is suppressed: Java preserves the request exception as primary, while
 the observer still follows eventual cleanup. `closeAsync()` observes the same idempotent close operation; it does not
-start a second worker cleanup. Do not block on the returned future because completion can depend on an in-flight callback
-returning.
+start a second worker cleanup. Do not block on the returned future because logical completion can still depend on an
+in-flight operation reaching its deadline.
 
 <!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/PoolDrainTimeoutExample.java -->
 ```java

@@ -44,15 +44,18 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
     PooledSessionMetrics metrics();
 
     /**
-     * Atomically starts closing the pool and returns a future for complete worker drain.
+     * Atomically starts closing the pool and returns a future for logical worker drain.
      *
-     * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. The
-     * returned future completes exceptionally with reason
-     * {@link PooledSessionException.Reason#WORKER_FAILED} when ordinary worker cleanup fails. A single cleanup
-     * {@link Error} is preserved by identity; multiple failures with an {@code Error} primary produce an {@code Error}
-     * aggregate whose cause is that primary. Cancelling or completing the returned future does not cancel or alter
-     * internal cleanup. Repeated calls return independent views of the same terminal cleanup. Completion actions never
-     * run while the pool state is locked.
+     * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. Drain
+     * completes after every pool slot is released and each worker's process outcome and logical output processing have
+     * settled. It does not wait for a potentially blocking physical close of process streams; a later physical-close
+     * failure cannot change the result.
+     *
+     * <p>The future completes exceptionally with reason
+     * {@link PooledSessionException.Reason#WORKER_FAILED} when logical worker cleanup fails; a fatal cleanup failure may
+     * propagate as an {@link Error}. The shape of secondary failure details is not an API contract. Cancelling or
+     * completing the returned future does not cancel or alter internal cleanup. Repeated calls return independent views
+     * of the same terminal cleanup. Completion actions never run while the pool state is locked.
      *
      * @return cancellation-isolated close completion view
      */
@@ -64,7 +67,8 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      *
      * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. A drain
      * timeout includes close initiation and future lookup. It does not cancel cleanup; {@link #closeAsync()} can observe
-     * eventual completion. This method is safe for try-with-resources.
+     * eventual logical completion. A successful return has the same physical-close boundary documented by
+     * {@link #closeAsync()}. This method is safe for try-with-resources.
      *
      * @throws PooledSessionException with reason
      *     {@link PooledSessionException.Reason#DRAIN_TIMEOUT} when the configured close timeout elapses
@@ -72,8 +76,7 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      *     the waiting thread is interrupted
      * @throws PooledSessionException with reason {@link PooledSessionException.Reason#WORKER_FAILED}
      *     when worker cleanup fails
-     * @throws Error when worker cleanup observes an {@code Error}; multiple cleanup failures may be represented by an
-     *     {@code Error} aggregate
+     * @throws Error when a fatal worker cleanup failure becomes the terminal outcome
      */
     @Override
     void close();

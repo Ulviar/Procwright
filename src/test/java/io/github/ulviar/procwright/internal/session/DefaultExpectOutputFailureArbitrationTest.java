@@ -3,11 +3,11 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.GatedEofInputStream;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.openExpect;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,10 +17,9 @@ import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.session.ExpectException;
 import java.io.InputStream;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -37,24 +36,25 @@ final class DefaultExpectOutputFailureArbitrationTest {
         ControlledPumpFailureInputStream stderr =
                 new ControlledPumpFailureInputStream(secondary, new AssertionError("stderr close failed"));
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process);
         CountDownLatch reporterEntered = new CountDownLatch(1);
         CountDownLatch releaseReporter = new CountDownLatch(1);
         AtomicInteger reports = new AtomicInteger();
         AtomicReference<Error> reportedError = new AtomicReference<>();
-        DefaultExpect expect = new DefaultExpect(
-                rawSession,
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                new BoundedTaskLimiter(1),
-                ExpectRegexMatcher::evaluate,
-                (thread, error) -> {
-                    reports.incrementAndGet();
-                    reportedError.set(error);
-                    reporterEntered.countDown();
-                    awaitUninterruptibly(releaseReporter);
-                });
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        new BoundedTaskLimiter(1),
+                        ExpectRegexMatcher::evaluate,
+                        (thread, error) -> {
+                            reports.incrementAndGet();
+                            reportedError.set(error);
+                            reporterEntered.countDown();
+                            awaitUninterruptibly(releaseReporter);
+                        }));
         try {
             assertTrue(stdout.awaitReadEntered());
             assertTrue(stderr.awaitReadEntered());
@@ -66,7 +66,11 @@ final class DefaultExpectOutputFailureArbitrationTest {
             stderr.releaseCloseFailure();
 
             assertTrue(reporterEntered.await(1, TimeUnit.SECONDS));
-            rawSession.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure =
+                    assertThrows(ExecutionException.class, () -> expect.onExit().get(1, TimeUnit.SECONDS));
+            ExpectException terminalExit = assertInstanceOf(ExpectException.class, exitFailure.getCause());
+            assertEquals(ExpectException.Reason.FAILURE, terminalExit.reason());
+            assertSame(primary, terminalExit.getCause());
             stdout.readThread().join(TimeUnit.SECONDS.toMillis(1));
             stderr.readThread().join(TimeUnit.SECONDS.toMillis(1));
             assertFalse(stdout.readThread().isAlive());
@@ -89,160 +93,6 @@ final class DefaultExpectOutputFailureArbitrationTest {
             stdout.releaseCloseFailure();
             stderr.releaseCloseFailure();
             expect.close();
-            rawSession.close();
-        }
-    }
-
-    @Test
-    void pumpErrorLosingToCloseIsReportedOnceAfterPhysicalCloseFailuresAreAttached() throws Exception {
-        AssertionError pumpError = new AssertionError("late expect pump failure");
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        ControlledPumpFailureInputStream stdout = new ControlledPumpFailureInputStream(pumpError, stdoutCloseFailure);
-        ControlledPumpFailureInputStream stderr = new ControlledPumpFailureInputStream(null, stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process);
-        List<Thread> pumpThreads = new ArrayList<>();
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicInteger reports = new AtomicInteger();
-        AtomicReference<Thread> reportedThread = new AtomicReference<>();
-        AtomicReference<Error> reportedError = new AtomicReference<>();
-        AtomicReference<List<Throwable>> suppressionsAtReport = new AtomicReference<>();
-        PumpStarter starter = (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            pumpThreads.add(thread);
-            thread.start();
-            return thread;
-        };
-        DefaultExpect expect = new DefaultExpect(
-                rawSession,
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                starter,
-                new BoundedTaskLimiter(1),
-                ExpectRegexMatcher::evaluate,
-                (thread, error) -> {
-                    reports.incrementAndGet();
-                    reportedThread.set(thread);
-                    reportedError.set(error);
-                    suppressionsAtReport.set(List.of(error.getSuppressed()));
-                    reported.countDown();
-                });
-        try {
-            assertTrue(stdout.awaitReadEntered());
-
-            expect.close();
-            assertTrue(stdout.awaitCloseEntered());
-            assertTrue(stderr.awaitCloseEntered());
-
-            stdout.releaseReadFailure();
-            for (Thread pumpThread : pumpThreads) {
-                pumpThread.join(TimeUnit.SECONDS.toMillis(1));
-                assertFalse(pumpThread.isAlive());
-            }
-            assertEquals(0, reports.get(), "fatal publication must wait for physical close failures");
-
-            stdout.releaseCloseFailure();
-            stderr.releaseCloseFailure();
-            assertTrue(stdout.awaitCloseWorkerStopped());
-            assertTrue(stderr.awaitCloseWorkerStopped());
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-
-            assertSame(pumpError, reportedError.get());
-            assertSame(stdout.readThread(), reportedThread.get());
-            assertEquals(0, pumpError.getSuppressed().length);
-            assertTrue(suppressionsAtReport.get().isEmpty());
-            ExpectException terminal = assertThrows(ExpectException.class, () -> expect.expectText("never"));
-            assertEquals(ExpectException.Reason.CLOSED, terminal.reason());
-            expect.close();
-            assertEquals(1, reports.get());
-        } finally {
-            stdout.releaseReadFailure();
-            stdout.releaseCloseFailure();
-            stderr.releaseCloseFailure();
-            expect.close();
-            rawSession.close();
-        }
-    }
-
-    @Test
-    void pumpErrorLosingToEofIsReportedOnceAfterPhysicalCloseSettles() throws Exception {
-        AssertionError pumpError = new AssertionError("late stderr pump failure");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        GatedEofInputStream stdout = new GatedEofInputStream();
-        ControlledPumpFailureInputStream stderr = new ControlledPumpFailureInputStream(pumpError, stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process);
-        List<Thread> pumpThreads = new ArrayList<>();
-        CountDownLatch stdoutStopped = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicInteger reports = new AtomicInteger();
-        AtomicReference<Thread> reportedThread = new AtomicReference<>();
-        AtomicReference<Error> reportedError = new AtomicReference<>();
-        AtomicReference<List<Throwable>> suppressionsAtReport = new AtomicReference<>();
-        PumpStarter starter = (name, task) -> {
-            Thread thread = new Thread(
-                    () -> {
-                        try {
-                            task.run();
-                        } finally {
-                            if (name.contains("stdout")) {
-                                stdoutStopped.countDown();
-                            }
-                        }
-                    },
-                    name);
-            thread.setDaemon(true);
-            pumpThreads.add(thread);
-            thread.start();
-            return thread;
-        };
-        DefaultExpect expect = new DefaultExpect(
-                rawSession,
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                starter,
-                new BoundedTaskLimiter(1),
-                ExpectRegexMatcher::evaluate,
-                (thread, error) -> {
-                    reports.incrementAndGet();
-                    reportedThread.set(thread);
-                    reportedError.set(error);
-                    suppressionsAtReport.set(List.of(error.getSuppressed()));
-                    reported.countDown();
-                });
-        try {
-            assertTrue(stderr.awaitReadEntered());
-            stdout.finish();
-            assertTrue(stdoutStopped.await(1, TimeUnit.SECONDS));
-
-            stderr.releaseReadFailure();
-            assertTrue(stderr.awaitCloseEntered());
-            for (Thread pumpThread : pumpThreads) {
-                pumpThread.join(TimeUnit.SECONDS.toMillis(1));
-                assertFalse(pumpThread.isAlive());
-            }
-            assertEquals(0, reports.get(), "fatal publication must wait for physical close failure");
-
-            stderr.releaseCloseFailure();
-            assertTrue(stderr.awaitCloseWorkerStopped());
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-
-            assertSame(pumpError, reportedError.get());
-            assertSame(stderr.readThread(), reportedThread.get());
-            assertEquals(0, pumpError.getSuppressed().length);
-            assertTrue(suppressionsAtReport.get().isEmpty());
-            expect.close();
-            ExpectException terminal = assertThrows(ExpectException.class, () -> expect.expectText("never"));
-            assertEquals(ExpectException.Reason.EOF, terminal.reason());
-            assertEquals(1, reports.get());
-        } finally {
-            stdout.finish();
-            stderr.releaseReadFailure();
-            stderr.releaseCloseFailure();
-            expect.close();
-            rawSession.close();
         }
     }
 

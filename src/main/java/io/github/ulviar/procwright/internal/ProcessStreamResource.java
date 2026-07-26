@@ -4,21 +4,20 @@ package io.github.ulviar.procwright.internal;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * Owns one stable process stream reference, its close permit, and its exact-once physical close.
+ * Owns one stable process stream reference and its exact-once best-effort physical close.
  *
  * @hidden
  */
 public final class ProcessStreamResource<T extends Closeable> {
 
     private final T stream;
-    private final BoundedCloseDispatcher.Permit closePermit;
+    private final BoundedCloseDispatcher closeDispatcher;
     private final Object closeClaimLock;
     private final Consumer<? super Throwable> inlineCloseFailureHandler;
     private final AtomicBoolean closeClaimed = new AtomicBoolean();
@@ -26,11 +25,11 @@ public final class ProcessStreamResource<T extends Closeable> {
 
     ProcessStreamResource(
             T stream,
-            BoundedCloseDispatcher.Permit closePermit,
+            BoundedCloseDispatcher closeDispatcher,
             Object closeClaimLock,
             Consumer<? super Throwable> inlineCloseFailureHandler) {
         this.stream = Objects.requireNonNull(stream, "process stream");
-        this.closePermit = Objects.requireNonNull(closePermit, "closePermit");
+        this.closeDispatcher = Objects.requireNonNull(closeDispatcher, "closeDispatcher");
         this.closeClaimLock = Objects.requireNonNull(closeClaimLock, "closeClaimLock");
         this.inlineCloseFailureHandler = Objects.requireNonNull(inlineCloseFailureHandler, "inlineCloseFailureHandler");
     }
@@ -49,7 +48,7 @@ public final class ProcessStreamResource<T extends Closeable> {
         }
         Throwable settledFailure = null;
         try {
-            closePermit.closeInline(stream);
+            stream.close();
         } catch (IOException | RuntimeException | Error closeFailure) {
             settledFailure = FailureAggregation.combine(
                     closeFailure,
@@ -74,30 +73,45 @@ public final class ProcessStreamResource<T extends Closeable> {
             observeExistingClose(failureHandler, completionHandler);
             return;
         }
-        BoundedCloseDispatcher.DispatchOutcome dispatchOutcome;
         try {
-            dispatchOutcome =
-                    closePermit.dispatchOutcome(closeRequest(threadPrefix, failureHandler, completionHandler));
+            closeDispatcher.dispatch(closeRequest(threadPrefix, failureHandler, completionHandler));
         } catch (RuntimeException | Error dispatchFailure) {
             recordDispatchFailure(dispatchFailure);
-            throw dispatchFailure;
+            observeExistingClose(failureHandler, completionHandler);
         }
-        dispatchOutcome.rethrowStartFailure();
     }
 
-    public BoundedCloseDispatcher.DispatchOutcome closeOwnedAsync(
+    public void closeOwnedAsync(
             String threadPrefix, Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
         Objects.requireNonNull(threadPrefix, "threadPrefix");
         Objects.requireNonNull(failureHandler, "failureHandler");
         Objects.requireNonNull(completionHandler, "completionHandler");
         if (!claimClose()) {
             observeExistingClose(failureHandler, completionHandler);
-            return BoundedCloseDispatcher.DispatchOutcome.accepted(null);
+            return;
         }
         try {
-            return closePermit.dispatchOutcome(ownedCloseRequest(threadPrefix, failureHandler, completionHandler));
+            closeDispatcher.dispatch(ownedCloseRequest(threadPrefix, failureHandler, completionHandler));
         } catch (RuntimeException | Error dispatchFailure) {
             recordDispatchFailure(dispatchFailure);
+            observeExistingClose(failureHandler, completionHandler);
+        }
+    }
+
+    public void closeRequiredAsync(
+            String threadPrefix, Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
+        Objects.requireNonNull(threadPrefix, "threadPrefix");
+        Objects.requireNonNull(failureHandler, "failureHandler");
+        Objects.requireNonNull(completionHandler, "completionHandler");
+        if (!claimClose()) {
+            return;
+        }
+        try {
+            closeDispatcher.dispatchRequired(ownedCloseRequest(threadPrefix, failureHandler, completionHandler));
+        } catch (RuntimeException | Error dispatchFailure) {
+            if (!closeOutcome.isDone()) {
+                publishOwnedClose(dispatchFailure, failureHandler, completionHandler);
+            }
             throw dispatchFailure;
         }
     }
@@ -106,29 +120,16 @@ public final class ProcessStreamResource<T extends Closeable> {
         return closeOutcome.copy();
     }
 
-    void rollbackConstruction(List<? super Throwable> failures) {
-        Objects.requireNonNull(failures, "failures");
-        rollbackConstruction(failures, true);
-    }
-
-    void rollbackConstruction() {
-        rollbackConstruction(null, false);
-    }
-
-    private void rollbackConstruction(List<? super Throwable> failures, boolean retainFailures) {
-        if (!claimClose()) {
-            return;
-        }
+    Throwable rollbackConstructionAsync(String threadPrefix) {
         try {
-            closePermit.closeInline(stream);
-        } catch (Throwable closeFailure) {
-            if (retainFailures) {
-                failures.add(closeFailure);
-            }
+            closeAsync(threadPrefix, BoundedFailureReporter::reportBestEffort);
+            return null;
+        } catch (RuntimeException | Error dispatchFailure) {
+            return dispatchFailure;
         }
     }
 
-    public static BoundedCloseDispatcher.DispatchOutcome closePairAsync(
+    public static void closePairAsync(
             ProcessStreamResource<? extends Closeable> first,
             String firstThreadPrefix,
             Consumer<? super Throwable> firstFailureHandler,
@@ -143,16 +144,19 @@ public final class ProcessStreamResource<T extends Closeable> {
                 first.ownedCloseRequest(firstThreadPrefix, firstFailureHandler, firstCompletionHandler);
         BoundedCloseDispatcher.CloseRequest secondRequest =
                 second.ownedCloseRequest(secondThreadPrefix, secondFailureHandler, secondCompletionHandler);
-        return dispatchPair(first, firstRequest, second, secondRequest);
+        dispatchPair(first, firstRequest, second, secondRequest);
     }
 
-    private static BoundedCloseDispatcher.DispatchOutcome dispatchPair(
+    private static void dispatchPair(
             ProcessStreamResource<? extends Closeable> first,
             BoundedCloseDispatcher.CloseRequest firstRequest,
             ProcessStreamResource<? extends Closeable> second,
             BoundedCloseDispatcher.CloseRequest secondRequest) {
         if (first == second || first.closeClaimLock != second.closeClaimLock) {
             throw new IllegalArgumentException("Paired close resources must be distinct owners from one process");
+        }
+        if (first.closeDispatcher != second.closeDispatcher) {
+            throw new IllegalArgumentException("Paired close resources must use the same dispatcher");
         }
         synchronized (first.closeClaimLock) {
             if (first.closeClaimed.get() || second.closeClaimed.get()) {
@@ -161,7 +165,14 @@ public final class ProcessStreamResource<T extends Closeable> {
             first.closeClaimed.set(true);
             second.closeClaimed.set(true);
         }
-        return first.closePermit.dispatchPairOutcome(firstRequest, second.closePermit, secondRequest);
+        try {
+            first.closeDispatcher.dispatchPair(firstRequest, secondRequest);
+        } catch (RuntimeException | Error dispatchFailure) {
+            first.recordDispatchFailure(dispatchFailure);
+            second.recordDispatchFailure(dispatchFailure);
+            first.observeExistingClose(firstRequest.failureHandler(), firstRequest.completionHandler());
+            second.observeExistingClose(secondRequest.failureHandler(), secondRequest.completionHandler());
+        }
     }
 
     private Throwable notifyInlineCloseFailure(Throwable failure) {

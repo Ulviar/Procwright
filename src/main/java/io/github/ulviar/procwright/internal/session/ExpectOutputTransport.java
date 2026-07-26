@@ -12,7 +12,6 @@ import java.util.Objects;
  */
 final class ExpectOutputTransport {
 
-    private static final String OUTPUT_OWNER = "Expect";
     private static final int ZERO_READ_BACKOFF_STEPS = 8;
 
     private final ExpectSettings options;
@@ -25,9 +24,9 @@ final class ExpectOutputTransport {
             DefaultSession session, ExpectSettings options, ZeroReadBackoff zeroReadBackoff, ExpectSessionState state) {
         Objects.requireNonNull(session, "session");
         this.options = Objects.requireNonNull(options, "options");
-        charsetPolicy = CharsetPolicy.replace(options.charsetFor(session.charset()));
+        charsetPolicy = CharsetPolicy.replace(options.outputCharsetOr(session.charset()));
         this.zeroReadBackoff = Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff");
-        outputPumps = new OutputPumpCoordinator(session, OUTPUT_OWNER);
+        outputPumps = new OutputPumpCoordinator(session, SessionOutputMode.EXPECT);
         this.state = Objects.requireNonNull(state, "state");
     }
 
@@ -37,12 +36,19 @@ final class ExpectOutputTransport {
                 "procwright-expect-stdout-",
                 stream -> pump("stdout", stream, true),
                 "procwright-expect-stderr-",
-                stream -> pump("stderr", stream, false),
-                state::abortStartup);
+                stream -> pump("stderr", stream, false));
     }
 
     void closeSession() {
         outputPumps.closeSession();
+    }
+
+    void closeSessionAfterFailure(Throwable failure) {
+        outputPumps.closeSessionAfterFailure(failure);
+    }
+
+    void closeSessionAfterObservedEof(Throwable failure) {
+        outputPumps.closeSessionAfterObservedEof(failure);
     }
 
     private void pump(String streamName, InputStream stream, boolean matchable) {
@@ -102,16 +108,14 @@ final class ExpectOutputTransport {
         Thread failureThread = Thread.currentThread();
         ExpectSessionState.OutputFailureDecision decision = state.recordOutputFailure(failure);
         Error fatalToPublish = decision.fatalToPublish();
-        Runnable publication =
-                fatalToPublish == null ? null : () -> state.reportLateFatal(failureThread, fatalToPublish);
-        if (decision.first()) {
-            if (publication == null) {
-                outputPumps.closeSessionPreserving(failure);
-            } else {
-                outputPumps.closeSessionPreserving(failure, publication);
+        try {
+            if (decision.selectedFailure() != null) {
+                outputPumps.closeSessionAfterFailure(decision.selectedFailure());
             }
-        } else if (publication != null) {
-            outputPumps.publishAfterOutputCleanup(publication);
+        } finally {
+            if (fatalToPublish != null) {
+                state.reportLateFatal(failureThread, fatalToPublish);
+            }
         }
     }
 

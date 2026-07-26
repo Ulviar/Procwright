@@ -9,6 +9,8 @@ import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fix
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.parseLength;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -20,6 +22,7 @@ import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -61,7 +64,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                     assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         } finally {
@@ -100,7 +103,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                     assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
         } finally {
             session.close();
         }
@@ -119,7 +122,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(exception.transcript().text().contains("len:1"));
             assertTrue(exception.transcript().malformed());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request(new byte[] {'x'}));
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, followUp.reason());
@@ -156,7 +159,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                     assertThrows(ProtocolSessionException.class, () -> session.request(new byte[] {'a', 'b'}));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, failure);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request(new byte[] {'x'}));
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
@@ -191,7 +194,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                     ProtocolSessionException.class, () -> session.request(new byte[] {(byte) 0xc3, 'X', (byte) 0xa9}));
 
             assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, exception.reason());
-            session.onExit().get(2, TimeUnit.SECONDS);
+            assertExitFailedWith(session, exception);
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> session.request(new byte[] {'x'}));
             assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, followUp.reason());
@@ -233,6 +236,14 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         assertTrue(exception.transcript().truncated());
         assertTrue(exception.transcript().text().length() <= 128);
+    }
+
+    private static void assertExitFailedWith(ProtocolSession<?, ?> session, ProtocolSessionException requestFailure) {
+        ExecutionException observed =
+                assertThrows(ExecutionException.class, () -> session.onExit().get(2, TimeUnit.SECONDS));
+        ProtocolSessionException exitFailure = assertInstanceOf(ProtocolSessionException.class, observed.getCause());
+        assertEquals(requestFailure.reason(), exitFailure.reason());
+        assertSame(requestFailure, exitFailure);
     }
 
     private static final class ExactTextFieldAdapter implements ProtocolAdapter<byte[], String> {

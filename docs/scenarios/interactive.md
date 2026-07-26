@@ -56,15 +56,23 @@ public final class InteractiveExample {
 The caller owns both output streams and must drain them concurrently when the child can write to both. Waiting for exit
 before draining can deadlock a child on a full pipe.
 
-`open()` starts the process. Close the returned session to stop it and release streams. `withIdleTimeout` measures
-inactivity according to the session contract; it is not an absolute runtime limit.
+`closeStdin()` immediately rejects later writes from the session API, then closes the physical stream asynchronously.
+Its return does not prove that a concurrent write has released the stream monitor or that the child has already observed
+EOF. Use an application-protocol response when processing EOF must be acknowledged; `onExit()` confirms only that the
+process reached a terminal outcome. If the close cannot be scheduled, `closeStdin()` throws and the session becomes
+terminal. If a scheduled close later fails while the session is still running, `onExit()` completes exceptionally with
+the original failure.
+
+`open()` starts the process. Close the returned session to initiate process shutdown and best-effort physical stream
+cleanup; potentially blocking closes may continue asynchronously. `withIdleTimeout` measures inactivity according to the
+session contract; it is not an absolute runtime limit.
 
 The Draft retains its readiness probe, diagnostics recipients, and optional PTY provider. Each open waits for its own
 readiness call, but concurrent opens can invoke the same retained instances concurrently. Make shared instances
 thread-safe or branch the Draft with separate instances.
 
-Opening `Expect` transfers output ownership to that helper. Do not mix raw reads with `Expect`, line-session, or protocol
-decoding.
+Raw interactive sessions cannot be converted into another output mode after launch. Choose `interactive().expect()`,
+`lineSession()`, or `protocolSession(...)` before opening the process when Procwright should consume output.
 
 See [scenario defaults](../reference/defaults.md#interactive-sessions) for idle timeout, shutdown, charset, terminal,
 readiness, and diagnostics values.

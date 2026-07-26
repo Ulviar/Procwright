@@ -11,12 +11,8 @@ import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.Threading;
-import io.github.ulviar.procwright.session.Expect;
-import io.github.ulviar.procwright.session.LineSession;
-import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.SessionExit;
-import io.github.ulviar.procwright.session.StreamSession;
 import io.github.ulviar.procwright.terminal.TerminalSignal;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Raw handle for an interactive command process.
@@ -45,9 +42,9 @@ public final class DefaultSession implements Session {
     private final Duration idleTimeout;
     private final DiagnosticEmitter diagnostics;
     private final SessionResources resources;
-    private final SessionTermination termination;
-    private final SessionExitBarrier exitBarrier;
+    private final SessionTerminal terminal;
     private final SessionProcessCleanup processCleanup;
+    private final SessionConstruction.Gate constructionGate;
     private final AtomicLong lastActivityNanos;
 
     static DefaultSession openTransactionally(
@@ -57,13 +54,39 @@ public final class DefaultSession implements Session {
             Charset charset,
             DiagnosticEmitter diagnostics,
             Runnable beforeCommit) {
-        return openTransactionally(
+        return constructTransactionally(
                 process,
                 idleTimeout,
                 shutdownPolicy,
                 charset,
                 diagnostics,
-                beforeCommit,
+                SessionOutputMode.RAW,
+                session -> {
+                    beforeCommit.run();
+                    return session;
+                },
+                (session, handle) -> {},
+                BoundedCloseDispatcher.shared(),
+                WatcherStarter.threading());
+    }
+
+    static <T> T openHelperTransactionally(
+            Process process,
+            Duration idleTimeout,
+            ShutdownPolicy shutdownPolicy,
+            Charset charset,
+            DiagnosticEmitter diagnostics,
+            SessionOutputMode outputMode,
+            Function<? super DefaultSession, ? extends T> handleFactory) {
+        return constructTransactionally(
+                process,
+                idleTimeout,
+                shutdownPolicy,
+                charset,
+                diagnostics,
+                outputMode,
+                handleFactory,
+                (session, handle) -> session.requireHelperOutputReady(outputMode),
                 BoundedCloseDispatcher.shared(),
                 WatcherStarter.threading());
     }
@@ -77,15 +100,77 @@ public final class DefaultSession implements Session {
             Runnable beforeCommit,
             BoundedCloseDispatcher closeDispatcher,
             WatcherStarter watcherStarter) {
-        return new DefaultSession(
+        return constructTransactionally(
                 process,
                 idleTimeout,
                 shutdownPolicy,
                 charset,
                 diagnostics,
+                SessionOutputMode.RAW,
+                session -> {
+                    beforeCommit.run();
+                    return session;
+                },
+                (session, handle) -> {},
                 closeDispatcher,
-                beforeCommit,
                 watcherStarter);
+    }
+
+    static <T> T openHelperTransactionally(
+            Process process,
+            Duration idleTimeout,
+            ShutdownPolicy shutdownPolicy,
+            Charset charset,
+            DiagnosticEmitter diagnostics,
+            SessionOutputMode outputMode,
+            Function<? super DefaultSession, ? extends T> handleFactory,
+            BoundedCloseDispatcher closeDispatcher,
+            WatcherStarter watcherStarter) {
+        return constructTransactionally(
+                process,
+                idleTimeout,
+                shutdownPolicy,
+                charset,
+                diagnostics,
+                outputMode,
+                handleFactory,
+                (session, handle) -> session.requireHelperOutputReady(outputMode),
+                closeDispatcher,
+                watcherStarter);
+    }
+
+    static <T> T constructTransactionally(
+            Process process,
+            Duration idleTimeout,
+            ShutdownPolicy shutdownPolicy,
+            Charset charset,
+            DiagnosticEmitter diagnostics,
+            SessionOutputMode outputMode,
+            Function<? super DefaultSession, ? extends T> handleFactory,
+            BiConsumer<? super DefaultSession, ? super T> beforeCommit,
+            BoundedCloseDispatcher closeDispatcher,
+            WatcherStarter watcherStarter) {
+        SessionConstruction construction = SessionConstruction.begin(process);
+        try {
+            DefaultSession session = new DefaultSession(
+                    process,
+                    idleTimeout,
+                    shutdownPolicy,
+                    charset,
+                    diagnostics,
+                    outputMode,
+                    closeDispatcher,
+                    construction,
+                    watcherStarter);
+            T handle = Objects.requireNonNull(
+                    Objects.requireNonNull(handleFactory, "handleFactory").apply(session),
+                    "handleFactory returned null");
+            Objects.requireNonNull(beforeCommit, "beforeCommit").accept(session, handle);
+            construction.commit();
+            return handle;
+        } catch (RuntimeException | Error failure) {
+            throw SessionConstruction.unchecked(construction.rollback(failure));
+        }
     }
 
     private DefaultSession(
@@ -94,46 +179,35 @@ public final class DefaultSession implements Session {
             ShutdownPolicy shutdownPolicy,
             Charset charset,
             DiagnosticEmitter diagnostics,
+            SessionOutputMode outputMode,
             BoundedCloseDispatcher closeDispatcher,
-            Runnable beforeCommit,
+            SessionConstruction construction,
             WatcherStarter watcherStarter) {
         this.process = Objects.requireNonNull(process, "process");
-        SessionConstruction construction = SessionConstruction.begin(process);
-        SessionConstruction.Gate gate = construction.gate();
-        try {
-            this.idleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
-            Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
-            this.charset = Objects.requireNonNull(charset, "charset");
-            this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
-            Objects.requireNonNull(closeDispatcher, "closeDispatcher");
-            this.termination = new SessionTermination(diagnostics);
-            this.processCleanup = new SessionProcessCleanup(process, shutdownPolicy);
-            this.lastActivityNanos = new AtomicLong(System.nanoTime());
+        this.constructionGate = construction.gate();
+        this.idleTimeout = requireNonNegative(idleTimeout, "idleTimeout");
+        Objects.requireNonNull(shutdownPolicy, "shutdownPolicy");
+        this.charset = Objects.requireNonNull(charset, "charset");
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
+        Objects.requireNonNull(closeDispatcher, "closeDispatcher");
+        this.terminal = new SessionTerminal(outputMode, diagnostics);
+        this.processCleanup = new SessionProcessCleanup(process, shutdownPolicy);
+        this.lastActivityNanos = new AtomicLong(System.nanoTime());
 
-            this.resources = SessionResources.acquire(
-                    process, closeDispatcher, this::markActivity, this::terminateAfterResourceCloseFailure);
-            construction.own(resources);
+        this.resources = SessionResources.acquire(
+                process,
+                Objects.requireNonNull(outputMode, "outputMode"),
+                closeDispatcher,
+                this::markActivity,
+                this::terminateAfterResourceCloseFailure);
+        construction.own(resources);
 
-            this.exitBarrier = new SessionExitBarrier();
-            observePublicExitCleanup();
-
-            startExitWatcher(Objects.requireNonNull(watcherStarter, "watcherStarter"), gate);
-            startIdleWatcher(watcherStarter, gate);
-            Objects.requireNonNull(beforeCommit, "beforeCommit").run();
-            construction.commit();
-        } catch (RuntimeException | Error failure) {
-            throw SessionConstruction.unchecked(construction.rollback(failure));
-        }
+        startExitWatcher(Objects.requireNonNull(watcherStarter, "watcherStarter"), constructionGate);
+        startIdleWatcher(watcherStarter, constructionGate);
     }
 
     /**
      * Returns raw process stdout.
-     *
-     * <p>The returned stream is usable only while no higher-level Procwright helper owns this session output. The first
-     * consuming or lifecycle operation on a public stdout or stderr stream selects raw public-stream mode for this
-     * session. After {@link Expect}, {@link LineSession}, {@link ProtocolSession}, or {@link StreamSession} claims
-     * output ownership, public stream consuming and lifecycle operations fail with {@link IllegalStateException}.
-     * Closing an already obtained wrapper after the session lifecycle has closed stdout is harmless.
      *
      * @return stdout stream
      */
@@ -143,12 +217,6 @@ public final class DefaultSession implements Session {
 
     /**
      * Returns raw process stderr.
-     *
-     * <p>The returned stream is usable only while no higher-level Procwright helper owns this session output. The first
-     * consuming or lifecycle operation on a public stdout or stderr stream selects raw public-stream mode for this
-     * session. After {@link Expect}, {@link LineSession}, {@link ProtocolSession}, or {@link StreamSession} claims
-     * output ownership, public stream consuming and lifecycle operations fail with {@link IllegalStateException}.
-     * Closing an already obtained wrapper after the session lifecycle has closed stderr is harmless.
      *
      * @return stderr stream
      */
@@ -211,67 +279,53 @@ public final class DefaultSession implements Session {
     /**
      * Closes process stdin. The session may keep running until the process exits or is closed.
      *
-     * <p>This method returns promptly even while another thread is blocked writing into a full stdin pipe. The closed
-     * state is published first, so later writes fail with {@link IllegalStateException}, and the raw stream close runs
-     * on a background thread: closing the raw stream synchronously would block on the stream monitor held by the
-     * blocked writer until the child drains the pipe or exits.
+     * <p>After close work starts, this method returns even while another thread is blocked writing into a full stdin
+     * pipe. The closed state is published first, so later writes fail with {@link IllegalStateException}, and the raw
+     * stream close runs on a background thread. Infrastructure failure before that handoff may perform bounded terminal
+     * cleanup before this method throws.
      */
     public void closeStdin() {
         resources.closeStdin();
     }
 
     /**
-     * Returns an isolated process exit future view after the full cleanup barrier described by
-     * {@link Session#onExit()}.
+     * Returns an isolated process exit future view under the contract described by {@link Session#onExit()}.
      *
      * @return process exit future
      */
     public CompletableFuture<SessionExit> onExit() {
-        return exitBarrier.view();
+        return terminal.publicExit();
     }
 
     void observeExit(BiConsumer<? super SessionExit, ? super Throwable> observer) {
         Objects.requireNonNull(observer, "observer");
-        termination.observe((result, failure) -> {
-            try {
-                observer.accept(result, failure);
-            } catch (Throwable observerFailure) {
-                try {
-                    BoundedFailureReporter.shared().report(Thread.currentThread(), observerFailure);
-                } catch (Throwable ignored) {
-                    // Reporting is best-effort and must not block or replace terminal publication.
-                }
-            }
-        });
+        terminal.publicExit().whenComplete((result, failure) -> notifyObserver(observer, result, failure));
+    }
+
+    void observeTermination(BiConsumer<? super SessionExit, ? super Throwable> observer) {
+        Objects.requireNonNull(observer, "observer");
+        terminal.observeProcess((result, failure) -> notifyObserver(observer, result, failure));
+    }
+
+    void observePrimaryOutcome(BiConsumer<? super SessionExit, ? super Throwable> observer) {
+        Objects.requireNonNull(observer, "observer");
+        terminal.observePrimary((result, failure) -> notifyObserver(observer, result, failure));
+    }
+
+    void observePublicOutcome(Consumer<? super SessionTerminal.PublicOutcome> observer) {
+        terminal.observePublic(observer);
     }
 
     boolean terminationPublished() {
-        return termination.published();
+        return terminal.processPublished();
     }
 
     boolean publicExitCompleted() {
-        return exitBarrier.completed();
-    }
-
-    CompletableFuture<Void> physicalOutputCleanup() {
-        return resources.physicalOutputView();
+        return terminal.publicExitCompleted();
     }
 
     OptionalInt processExitCode() {
         return processCleanup.exitCodeSnapshot();
-    }
-
-    void afterPhysicalOutputCleanup(Runnable publication) {
-        resources.afterPhysicalOutputCleanup(publication);
-    }
-
-    /**
-     * Creates an expect automation helper using default options.
-     *
-     * @return expect helper
-     */
-    public Expect.Draft expect() {
-        return Session.super.expect();
     }
 
     /**
@@ -288,6 +342,19 @@ public final class DefaultSession implements Session {
             resources.stdin().flush();
         } catch (IOException exception) {
             throw new CommandExecutionException("Could not write session stdin", exception);
+        }
+    }
+
+    private static void notifyObserver(
+            BiConsumer<? super SessionExit, ? super Throwable> observer, SessionExit result, Throwable failure) {
+        try {
+            observer.accept(result, failure);
+        } catch (Throwable observerFailure) {
+            try {
+                BoundedFailureReporter.shared().report(Thread.currentThread(), observerFailure);
+            } catch (Throwable ignored) {
+                // Reporting is best-effort and must not block or replace terminal publication.
+            }
         }
     }
 
@@ -313,13 +380,16 @@ public final class DefaultSession implements Session {
 
     private void completeWatcherFailure(Throwable failure) {
         boolean restoreInterrupt = Thread.interrupted();
-        SessionTermination.FailureClaim failureClaim = termination.claimFailure(failure);
+        SessionTerminal.ProcessClaim claim = terminal.claimFailure(failure);
         try {
-            retainOrReport(failureClaim, processCleanup.forceAfterFailure());
-            retainOrReport(failureClaim, resources.closeAfterFailure());
+            if (claim == null) {
+                reportBestEffort(failure);
+            }
+            retainOrReport(claim, processCleanup.forceAfterFailure());
+            resources.close();
         } finally {
-            if (failureClaim != null) {
-                failureClaim.finishCleanup();
+            if (claim != null) {
+                claim.fail();
             }
             if (restoreInterrupt) {
                 Thread.currentThread().interrupt();
@@ -335,7 +405,7 @@ public final class DefaultSession implements Session {
         long idleTimeoutNanos = DurationSupport.saturatedNanos(idleTimeout);
         Objects.requireNonNull(
                 watcherStarter.start("procwright-session-idle-timeout-", gate.guard(() -> {
-                    while (!termination.published()) {
+                    while (!terminal.processPublished()) {
                         long elapsedNanos = System.nanoTime() - lastActivityNanos.get();
                         long remainingNanos = idleTimeoutNanos - elapsedNanos;
                         if (remainingNanos <= 0) {
@@ -350,43 +420,64 @@ public final class DefaultSession implements Session {
                 "watcher starter returned null");
     }
 
-    private void stop(boolean timedOut) {
+    boolean closeFromHelper(boolean timedOut) {
+        return closeFromHelper(timedOut, () -> {});
+    }
+
+    boolean closeFromHelper(boolean timedOut, Runnable afterClaim) {
+        return stop(timedOut, timedOut ? "timeout" : "close", afterClaim);
+    }
+
+    private boolean stop(boolean timedOut) {
+        return stop(timedOut, timedOut ? "idleTimeout" : "close", () -> {});
+    }
+
+    private boolean stop(boolean timedOut, String reason, Runnable afterClaim) {
         boolean restoreInterrupt = Thread.interrupted();
+        SessionTerminal.ProcessClaim claim = terminal.claimClose(timedOut);
+        Objects.requireNonNull(afterClaim, "afterClaim");
+        boolean cleanupAttempted = false;
 
         try {
-            if (!termination.beginClosing()) {
-                if (termination.published()) {
-                    resources.closeStdin();
-                    processCleanup.stop();
-                    resources.close();
-                }
-                return;
+            if (claim == null) {
+                resources.closeStdinForCleanup();
+                processCleanup.stop();
+                resources.close();
+                return false;
             }
-            resources.closeStdin();
-            diagnostics.emit(
-                    DiagnosticEventType.SHUTDOWN_REQUESTED,
-                    DiagnosticEmitter.attributes("reason", timedOut ? "idleTimeout" : "close"));
+            afterClaim.run();
+            resources.closeStdinForCleanup();
+            diagnostics.emitBestEffort(
+                    DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", reason));
+            cleanupAttempted = true;
             OptionalInt exitCode = processCleanup.stop();
             resources.close();
-            SessionTermination.Publication publication = termination.claimCloseSuccess();
-            if (publication != null) {
-                publication.publishSuccess(new SessionExit(exitCode, timedOut));
-            }
+            claim.succeed(new SessionExit(exitCode, timedOut));
+            return true;
         } catch (RuntimeException | Error failure) {
             boolean interruptedDuringStop = Thread.interrupted();
             restoreInterrupt = restoreInterrupt || interruptedDuringStop;
-            SessionTermination.FailureClaim failureClaim = termination.claimFailure(failure);
-            try {
-                retainOrReport(failureClaim, processCleanup.forceAfterFailure());
-                retainOrReport(failureClaim, resources.closeAfterFailure());
-            } finally {
-                if (failureClaim != null) {
-                    failureClaim.finishCleanup();
+            if (claim == null) {
+                reportBestEffort(failure);
+                resources.close();
+                if (!timedOut || failure instanceof Error) {
+                    throw failure;
                 }
+                return false;
+            }
+            claim.addFailure(failure);
+            try {
+                if (!cleanupAttempted) {
+                    retainOrReport(claim, processCleanup.forceAfterFailure());
+                }
+                resources.close();
+            } finally {
+                claim.fail();
             }
             if (!timedOut || failure instanceof Error) {
                 throw failure;
             }
+            return true;
         } finally {
             if (restoreInterrupt) {
                 Thread.currentThread().interrupt();
@@ -395,104 +486,102 @@ public final class DefaultSession implements Session {
     }
 
     private void completeNaturalExit(int exitCode) {
-        SessionTermination.Publication publication = termination.claimNaturalSuccess();
-        if (publication == null) {
-            return;
-        }
-        try {
-            resources.close();
-        } catch (RuntimeException | Error failure) {
-            publication.recordFailure(failure);
-            retain(publication, processCleanup.forceAfterFailure());
-            retain(publication, resources.closeAfterFailure());
-            publication.publishFailure();
-            throw failure;
-        }
-        publication.publishSuccess(new SessionExit(OptionalInt.of(exitCode), false));
-    }
-
-    private void observePublicExitCleanup() {
-        exitBarrier.observe(termination.outcome(), resources.outputCleanupCompletion());
+        resources.closeStdinForCleanup();
+        terminal.completeNaturalExit(new SessionExit(OptionalInt.of(exitCode), false));
     }
 
     private void markActivity() {
         lastActivityNanos.set(System.nanoTime());
     }
 
-    void claimOutputOwner(String owner) {
-        termination.ensureOpenForOutputClaim();
-        resources.claimOutput(owner);
+    void claimHelperOutput(SessionOutputMode mode) {
+        resources.claimHelperOutput(mode);
     }
 
-    SessionExitBarrier.Registration registerHelperCleanup() {
-        return exitBarrier.registerHelper();
+    void markHelperOutputReady(SessionOutputMode mode) {
+        resources.markHelperOutputReady(mode);
     }
 
-    InputStream ownedStdout(String owner) {
-        return resources.ownedStdout(owner);
+    void requireHelperOutputReady(SessionOutputMode mode) {
+        resources.requireHelperOutputReady(mode);
     }
 
-    InputStream ownedStderr(String owner) {
-        return resources.ownedStderr(owner);
+    void settleOutputMode(SessionTerminal.ModeSettlement settlement) {
+        terminal.settleMode(settlement);
+    }
+
+    Runnable guardConstructionTask(Runnable task, Runnable completion) {
+        return constructionGate.guard(task, completion);
+    }
+
+    InputStream ownedStdout(SessionOutputMode mode) {
+        return resources.ownedStdout(mode);
+    }
+
+    InputStream ownedStderr(SessionOutputMode mode) {
+        return resources.ownedStderr(mode);
     }
 
     OutputCloseReservation.Reservation reserveOwnedOutputClose(
-            String owner, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
-        return resources.reserveOutputClose(owner, pumpCloseObserver);
-    }
-
-    void dispatchUnreservedOwnedOutputClose(
-            String owner,
-            Consumer<? super Throwable> stdoutFailureHandler,
-            Runnable stdoutCompletionHandler,
-            Consumer<? super Throwable> stderrFailureHandler,
-            Runnable stderrCompletionHandler) {
-        resources.dispatchUnreservedOutputClose(
-                owner, stdoutFailureHandler, stdoutCompletionHandler, stderrFailureHandler, stderrCompletionHandler);
+            SessionOutputMode mode, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
+        return resources.reserveOutputClose(mode, pumpCloseObserver);
     }
 
     Charset charset() {
         return charset;
     }
 
-    private void terminateAfterResourceCloseFailure(SessionResources.CloseFailure resourceFailure) {
-        Throwable failure = resourceFailure.failure();
+    boolean terminateAfterHelperFailure(Throwable failure) {
+        return terminateAfterHelperFailure(failure, () -> {});
+    }
+
+    boolean terminateAfterHelperFailure(Throwable failure, Runnable afterClaim) {
+        return terminateAfterFailure(failure, afterClaim);
+    }
+
+    private void terminateAfterResourceCloseFailure(Throwable failure) {
+        terminateAfterFailure(failure, () -> {});
+    }
+
+    private boolean terminateAfterFailure(Throwable failure, Runnable afterClaim) {
+        Objects.requireNonNull(failure, "failure");
+        Objects.requireNonNull(afterClaim, "afterClaim");
         boolean restoreInterrupt = Thread.interrupted();
-        SessionTermination.FailureClaim failureClaim = termination.claimFailure(failure);
+        SessionTerminal.ProcessClaim claim = terminal.claimFailure(failure);
         try {
-            if (failureClaim != null && failureClaim.ownsPublication()) {
-                retainOrReport(failureClaim, processCleanup.stopAfterFailure());
+            if (claim != null) {
+                try {
+                    afterClaim.run();
+                } catch (RuntimeException | Error actionFailure) {
+                    claim.addFailure(actionFailure);
+                }
+                retainOrReport(claim, processCleanup.stopAfterFailure());
             } else {
-                retainOrReport(failureClaim, processCleanup.forceAfterFailure());
+                retainOrReport(null, processCleanup.forceAfterFailure());
             }
-            retainOrReport(failureClaim, resources.closeAfterFailure());
-            if (failureClaim == null && resourceFailure.reportWhenLate()) {
+            resources.close();
+            if (claim == null) {
                 reportBestEffort(failure);
             }
         } finally {
-            if (failureClaim != null) {
-                failureClaim.finishCleanup();
+            if (claim != null) {
+                claim.fail();
             }
             if (restoreInterrupt) {
                 Thread.currentThread().interrupt();
             }
         }
+        return claim != null;
     }
 
-    private static void retainOrReport(SessionTermination.FailureClaim claim, Throwable failure) {
+    private static void retainOrReport(SessionTerminal.ProcessClaim claim, Throwable failure) {
         if (failure == null) {
             return;
         }
         if (claim == null) {
             reportBestEffort(failure);
         } else {
-            claim.recordFailure(failure);
-        }
-    }
-
-    private static void retain(SessionTermination.Publication publication, Throwable failure) {
-        if (failure != null) {
-            publication.recordFailure(failure);
+            claim.addFailure(failure);
         }
     }
 

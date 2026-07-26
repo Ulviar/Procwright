@@ -6,8 +6,6 @@ import io.github.ulviar.procwright.command.CommandExecutionException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -86,19 +84,25 @@ public final class ProcessIoResources {
     }
 
     public Throwable rollbackConstruction() {
-        List<Throwable> rollbackFailures;
+        Throwable failure = dispatchConstructionRollback(stdin, "stdin");
+        failure = FailureAggregation.combine(
+                failure,
+                dispatchConstructionRollback(stdout, "stdout"),
+                "Multiple process stream construction rollbacks failed");
+        return FailureAggregation.combine(
+                failure,
+                dispatchConstructionRollback(stderr, "stderr"),
+                "Multiple process stream construction rollbacks failed");
+    }
+
+    private static Throwable dispatchConstructionRollback(ProcessStreamResource<?> resource, String streamName) {
         try {
-            rollbackFailures = new ArrayList<>(6);
-        } catch (OutOfMemoryError allocationFailure) {
-            stdin.rollbackConstruction();
-            stdout.rollbackConstruction();
-            stderr.rollbackConstruction();
-            return allocationFailure;
+            resource.closeAsync(
+                    "procwright-construction-" + streamName + "-close-", BoundedFailureReporter::reportBestEffort);
+            return null;
+        } catch (RuntimeException | Error dispatchFailure) {
+            return dispatchFailure;
         }
-        stdin.rollbackConstruction(rollbackFailures);
-        stdout.rollbackConstruction(rollbackFailures);
-        stderr.rollbackConstruction(rollbackFailures);
-        return FailureAggregation.combine(rollbackFailures, "Multiple process stream construction rollbacks failed");
     }
 
     private static Throwable combineDispatchFailures(Throwable first, Throwable second) {

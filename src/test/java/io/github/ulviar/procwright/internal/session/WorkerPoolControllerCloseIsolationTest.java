@@ -139,8 +139,7 @@ final class WorkerPoolControllerCloseIsolationTest extends WorkerPoolControllerT
                 workers.add(worker);
                 pools.add(WorkerPoolController.fromSettings(
                         () -> worker,
-                        session ->
-                                WorkerCloseSupport.closeOutcome(session, session.onExit(), session.physicalCleanup()),
+                        session -> WorkerCloseSupport.closeOutcome(session, session.onExit()),
                         settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
                         Failures.INSTANCE,
                         "exit-callback worker",

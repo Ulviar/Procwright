@@ -5,7 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.BlockingUntilClosedInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -42,7 +43,6 @@ final class DefaultLineSessionWriterFailureTest {
         BlockingAfterFirstByteOutputStream stdin = new BlockingAfterFirstByteOutputStream();
         BlockingUntilClosedInputStream stdout = new BlockingUntilClosedInputStream();
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
-        DefaultSession rawSession = openSession(process);
         CountDownLatch writerWrapperCompleted = new CountDownLatch(1);
         BoundedTaskTestSupport.TaskThreadFactory threadFactory = (threadPrefix, task) -> {
             Thread thread = new Thread(
@@ -57,8 +57,8 @@ final class DefaultLineSessionWriterFailureTest {
             thread.setDaemon(true);
             return thread;
         };
-        DefaultLineSession lineSession = new DefaultLineSession(
-                rawSession,
+        DefaultLineSession lineSession = openLineSession(
+                process,
                 LineSessionSettings.defaults(),
                 LineSessionTestDependencies.withTaskRunner(
                         (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> BoundedTaskTestSupport.runTracked(
@@ -89,7 +89,9 @@ final class DefaultLineSessionWriterFailureTest {
                     baselineCapacity,
                     limiter.availablePermits(),
                     "partial-write interrupt did not return the write permit after full wrapper completion");
-            lineSession.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(interrupted, exitFailure.getCause());
 
             LineSessionException followUp = assertThrows(
                     LineSessionException.class,
@@ -118,8 +120,7 @@ final class DefaultLineSessionWriterFailureTest {
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = openSession(process);
-        try (DefaultLineSession lineSession = new DefaultLineSession(rawSession, LineSessionSettings.defaults())) {
+        try (DefaultLineSession lineSession = openLineSession(process, LineSessionSettings.defaults())) {
             LineSessionException failure = assertThrows(
                     LineSessionException.class,
                     () -> lineSession.requestEncoded("abcd".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
@@ -128,7 +129,9 @@ final class DefaultLineSessionWriterFailureTest {
             assertSame(writeFailure, failure.getCause());
             assertEquals(1, stdin.writeCalls());
             assertEquals("ab", stdin.writtenText());
-            lineSession.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(failure, exitFailure.getCause());
             assertFalse(process.isAlive());
 
             LineSessionException followUp = assertThrows(
@@ -148,8 +151,7 @@ final class DefaultLineSessionWriterFailureTest {
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = openSession(process);
-        try (DefaultLineSession lineSession = new DefaultLineSession(rawSession, LineSessionSettings.defaults())) {
+        try (DefaultLineSession lineSession = openLineSession(process, LineSessionSettings.defaults())) {
             LineSessionException failure = assertThrows(
                     LineSessionException.class,
                     () -> lineSession.requestEncoded("abcd".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
@@ -158,7 +160,9 @@ final class DefaultLineSessionWriterFailureTest {
             assertSame(writeFailure, failure.getCause());
             assertEquals(1, stdin.writeCalls());
             assertEquals("ab", stdin.writtenText());
-            lineSession.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(failure, exitFailure.getCause());
             assertFalse(process.isAlive());
             assertEquals(baselineWriteCapacity, BoundedTaskLimits.BLOCKING_WRITES.availablePermits());
 
@@ -174,13 +178,12 @@ final class DefaultLineSessionWriterFailureTest {
     }
 
     @Test
-    void delegateErrorClosesSessionAndIsRethrownByIdentity() throws Exception {
+    void delegateErrorClosesSessionAndRemainsTerminalByIdentity() throws Exception {
         AssertionError writeFailure = new AssertionError("delegate invariant failed");
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = openSession(process);
-        try (DefaultLineSession lineSession = new DefaultLineSession(rawSession, LineSessionSettings.defaults())) {
+        try (DefaultLineSession lineSession = openLineSession(process, LineSessionSettings.defaults())) {
             AssertionError thrown = assertThrows(
                     AssertionError.class,
                     () -> lineSession.requestEncoded("abcd".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
@@ -188,14 +191,15 @@ final class DefaultLineSessionWriterFailureTest {
             assertSame(writeFailure, thrown);
             assertEquals(1, stdin.writeCalls());
             assertEquals("ab", stdin.writtenText());
-            lineSession.onExit().get(1, TimeUnit.SECONDS);
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(writeFailure, exitFailure.getCause());
             assertFalse(process.isAlive());
 
-            LineSessionException followUp = assertThrows(
-                    LineSessionException.class,
+            AssertionError followUp = assertThrows(
+                    AssertionError.class,
                     () -> lineSession.requestEncoded("retry".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
-            assertEquals(LineSessionException.Reason.FAILURE, followUp.reason());
-            assertSame(writeFailure, followUp.getCause());
+            assertSame(writeFailure, followUp);
             assertEquals(1, stdin.writeCalls());
         }
     }

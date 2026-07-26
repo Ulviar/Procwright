@@ -7,11 +7,12 @@ import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.Co
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.FeedInputStream;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expect;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.passthroughDecoder;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,6 +31,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
@@ -41,8 +43,8 @@ final class DefaultExpectOutputDecodingTest {
     void ansiStrippingIsIncrementalAndAppliedToMatchingAndTranscript() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
         FeedInputStream stderr = new FeedInputStream();
-        DefaultExpect expect = new DefaultExpect(
-                session(new ControllableProcess(stdout, stderr)),
+        DefaultExpect expect = expect(
+                new ControllableProcess(stdout, stderr),
                 ExpectSettings.defaults().withAnsiControlSequenceStripping());
         try {
             stdout.offer("\u001B[");
@@ -73,13 +75,10 @@ final class DefaultExpectOutputDecodingTest {
             InputStream stdout = failingSource.equals("stdout") ? failing : other;
             InputStream stderr = failingSource.equals("stderr") ? failing : other;
             ControllableProcess process = new ControllableProcess(stdout, stderr);
-            DefaultSession rawSession = session(process);
-            DefaultExpect expect = new DefaultExpect(
-                    rawSession,
-                    ExpectSettings.defaults()
-                            .withCharset(charset)
-                            .withTranscriptLimit(16)
-                            .withMatchBufferLimit(16));
+            DefaultExpect expect = expect(
+                    process,
+                    charset,
+                    ExpectSettings.defaults().withTranscriptLimit(16).withMatchBufferLimit(16));
             try {
                 ExpectException failure =
                         assertThrows(ExpectException.class, () -> expect.expectText("never", Duration.ofSeconds(1)));
@@ -88,7 +87,11 @@ final class DefaultExpectOutputDecodingTest {
                 assertInstanceOf(IncrementalTextDecoder.DecoderStateException.class, failure.getCause());
                 assertTrue(failure.transcript().malformed());
                 assertTrue(failure.transcript().text().length() <= 16);
-                rawSession.onExit().get(1, TimeUnit.SECONDS);
+                ExecutionException exitFailure = assertThrows(
+                        ExecutionException.class, () -> expect.onExit().get(1, TimeUnit.SECONDS));
+                ExpectException terminal = assertInstanceOf(ExpectException.class, exitFailure.getCause());
+                assertEquals(ExpectException.Reason.FAILURE, terminal.reason());
+                assertSame(failure.getCause(), terminal.getCause());
                 assertFalse(process.isAlive());
                 assertTrue(failing.awaitClose());
                 assertTrue(other.awaitClose());

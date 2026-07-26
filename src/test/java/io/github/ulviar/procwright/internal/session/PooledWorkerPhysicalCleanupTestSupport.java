@@ -3,12 +3,15 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
+import io.github.ulviar.procwright.internal.LineSessionSettings;
+import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolWriter;
@@ -29,19 +32,34 @@ final class PooledWorkerPhysicalCleanupTestSupport {
 
     private PooledWorkerPhysicalCleanupTestSupport() {}
 
-    static DefaultSession openSession(Process process, BoundedCloseDispatcher dispatcher) {
-        return openSession(process, dispatcher, ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO));
+    static DefaultLineSession openLineWorker(Process process, BoundedCloseDispatcher dispatcher) {
+        return openLineWorker(process, dispatcher, ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO));
     }
 
-    static DefaultSession openSession(
+    static DefaultLineSession openLineWorker(
             Process process, BoundedCloseDispatcher dispatcher, ShutdownPolicy shutdownPolicy) {
-        return DefaultSession.openTransactionally(
+        return SessionTestFixtures.openHandle(
                 process,
                 Duration.ZERO,
                 shutdownPolicy,
                 StandardCharsets.UTF_8,
                 DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "pool-output-cleanup-test", CommandEcho.empty()),
-                () -> {},
+                SessionOutputMode.LINE,
+                session -> new DefaultLineSession(session, LineSessionSettings.defaults()),
+                dispatcher,
+                io.github.ulviar.procwright.internal.Threading::start);
+    }
+
+    static DefaultProtocolSession<String, String> openProtocolWorker(
+            Process process, BoundedCloseDispatcher dispatcher) {
+        return SessionTestFixtures.openHandle(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "pool-output-cleanup-test", CommandEcho.empty()),
+                SessionOutputMode.PROTOCOL,
+                session -> new DefaultProtocolSession<>(session, noOpAdapter(), ProtocolSessionSettings.defaults()),
                 dispatcher,
                 io.github.ulviar.procwright.internal.Threading::start);
     }
@@ -59,14 +77,25 @@ final class PooledWorkerPhysicalCleanupTestSupport {
     }
 
     static void assertNoDispatcherLeak(BoundedCloseDispatcher dispatcher) {
-        assertNoDispatcherLeak(dispatcher, 3);
-    }
-
-    static void assertNoDispatcherLeak(BoundedCloseDispatcher dispatcher, int capacity) {
+        assertTrue(
+                eventually(() -> dispatcher.activeCount() == 0
+                        && dispatcher.pendingCount() == 0
+                        && dispatcher.outstandingCount() == 0),
+                "process stream close dispatcher did not drain");
         assertEquals(0, dispatcher.activeCount());
         assertEquals(0, dispatcher.pendingCount());
         assertEquals(0, dispatcher.outstandingCount());
-        dispatcher.reserve(capacity).release();
+    }
+
+    private static boolean eventually(Check check) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (check.satisfied()) {
+                return true;
+            }
+            Thread.onSpinWait();
+        }
+        return check.satisfied();
     }
 
     static final class BlockingReadFailingCloseInputStream extends InputStream {
@@ -188,6 +217,12 @@ final class PooledWorkerPhysicalCleanupTestSupport {
         boolean awaitCloseFinished(Duration timeout) throws InterruptedException {
             return closeFinished.await(timeout.toNanos(), TimeUnit.NANOSECONDS);
         }
+    }
+
+    @FunctionalInterface
+    private interface Check {
+
+        boolean satisfied();
     }
 
     static class TestProcess extends Process {

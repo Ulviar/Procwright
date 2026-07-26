@@ -70,7 +70,7 @@ final class LineResponseDecoder {
             LineSessionState.TerminalSnapshot outcome = state.terminal();
             if (outcome instanceof LineSessionState.FatalSnapshot fatal) {
                 if (fatal.error() != cause) {
-                    outputPumps.retainFailure(cause);
+                    outputPumps.reportFailure(cause);
                 }
                 throw fatal.error();
             }

@@ -7,10 +7,12 @@ import io.github.ulviar.procwright.session.PooledWorkerRetireReason
 import java.nio.file.Files
 import java.time.Duration as JavaDuration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -107,7 +109,9 @@ class CoroutineExtensionsTest {
                     request.cancelAndJoin()
 
                     assertTrue(request.isCancelled)
-                    session.onExit().get(2, TimeUnit.SECONDS)
+                    assertFailsWith<ExecutionException> {
+                        session.onExit().get(2, TimeUnit.SECONDS)
+                    }
                 }
 
             javaService()
@@ -121,12 +125,15 @@ class CoroutineExtensionsTest {
                     request.cancelAndJoin()
 
                     assertTrue(request.isCancelled)
-                    session.onExit().get(2, TimeUnit.SECONDS)
+                    assertFailsWith<ExecutionException> {
+                        session.onExit().get(2, TimeUnit.SECONDS)
+                    }
                 }
         } finally {
             Files.deleteIfExists(lineMarker)
             Files.deleteIfExists(protocolMarker)
         }
+        Unit
     }
 
     @Test
@@ -237,6 +244,16 @@ class CoroutineExtensionsTest {
 
     @Test
     fun `cancelling exit waits leaves every real session usable or alive`() = runBlocking {
+        javaService().interactive().expect().withArgs(*fixtureArgs("line-repl")).open().use { expect
+            ->
+            val waiter = async(start = CoroutineStart.UNDISPATCHED) { expect.awaitExit() }
+            waiter.cancelAndJoin()
+
+            assertFalse(expect.onExit().isDone)
+            expect.sendLine("expect")
+            expect.expectText("response:expect")
+        }
+
         javaService().lineSession().withArgs(*fixtureArgs("line-repl")).open().use { session ->
             val waiter = async(start = CoroutineStart.UNDISPATCHED) { session.awaitExit() }
             waiter.cancelAndJoin()

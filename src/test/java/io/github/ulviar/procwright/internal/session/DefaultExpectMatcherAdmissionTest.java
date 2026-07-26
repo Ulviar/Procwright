@@ -8,7 +8,7 @@ import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.Fe
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expectFailure;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.openExpect;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -32,20 +32,21 @@ import org.junit.jupiter.api.Test;
 final class DefaultExpectMatcherAdmissionTest {
 
     @Test
-    void matcherTimeoutIsBoundedRecoverableAndRetainsCapacityUntilTheMatcherStops() throws Exception {
+    void abandonedMatcherMakesItsHandleTerminalUntilTheMatcherStops() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
         FeedInputStream stderr = new FeedInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process);
         BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
-        DefaultExpect expect = new DefaultExpect(
-                rawSession,
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                limiter,
-                evaluator);
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        limiter,
+                        evaluator));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             long started = System.nanoTime();
@@ -60,25 +61,22 @@ final class DefaultExpectMatcherAdmissionTest {
             assertTrue(
                     System.nanoTime() - started < Duration.ofSeconds(1).toNanos(),
                     "regex timeout must bound caller wall-clock waiting");
-            assertTrue(process.isAlive(), "a match timeout must leave the owned session open");
+            assertTrue(eventually(() -> !process.isAlive()), "an abandoned matcher must retire its owned session");
             assertEquals(0, limiter.availablePermits(), "the non-cooperative matcher must retain its permit");
 
-            stdout.offer("literal-ready");
-            assertEquals(
-                    "literal-ready",
-                    expect.expectTextMatch("literal-ready", Duration.ofSeconds(1))
-                            .matched());
+            ExpectException repeated = org.junit.jupiter.api.Assertions.assertThrows(
+                    ExpectException.class, () -> expect.expectTextMatch("literal-ready", Duration.ofSeconds(1)));
+            assertEquals(ExpectException.Reason.TIMEOUT, repeated.reason());
 
             evaluator.release();
             assertTrue(evaluator.awaitStopped());
             evaluator.awaitInvocationStopped();
             assertTrue(eventually(() -> limiter.availablePermits() == 1));
 
-            stdout.offer(" regex-42");
-            ExpectMatch recovered = expect.expectRegexMatch(Pattern.compile("regex-(\\d+)"), Duration.ofSeconds(1));
-            assertEquals("regex-42", recovered.matched());
-            assertEquals(List.of("42"), recovered.groups());
-            assertTrue(process.isAlive());
+            ExpectException stillTerminal = org.junit.jupiter.api.Assertions.assertThrows(
+                    ExpectException.class,
+                    () -> expect.expectRegexMatch(Pattern.compile("regex-(\\d+)"), Duration.ofSeconds(1)));
+            assertEquals(ExpectException.Reason.TIMEOUT, stillTerminal.reason());
         } finally {
             evaluator.release();
             expect.close();
@@ -94,16 +92,18 @@ final class DefaultExpectMatcherAdmissionTest {
         FeedInputStream stderr = new FeedInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
         CountDownLatch evaluated = new CountDownLatch(1);
-        DefaultExpect expect = new DefaultExpect(
-                session(process),
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                new BoundedTaskLimiter(1),
-                (pattern, text, searchStart) -> {
-                    evaluated.countDown();
-                    return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
-                });
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        new BoundedTaskLimiter(1),
+                        (pattern, text, searchStart) -> {
+                            evaluated.countDown();
+                            return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
+                        }));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ExpectMatch> timedMatch =
@@ -147,19 +147,20 @@ final class DefaultExpectMatcherAdmissionTest {
         FeedInputStream stdout = new FeedInputStream();
         FeedInputStream stderr = new FeedInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process);
         AtomicInteger evaluations = new AtomicInteger();
-        DefaultExpect expect = new DefaultExpect(
-                rawSession,
-                ExpectSettings.defaults(),
-                ZeroReadBackoff.exponential(),
-                PumpStarter.threading(),
-                limiter,
-                (pattern, text, searchStart) -> {
-                    evaluations.incrementAndGet();
-                    return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
-                },
-                Threading::reportUncaught);
+        DefaultExpect expect = openExpect(
+                process,
+                session -> new DefaultExpect(
+                        session,
+                        ExpectSettings.defaults(),
+                        ZeroReadBackoff.exponential(),
+                        PumpStarter.threading(),
+                        limiter,
+                        (pattern, text, searchStart) -> {
+                            evaluations.incrementAndGet();
+                            return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
+                        },
+                        Threading::reportUncaught));
         try {
             List<Future<ExpectMatch>> waiters = new ArrayList<>();
             for (int index = 0; index < 4; index++) {

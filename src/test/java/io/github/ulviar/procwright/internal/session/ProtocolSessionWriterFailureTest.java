@@ -29,6 +29,7 @@ import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,7 +45,6 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         List<ProtocolSessionException> observed = new ArrayList<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
@@ -64,7 +64,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             }
         };
         try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, ProtocolSessionSettings.defaults())) {
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults())) {
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("ignored"));
 
@@ -75,7 +75,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             assertSame(failure, observed.get(0));
             assertEquals(1, stdin.writeCalls());
             assertEquals("ab", stdin.writtenText());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, failure);
             assertFalse(process.isAlive());
 
             ProtocolSessionException followUp =
@@ -92,7 +92,6 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
         IllegalArgumentException encoderFailure = new IllegalArgumentException("encoder creation failed");
         EncoderCreationFailureCharset charset = new EncoderCreationFailureCharset(encoderFailure);
         ControllableProcess process = new ControllableProcess();
-        DefaultSession rawSession = session(process);
         List<ProtocolSessionException> observed = new ArrayList<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
@@ -111,8 +110,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
                 return "fallback";
             }
         };
-        try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, options(charset))) {
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, options(charset))) {
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("request"));
 
@@ -122,7 +120,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             assertSame(failure, observed.get(0));
             assertSame(observed.get(0), observed.get(1));
             assertEquals(1, charset.encoderCreations());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, failure);
             assertFalse(process.isAlive());
 
             ProtocolSessionException followUp =
@@ -137,7 +135,6 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
     void requestEncoderPreflightFailureIsRecordedAndFailStopsCaughtRetry() throws Exception {
         NoProgressEncoderCharset charset = new NoProgressEncoderCharset();
         ControllableProcess process = new ControllableProcess();
-        DefaultSession rawSession = session(process);
         List<ProtocolSessionException> observed = new ArrayList<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
@@ -156,8 +153,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
                 return "fallback";
             }
         };
-        try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, options(charset))) {
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, options(charset))) {
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("request"));
 
@@ -168,7 +164,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             assertSame(failure, observed.get(0));
             assertSame(observed.get(0), observed.get(1));
             assertEquals(1, charset.encoderCreations());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, failure);
             assertFalse(process.isAlive());
 
             ProtocolSessionException followUp =
@@ -179,11 +175,10 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
     }
 
     @Test
-    void requestEncoderErrorIsRecordedAndRethrownByIdentityAfterCaughtRetry() throws Exception {
+    void caughtRequestEncoderErrorSelectsATypedTerminalFailure() throws Exception {
         AssertionError encoderFailure = new AssertionError("encoder invariant failed");
         EncoderCreationFailureCharset charset = new EncoderCreationFailureCharset(encoderFailure);
         ControllableProcess process = new ControllableProcess();
-        DefaultSession rawSession = session(process);
         List<AssertionError> observed = new ArrayList<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
@@ -201,29 +196,29 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
                 return "fallback";
             }
         };
-        try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, options(charset))) {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> protocol.request("request"));
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, options(charset))) {
+            ProtocolSessionException thrown =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("request"));
 
-            assertSame(encoderFailure, thrown);
+            assertEquals(ProtocolSessionException.Reason.FAILURE, thrown.reason());
             assertEquals(List.of(encoderFailure), observed);
             assertEquals(1, charset.encoderCreations());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, thrown);
             assertFalse(process.isAlive());
 
-            AssertionError followUp = assertThrows(AssertionError.class, () -> protocol.request("again"));
-            assertSame(encoderFailure, followUp);
+            ProtocolSessionException followUp =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("again"));
+            assertEquals(ProtocolSessionException.Reason.FAILURE, followUp.reason());
         }
     }
 
     @Test
-    void caughtEncoderErrorIsRethrownAfterWriterCallbackReturns() throws Exception {
+    void caughtEncoderErrorPreventsResponseDecodingAndSelectsTypedFailure() throws Exception {
         AssertionError encoderFailure = new AssertionError("encoder invariant failed");
         EncoderCreationFailureCharset charset = new EncoderCreationFailureCharset(encoderFailure);
         CountingOutputStream stdin = new CountingOutputStream();
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         AtomicReference<AssertionError> observed = new AtomicReference<>();
         AtomicBoolean responseDecoderCalled = new AtomicBoolean();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -242,21 +237,22 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
                 return "fallback";
             }
         };
-        try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, options(charset))) {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> protocol.request("request"));
+        try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, options(charset))) {
+            ProtocolSessionException thrown =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("request"));
 
-            assertSame(encoderFailure, thrown);
+            assertEquals(ProtocolSessionException.Reason.FAILURE, thrown.reason());
             assertSame(encoderFailure, observed.get());
             assertEquals(1, charset.encoderCreations());
             assertEquals(0, stdin.writeCalls());
             assertFalse(responseDecoderCalled.get());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, thrown);
             assertFalse(process.isAlive());
 
             int writesAfterFailure = stdin.writeCalls();
-            AssertionError followUp = assertThrows(AssertionError.class, () -> protocol.request("again"));
-            assertSame(encoderFailure, followUp);
+            ProtocolSessionException followUp =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("again"));
+            assertEquals(ProtocolSessionException.Reason.FAILURE, followUp.reason());
             assertEquals(writesAfterFailure, stdin.writeCalls());
         }
     }
@@ -269,7 +265,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
     @Test
     void lifecycleClosedStdinIsTreatedAsClosed() throws Exception {
         ControllableProcess process = new ControllableProcess();
-        DefaultSession rawSession = session(process);
+        AtomicReference<DefaultSession> rawSession = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {
@@ -282,8 +278,8 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             }
         };
         try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, ProtocolSessionSettings.defaults())) {
-            rawSession.closeStdin();
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults(), rawSession::set)) {
+            rawSession.get().closeStdin();
 
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("request"));
@@ -303,12 +299,11 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
     }
 
     @Test
-    void delegateErrorIsRecordedAndRethrownByIdentityAfterCaughtRetry() throws Exception {
+    void caughtDelegateErrorSelectsATypedTerminalFailure() throws Exception {
         AssertionError writeFailure = new AssertionError("delegate invariant failed");
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         List<AssertionError> observed = new ArrayList<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
@@ -327,28 +322,29 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             }
         };
         try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, ProtocolSessionSettings.defaults())) {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> protocol.request("ignored"));
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults())) {
+            ProtocolSessionException thrown =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("ignored"));
 
-            assertSame(writeFailure, thrown);
+            assertEquals(ProtocolSessionException.Reason.FAILURE, thrown.reason());
             assertEquals(List.of(writeFailure), observed);
             assertEquals(1, stdin.writeCalls());
             assertEquals("ab", stdin.writtenText());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, thrown);
             assertFalse(process.isAlive());
 
-            AssertionError followUp = assertThrows(AssertionError.class, () -> protocol.request("again"));
-            assertSame(writeFailure, followUp);
+            ProtocolSessionException followUp =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("again"));
+            assertEquals(ProtocolSessionException.Reason.FAILURE, followUp.reason());
         }
     }
 
     @Test
-    void caughtDelegateErrorIsRethrownAfterWriterCallbackReturns() throws Exception {
+    void caughtDelegateErrorPreventsResponseDecodingAndSelectsTypedFailure() throws Exception {
         AssertionError writeFailure = new AssertionError("delegate invariant failed");
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         AtomicReference<AssertionError> observed = new AtomicReference<>();
         AtomicBoolean responseDecoderCalled = new AtomicBoolean();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -368,20 +364,22 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             }
         };
         try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, ProtocolSessionSettings.defaults())) {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> protocol.request("ignored"));
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults())) {
+            ProtocolSessionException thrown =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("ignored"));
 
-            assertSame(writeFailure, thrown);
+            assertEquals(ProtocolSessionException.Reason.FAILURE, thrown.reason());
             assertSame(writeFailure, observed.get());
             assertEquals(1, stdin.writeCalls());
             assertEquals("ab", stdin.writtenText());
             assertFalse(responseDecoderCalled.get());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, thrown);
             assertFalse(process.isAlive());
 
             int writesAfterFailure = stdin.writeCalls();
-            AssertionError followUp = assertThrows(AssertionError.class, () -> protocol.request("again"));
-            assertSame(writeFailure, followUp);
+            ProtocolSessionException followUp =
+                    assertThrows(ProtocolSessionException.class, () -> protocol.request("again"));
+            assertEquals(ProtocolSessionException.Reason.FAILURE, followUp.reason());
             assertEquals(writesAfterFailure, stdin.writeCalls());
         }
     }
@@ -413,7 +411,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             ControllableProcess process =
                     new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
             processes.add(process);
-            return new DefaultProtocolSession<>(session(process), adapter, ProtocolSessionSettings.defaults());
+            return protocolSession(process, adapter, ProtocolSessionSettings.defaults());
         };
 
         try (DefaultPooledProtocolSession<String, String> pool =
@@ -438,7 +436,6 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
                 new ControllableProcess(stdin, InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
         List<ProtocolSessionException> observed = new ArrayList<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
@@ -458,7 +455,7 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             }
         };
         try (DefaultProtocolSession<String, String> protocol =
-                new DefaultProtocolSession<>(rawSession, adapter, ProtocolSessionSettings.defaults())) {
+                protocolSession(process, adapter, ProtocolSessionSettings.defaults())) {
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("ignored"));
 
@@ -469,13 +466,19 @@ final class ProtocolSessionWriterFailureTest extends ProtocolSessionContractSupp
             assertSame(failure, observed.get(0));
             assertEquals(1, stdin.writeCalls());
             assertEquals("ab", stdin.writtenText());
-            protocol.onExit().get(1, TimeUnit.SECONDS);
+            assertExitFailedWith(protocol, failure);
             assertFalse(process.isAlive());
 
             ProtocolSessionException followUp =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("again"));
             assertEquals(ProtocolSessionException.Reason.FAILURE, followUp.reason());
         }
+    }
+
+    private static void assertExitFailedWith(DefaultProtocolSession<?, ?> protocol, Throwable expectedFailure) {
+        ExecutionException exitFailure =
+                assertThrows(ExecutionException.class, () -> protocol.onExit().get(1, TimeUnit.SECONDS));
+        assertSame(expectedFailure, exitFailure.getCause());
     }
 
     private static final class EncoderCreationFailureCharset extends Charset {

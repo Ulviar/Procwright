@@ -34,7 +34,6 @@ import java.util.function.LongSupplier;
  */
 public final class DefaultProtocolSession<I extends Object, O extends Object> implements ProtocolSession<I, O> {
 
-    private static final String OUTPUT_OWNER = "ProtocolSession";
     private final DefaultSession session;
     private final ProtocolAdapter<I, O> adapter;
     private final ProtocolSessionSettings options;
@@ -62,8 +61,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
         Dependencies runtime = Objects.requireNonNull(dependencies, "dependencies");
         this.callbackRunner = runtime.callbackRunner();
         this.requestGate = new SerializedRequestGate(runtime.requestLockWaiter());
-        this.outputPumps = new OutputPumpCoordinator(
-                session, OUTPUT_OWNER, OutputPumpCoordinator.FailureAttribution.SCENARIO_TERMINAL);
+        this.outputPumps = new OutputPumpCoordinator(session, SessionOutputMode.PROTOCOL);
         int responsePendingByteLimit = ProtocolTextReader.pendingByteLimit(options);
         int responseOutputWithoutInputLimit = ProtocolTextReader.outputWithoutInputLimit(options);
         ProtocolTranscriptBuffer initializedTranscript;
@@ -86,15 +84,12 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             throw error;
         }
         this.state = new ProtocolSessionState(
-                initializedTranscript::snapshot,
-                this::exitCodeSnapshot,
-                outputPumps::retainFailure,
-                outputPumps::sealFailureAttribution);
+                initializedTranscript::snapshot, this::exitCodeSnapshot, outputPumps::reportFailure);
         this.output = new ProtocolOutputTransport(
                 options,
                 state,
                 runtime.zeroReadBackoff(),
-                outputPumps,
+                outputPumps::reportFailure,
                 initializedTranscript,
                 stdoutDecoder,
                 stderrDecoder,
@@ -111,7 +106,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                         DefaultProtocolSession.this.closeQuietly(failure);
                     }
                 });
-        output.start(runtime.pumpStarter());
+        output.start(runtime.pumpStarter(), outputPumps);
     }
 
     @Override
@@ -156,9 +151,13 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             throw state.selectProtocolFailure(primary);
         } catch (Error error) {
             ProtocolSessionState.TerminalSnapshot outcome = state.recordFatalError(error);
-            Error selected = ((ProtocolSessionState.FatalSnapshot) outcome).error();
+            if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
+                closePreserving(fatal.error());
+                throw fatal.error();
+            }
+            ProtocolSessionException selected = state.terminalException(outcome);
             closePreserving(selected);
-            throw state.selectFatalFailure(selected);
+            throw selected;
         }
     }
 
@@ -196,10 +195,6 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
         return session.publicExitCompleted();
     }
 
-    CompletableFuture<Void> physicalOutputCleanup() {
-        return session.physicalOutputCleanup();
-    }
-
     @Override
     public void close() {
         closeWithEvent(true);
@@ -221,7 +216,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             }
         } finally {
             if (primary != null) {
-                outputPumps.closeSessionPreserving(primary);
+                outputPumps.closeSessionAfterFailure(primary);
             } else if (lifecycleOwner) {
                 outputPumps.closeSession();
             }
@@ -325,7 +320,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
         ProtocolSessionState.TerminalSnapshot outcome = state.terminal();
         if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
             if (fatal.error() != cause) {
-                outputPumps.retainFailure(cause);
+                outputPumps.reportFailure(cause);
             }
             throw fatal.error();
         }
@@ -374,7 +369,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
         try {
             closeWithEvent(true, failure);
         } catch (Throwable closeFailure) {
-            outputPumps.retainFailure(closeFailure);
+            outputPumps.reportFailure(closeFailure);
         }
     }
 
@@ -382,7 +377,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
         try {
             closeWithEvent(false, failure);
         } catch (Throwable closeFailure) {
-            outputPumps.retainFailure(closeFailure);
+            outputPumps.reportFailure(closeFailure);
         }
     }
 

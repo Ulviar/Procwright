@@ -34,17 +34,45 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 abstract class StreamRuntimeTestSupport {
 
-    protected static DefaultSession session(Process process) {
-        return SessionTestFixtures.open(
+    protected static DefaultStreamSession openStream(Process process, StreamExecutionPlan plan) {
+        return openStream(process, plan, diagnostics());
+    }
+
+    protected static DefaultStreamSession openStream(
+            Process process, StreamExecutionPlan plan, DiagnosticEmitter eventDiagnostics) {
+        return openStream(process, plan, eventDiagnostics, DefaultStreamSession.Dependencies.defaults());
+    }
+
+    protected static DefaultStreamSession openStream(
+            Process process,
+            StreamExecutionPlan plan,
+            DiagnosticEmitter eventDiagnostics,
+            DefaultStreamSession.Dependencies dependencies) {
+        return openStream(process, plan, eventDiagnostics, dependencies, ignored -> {});
+    }
+
+    protected static DefaultStreamSession openStream(
+            Process process,
+            StreamExecutionPlan plan,
+            DiagnosticEmitter eventDiagnostics,
+            DefaultStreamSession.Dependencies dependencies,
+            Consumer<? super DefaultSession> sessionObserver) {
+        return SessionTestFixtures.openHandle(
                 process,
                 Duration.ZERO,
                 ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
                 StandardCharsets.UTF_8,
-                diagnostics());
+                eventDiagnostics,
+                SessionOutputMode.STREAM,
+                session -> {
+                    sessionObserver.accept(session);
+                    return new DefaultStreamSession(session, plan, eventDiagnostics, dependencies);
+                });
     }
 
     protected static StreamExecutionPlan plan() {
