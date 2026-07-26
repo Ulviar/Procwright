@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -25,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class LiveDescendantSnapshotTest extends ProcessLifecycleSharedSupport {
+final class LiveDescendantSnapshotTest {
 
     @Test
     void refreshAccumulatesLiveHandlesPrunesExitedOnesAndRetainsUnobservableOnes() throws Exception {

@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.CompletedProcess;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSourceContaining;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -25,7 +29,7 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessLifecycleCompletionProofTest extends ProcessLifecycleSharedSupport {
+final class ProcessLifecycleCompletionProofTest {
     @Test
     void unobservableKnownDescendantIsSignalledButCannotProveGracefulCleanup() {
         UnobservableProcessHandle descendant = new UnobservableProcessHandle(45);

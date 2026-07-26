@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -19,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessLifecycleDynamicDescendantShutdownTest extends ProcessLifecycleSharedSupport {
+final class ProcessLifecycleDynamicDescendantShutdownTest {
     @Test
     void gracefulShutdownDiscoversAndStopsDescendantCreatedByRootTermination() {
         LateDescendantProcess process = new LateDescendantProcess();

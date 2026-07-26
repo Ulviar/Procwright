@@ -2,6 +2,13 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failsOnGracefulAndForcefulDestroy;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failsOnGracefulDestroy;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSourceContaining;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSources;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -20,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessTreeShutdownFailureContinuationTest extends ProcessLifecycleSharedSupport {
+final class ProcessTreeShutdownFailureContinuationTest {
 
     @Test
     void rootLivenessFailureStillReachesForcefulDestroyFallback() throws Exception {
@@ -93,8 +100,8 @@ final class ProcessTreeShutdownFailureContinuationTest extends ProcessLifecycleS
     private static final class ProcessTreeFailureProcess extends Process {
 
         private final AtomicBoolean alive = new AtomicBoolean(true);
-        private final ThrowingProcessHandle firstDescendant;
-        private final ThrowingProcessHandle secondDescendant;
+        private final MutableProcessHandle firstDescendant;
+        private final MutableProcessHandle secondDescendant;
         private final Throwable rootGracefulFailure;
         private final Throwable rootForceFailure;
         private final AtomicInteger rootGracefulHandleCalls = new AtomicInteger();
@@ -129,8 +136,8 @@ final class ProcessTreeShutdownFailureContinuationTest extends ProcessLifecycleS
                 Throwable rootGracefulFailure,
                 Throwable descendantForceFailure,
                 Throwable rootForceFailure) {
-            firstDescendant = new ThrowingProcessHandle(50, firstDescendantFailure, null);
-            secondDescendant = new ThrowingProcessHandle(51, secondDescendantFailure, descendantForceFailure);
+            firstDescendant = failsOnGracefulDestroy(50, firstDescendantFailure);
+            secondDescendant = failsOnGracefulAndForcefulDestroy(51, secondDescendantFailure, descendantForceFailure);
             this.rootGracefulFailure = rootGracefulFailure;
             this.rootForceFailure = rootForceFailure;
         }
@@ -195,11 +202,11 @@ final class ProcessTreeShutdownFailureContinuationTest extends ProcessLifecycleS
             return Stream.of(secondDescendant, firstDescendant);
         }
 
-        private ThrowingProcessHandle firstDescendant() {
+        private MutableProcessHandle firstDescendant() {
             return firstDescendant;
         }
 
-        private ThrowingProcessHandle secondDescendant() {
+        private MutableProcessHandle secondDescendant() {
             return secondDescendant;
         }
 
@@ -217,50 +224,6 @@ final class ProcessTreeShutdownFailureContinuationTest extends ProcessLifecycleS
 
         private int rootForceFallbackCalls() {
             return rootForceFallbackCalls.get();
-        }
-    }
-
-    private static final class ThrowingProcessHandle extends MutableProcessHandle {
-
-        private final Throwable gracefulFailure;
-        private final Throwable forceFailure;
-        private final AtomicBoolean alive = new AtomicBoolean(true);
-        private final AtomicInteger gracefulDestroyCalls = new AtomicInteger();
-        private final AtomicInteger forceDestroyCalls = new AtomicInteger();
-
-        private ThrowingProcessHandle(long pid, Throwable gracefulFailure, Throwable forceFailure) {
-            super(pid);
-            this.gracefulFailure = gracefulFailure;
-            this.forceFailure = forceFailure;
-        }
-
-        @Override
-        public boolean destroy() {
-            gracefulDestroyCalls.incrementAndGet();
-            throwUnchecked(gracefulFailure);
-            alive.set(false);
-            return true;
-        }
-
-        @Override
-        public boolean destroyForcibly() {
-            forceDestroyCalls.incrementAndGet();
-            alive.set(false);
-            throwUnchecked(forceFailure);
-            return true;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return alive.get();
-        }
-
-        private int gracefulDestroyCalls() {
-            return gracefulDestroyCalls.get();
-        }
-
-        private int forceDestroyCalls() {
-            return forceDestroyCalls.get();
         }
     }
 

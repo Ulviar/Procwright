@@ -2,6 +2,12 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.BlockingLivenessProcess;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSourceContaining;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSources;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleSharedSupport {
+final class ProcessTreeShutdownProviderDeadlineTest {
 
     @Test
     void providerOperationCannotOutliveForceStopDeadlineAndRetainsCapacityUntilReturn() throws Exception {
@@ -44,13 +50,13 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
 
         caller.start();
         try {
-            assertTrue(delegate.livenessEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(delegate.awaitLivenessEntry(1, TimeUnit.SECONDS));
             Throwable failure = cleanup.get(1, TimeUnit.SECONDS);
 
             assertTrue(failure instanceof CommandExecutionException, () -> "unexpected failure: " + failure);
             assertEquals(0, scanner.availableOperationPermits());
         } finally {
-            delegate.releaseLiveness.countDown();
+            delegate.releaseLiveness();
             caller.join(TimeUnit.SECONDS.toMillis(1));
         }
 
@@ -61,7 +67,7 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
     @Test
     void guardedShutdownTreatsLivenessTimeoutAtLifecycleDeadlineAsUnknownAndEscalates() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofSeconds(5));
-        DeadlineScriptedProcess delegate = new DeadlineScriptedProcess(true, false, false);
+        DeadlineScriptedProcess delegate = DeadlineScriptedProcess.lifecycleDeadlineExpiresFirst();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stop(
@@ -85,7 +91,7 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
     @Test
     void guardedShutdownRetainsProviderLivenessTimeoutWhileLifecycleBudgetRemains() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofMillis(10));
-        DeadlineScriptedProcess delegate = new DeadlineScriptedProcess(true, true, false);
+        DeadlineScriptedProcess delegate = DeadlineScriptedProcess.providerDeadlineExpiresFirst();
         try {
             RuntimeException failure = assertThrows(
                     RuntimeException.class,
@@ -140,8 +146,8 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
     @Test
     void guardedDescendantLivenessTimeoutAtLifecycleDeadlineRemainsLiveAndIsForceStopped() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofSeconds(5));
-        DeadlineScriptedProcess root = new DeadlineScriptedProcess(false, false, true);
-        DeadlineScriptedProcessHandle descendant = new DeadlineScriptedProcessHandle(62, false);
+        DeadlineScriptedProcess root = DeadlineScriptedProcess.completesOnGracefulSignal();
+        DeadlineScriptedProcessHandle descendant = DeadlineScriptedProcessHandle.lifecycleDeadlineExpiresFirst(62);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<OptionalInt> shutdown = executor.submit(() -> ProcessLifecycle.stop(
@@ -165,8 +171,8 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
     @Test
     void guardedDescendantProviderLivenessTimeoutRemainsFailureWhileLifecycleBudgetRemains() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(10), Duration.ofMillis(10));
-        DeadlineScriptedProcess root = new DeadlineScriptedProcess(false, false, true);
-        DeadlineScriptedProcessHandle descendant = new DeadlineScriptedProcessHandle(63, true);
+        DeadlineScriptedProcess root = DeadlineScriptedProcess.completesOnGracefulSignal();
+        DeadlineScriptedProcessHandle descendant = DeadlineScriptedProcessHandle.providerDeadlineExpiresFirst(63);
         try {
             CommandExecutionException failure = assertThrows(
                     CommandExecutionException.class,
@@ -182,73 +188,6 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
             descendant.releaseGracefulWaitLiveness.countDown();
         }
         assertTrue(eventually(() -> scanner.availableOperationPermits() == 4));
-    }
-
-    private static final class BlockingLivenessProcess extends Process {
-
-        private final CountDownLatch livenessEntered = new CountDownLatch(1);
-        private final CountDownLatch releaseLiveness = new CountDownLatch(1);
-
-        @Override
-        public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public int waitFor() {
-            return 137;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            return false;
-        }
-
-        @Override
-        public int exitValue() {
-            throw new IllegalThreadStateException("process is alive");
-        }
-
-        @Override
-        public void destroy() {}
-
-        @Override
-        public Process destroyForcibly() {
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            livenessEntered.countDown();
-            boolean restoreInterrupt = false;
-            while (true) {
-                try {
-                    releaseLiveness.await();
-                    break;
-                } catch (InterruptedException interruption) {
-                    restoreInterrupt = true;
-                }
-            }
-            if (restoreInterrupt) {
-                Thread.currentThread().interrupt();
-            }
-            return true;
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
-        }
     }
 
     private static final class DelayedPostSignalExitProcess extends Process {
@@ -364,9 +303,7 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
 
     private static final class DeadlineScriptedProcess extends Process {
 
-        private final boolean blockGracefulWaitLiveness;
-        private final boolean completeWhenLivenessIsInterrupted;
-        private final boolean completeOnGracefulDestroy;
+        private final DeadlineScenario scenario;
         private final AtomicBoolean alive = new AtomicBoolean(true);
         private final AtomicInteger livenessCalls = new AtomicInteger();
         private final AtomicInteger exitValueWhileAliveCalls = new AtomicInteger();
@@ -375,7 +312,7 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
         private final ProcessHandle rootHandle = new MutableProcessHandle(61) {
             @Override
             public boolean destroy() {
-                if (completeOnGracefulDestroy) {
+                if (scenario == DeadlineScenario.COMPLETES_ON_GRACEFUL_SIGNAL) {
                     alive.set(false);
                 }
                 return true;
@@ -393,13 +330,20 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
             }
         };
 
-        private DeadlineScriptedProcess(
-                boolean blockGracefulWaitLiveness,
-                boolean completeWhenLivenessIsInterrupted,
-                boolean completeOnGracefulDestroy) {
-            this.blockGracefulWaitLiveness = blockGracefulWaitLiveness;
-            this.completeWhenLivenessIsInterrupted = completeWhenLivenessIsInterrupted;
-            this.completeOnGracefulDestroy = completeOnGracefulDestroy;
+        private DeadlineScriptedProcess(DeadlineScenario scenario) {
+            this.scenario = scenario;
+        }
+
+        private static DeadlineScriptedProcess lifecycleDeadlineExpiresFirst() {
+            return new DeadlineScriptedProcess(DeadlineScenario.LIFECYCLE_DEADLINE_EXPIRES_FIRST);
+        }
+
+        private static DeadlineScriptedProcess providerDeadlineExpiresFirst() {
+            return new DeadlineScriptedProcess(DeadlineScenario.PROVIDER_DEADLINE_EXPIRES_FIRST);
+        }
+
+        private static DeadlineScriptedProcess completesOnGracefulSignal() {
+            return new DeadlineScriptedProcess(DeadlineScenario.COMPLETES_ON_GRACEFUL_SIGNAL);
         }
 
         @Override
@@ -448,12 +392,12 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
 
         @Override
         public boolean isAlive() {
-            if (livenessCalls.incrementAndGet() == 2 && blockGracefulWaitLiveness) {
+            if (livenessCalls.incrementAndGet() == 2 && scenario != DeadlineScenario.COMPLETES_ON_GRACEFUL_SIGNAL) {
                 gracefulWaitLivenessEntered.countDown();
                 try {
                     releaseGracefulWaitLiveness.await();
                 } catch (InterruptedException expected) {
-                    if (completeWhenLivenessIsInterrupted) {
+                    if (scenario == DeadlineScenario.PROVIDER_DEADLINE_EXPIRES_FIRST) {
                         alive.set(false);
                     }
                 }
@@ -482,15 +426,23 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
 
     private static final class DeadlineScriptedProcessHandle extends MutableProcessHandle {
 
-        private final boolean completeWhenLivenessIsInterrupted;
+        private final DeadlineScenario scenario;
         private final AtomicBoolean alive = new AtomicBoolean(true);
         private final AtomicInteger livenessCalls = new AtomicInteger();
         private final CountDownLatch gracefulWaitLivenessEntered = new CountDownLatch(1);
         private final CountDownLatch releaseGracefulWaitLiveness = new CountDownLatch(1);
 
-        private DeadlineScriptedProcessHandle(long pid, boolean completeWhenLivenessIsInterrupted) {
+        private DeadlineScriptedProcessHandle(long pid, DeadlineScenario scenario) {
             super(pid);
-            this.completeWhenLivenessIsInterrupted = completeWhenLivenessIsInterrupted;
+            this.scenario = scenario;
+        }
+
+        private static DeadlineScriptedProcessHandle lifecycleDeadlineExpiresFirst(long pid) {
+            return new DeadlineScriptedProcessHandle(pid, DeadlineScenario.LIFECYCLE_DEADLINE_EXPIRES_FIRST);
+        }
+
+        private static DeadlineScriptedProcessHandle providerDeadlineExpiresFirst(long pid) {
+            return new DeadlineScriptedProcessHandle(pid, DeadlineScenario.PROVIDER_DEADLINE_EXPIRES_FIRST);
         }
 
         @Override
@@ -511,7 +463,7 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
                 try {
                     releaseGracefulWaitLiveness.await();
                 } catch (InterruptedException expected) {
-                    if (completeWhenLivenessIsInterrupted) {
+                    if (scenario == DeadlineScenario.PROVIDER_DEADLINE_EXPIRES_FIRST) {
                         alive.set(false);
                     }
                 }
@@ -522,6 +474,12 @@ final class ProcessTreeShutdownProviderDeadlineTest extends ProcessLifecycleShar
         private int recordedForceDestroyCalls() {
             return ((MutableProcessHandle) this).forceDestroyCalls();
         }
+    }
+
+    private enum DeadlineScenario {
+        LIFECYCLE_DEADLINE_EXPIRES_FIRST,
+        PROVIDER_DEADLINE_EXPIRES_FIRST,
+        COMPLETES_ON_GRACEFUL_SIGNAL
     }
 
     private static void sleepUninterruptibly(long milliseconds) {

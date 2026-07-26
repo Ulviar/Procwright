@@ -2,6 +2,11 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.CompletedProcess;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSourceContaining;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSources;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -19,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessLifecycleDiscoveryFailureTest extends ProcessLifecycleSharedSupport {
+final class ProcessLifecycleDiscoveryFailureTest {
     @Test
     void descendantEnumerationSecurityFailureStillStopsRootAndReportsIncompleteTree() {
         SecurityRestrictedProcess process = new SecurityRestrictedProcess();

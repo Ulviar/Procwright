@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSourceContaining;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -25,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class BoundedDestroyDispatcherTest extends ProcessLifecycleSharedSupport {
+final class BoundedDestroyDispatcherTest {
 
     @Test
     void immediateErrorPreservesIdentityWithoutSchedulerTiming() {

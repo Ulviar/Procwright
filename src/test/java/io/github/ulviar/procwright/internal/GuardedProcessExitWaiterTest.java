@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.AdvancingWaitClock;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.BlockingLivenessProcess;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.WaiterProcess;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.eventually;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -22,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
+final class GuardedProcessExitWaiterTest {
 
     @Test
     void guardedLivenessOperationTimeoutAtTheOuterDeadlineReturnsFalse() throws Exception {
@@ -31,9 +35,9 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
         try {
             assertFalse(ProcessLifecycle.waitFor(
                     scanner.guard(delegate), Duration.ofMillis(25), new LiveDescendantSnapshot()));
-            assertTrue(delegate.livenessEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(delegate.awaitLivenessEntry(1, TimeUnit.SECONDS));
         } finally {
-            delegate.releaseLiveness.countDown();
+            delegate.releaseLiveness();
         }
         assertTrue(eventually(() -> scanner.availableOperationPermits() == 1));
     }
@@ -46,7 +50,7 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
         try {
             Future<Boolean> wait = executor.submit(() ->
                     ProcessLifecycle.waitFor(scanner.guard(delegate), Duration.ZERO, new LiveDescendantSnapshot()));
-            assertTrue(delegate.livenessEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(delegate.awaitLivenessEntry(1, TimeUnit.SECONDS));
 
             ExecutionException wrapper = assertThrows(ExecutionException.class, () -> wait.get(5, TimeUnit.SECONDS));
             assertTrue(wrapper.getCause() instanceof CommandExecutionException);
@@ -54,7 +58,7 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
             assertTrue(ProcessTreeScanner.causedByOperationDeadline(failure));
             assertTrue(failure.getMessage().contains("procwright-provider-liveness-"));
         } finally {
-            delegate.releaseLiveness.countDown();
+            delegate.releaseLiveness();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
@@ -147,7 +151,7 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
 
     @Test
     void guardedProcessDoesNotStartANewProviderProbeAfterTheDeadline() throws Exception {
-        AdvancingClock clock = new AdvancingClock();
+        AdvancingWaitClock clock = new AdvancingWaitClock();
         GuardedDeadlineProcess delegate = new GuardedDeadlineProcess(clock);
         Process guarded = new ProcessTreeScanner(2, 4, Duration.ofMillis(25)).guard(delegate);
 
@@ -179,46 +183,7 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
         assertSame(expected, actual);
     }
 
-    private abstract static class TestProcess extends Process {
-
-        @Override
-        public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public int waitFor() {
-            return 0;
-        }
-
-        @Override
-        public int exitValue() {
-            if (isAlive()) {
-                throw new IllegalThreadStateException("process is alive");
-            }
-            return 0;
-        }
-
-        @Override
-        public void destroy() {}
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
-        }
-    }
-
-    private static final class AlwaysLiveProcess extends TestProcess {
+    private static final class AlwaysLiveProcess extends WaiterProcess {
 
         @Override
         public boolean isAlive() {
@@ -226,12 +191,12 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
         }
     }
 
-    private static final class GuardedDeadlineProcess extends TestProcess {
+    private static final class GuardedDeadlineProcess extends WaiterProcess {
 
-        private final AdvancingClock clock;
+        private final AdvancingWaitClock clock;
         private final AtomicInteger livenessCalls = new AtomicInteger();
 
-        private GuardedDeadlineProcess(AdvancingClock clock) {
+        private GuardedDeadlineProcess(AdvancingWaitClock clock) {
             this.clock = clock;
         }
 
@@ -243,23 +208,8 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
 
         @Override
         public Stream<ProcessHandle> descendants() {
-            clock.nanos = Duration.ofMillis(250).toNanos();
+            clock.advanceTo(Duration.ofMillis(250));
             return Stream.empty();
-        }
-    }
-
-    private static final class AdvancingClock implements ProcessExitWaiter.PollClock {
-
-        private volatile long nanos;
-
-        @Override
-        public long nanoTime() {
-            return nanos;
-        }
-
-        @Override
-        public void sleep(long durationNanos) {
-            nanos += durationNanos;
         }
     }
 
@@ -349,73 +299,6 @@ final class GuardedProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
 
         private void advance(long durationNanos) {
             nanos += durationNanos;
-        }
-    }
-
-    private static final class BlockingLivenessProcess extends Process {
-
-        private final CountDownLatch livenessEntered = new CountDownLatch(1);
-        private final CountDownLatch releaseLiveness = new CountDownLatch(1);
-
-        @Override
-        public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public int waitFor() {
-            return 137;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            return false;
-        }
-
-        @Override
-        public int exitValue() {
-            throw new IllegalThreadStateException("process is alive");
-        }
-
-        @Override
-        public void destroy() {}
-
-        @Override
-        public Process destroyForcibly() {
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            livenessEntered.countDown();
-            boolean restoreInterrupt = false;
-            while (true) {
-                try {
-                    releaseLiveness.await();
-                    break;
-                } catch (InterruptedException interruption) {
-                    restoreInterrupt = true;
-                }
-            }
-            if (restoreInterrupt) {
-                Thread.currentThread().interrupt();
-            }
-            return true;
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
         }
     }
 

@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,7 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-final class KnownDescendantsTest extends ProcessLifecycleSharedSupport {
+final class KnownDescendantsTest {
 
     @Test
     void snapshotDefensivelyCopiesItsOrderedIdentityMap() {

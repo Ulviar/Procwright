@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -50,7 +51,7 @@ final class ProcessTreeScannerOutcomeClassificationTest {
         int identityPidCalls = pidCalls.get();
         int identityInfoCalls = infoCalls.get();
 
-        KnownDescendants known = ProcessLifecycleSharedSupport.knownDescendants(guarded);
+        KnownDescendants known = knownDescendants(guarded);
 
         ProcessHandle indexed = known.handles().iterator().next();
         assertTrue(indexed instanceof GuardedProcessHandle);

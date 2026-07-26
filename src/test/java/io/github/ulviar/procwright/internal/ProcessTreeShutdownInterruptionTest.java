@@ -2,6 +2,11 @@
 
 package io.github.ulviar.procwright.internal;
 
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failsOnGracefulAndForcefulDestroy;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSources;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,7 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSupport {
+final class ProcessTreeShutdownInterruptionTest {
 
     @Test
     void interruptionBecomesPrimaryUntilForcefulCleanupAndThenRestoresStatus() {
@@ -51,7 +56,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
 
     @Test
     void gracefulPollingSleepInterruptionEscalatesAndForceStopsLateDescendant() throws Exception {
-        SleepInterruptProcess process = new SleepInterruptProcess(1, 2);
+        SleepInterruptProcess process = SleepInterruptProcess.forGracefulWaitInterruption();
 
         CleanupThreadResult result = interruptDuringPollingSleep(
                 () -> ProcessLifecycle.stop(
@@ -68,7 +73,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
 
     @Test
     void forcefulPollingSleepInterruptionRediscoversAndResignalsBeforeRestoringStatus() throws Exception {
-        SleepInterruptProcess process = new SleepInterruptProcess(2, 3);
+        SleepInterruptProcess process = SleepInterruptProcess.forForcefulWaitInterruption();
 
         CleanupThreadResult result =
                 interruptDuringPollingSleep(() -> ProcessLifecycle.forceStop(process, Duration.ofSeconds(5)), process);
@@ -150,7 +155,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
 
         private final AtomicBoolean forceRequested = new AtomicBoolean();
         private final AtomicBoolean stopped = new AtomicBoolean();
-        private final ThrowingProcessHandle descendant;
+        private final MutableProcessHandle descendant;
         private final AtomicInteger livenessChecks = new AtomicInteger();
         private final AtomicInteger rootForceFallbackCalls = new AtomicInteger();
         private final AtomicBoolean interruptedDuringForcefulWait = new AtomicBoolean();
@@ -172,7 +177,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
         };
 
         private InterruptingCleanupProcess(Throwable gracefulFailure, Throwable forceFailure) {
-            descendant = new ThrowingProcessHandle(53, gracefulFailure, forceFailure);
+            descendant = failsOnGracefulAndForcefulDestroy(53, gracefulFailure, forceFailure);
         }
 
         @Override
@@ -241,7 +246,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
             return Stream.of(descendant);
         }
 
-        private ThrowingProcessHandle descendant() {
+        private MutableProcessHandle descendant() {
             return descendant;
         }
 
@@ -385,54 +390,9 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
         }
     }
 
-    private static final class ThrowingProcessHandle extends MutableProcessHandle {
-
-        private final Throwable gracefulFailure;
-        private final Throwable forceFailure;
-        private final AtomicBoolean alive = new AtomicBoolean(true);
-        private final AtomicInteger gracefulDestroyCalls = new AtomicInteger();
-        private final AtomicInteger forceDestroyCalls = new AtomicInteger();
-
-        private ThrowingProcessHandle(long pid, Throwable gracefulFailure, Throwable forceFailure) {
-            super(pid);
-            this.gracefulFailure = gracefulFailure;
-            this.forceFailure = forceFailure;
-        }
-
-        @Override
-        public boolean destroy() {
-            gracefulDestroyCalls.incrementAndGet();
-            throwUnchecked(gracefulFailure);
-            alive.set(false);
-            return true;
-        }
-
-        @Override
-        public boolean destroyForcibly() {
-            forceDestroyCalls.incrementAndGet();
-            alive.set(false);
-            throwUnchecked(forceFailure);
-            return true;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return alive.get();
-        }
-
-        private int gracefulDestroyCalls() {
-            return gracefulDestroyCalls.get();
-        }
-
-        private int forceDestroyCalls() {
-            return forceDestroyCalls.get();
-        }
-    }
-
     private static final class SleepInterruptProcess extends Process {
 
-        private final int forceSignalsBeforeExit;
-        private final int livenessCallsBeforePolling;
+        private final InterruptedWait interruptedWait;
         private final AtomicBoolean alive = new AtomicBoolean(true);
         private final AtomicBoolean descendantVisible = new AtomicBoolean();
         private final AtomicInteger livenessCalls = new AtomicInteger();
@@ -448,7 +408,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
             @Override
             public boolean destroyForcibly() {
                 super.destroyForcibly();
-                if (rootForceSignals.incrementAndGet() >= forceSignalsBeforeExit) {
+                if (rootForceSignals.incrementAndGet() >= interruptedWait.forceSignalsBeforeExit()) {
                     alive.set(false);
                 }
                 return true;
@@ -460,9 +420,16 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
             }
         };
 
-        private SleepInterruptProcess(int forceSignalsBeforeExit, int livenessCallsBeforePolling) {
-            this.forceSignalsBeforeExit = forceSignalsBeforeExit;
-            this.livenessCallsBeforePolling = livenessCallsBeforePolling;
+        private SleepInterruptProcess(InterruptedWait interruptedWait) {
+            this.interruptedWait = interruptedWait;
+        }
+
+        private static SleepInterruptProcess forGracefulWaitInterruption() {
+            return new SleepInterruptProcess(InterruptedWait.GRACEFUL);
+        }
+
+        private static SleepInterruptProcess forForcefulWaitInterruption() {
+            return new SleepInterruptProcess(InterruptedWait.FORCEFUL);
         }
 
         @Override
@@ -499,7 +466,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
 
         @Override
         public Process destroyForcibly() {
-            if (rootForceSignals.incrementAndGet() >= forceSignalsBeforeExit) {
+            if (rootForceSignals.incrementAndGet() >= interruptedWait.forceSignalsBeforeExit()) {
                 alive.set(false);
             }
             return this;
@@ -507,7 +474,7 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
 
         @Override
         public boolean isAlive() {
-            if (livenessCalls.incrementAndGet() >= livenessCallsBeforePolling) {
+            if (livenessCalls.incrementAndGet() >= interruptedWait.livenessCallsBeforePolling()) {
                 waitPollEntered.countDown();
             }
             return alive.get();
@@ -528,16 +495,22 @@ final class ProcessTreeShutdownInterruptionTest extends ProcessLifecycleSharedSu
         }
     }
 
-    private static void throwUnchecked(Throwable failure) {
-        if (failure == null) {
-            return;
+    private enum InterruptedWait {
+        GRACEFUL(1),
+        FORCEFUL(2);
+
+        private final int forceSignalsBeforeExit;
+
+        InterruptedWait(int forceSignalsBeforeExit) {
+            this.forceSignalsBeforeExit = forceSignalsBeforeExit;
         }
-        if (failure instanceof RuntimeException runtimeException) {
-            throw runtimeException;
+
+        private int forceSignalsBeforeExit() {
+            return forceSignalsBeforeExit;
         }
-        if (failure instanceof Error error) {
-            throw error;
+
+        private int livenessCallsBeforePolling() {
+            return forceSignalsBeforeExit + 1;
         }
-        throw new AssertionError("test failure must be unchecked", failure);
     }
 }

@@ -13,7 +13,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
-class ProcessLifecycleSharedSupport {
+final class ProcessLifecycleTestFixtures {
+
+    private ProcessLifecycleTestFixtures() {}
+
     static List<Throwable> failureSources(Throwable failure) {
         List<Throwable> aggregateSources = FailureAggregation.sources(failure);
         if (aggregateSources.size() != 1 || aggregateSources.get(0) != failure) {
@@ -153,15 +156,15 @@ class ProcessLifecycleSharedSupport {
 
         @Override
         public boolean destroy() {
-            gracefulDestroyCalls.incrementAndGet();
-            alive.set(false);
+            recordGracefulDestroyAttempt();
+            markExited();
             return true;
         }
 
         @Override
         public boolean destroyForcibly() {
-            forceDestroyCalls.incrementAndGet();
-            alive.set(false);
+            recordForcefulDestroyAttempt();
+            markExited();
             return true;
         }
 
@@ -182,5 +185,191 @@ class ProcessLifecycleSharedSupport {
         int forceDestroyCalls() {
             return forceDestroyCalls.get();
         }
+
+        final void recordGracefulDestroyAttempt() {
+            gracefulDestroyCalls.incrementAndGet();
+        }
+
+        final void recordForcefulDestroyAttempt() {
+            forceDestroyCalls.incrementAndGet();
+        }
+
+        final void markExited() {
+            alive.set(false);
+        }
+    }
+
+    abstract static class WaiterProcess extends Process {
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 0;
+        }
+
+        @Override
+        public int exitValue() {
+            if (isAlive()) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 0;
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+    }
+
+    static final class AdvancingWaitClock implements ProcessExitWaiter.PollClock {
+
+        private volatile long nanos;
+
+        @Override
+        public long nanoTime() {
+            return nanos;
+        }
+
+        @Override
+        public void sleep(long durationNanos) {
+            nanos += durationNanos;
+        }
+
+        void advanceTo(Duration elapsed) {
+            nanos = elapsed.toNanos();
+        }
+    }
+
+    static final class BlockingLivenessProcess extends Process {
+
+        private final java.util.concurrent.CountDownLatch livenessEntered = new java.util.concurrent.CountDownLatch(1);
+        private final java.util.concurrent.CountDownLatch releaseLiveness = new java.util.concurrent.CountDownLatch(1);
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            return 137;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, java.util.concurrent.TimeUnit unit) {
+            return false;
+        }
+
+        @Override
+        public int exitValue() {
+            throw new IllegalThreadStateException("process is alive");
+        }
+
+        @Override
+        public void destroy() {}
+
+        @Override
+        public Process destroyForcibly() {
+            return this;
+        }
+
+        @Override
+        public boolean isAlive() {
+            livenessEntered.countDown();
+            boolean restoreInterrupt = false;
+            while (true) {
+                try {
+                    releaseLiveness.await();
+                    break;
+                } catch (InterruptedException interruption) {
+                    restoreInterrupt = true;
+                }
+            }
+            if (restoreInterrupt) {
+                Thread.currentThread().interrupt();
+            }
+            return true;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+
+        boolean awaitLivenessEntry(long timeout, java.util.concurrent.TimeUnit unit) throws InterruptedException {
+            return livenessEntered.await(timeout, unit);
+        }
+
+        void releaseLiveness() {
+            releaseLiveness.countDown();
+        }
+    }
+
+    static MutableProcessHandle failsOnGracefulDestroy(long pid, Throwable gracefulFailure) {
+        return new MutableProcessHandle(pid) {
+            @Override
+            public boolean destroy() {
+                recordGracefulDestroyAttempt();
+                throwUnchecked(gracefulFailure);
+                return true;
+            }
+        };
+    }
+
+    static MutableProcessHandle failsOnGracefulAndForcefulDestroy(
+            long pid, Throwable gracefulFailure, Throwable forcefulFailure) {
+        return new MutableProcessHandle(pid) {
+            @Override
+            public boolean destroy() {
+                recordGracefulDestroyAttempt();
+                throwUnchecked(gracefulFailure);
+                return true;
+            }
+
+            @Override
+            public boolean destroyForcibly() {
+                recordForcefulDestroyAttempt();
+                markExited();
+                throwUnchecked(forcefulFailure);
+                return true;
+            }
+        };
+    }
+
+    private static void throwUnchecked(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeException) {
+            throw runtimeException;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw new AssertionError("test failure must be unchecked", failure);
     }
 }
