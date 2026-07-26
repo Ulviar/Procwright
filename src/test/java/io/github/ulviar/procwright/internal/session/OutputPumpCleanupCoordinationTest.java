@@ -368,5 +368,4 @@ final class OutputPumpCleanupCoordinationTest {
             rawSession.close();
         }
     }
-
 }

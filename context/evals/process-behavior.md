@@ -29,7 +29,7 @@
 - Ошибка запуска не раскрывает сырые argv-значения в публичном сообщении исключения.
 - Невалидные значения окружения отклоняются до запуска и не повторяют сырое значение в сообщении.
 - Прерванное ожидание не теряет interrupt status. Доказано:
-  `CancellationAndCleanupIntegrationTest.callerInterruptDuringRunIsTypedFailureAndRestoresInterruptStatus` и
+  `RunInterruptionCleanupIntegrationTest.callerInterruptDuringRunIsTypedFailureAndRestoresInterruptStatus` и
   `LineSessionSerializationAndDeadlinesIntegrationTest.callerInterruptDuringRequestIsTypedFailureAndRestoresInterruptStatus`.
 
 ## Shell и argv
@@ -173,7 +173,7 @@
   in-flight raw read, `mark` и `reset`.
 - `close()` и idle timeout проходят через общий shutdown helper (`ProcessLifecycle.stop`); escalation branch этого
   helper (процесс игнорирует interrupt signal и принудительно убивается после interrupt grace) доказан тестом
-  `CancellationAndCleanupIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` (POSIX).
+  `RunShutdownEscalationIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` (POSIX).
 - Ctrl+C/interrupt поведение проверяется через PTY `TerminalSignal.INTERRUPT`.
 
 ## Построчный workflow
@@ -275,7 +275,7 @@
 - LICENSE присутствует в корне репозитория;
 - versioning policy, compatibility policy, dependency review и publication readiness актуальны;
 - session shutdown escalation hardening закрыт тестом
-  `CancellationAndCleanupIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
+  `RunShutdownEscalationIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
   shutdown helper `ProcessLifecycle.stop`;
 - Java 17-targeted build проходит scenario checks на Linux, macOS и Windows с JDK 17, а также на Linux с JDK 21/25;
   source targets 21/25 отдельно проходят scenario checks на соответствующих Linux/JDK.
