@@ -9,10 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
-import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.ResponseDecoder;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -21,20 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class LineSessionDecoderAndSizeLimitsIntegrationTest extends LineSessionDecoderIntegrationSupport {
-
-    @Test
-    void customDecoderCanReadMultipleLines() {
-        LineSessionScenario.Draft service =
-                fixtureScenario().withResponseDecoder(reader -> List.of(reader.readLine(), reader.readLine()));
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineResponse response = session.request("multi");
-
-            assertEquals(List.of("first:multi", "second:multi"), response.lines());
-            assertEquals("first:multi\nsecond:multi", response.text());
-        }
-    }
+final class LineSessionDecoderContractIntegrationTest extends LineSessionIntegrationSupport {
 
     @Test
     void stdoutDecoderWithoutProgressFailsAndClosesLineSession() throws Exception {
@@ -155,137 +145,6 @@ final class LineSessionDecoderAndSizeLimitsIntegrationTest extends LineSessionDe
             assertEquals(LineSessionException.Reason.DECODE_ERROR, followUp.reason());
         } finally {
             session.close();
-        }
-    }
-
-    @Test
-    void eofBeforeResponseIsDistinct() {
-        try (LineSession session = openLineSession(fixtureScenario(), call -> call.withArgs("exit-after-read"))) {
-            LineSessionException exception =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
-
-            assertEquals(LineSessionException.Reason.EOF, exception.reason());
-        }
-    }
-
-    @Test
-    void decoderFailureIsDistinct() {
-        LineSessionScenario.Draft service = fixtureScenario().withResponseDecoder(reader -> {
-            throw new IllegalArgumentException("bad response");
-        });
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineSessionException exception =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
-
-            assertEquals(LineSessionException.Reason.DECODER_FAILED, exception.reason());
-        }
-    }
-
-    @Test
-    void decoderErrorClosesSessionAfterConsumingResponse() throws Exception {
-        AssertionError decoderError = new AssertionError("decoder failed");
-        LineSessionScenario.Draft service = fixtureScenario().withResponseDecoder(reader -> {
-            reader.readLine();
-            throw decoderError;
-        });
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            AssertionError thrown =
-                    assertThrows(AssertionError.class, () -> session.request("hello", Duration.ofSeconds(1)));
-
-            assertSame(decoderError, thrown);
-            session.onExit().get(2, TimeUnit.SECONDS);
-            LineSessionException followUp =
-                    assertThrows(LineSessionException.class, () -> session.request("again", Duration.ofSeconds(1)));
-            assertEquals(LineSessionException.Reason.DECODER_FAILED, followUp.reason());
-        }
-    }
-
-    @Test
-    void responseLimitsApplyToConsumedProtocolInputNotTransformedDecoderOutput() {
-        ResponseDecoder expandingDecoder = reader -> {
-            assertEquals("x", reader.readLine());
-            return List.of("expanded".repeat(100));
-        };
-        LineSessionScenario.Draft service = fixtureScenario()
-                .withMaxResponseLines(1)
-                .withMaxResponseChars(1)
-                .withResponseDecoder(expandingDecoder);
-
-        try (LineSession session = openLineSession(
-                service, call -> call.withArgs("partial", "--stdout=x\n", "--stderr=", "--hold-millis=5000"))) {
-            LineResponse response = session.request("ignored", Duration.ofSeconds(2));
-
-            assertEquals(List.of("expanded".repeat(100)), response.lines());
-        }
-    }
-
-    @Test
-    void lineOfExactlyMaxLineCharsWithLineFeedTerminatorSucceeds() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars("response:hello".length());
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            assertEquals("response:hello", session.request("hello").text());
-        }
-    }
-
-    @Test
-    void lineOfExactlyMaxLineCharsWithCrLfTerminatorSucceeds() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars("response:hello".length());
-
-        try (LineSession session =
-                openLineSession(service, call -> call.withArgs("controlled-line-repl", "--crlf=true"))) {
-            assertEquals("response:hello", session.request("hello").text());
-        }
-    }
-
-    @Test
-    void lineBeyondMaxLineCharsIsTypedFailureForBothTerminators() {
-        for (String[] args : new String[][] {{"controlled-line-repl"}, {"controlled-line-repl", "--crlf=true"}}) {
-            LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars("response:hello".length() - 1);
-
-            try (LineSession session = openLineSession(service, call -> call.withArgs(args))) {
-                LineSessionException exception =
-                        assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
-
-                assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            }
-        }
-    }
-
-    @Test
-    void responseLineLimitAppliesAcrossCustomDecoderReads() {
-        ResponseDecoder decoder = reader -> {
-            java.util.ArrayList<String> lines = new java.util.ArrayList<>();
-            while (true) {
-                String line = reader.readLine();
-                lines.add(line);
-                if (line.equals("done")) {
-                    return lines;
-                }
-            }
-        };
-        LineSessionScenario.Draft service =
-                fixtureScenario().withMaxResponseLines(2).withResponseDecoder(decoder);
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineSessionException exception = assertThrows(LineSessionException.class, () -> session.request("many"));
-
-            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-        }
-    }
-
-    @Test
-    void responseCharacterLimitAppliesAcrossCustomDecoderReads() {
-        ResponseDecoder decoder = reader -> List.of(reader.readLine(), reader.readLine());
-        LineSessionScenario.Draft service =
-                fixtureScenario().withMaxResponseChars(20).withResponseDecoder(decoder);
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineSessionException exception = assertThrows(LineSessionException.class, () -> session.request("multi"));
-
-            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         }
     }
 
@@ -428,133 +287,322 @@ final class LineSessionDecoderAndSizeLimitsIntegrationTest extends LineSessionDe
         }
     }
 
-    @Test
-    void strictCharsetPolicyReportsDecodeErrorAsTypedFailure() {
-        LineSessionScenario.Draft service =
-                fixtureScenario().withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineSessionException exception = assertThrows(
-                    LineSessionException.class, () -> session.request("malformed-utf8", Duration.ofSeconds(2)));
+    private static void assertNoProgressDecoderClosesLineSession(String stdout, String stderr) throws Exception {
+        LineSessionScenario.Draft service = fixtureScenario()
+                .withTranscriptLimit(32)
+                .withMaxLineChars(32)
+                .withCharsetPolicy(CharsetPolicy.report(new NoProgressCharset()));
+        LineSession session = openLineSession(
+                service,
+                call -> call.withArgs("partial", "--stdout=" + stdout, "--stderr=" + stderr, "--hold-millis=5000"));
+        try {
+            LineSessionException exception =
+                    assertThrows(LineSessionException.class, () -> session.request("", Duration.ofSeconds(2)));
 
             assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
-
-            LineSessionException followUp =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
+            assertTrue(exception.transcript().text().length() <= 32);
+            session.onExit().get(2, TimeUnit.SECONDS);
+            LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request(""));
             assertEquals(LineSessionException.Reason.DECODE_ERROR, followUp.reason());
-            assertTrue(followUp.getMessage().contains("closed by an earlier failure"));
+        } finally {
+            session.close();
         }
     }
 
-    @Test
-    void strictCharsetPolicyReportsMalformedStderrAsTypedFailure() {
-        LineSessionScenario.Draft service =
-                fixtureScenario().withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineSessionException exception = assertThrows(
-                    LineSessionException.class, () -> session.request("malformed-stderr-utf8", Duration.ofSeconds(2)));
-
-            assertEquals(LineSessionException.Reason.DECODE_ERROR, exception.reason());
-            assertTrue(exception.transcript().malformed());
-        }
-    }
-
-    @Test
-    void replacingCharsetPolicyMarksMalformedStderrWithoutFailingRequest() throws Exception {
-        try (LineSession session = openLineSession(fixtureScenario(), call -> call.withArgs("controlled-line-repl"))) {
-            LineResponse response = session.request("malformed-stderr-utf8", Duration.ofSeconds(2));
-
-            assertEquals("response:malformed-stderr-utf8", response.text());
-            assertTrue(awaitMalformedTranscript(session));
-            assertTrue(session.transcript().text().contains("\uFFFD"));
-        }
-    }
-
-    @Test
-    void multiByteCodepointSplitAcrossChunksDecodesCorrectly() {
-        LineSessionScenario.Draft service =
-                fixtureScenario().withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            assertEquals(
-                    "П", session.request("split-utf8", Duration.ofSeconds(2)).text());
-        }
-    }
-
-    @Test
-    void crlfTerminatedResponsesDecodeWithoutTerminators() {
-        try (LineSession session =
-                openLineSession(fixtureScenario(), call -> call.withArgs("controlled-line-repl", "--crlf=true"))) {
-            for (String request : List.of("alpha", "beta")) {
-                LineResponse response = session.request(request, Duration.ofSeconds(2));
-
-                assertEquals(List.of("response:" + request), response.lines());
-                assertFalse(response.text().contains("\r"), "decoded lines must not retain CRLF terminators");
+    private static boolean causeChainContains(Throwable failure, Throwable expected) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current == expected) {
+                return true;
             }
+            current = current.getCause();
         }
+        return false;
     }
 
-    @Test
-    void mixedLineTerminatorsWithinOneSessionDecodeWithoutManualNormalization() {
-        // With --crlf=true the fixture terminates regular responses with CRLF while ":multi" output
-        // stays LF-terminated, so one session observes both styles.
-        ResponseDecoder decoder = reader -> {
-            String first = reader.readLine();
-            if (first.startsWith("multi:")) {
-                return List.of(first, reader.readLine());
+    private static CharsetDecoder passthroughDecoder(Charset charset) {
+        return new CharsetDecoder(charset, 1, 1) {
+            @Override
+            protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                while (input.hasRemaining() && output.hasRemaining()) {
+                    output.put((char) Byte.toUnsignedInt(input.get()));
+                }
+                return input.hasRemaining() ? CoderResult.OVERFLOW : CoderResult.UNDERFLOW;
             }
-            return List.of(first);
         };
-        LineSessionScenario.Draft service = fixtureScenario().withResponseDecoder(decoder);
+    }
 
-        try (LineSession session = openLineSession(service, call -> call.withArgs("line-repl", "--crlf=true"))) {
-            assertEquals(
-                    List.of("multi:0", "multi:1"), session.request(":multi 2").lines());
-            assertEquals(List.of("response:hello"), session.request("hello").lines());
+    private static final class IndexedNewDecoderFailureCharset extends Charset {
+
+        private final int failingCreation;
+        private final RuntimeException failure;
+        private int decoderCreations;
+
+        IndexedNewDecoderFailureCharset(int failingCreation, RuntimeException failure) {
+            super("X-Procwright-Line-Indexed-New-Decoder-Failure-" + failingCreation, new String[0]);
+            this.failingCreation = failingCreation;
+            this.failure = failure;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            decoderCreations++;
+            if (decoderCreations == failingCreation) {
+                throw failure;
+            }
+            return passthroughDecoder(this);
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+
+        int decoderCreations() {
+            return decoderCreations;
         }
     }
 
-    @Test
-    void carriageReturnWithoutLineFeedIsContentNotTerminator() {
-        try (LineSession session = openLineSession(
-                fixtureScenario(),
-                call -> call.withArgs(
-                        "binary", "--pattern=hex", "--hex=616c7068610d626574610a", "--hold-millis=5000"))) {
-            assertEquals(
-                    "alpha\rbeta",
-                    session.request("ignored", Duration.ofSeconds(2)).text());
+    private static final class MarkerRuntimeFailureCharset extends Charset {
+
+        private final byte marker;
+        private final RuntimeException failure;
+
+        MarkerRuntimeFailureCharset(byte marker, RuntimeException failure) {
+            super("X-Procwright-Line-Marker-Runtime-Failure", new String[0]);
+            this.marker = marker;
+            this.failure = failure;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 1) {
+                @Override
+                protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                    while (input.hasRemaining() && output.hasRemaining()) {
+                        if (input.get(input.position()) == marker) {
+                            throw failure;
+                        }
+                        output.put((char) Byte.toUnsignedInt(input.get()));
+                    }
+                    return input.hasRemaining() ? CoderResult.OVERFLOW : CoderResult.UNDERFLOW;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
         }
     }
 
-    @Test
-    void unterminatedStdoutLineIsBounded() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars(32);
+    private static final class RuntimeFailureOnFlushCharset extends Charset {
 
-        try (LineSession session = openLineSession(
-                service,
-                call -> call.withArgs("partial", "--stdout=" + "x".repeat(128), "--stderr=", "--hold-millis=5000"))) {
-            LineSessionException exception =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
+        private final RuntimeException failure;
 
-            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            assertTrue(exception.getCause().getMessage().contains("maxLineChars"));
+        RuntimeFailureOnFlushCharset(RuntimeException failure) {
+            super("X-Procwright-Line-Runtime-Failure-On-Flush", new String[0]);
+            this.failure = failure;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 1) {
+                @Override
+                protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                    while (input.hasRemaining() && output.hasRemaining()) {
+                        output.put((char) Byte.toUnsignedInt(input.get()));
+                    }
+                    return input.hasRemaining() ? CoderResult.OVERFLOW : CoderResult.UNDERFLOW;
+                }
+
+                @Override
+                protected CoderResult implFlush(java.nio.CharBuffer output) {
+                    throw failure;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
         }
     }
 
-    @Test
-    void loneCarriageReturnAtEofCannotExceedLineLimit() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars(3);
+    private static final class OutputThenMalformedCharset extends Charset {
 
-        try (LineSession session = openLineSession(
-                service,
-                call -> call.withArgs(
-                        "binary", "--pattern=hex", "--hex=7878780d", "--stream=stdout", "--hold-millis=100"))) {
-            LineSessionException exception =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
+        OutputThenMalformedCharset() {
+            super("X-Procwright-Line-Output-Then-Malformed", new String[0]);
+        }
 
-            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            assertTrue(exception.getCause().getMessage().contains("maxLineChars"));
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 3) {
+                @Override
+                protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                    if (!input.hasRemaining()) {
+                        return CoderResult.UNDERFLOW;
+                    }
+                    output.put("ok\n");
+                    return CoderResult.malformedForLength(1);
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+    }
+
+    private static final class MalformedBangCharset extends Charset {
+
+        private final CountDownLatch beforeFailure;
+
+        MalformedBangCharset(CountDownLatch beforeFailure) {
+            super("X-Procwright-Line-Malformed-Bang", new String[0]);
+            this.beforeFailure = beforeFailure;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 1) {
+                @Override
+                protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                    while (input.hasRemaining() && output.hasRemaining()) {
+                        if (input.get(input.position()) == (byte) '!') {
+                            beforeFailure.countDown();
+                            return CoderResult.malformedForLength(1);
+                        }
+                        output.put((char) Byte.toUnsignedInt(input.get()));
+                    }
+                    return input.hasRemaining() ? CoderResult.OVERFLOW : CoderResult.UNDERFLOW;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+    }
+
+    private static final class NoProgressCharset extends Charset {
+
+        NoProgressCharset() {
+            super("X-Procwright-Line-No-Progress", new String[0]);
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 1) {
+                @Override
+                protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                    return CoderResult.UNDERFLOW;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+    }
+
+    private static final class OutputOnlyOverflowCharset extends Charset {
+
+        OutputOnlyOverflowCharset() {
+            super("X-Procwright-Line-Output-Only-Overflow", new String[0]);
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 128) {
+                @Override
+                protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                    while (output.hasRemaining()) {
+                        output.put('x');
+                    }
+                    return CoderResult.OVERFLOW;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+    }
+
+    private static final class FiniteRewindingCharset extends Charset {
+
+        FiniteRewindingCharset() {
+            super("X-Procwright-Line-Finite-Rewinding", new String[0]);
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 128) {
+                int calls;
+
+                @Override
+                protected CoderResult decodeLoop(java.nio.ByteBuffer input, java.nio.CharBuffer output) {
+                    calls++;
+                    if (calls > 4) {
+                        return CoderResult.malformedForLength(1);
+                    }
+                    input.position((calls & 1) == 1 ? 1 : 0);
+                    while (output.hasRemaining()) {
+                        output.put('r');
+                    }
+                    return CoderResult.OVERFLOW;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
         }
     }
 }
