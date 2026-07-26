@@ -2,6 +2,12 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.CloseFailureProcess;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.ControlledFailingCloseOutputStream;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.TrackingProcessHandle;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.awaitIgnoringInterrupts;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.failureShutdownCount;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.terminalEventCount;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -15,9 +21,6 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.CloseFailureProcess;
-import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.ControlledFailingCloseOutputStream;
-import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.TrackingProcessHandle;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -36,7 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class DefaultSessionStdinCloseTerminalRaceTest extends DefaultSessionLifecycleTestSupport {
+final class DefaultSessionStdinCloseTerminalRaceTest {
 
     @Test
     void blockedStdinCloseFailureAfterNaturalExitIsReportedOnceWithoutContradictoryTerminalEvents() throws Exception {
@@ -325,5 +328,12 @@ final class DefaultSessionStdinCloseTerminalRaceTest extends DefaultSessionLifec
         public Stream<ProcessHandle> descendants() {
             return Stream.empty();
         }
+    }
+
+    private static int shutdownCount(List<DiagnosticEvent> events, String reason) {
+        return Math.toIntExact(events.stream()
+                .filter(event -> event.type() == DiagnosticEventType.SHUTDOWN_REQUESTED)
+                .filter(event -> reason.equals(event.attributes().get("reason")))
+                .count());
     }
 }

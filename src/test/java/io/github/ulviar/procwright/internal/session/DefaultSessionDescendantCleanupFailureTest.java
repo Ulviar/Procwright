@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class DefaultSessionDescendantCleanupFailureTest extends DefaultSessionLifecycleTestSupport {
+final class DefaultSessionDescendantCleanupFailureTest {
 
     @Test
     void cyclicCleanupFailureCannotHangCloseAndPreservesPrimaryIdentity() throws Exception {

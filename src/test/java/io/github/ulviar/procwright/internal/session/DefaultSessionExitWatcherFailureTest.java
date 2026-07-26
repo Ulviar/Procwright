@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.failureShutdownCount;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -28,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class DefaultSessionExitWatcherFailureTest extends DefaultSessionLifecycleTestSupport {
+final class DefaultSessionExitWatcherFailureTest {
 
     @Test
     void exitWatcherFailureForceStopsRootWhenHandleAccessIsUnavailable() throws Exception {

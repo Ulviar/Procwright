@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.awaitIgnoringInterrupts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -21,7 +23,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-final class DefaultSessionStdinCloseContentionTest extends DefaultSessionLifecycleTestSupport {
+final class DefaultSessionStdinCloseContentionTest {
 
     @Test
     void closeStdinDoesNotWaitForRawCloseContendedByAnActiveWrite() throws Exception {

@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.CloseFailureProcess;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.ControlledFailingCloseOutputStream;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.failureShutdownCount;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.terminalEventCount;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -14,8 +18,6 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.CloseFailureProcess;
-import io.github.ulviar.procwright.internal.session.SessionStdinCloseFixtures.ControlledFailingCloseOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -26,7 +28,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-final class DefaultSessionStdinCloseFailurePropagationTest extends DefaultSessionLifecycleTestSupport {
+final class DefaultSessionStdinCloseFailurePropagationTest {
 
     @Test
     void asynchronousIoStdinCloseFailureTerminatesSessionWithTheOriginalCause() throws Exception {

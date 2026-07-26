@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.SessionLifecycleTestFixtures.awaitIgnoringInterrupts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -28,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class DefaultSessionExitPublicationTest extends DefaultSessionLifecycleTestSupport {
+final class DefaultSessionExitPublicationTest {
 
     @Test
     void hostilePublicExitCompositionCannotPinCloseWatcherOrInternalObservers() throws Exception {
