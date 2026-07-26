@@ -24,45 +24,45 @@ final class IntegrationsConsumer {
     }
 
     static ProtocolSessionScenario.Draft<JsonNode, JsonNode> jsonLinesSession(String executable) {
-        return command(executable).protocolSession(ProtocolAdapters.jsonLinesSession(1024));
+        return command(executable).protocolSession(ProtocolAdapters.jsonLines(1024));
     }
 
     static ProtocolSessionScenario.PoolDraft<JsonNode, JsonNode> jsonLinesPool(String executable) {
         return command(executable)
-                .protocolSession(ProtocolAdapters.jsonLinesSession(1024))
+                .protocolSession(ProtocolAdapters.jsonLines(1024))
                 .pooled();
     }
 
     static ProtocolSessionScenario.Draft<byte[], byte[]> delimiterSession(String executable) {
-        return command(executable).protocolSession(ProtocolAdapters.delimiterSession((byte) 0, 1024));
+        return command(executable).protocolSession(ProtocolAdapters.delimited((byte) 0, 1024));
     }
 
     static ProtocolSessionScenario.PoolDraft<byte[], byte[]> delimiterPool(String executable) {
         return command(executable)
-                .protocolSession(ProtocolAdapters.delimiterSession((byte) 0, 1024))
+                .protocolSession(ProtocolAdapters.delimited((byte) 0, 1024))
                 .pooled();
     }
 
     static ProtocolSessionScenario.Draft<JsonNode, JsonNode> contentLengthSession(String executable) {
-        return command(executable).protocolSession(ProtocolAdapters.contentLengthJsonSession(1024));
+        return command(executable).protocolSession(ProtocolAdapters.contentLengthJson(1024));
     }
 
     static ProtocolSessionScenario.PoolDraft<JsonNode, JsonNode> contentLengthPool(String executable) {
         return command(executable)
-                .protocolSession(ProtocolAdapters.contentLengthJsonSession(1024))
+                .protocolSession(ProtocolAdapters.contentLengthJson(1024))
                 .pooled();
     }
 
     static ProtocolSessionScenario.Draft<String, String> typedJsonSession(String executable) {
         return command(executable)
-                .protocolSession(ProtocolAdapters.typedJsonSession(
-                        TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.jsonLinesSession(1024)));
+                .protocolSession(ProtocolAdapters.typedJson(
+                        TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.jsonLines(1024)));
     }
 
     static ProtocolSessionScenario.PoolDraft<String, String> typedJsonPool(String executable) {
         return command(executable)
-                .protocolSession(ProtocolAdapters.typedJsonSession(
-                        TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.contentLengthJsonSession(1024)))
+                .protocolSession(ProtocolAdapters.typedJson(
+                        TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.contentLengthJson(1024)))
                 .pooled();
     }
 }

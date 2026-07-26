@@ -17,23 +17,23 @@ See [installation](../release/installation.md#optional-modules) for Maven and Gr
 
 | Worker protocol | Factory or wrapper | Complete example |
 | --- | --- | --- |
-| One JSON value per line | `jsonLinesSession(...)` | [JSON Lines](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
-| Delimiter-framed bytes | `delimiterSession(...)` | [JSON Lines and delimiter transports](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
-| Content-Length JSON with domain types | `typedJsonSession(..., contentLengthJsonSession(...))` | [Typed Content-Length session](../how-to/wrap-cli-tool.md) |
+| One JSON value per line | `jsonLines(...)` | [JSON Lines](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
+| Delimiter-framed bytes | `delimited(...)` | [JSON Lines and delimiter transports](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
+| Content-Length JSON with domain types | `typedJson(..., contentLengthJson(...))` | [Typed Content-Length session](../how-to/wrap-cli-tool.md) |
 
 ```java
 --8<-- "examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java"
 ```
 
-`ProtocolAdapters.jsonLinesSession(...)`, `delimiterSession(...)`, and `contentLengthJsonSession(...)` return factories
+`ProtocolAdapters.jsonLines(...)`, `delimited(...)`, and `contentLengthJson(...)` return factories
 that can be passed directly to `protocolSession(...)` and then to `pooled()`. Every factory call creates a fresh adapter,
-so separate sessions and pool workers do not share framing state. `typedJsonSession(...)` preserves the same invariant by
+so separate sessions and pool workers do not share framing state. `typedJson(...)` preserves the same invariant by
 accepting a transport factory and creating a fresh typed wrapper for each call.
 
-`jsonLinesSession(maxLineBytes)` counts the complete response frame including LF and always reads and writes JSON as
+`jsonLines(maxLineBytes)` counts the complete response frame including LF and always reads and writes JSON as
 strict UTF-8 bytes, independently of the scenario's text charset policy.
 
-`typedJsonSession(...)` retains its encode, decode, and transport-factory callbacks. Separate sessions and pool workers
+`typedJson(...)` retains its encode, decode, and transport-factory callbacks. Separate sessions and pool workers
 can invoke the same callback objects concurrently, so applications must make them thread-safe and create mutable
 per-adapter state inside each transport-factory call. The helper does not synchronize callbacks across workers. A null
 transport, encoded JSON value, or decoded domain result fails closed; runtime callback failures retain core's distinct
@@ -71,7 +71,7 @@ JSON value with no trailing content.
 
 | Setting | What it counts for this transport |
 | --- | --- |
-| `contentLengthJsonSession(maxFrameBytes)` | Declared response body bytes only; it does not include response headers or limit requests. |
+| `contentLengthJson(maxFrameBytes)` | Declared response body bytes only; it does not include response headers or limit requests. |
 | `withMaxRequestBytes(...)` | The complete emitted request frame: generated header plus UTF-8 JSON body. |
 | `withMaxResponseBytes(...)` | All adapter-consumed response bytes: header block plus body. |
 | `withOutputBacklogLimit(...)` | Unread process output bytes; keep it large enough for the expected frame. |

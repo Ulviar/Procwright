@@ -33,7 +33,7 @@ public final class JsonLineIntegrationExample {
 
         JsonNode request = JsonNodeFactory.instance.objectNode().put("input", "café — Привет, 世界");
         try (ProtocolSession<JsonNode, JsonNode> session = Procwright.command(workerCommand("--json-lines-worker"))
-                .protocolSession(ProtocolAdapters.jsonLinesSession(MAX_FRAME))
+                .protocolSession(ProtocolAdapters.jsonLines(MAX_FRAME))
                 .withRequestTimeout(Duration.ofSeconds(5))
                 .open()) {
             if (!session.request(request).equals(request)) {
@@ -41,8 +41,8 @@ public final class JsonLineIntegrationExample {
             }
         }
 
-        var typedFactory = ProtocolAdapters.typedJsonSession(
-                TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.jsonLinesSession(MAX_FRAME));
+        var typedFactory = ProtocolAdapters.typedJson(
+                TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.jsonLines(MAX_FRAME));
         try (ProtocolSession<String, String> session = Procwright.command(workerCommand("--json-lines-worker"))
                 .protocolSession(typedFactory)
                 .withRequestTimeout(Duration.ofSeconds(5))
@@ -54,7 +54,7 @@ public final class JsonLineIntegrationExample {
 
         byte[] binaryRequest = new byte[] {1, 2, 3, (byte) 0xFF};
         try (ProtocolSession<byte[], byte[]> session = Procwright.command(workerCommand("--delimiter-worker"))
-                .protocolSession(ProtocolAdapters.delimiterSession((byte) 0, MAX_FRAME))
+                .protocolSession(ProtocolAdapters.delimited((byte) 0, MAX_FRAME))
                 .withRequestTimeout(Duration.ofSeconds(5))
                 .open()) {
             if (!Arrays.equals(session.request(binaryRequest), binaryRequest)) {

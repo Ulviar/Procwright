@@ -133,7 +133,7 @@
 - JSON Lines adapter сохраняет escaped line separators и отклоняет malformed или trailing JSON.
 - Content-Length adapter проверяет header grammar и body limit до чтения body, затем применяет strict UTF-8 и Jackson.
 - Delimiter adapter отклоняет request, содержащий delimiter, до записи части frame.
-- Каждая factory создает отдельный adapter; `typedJsonSession` сохраняет это свойство для direct и pooled sessions.
+- Каждая factory создает отдельный adapter; `typedJson` сохраняет это свойство для direct и pooled sessions.
 - Compile-tested examples выполняют JSON Lines, delimiter и typed Content-Length round-trips.
 
 ## Performance/stress

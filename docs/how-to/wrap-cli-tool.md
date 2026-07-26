@@ -19,7 +19,7 @@ See [installation](../release/installation.md#optional-modules) for Maven and Gr
 [Open `TypedContentLengthJsonSessionExample.java`](../examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java)
 and the [optional-module example sources](../examples.md#optional-modules).
 
-Replace `workerCommand()` with the real executable and arguments. Keep `typedJsonSession(...)` for domain mapping and
+Replace `workerCommand()` with the real executable and arguments. Keep `typedJson(...)` for domain mapping and
 choose the transport factory that matches the tool's wire protocol. The example sets the adapter's response-body limit
 and the scenario's full-wire limits separately; see the [integration contract](../scenarios/integrations.md).
 

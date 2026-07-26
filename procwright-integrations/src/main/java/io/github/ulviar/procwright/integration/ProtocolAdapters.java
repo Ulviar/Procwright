@@ -28,7 +28,7 @@ public final class ProtocolAdapters {
      * @param maxLineBytes maximum response frame bytes including LF
      * @return fresh JSON Lines adapter factory
      */
-    public static Supplier<ProtocolAdapter<JsonNode, JsonNode>> jsonLinesSession(int maxLineBytes) {
+    public static Supplier<ProtocolAdapter<JsonNode, JsonNode>> jsonLines(int maxLineBytes) {
         requirePositive(maxLineBytes, "maxLineBytes");
         return () -> new ProtocolAdapter<>() {
             @Override
@@ -60,7 +60,7 @@ public final class ProtocolAdapters {
      * @param maxFrameBytes maximum response frame bytes including delimiter
      * @return fresh delimiter-framed adapter factory
      */
-    public static Supplier<ProtocolAdapter<byte[], byte[]>> delimiterSession(byte delimiter, int maxFrameBytes) {
+    public static Supplier<ProtocolAdapter<byte[], byte[]>> delimited(byte delimiter, int maxFrameBytes) {
         requirePositive(maxFrameBytes, "maxFrameBytes");
         return () -> new ProtocolAdapter<>() {
             @Override
@@ -94,7 +94,7 @@ public final class ProtocolAdapters {
      * @param maxFrameBytes maximum response body bytes
      * @return fresh Content-Length JSON adapter factory
      */
-    public static Supplier<ProtocolAdapter<JsonNode, JsonNode>> contentLengthJsonSession(int maxFrameBytes) {
+    public static Supplier<ProtocolAdapter<JsonNode, JsonNode>> contentLengthJson(int maxFrameBytes) {
         requirePositive(maxFrameBytes, "maxFrameBytes");
         return () -> new ProtocolAdapter<>() {
             @Override
@@ -142,7 +142,7 @@ public final class ProtocolAdapters {
      * @param <O> response type
      * @return fresh typed adapter factory
      */
-    public static <I, O> Supplier<ProtocolAdapter<I, O>> typedJsonSession(
+    public static <I, O> Supplier<ProtocolAdapter<I, O>> typedJson(
             Function<? super I, ? extends JsonNode> encode,
             Function<? super JsonNode, ? extends O> decode,
             Supplier<? extends ProtocolAdapter<JsonNode, JsonNode>> transportFactory) {

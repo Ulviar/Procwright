@@ -26,8 +26,8 @@ workflow и не скатиться к ручной сборке process harness
 | Наблюдать lifecycle без раскрытия raw argv/env/output | scenario `withDiagnostic*` | `diagnosticsScenario` |
 | Переиспользовать line-oriented workers | `lineSession().pooled()` | `pooledLineSessionScenario` |
 | Переиспользовать typed protocol workers | `protocolSession(factory).pooled()` | `pooledProtocolSessionScenario` |
-| Общаться с JSON Lines worker | `protocolSession(ProtocolAdapters.jsonLinesSession(...))` | [`JsonLineIntegrationExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
-| Общаться с Content-Length JSON worker | `protocolSession(ProtocolAdapters.contentLengthJsonSession(...))` | [`TypedContentLengthJsonSessionExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java) |
+| Общаться с JSON Lines worker | `protocolSession(ProtocolAdapters.jsonLines(...))` | [`JsonLineIntegrationExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
+| Общаться с Content-Length JSON worker | `protocolSession(ProtocolAdapters.contentLengthJson(...))` | [`TypedContentLengthJsonSessionExample`](../docs/examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java) |
 
 ## `run`
 
@@ -185,7 +185,7 @@ Compile-tested programs:
 Инварианты:
 
 - integration layer строится поверх `protocolSession`;
-- framing adapter владеет wire format, а `typedJsonSession` — domain mapping; lifecycle, deadlines и bounds остаются у
+- framing adapter владеет wire format, а `typedJson` — domain mapping; lifecycle, deadlines и bounds остаются у
   `ProtocolSession`;
 - CLI output считается untrusted data;
 

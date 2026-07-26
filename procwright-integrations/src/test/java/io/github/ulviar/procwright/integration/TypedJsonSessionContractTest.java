@@ -194,7 +194,7 @@ final class TypedJsonSessionContractTest {
         };
         Supplier<ProtocolAdapter<String, String>> factory = typedFactory(encode, decode, () -> {
             ProtocolAdapter<JsonNode, JsonNode> transport =
-                    ProtocolAdapters.jsonLinesSession(1024).get();
+                    ProtocolAdapters.jsonLines(1024).get();
             transports.add(transport);
             return transport;
         });
@@ -230,7 +230,7 @@ final class TypedJsonSessionContractTest {
         CountDownLatch factoryEntered = new CountDownLatch(2);
         Supplier<ProtocolAdapter<String, String>> factory = typedFactory(TextNode::valueOf, JsonNode::textValue, () -> {
             awaitOverlap(factoryEntered);
-            return ProtocolAdapters.jsonLinesSession(1024).get();
+            return ProtocolAdapters.jsonLines(1024).get();
         });
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
@@ -255,7 +255,7 @@ final class TypedJsonSessionContractTest {
     private static String request(Function<String, JsonNode> encode, Function<JsonNode, String> decode) {
         try (ProtocolSession<String, String> session = Procwright.command(
                         ProtocolAdaptersTestWorker.command("json-lines"))
-                .protocolSession(typedFactory(encode, decode, ProtocolAdapters.jsonLinesSession(1024)))
+                .protocolSession(typedFactory(encode, decode, ProtocolAdapters.jsonLines(1024)))
                 .withRequestTimeout(REQUEST_TIMEOUT)
                 .open()) {
             return session.request("request");
@@ -266,7 +266,7 @@ final class TypedJsonSessionContractTest {
             Function<? super I, ? extends JsonNode> encode,
             Function<? super JsonNode, ? extends O> decode,
             Supplier<? extends ProtocolAdapter<JsonNode, JsonNode>> transportFactory) {
-        return ProtocolAdapters.typedJsonSession(encode, decode, transportFactory);
+        return ProtocolAdapters.typedJson(encode, decode, transportFactory);
     }
 
     private static ProtocolSessionException protocolFailure(ProtocolSessionException.Reason reason) {

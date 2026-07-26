@@ -38,11 +38,10 @@ public final class TypedContentLengthJsonSessionExample {
             throw new IllegalArgumentException("Expected no arguments or --worker");
         }
 
-        Supplier<ProtocolAdapter<TextMetricsRequest, TextMetricsResponse>> adapterFactory =
-                ProtocolAdapters.typedJsonSession(
-                        TypedContentLengthJsonSessionExample::encodeRequest,
-                        TypedContentLengthJsonSessionExample::decodeResponse,
-                        ProtocolAdapters.contentLengthJsonSession(MAX_BODY_BYTES));
+        Supplier<ProtocolAdapter<TextMetricsRequest, TextMetricsResponse>> adapterFactory = ProtocolAdapters.typedJson(
+                TypedContentLengthJsonSessionExample::encodeRequest,
+                TypedContentLengthJsonSessionExample::decodeResponse,
+                ProtocolAdapters.contentLengthJson(MAX_BODY_BYTES));
 
         try (ProtocolSession<TextMetricsRequest, TextMetricsResponse> session = Procwright.command(workerCommand())
                 .protocolSession(adapterFactory)
