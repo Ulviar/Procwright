@@ -73,16 +73,15 @@
   terminal publication, а saturation не создает unbounded work.
 - Test fixtures предоставляют thread-safe diagnostic recorder для assertions.
 
-## Cookbook и examples
+## Исполняемые examples
 
-- `context/scenario-cookbook.md` описывает выбор сценария через пользовательские workflows, а не низкоуровневые knobs.
 - Канонические Java examples компилируются и выполняются как внешний consumer; Kotlin и JSON Lines entry points также
   запускаются отдельными consumer gates.
 - Shared worker/adapter sources перечислены в `docs/examples.md`; страница с прямой ссылкой на canonical entry point
   должна рядом вести к соответствующему разделу этого manifest.
 - Java, Kotlin и JSON Lines workers явно используют UTF-8. Length framing считает bytes и читает exact byte count;
   line/protocol/pooled/Kotlin/JSON paths выполняют non-ASCII round-trip.
-- Новый cookbook recipe добавляется только вместе с executable example или явным release limitation.
+- Новая пользовательская задача в документации сопровождается executable example или явным release limitation.
 
 ## Kotlin-эргономика
 
@@ -262,7 +261,7 @@
 Первый публичный релиз не готов, пока выполнены не все условия:
 
 - one-shot, streaming, timeout и базовая session группа покрыты тестами;
-- scenario cookbook сверяется с compile-tested examples;
+- пользовательские scenario и how-to страницы сверяются с compile-tested examples;
 - Kotlin и integrations modules проходят свои tests;
 - bounded `stressTest` входит в `check` и проходит локально;
 - `quickCheck`, `scenarioCheck`, `regressionCheck` и `publicationReadinessCheck` соответствуют

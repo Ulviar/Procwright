@@ -11,6 +11,7 @@ Procwright requires Java 17 or newer. Until the planned `0.1.0` release is publi
 
 Add Maven Local and the core dependency:
 
+<!-- procwright-docs: build-configuration -->
 ```kotlin
 repositories {
     mavenLocal()

@@ -4,6 +4,7 @@ Use the optional integrations module when a CLI speaks JSON Lines, delimiter-fra
 
 Add the integrations artifact alongside core:
 
+<!-- procwright-docs: build-configuration -->
 ```kotlin
 dependencies {
     implementation("io.github.ulviar:procwright-integrations:0.1.0")

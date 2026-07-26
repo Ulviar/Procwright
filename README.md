@@ -18,6 +18,7 @@ newer.
   --no-daemon
 ```
 
+<!-- procwright-docs: build-configuration -->
 ```kotlin
 repositories {
     mavenLocal()

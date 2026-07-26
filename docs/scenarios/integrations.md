@@ -5,6 +5,7 @@ Content-Length JSON without creating a second process runtime.
 
 Add the integrations artifact alongside core:
 
+<!-- procwright-docs: build-configuration -->
 ```kotlin
 dependencies {
     implementation("io.github.ulviar:procwright-integrations:0.1.0")

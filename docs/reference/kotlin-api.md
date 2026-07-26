@@ -2,6 +2,7 @@
 
 After [installing Procwright from this checkout](../getting-started.md), configure a Kotlin/JVM 17 project:
 
+<!-- procwright-docs: build-configuration -->
 ```kotlin
 plugins {
     kotlin("jvm") version "2.3.21"
@@ -33,6 +34,7 @@ elements, and protocol request and response types are non-null (`I : Any`, `O : 
 
 For a named JPMS application, require only the Kotlin module:
 
+<!-- procwright-docs: build-configuration -->
 ```java
 module example.application {
     requires io.github.ulviar.procwright.kotlin;

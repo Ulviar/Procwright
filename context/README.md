@@ -14,7 +14,6 @@
 - [invariant-architecture.md](invariant-architecture.md) — как изолируются инварианты API и runtime.
 - [scenario-api.md](scenario-api.md) — scenario-first пользовательский язык.
 - [scenario-contracts.md](scenario-contracts.md) — контракты реализованных сценариев.
-- [scenario-cookbook.md](scenario-cookbook.md) — краткая карта выбора сценария для maintainers.
 - [api-ideas.md](api-ideas.md) — критерии осмысленного расширения API.
 - [development-model.md](development-model.md) — легкий процесс работы и контекстная гигиена.
 - [diagnostics.md](diagnostics.md) — diagnostics contract.

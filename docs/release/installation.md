@@ -18,6 +18,7 @@ No public release exists yet. Use Java 17 or newer; release artifacts target Jav
 
 Gradle Kotlin DSL:
 
+<!-- procwright-docs: build-configuration -->
 ```kotlin
 repositories {
     mavenLocal()
@@ -69,6 +70,7 @@ requirements.
 
 Gradle Kotlin DSL:
 
+<!-- procwright-docs: build-configuration -->
 ```kotlin
 dependencies {
     implementation("io.github.ulviar:procwright-kotlin:0.1.0")
