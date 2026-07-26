@@ -280,11 +280,6 @@ final class ProtocolSessionDrafts {
         }
 
         @Override
-        public ProtocolSessionScenario.PoolDraft<I, O> withBackgroundReplenishment(boolean backgroundReplenishment) {
-            return copy(pool.withBackgroundReplenishment(backgroundReplenishment));
-        }
-
-        @Override
         public ProtocolSessionScenario.PoolDraft<I, O> withReset(Consumer<ProtocolSession<I, O>> resetHook) {
             return copy(pool.withResetHook(resetHook));
         }

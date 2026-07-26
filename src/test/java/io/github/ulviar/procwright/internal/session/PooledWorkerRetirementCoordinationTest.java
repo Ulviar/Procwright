@@ -180,15 +180,17 @@ final class PooledWorkerRetirementCoordinationTest {
                             }
                         },
                         delayedTerminal),
-                WorkerPoolSettings.defaults().withWarmupSize(1).withBackgroundReplenishment(false),
+                WorkerPoolSettings.defaults().withWarmupSize(1),
                 TestPoolFailures.INSTANCE,
                 "delayed-terminal line worker",
                 "test-delayed-terminal-",
                 new WorkerPoolController.Dependencies(
-                        task -> Threading.start("test-delayed-terminal-replenish-", task),
+                        (task, delay) -> {
+                            Threading.start("test-delayed-terminal-replenish-", task);
+                            return PoolScheduledAttempt.Cancellation.NONE;
+                        },
                         (thread, failure) -> {},
-                        System::nanoTime,
-                        null));
+                        System::nanoTime));
         try {
             CompletableFuture<Void> drain = pool.closeAsync();
 

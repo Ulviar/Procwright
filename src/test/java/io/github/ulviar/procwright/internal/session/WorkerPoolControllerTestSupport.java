@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import java.time.Duration;
@@ -66,10 +67,9 @@ abstract class WorkerPoolControllerTestSupport {
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
             WorkerPoolSettings<?> settings,
-            java.util.function.Consumer<Runnable> replenishmentStarter,
+            PoolReplenisher.Scheduler replenishmentScheduler,
             java.util.function.BiConsumer<Thread, Throwable> lateFailureReporter,
-            java.util.function.LongSupplier clock,
-            PoolReplenisher.Waiter backoffWaiter) {
+            java.util.function.LongSupplier clock) {
         return WorkerPoolController.fromSettings(
                 factory,
                 closeAction(closer),
@@ -77,14 +77,14 @@ abstract class WorkerPoolControllerTestSupport {
                 Failures.INSTANCE,
                 "test worker",
                 "test-",
-                new WorkerPoolController.Dependencies(replenishmentStarter, lateFailureReporter, clock, backoffWaiter));
+                new WorkerPoolController.Dependencies(replenishmentScheduler, lateFailureReporter, clock));
     }
 
     static WorkerPoolController<TestWorker> controller(
             java.util.function.Supplier<TestWorker> factory,
             java.util.function.Consumer<TestWorker> closer,
             WorkerPoolSettings<?> settings,
-            java.util.function.Consumer<Runnable> replenishmentStarter) {
+            PoolReplenisher.Scheduler replenishmentScheduler) {
         return WorkerPoolController.fromSettings(
                 factory,
                 closeAction(closer),
@@ -93,7 +93,21 @@ abstract class WorkerPoolControllerTestSupport {
                 "test worker",
                 "test-",
                 new WorkerPoolController.Dependencies(
-                        replenishmentStarter, (thread, failure) -> {}, System::nanoTime, null));
+                        replenishmentScheduler, (thread, failure) -> {}, System::nanoTime));
+    }
+
+    static PoolReplenisher.Scheduler threadedScheduler(String threadPrefix) {
+        return (task, delay) -> {
+            Threading.start(threadPrefix, task);
+            return PoolScheduledAttempt.Cancellation.NONE;
+        };
+    }
+
+    static PoolReplenisher.Scheduler inlineScheduler() {
+        return (task, delay) -> {
+            task.run();
+            return PoolScheduledAttempt.Cancellation.NONE;
+        };
     }
 
     static WorkerRetirement.Action<TestWorker> closeAction(java.util.function.Consumer<TestWorker> closer) {
@@ -144,8 +158,7 @@ abstract class WorkerPoolControllerTestSupport {
             int minIdle,
             Duration acquireTimeout,
             int maxRequestsPerWorker,
-            Duration maxWorkerAge,
-            boolean backgroundReplenishment) {
+            Duration maxWorkerAge) {
         return WorkerPoolSettings.defaults()
                 .withMaxSize(maxSize)
                 .withWarmupSize(warmupSize)
@@ -153,8 +166,7 @@ abstract class WorkerPoolControllerTestSupport {
                 .withAcquireTimeout(acquireTimeout)
                 .withCloseTimeout(acquireTimeout)
                 .withMaxRequestsPerWorker(maxRequestsPerWorker)
-                .withMaxWorkerAge(maxWorkerAge)
-                .withBackgroundReplenishment(backgroundReplenishment);
+                .withMaxWorkerAge(maxWorkerAge);
     }
 
     enum FailureKind {

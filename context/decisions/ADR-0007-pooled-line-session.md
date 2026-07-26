@@ -23,10 +23,11 @@ Pooling является вложенным вариантом уже выбра
 `pooled()` фиксирует immutable worker Draft и возвращает unopened persistent `PoolDraft`. Pool workers появляются
 только в `PoolDraft.open()`; порядок pool-level `with*` не меняет смысл других полей.
 
-Pool policies задают `maxSize`, `warmupSize`, `minIdle`, acquire/hook/close timeouts, возраст и число запросов worker-а,
-а также background replenishment. Оба pool-сценария поддерживают bounded reset и health hooks через соответствующий
-session type. Readiness выбранного session scenario выполняется при каждом запуске worker, включая warmup и
-replenishment.
+Pool policies задают `maxSize`, `warmupSize`, `minIdle`, acquire/hook/close timeouts, возраст и число запросов worker-а.
+Положительный `minIdle` включает replenishment, нулевой отключает его. Floor устанавливается асинхронно после `open()` и
+восстанавливается после acquire/retirement; синхронную готовность определяет только `warmupSize`. Оба pool-сценария
+поддерживают bounded reset и health hooks через соответствующий session type. Readiness выбранного session scenario
+выполняется при каждом запуске worker, включая warmup и replenishment.
 
 ## Инварианты
 

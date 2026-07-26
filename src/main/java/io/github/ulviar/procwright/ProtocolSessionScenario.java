@@ -302,6 +302,10 @@ public final class ProtocolSessionScenario {
         /**
          * Sets the maintained idle-worker floor.
          *
+         * <p>Zero disables background replenishment. A positive value starts establishing the idle floor
+         * asynchronously when the pool opens and restores it after workers are acquired or retired, without exceeding
+         * the maximum pool size.
+         *
          * @param minIdle idle workers maintained in the background
          * @return updated pool draft
          */
@@ -348,14 +352,6 @@ public final class ProtocolSessionScenario {
          * @return updated pool draft
          */
         PoolDraft<I, O> withMaxWorkerAge(Duration maxWorkerAge);
-
-        /**
-         * Enables or disables background worker replacement.
-         *
-         * @param backgroundReplenishment whether retired workers are replaced in the background
-         * @return updated pool draft
-         */
-        PoolDraft<I, O> withBackgroundReplenishment(boolean backgroundReplenishment);
 
         /**
          * Sets the hook run before a worker returns to idle.

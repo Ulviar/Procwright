@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -47,7 +46,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -110,15 +109,14 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     closeCalls.incrementAndGet();
                     throw closeFailure;
                 },
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                task -> Threading.start("test-replenish-", task),
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                threadedScheduler("test-replenish-"),
                 (thread, failure) -> {
                     reports.incrementAndGet();
                     reported.compareAndSet(null, failure);
                     reportReceived.countDown();
                 },
-                System::nanoTime,
-                null);
+                System::nanoTime);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -163,7 +161,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 0, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO));
         WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
         boolean released = false;
         try {
@@ -217,7 +215,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 0, 0, Duration.ofMillis(150), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofMillis(150), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -269,14 +267,13 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     throw startupFailure;
                 },
                 worker -> physicalCloses.incrementAndGet(),
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                task -> Threading.start("test-replenish-", task),
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                threadedScheduler("test-replenish-"),
                 (thread, failure) -> {
                     reported.compareAndSet(null, failure);
                     reportReceived.countDown();
                 },
-                System::nanoTime,
-                null);
+                System::nanoTime);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -316,7 +313,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     throw startupFailure;
                 },
                 worker -> physicalCloses.incrementAndGet(),
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -360,7 +357,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 0, 0, Duration.ofMillis(80), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofMillis(80), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -414,7 +411,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     return new TestWorker(1);
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofMillis(80), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofMillis(80), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -452,7 +449,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     return new TestWorker(1);
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -490,7 +487,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     return new TestWorker(1);
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         Thread acquire = new Thread(() -> {
             try {
                 pool.acquire((worker, deadline) -> HEALTHY);
@@ -538,7 +535,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     return new TestWorker(1);
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofMillis(60), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofMillis(60), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -583,7 +580,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                             closedWorkers.incrementAndGet();
                             workerClosed.countDown();
                         },
-                        settings(1, 1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false));
+                        settings(1, 1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO));
             } catch (Throwable failure) {
                 observedFailure.set(failure);
                 interruptedStatus.set(Thread.currentThread().isInterrupted());
@@ -627,7 +624,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     throw new IllegalStateException("late startup failed");
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO));
 
         try {
             assertThrows(PoolFailure.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -669,7 +666,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO));
 
         try {
             assertThrows(PoolFailure.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -708,7 +705,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     return new TestWorker(1);
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO));
         Thread caller = new Thread(() -> {
             try {
                 pool.acquire((worker, deadline) -> HEALTHY);
@@ -762,15 +759,14 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                         }
                     },
                     worker -> {},
-                    settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false),
-                    task -> Threading.start("test-replenish-", task),
+                    settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO),
+                    threadedScheduler("test-replenish-"),
                     (thread, failure) -> {
                         reported.compareAndSet(null, failure);
                         reports.incrementAndGet();
                         reportReceived.countDown();
                     },
-                    System::nanoTime,
-                    null);
+                    System::nanoTime);
 
             assertThrows(PoolFailure.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
             assertTrue(startupEntered.await(1, TimeUnit.SECONDS));

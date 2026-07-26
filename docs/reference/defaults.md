@@ -107,13 +107,12 @@ come from the Draft on which `pooled()` was called.
 | --- | --- |
 | Maximum workers per pool | 1 (allowed range: 1 through 256) |
 | Eager warmup workers | 0 |
-| Minimum idle workers | 0 |
+| Minimum idle workers | 0 (background replenishment disabled) |
 | Acquire timeout | 5 seconds |
 | Reset and health-hook timeout | 5 seconds |
 | Synchronous close timeout | 15 seconds |
 | Requests per worker | 2,147,483,647 |
 | Maximum worker age | disabled (`Duration.ZERO`) |
-| Background replenishment | enabled |
 | Reset hook | no-op |
 | Health check | healthy while the worker process has not exited |
 

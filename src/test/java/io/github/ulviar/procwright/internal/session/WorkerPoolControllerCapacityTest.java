@@ -17,8 +17,7 @@ final class WorkerPoolControllerCapacityTest extends WorkerPoolControllerTestSup
     @Test
     void warmupFailureDoesNotPoisonLaterPoolConstruction() throws Exception {
         IllegalStateException startupFailure = new IllegalStateException("warmup failed");
-        WorkerPoolSettings<?> options =
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
+        WorkerPoolSettings<?> options = settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO);
 
         PoolFailure observed = assertThrows(
                 PoolFailure.class,
@@ -45,7 +44,7 @@ final class WorkerPoolControllerCapacityTest extends WorkerPoolControllerTestSup
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> {},
-                settings(maxSize, maxSize, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(maxSize, maxSize, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             assertEquals(maxSize, created.get());
             assertPartition(pool, maxSize, maxSize, 0, 0, 0);
@@ -57,8 +56,8 @@ final class WorkerPoolControllerCapacityTest extends WorkerPoolControllerTestSup
     @Test
     void independentPoolsCanCollectivelyOwnMoreThanThePerPoolMaximum() throws Exception {
         int workersPerPool = WorkerPoolSettings.MAX_SIZE / 2 + 1;
-        WorkerPoolSettings<?> options = settings(
-                workersPerPool, workersPerPool, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false);
+        WorkerPoolSettings<?> options =
+                settings(workersPerPool, workersPerPool, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO);
         AtomicInteger created = new AtomicInteger();
         WorkerPoolController<TestWorker> first =
                 controller(() -> new TestWorker(created.incrementAndGet()), worker -> {}, options);

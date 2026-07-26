@@ -124,7 +124,8 @@ Runtime получает только согласованный plan и не у
 - pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
 - construction/closing/failure/drain decision внутри state owner — `PoolTermination`, terminal outcome и
   cancellation-isolated views — его publication token;
-- bounded retirement/report/replenishment domains — `PoolLifecycleDispatcher`, late failures — `PoolFailurePublisher`;
+- bounded retirement/report domains — `PoolLifecycleDispatcher`, delayed replenishment — `PoolReplenishmentScheduler`,
+  cancellable scheduled turn — `PoolScheduledAttempt`, late failures — `PoolFailurePublisher`;
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.
 

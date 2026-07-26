@@ -188,10 +188,6 @@ final class PolicyValueTest {
                 poolSettings().withCloseTimeout(Duration.ofSeconds(3)).closeTimeout());
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxRequestsPerWorker(0));
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxWorkerAge(Duration.ofMillis(-1)));
-        assertThrows(IllegalArgumentException.class, () -> poolSettings()
-                .withMinIdle(1)
-                .withBackgroundReplenishment(false)
-                .validateForOpen());
     }
 
     @Test

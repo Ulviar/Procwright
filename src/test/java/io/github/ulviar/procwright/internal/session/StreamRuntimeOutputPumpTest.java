@@ -112,6 +112,7 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
                 assertEquals(0, listenerCalls.get(), "transactional decoding must not publish hostile staged output");
                 assertTrue(failing.awaitClose());
                 assertEquals(1, failing.closeCalls());
+                assertTrue(other.awaitClose());
                 assertEquals(1, other.closeCalls());
                 assertFalse(process.isAlive());
             } finally {
@@ -212,6 +213,10 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
 
         private int closeCalls() {
             return closes.get();
+        }
+
+        private boolean awaitClose() throws InterruptedException {
+            return closed.await(1, TimeUnit.SECONDS);
         }
     }
 

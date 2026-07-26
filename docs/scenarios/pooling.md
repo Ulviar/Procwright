@@ -131,6 +131,10 @@ pool, that includes readiness, the response decoder, diagnostics recipients, the
 protocol pool, it includes the adapter factory, readiness, diagnostics recipients, the PTY provider, health, and reset.
 Make shared instances thread-safe or build separate Draft or PoolDraft branches with separate callbacks.
 
+`withMinIdle(0)` disables background replenishment. A positive value starts establishing that many ready idle workers
+asynchronously when the pool opens, then restores the floor after workers are acquired or retired, without exceeding
+`maxSize`. Use `withWarmupSize(...)` instead when `open()` must wait for workers to be ready.
+
 Acquisition and worker request processing have separate deadlines. Worker startup and health selection consume the
 acquire budget; a health callback is capped by the lesser of the remaining acquire budget and the hook timeout. Request
 encoding and response decoding consume the request budget. For a line pool, bounded line encoding starts before acquire,

@@ -70,7 +70,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 options,
                 POOL_FAILURES,
                 "pooled line-session worker",
-                "procwright-line-pool-replenish-",
+                "procwright-line-pool-worker-",
                 metricsClock);
         requestRunner = new PooledRequestRunner<>(pool, this::acquire, this::runReset, this::mapFailure);
     }

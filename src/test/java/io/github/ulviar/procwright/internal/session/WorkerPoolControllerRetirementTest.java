@@ -42,7 +42,7 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
                     secondInitiated.countDown();
                     return secondOutcome;
                 },
-                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 Failures.INSTANCE,
                 "test worker",
                 "test-two-phase-",
@@ -81,7 +81,7 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
                         awaitIgnoringInterrupt(allowRetirement);
                     }
                 },
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ofNanos(1), false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ofNanos(1)));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<WorkerPoolState.Lease<TestWorker>> first =
@@ -113,7 +113,7 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
                 worker -> {
                     throw new IllegalStateException("close failed");
                 },
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
 
         pool.closeAsync();
         assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
@@ -142,18 +142,17 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
                     }
                     throw laterFailure;
                 }),
-                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 Failures.INSTANCE,
                 "test worker",
                 "test-",
                 new WorkerPoolController.Dependencies(
-                        Runnable::run,
+                        inlineScheduler(),
                         (thread, failure) -> {
                             reported.compareAndSet(null, failure);
                             reportReceived.countDown();
                         },
-                        System::nanoTime,
-                        null));
+                        System::nanoTime));
 
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
@@ -177,7 +176,7 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
 
         try {

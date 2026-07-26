@@ -71,8 +71,12 @@ drain claim и cancellation-isolated future views. Publication token выбир�
 - physical close отделённого late worker не задерживает terminal future; после retirement он отражается только в
   накопительных metrics.
 
-`WorkerPoolConstruction` владеет warmup, commit и bounded rollback. `PoolReplenisher` владеет единственным циклом
-поддержания `minIdle` и backoff. `PooledRequestRunner` владеет request observation и exact-once возвратом lease.
+`WorkerPoolConstruction` владеет warmup, commit и bounded rollback. Один `PoolReplenisher` на pool поддерживает
+`minIdle` цепочкой одношаговых попыток с backoff. Между попытками он хранит не более одной scheduled task в общем
+fixed-parallelism `PoolReplenishmentScheduler`; размер его очереди зависит от числа live pools, а не от частоты failures.
+`PoolScheduledAttempt` изолирует гонку между немедленным запуском, attachment cancellation handle и close; закрытие
+pool удаляет pending task из scheduler. Backoff не занимает worker thread, поэтому failing pool не удерживает lifecycle
+owner бесконечным retry-loop. `PooledRequestRunner` владеет request observation и exact-once возвратом lease.
 
 ## Инварианты
 

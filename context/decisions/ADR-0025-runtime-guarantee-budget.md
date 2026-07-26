@@ -172,17 +172,27 @@ Pool сохраняет две разные и практически полез
 
 - `warmupSize`: `open()` синхронно создаёт указанное число ready workers; failure закрывает все уже созданные workers и
   не возвращает частично открытый pool;
-- `minIdle`: один background replenisher поддерживает ready idle capacity после retirement. `minIdle == 0` отключает
-  его. Отдельный `backgroundReplenishment` boolean удаляется как противоречивый дубликат policy.
+- `minIdle`: один background replenisher асинхронно устанавливает ready idle floor после `open()` и восстанавливает его
+  после acquire/retirement. `minIdle == 0` отключает его. Отдельный `backgroundReplenishment` boolean удаляется как
+  противоречивый дубликат policy.
 
 Завершившийся ordinary replenishment failure увеличивает `failedStartups`, публикует bounded diagnostic и повторяется с
-bounded backoff, пока pool открыт. Abandoned, физически незавершённый startup сохраняет занятый slot и не повторяется;
+bounded backoff, пока pool открыт. Один `PoolReplenisher` хранит не более одной scheduled attempt своего pool; поэтому
+очередь зависит от числа live pools, но не растёт от частоты failures. Backoff не занимает worker thread, а очередная
+попытка выполняется на общем fixed-size scheduler. Поэтому failing pool не удерживает lifecycle owner непрерывным
+циклом. Abandoned, физически незавершённый startup сохраняет занятый slot и не повторяется;
 slot освобождается только после позднего возврата callback либо logical close всего pool. Поэтому один зависший attempt
 не может породить неограниченную последовательность daemon owners. Ordinary failure не делает pool terminal даже при
 нуле ready workers: acquire может выполнить собственный demand startup и получает его typed startup failure, а
 background replenisher продолжает bounded retries. `Error` из background factory/readiness атомарно запускает
 `OPEN -> CLOSING`, сохраняется причиной typed pool failure и никогда не повторяется. `close()` останавливает
-replenishment; поздно созданный worker закрывается и никогда не попадает в idle.
+replenishment и отменяет его pending scheduled turn; поздно созданный worker закрывается и никогда не попадает в idle.
+
+Process-wide hard cap на число queued replenishment turns не обещается: число live pool instances принадлежит
+приложению, и сохранение eventual `minIdle` для каждого из них требует помнить один pending turn на pool. Жёсткий cap
+потребовал бы блокировать lifecycle caller, отбрасывать progress либо хранить отдельную overflow-очередь того же размера.
+Вместо этого Procwright ограничивает execution parallelism, coalesces retries одного pool независимо от их частоты и
+удаляет pending turn при logical close.
 
 Health и reset являются разными lifecycle points:
 

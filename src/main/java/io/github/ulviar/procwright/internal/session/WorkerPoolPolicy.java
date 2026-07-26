@@ -18,7 +18,6 @@ final class WorkerPoolPolicy {
     private final Duration closeTimeout;
     private final int maxRequestsPerWorker;
     private final Duration maxWorkerAge;
-    private final boolean backgroundReplenishment;
 
     WorkerPoolPolicy(WorkerPoolSettings<?> settings) {
         WorkerPoolSettings<?> configured = Objects.requireNonNull(settings, "settings");
@@ -29,7 +28,6 @@ final class WorkerPoolPolicy {
         closeTimeout = configured.closeTimeout();
         maxRequestsPerWorker = configured.maxRequestsPerWorker();
         maxWorkerAge = configured.maxWorkerAge();
-        backgroundReplenishment = configured.backgroundReplenishment();
     }
 
     int maxSize() {
@@ -46,10 +44,6 @@ final class WorkerPoolPolicy {
 
     Duration closeTimeout() {
         return closeTimeout;
-    }
-
-    boolean replenishmentEnabled() {
-        return backgroundReplenishment && minIdle > 0;
     }
 
     boolean needsReplenishment(int liveWorkers, int idleWorkers, int replenishingStarts) {

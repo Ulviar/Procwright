@@ -33,7 +33,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         WorkerPoolController<TestWorker> pool = inlineController(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> physicalCloses.incrementAndGet(),
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             WorkerPoolState.Lease<TestWorker> worker =
                     pool.acquire((candidate, deadline) -> candidate.id() == 1 ? PROCESS_EXITED : HEALTHY);
@@ -55,7 +55,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         WorkerPoolController<TestWorker> pool = inlineController(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> {},
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             WorkerPoolState.Lease<TestWorker> worker =
                     pool.acquire((candidate, deadline) -> candidate.id() == 1 ? HEALTH_FAILED : HEALTHY);
@@ -76,7 +76,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         WorkerPoolController<TestWorker> pool = inlineController(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> physicalCloses.incrementAndGet(),
-                settings(1, 1, 0, Duration.ofMillis(25), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofMillis(25), Integer.MAX_VALUE, Duration.ZERO));
         try {
             PoolFailure timeout = assertThrows(
                     PoolFailure.class,
@@ -108,7 +108,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         WorkerPoolController<TestWorker> pool = inlineController(
                 () -> new TestWorker(1),
                 worker -> {},
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             PoolFailure timeout =
                     assertThrows(PoolFailure.class, () -> pool.acquire((worker, deadline) -> ACQUIRE_TIMEOUT));
@@ -126,7 +126,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         WorkerPoolController<TestWorker> pool = inlineController(
                 () -> new TestWorker(1),
                 worker -> {},
-                settings(1, 1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(5), Integer.MAX_VALUE, Duration.ZERO));
         WorkerPoolState.Lease<TestWorker> leased = pool.acquire((worker, deadline) -> HEALTHY);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<Boolean> interrupted = new AtomicReference<>();
@@ -167,7 +167,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         WorkerPoolController<TestWorker> pool = inlineController(
                 () -> new TestWorker(1),
                 worker -> physicalCloses.incrementAndGet(),
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             AssertionError observed = assertThrows(
                     AssertionError.class,
@@ -193,7 +193,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
         WorkerPoolController<TestWorker> pool = inlineController(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> {},
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> {
                 if (candidate.id() == 1) {
@@ -229,7 +229,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                     return new TestWorker(1);
                 },
                 worker -> closedWorkers.incrementAndGet(),
-                settings(1, 0, 0, Duration.ofMillis(50), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofMillis(50), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -287,7 +287,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<WorkerPoolState.Lease<TestWorker>> acquiring =
@@ -328,7 +328,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                     retirementEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetirement);
                 },
-                settings(1, 1, 0, Duration.ofMillis(50), Integer.MAX_VALUE, Duration.ofNanos(1), false));
+                settings(1, 1, 0, Duration.ofMillis(50), Integer.MAX_VALUE, Duration.ofNanos(1)));
         ExecutorService acquireExecutor = Executors.newSingleThreadExecutor();
         try {
             Future<PoolFailure> acquisition = acquireExecutor.submit(

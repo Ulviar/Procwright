@@ -6,7 +6,6 @@ import static io.github.ulviar.procwright.internal.session.WorkerPoolController.
 import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.PROCESS_EXITED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,15 +27,14 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
                     }
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                task -> Threading.start("test-metrics-replenish-", task),
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                threadedScheduler("test-metrics-replenish-"),
                 (thread, failure) -> {},
                 () -> switch (clockReads.incrementAndGet()) {
                     case 1 -> 100L;
                     case 2 -> 175L;
                     default -> throw new AssertionError("acquire metrics clock was read more than twice");
-                },
-                null);
+                });
         try {
             WorkerPoolState.Lease<TestWorker> lease =
                     pool.acquire((worker, deadline) -> worker.id() == 1 ? PROCESS_EXITED : HEALTHY);
@@ -55,11 +53,10 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
-                task -> Threading.start("test-replenish-", task),
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                threadedScheduler("test-replenish-"),
                 (thread, failure) -> {},
-                now::get,
-                null);
+                now::get);
 
         RequestObservation observation = pool.observeRequest();
         now.set(150L);

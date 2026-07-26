@@ -137,7 +137,6 @@ final class PooledProtocolSessionWorkerRetirementIntegrationTest {
                 .pooled()
                 .withMaxSize(1)
                 .withWarmupSize(1)
-                .withBackgroundReplenishment(false)
                 .open()) {
             ProtocolSessionException exception = assertThrows(
                     ProtocolSessionException.class, () -> pool.request("0123456789abcdef0123456789abcdef"));

@@ -281,11 +281,6 @@ final class LineSessionDrafts {
         }
 
         @Override
-        public LineSessionScenario.PoolDraft withBackgroundReplenishment(boolean backgroundReplenishment) {
-            return copy(pool.withBackgroundReplenishment(backgroundReplenishment));
-        }
-
-        @Override
         public LineSessionScenario.PoolDraft withReset(Consumer<LineSession> resetHook) {
             return copy(pool.withResetHook(resetHook));
         }

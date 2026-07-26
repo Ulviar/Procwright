@@ -89,9 +89,9 @@ protocol work; transcript limits only bound retained diagnostics.
 `withReadiness(probe)` runs after launch and before a session is returned or a pool worker becomes idle. Pair it with
 `withReadinessTimeout(...)`. Failure closes the process.
 
-PoolDraft settings control maximum size, warmup, minimum idle workers, worker age, requests per worker, background
-replenishment, reset, and health checks. Worker settings are configured before `pooled()`; pool settings are configured
-after it.
+PoolDraft settings control maximum size, warmup, minimum idle workers, worker age, requests per worker, reset, and
+health checks. A positive minimum idle value enables background replenishment; zero disables it. Worker settings are
+configured before `pooled()`; pool settings are configured after it.
 
 See the [scenario defaults](defaults.md) for exact initial values, each [scenario contract](../scenarios/index.md) for
 behavior, and the [generated Java API](../api/index.md) for exact methods.

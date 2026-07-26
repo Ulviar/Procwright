@@ -109,7 +109,6 @@ class ProtocolAdapterFactoryTest {
                 .withMaxSize(2)
                 .withWarmupSize(2)
                 .withMinIdle(0)
-                .withBackgroundReplenishment(false)
                 .open()
         var requests: List<Deferred<String>> = emptyList()
         try {

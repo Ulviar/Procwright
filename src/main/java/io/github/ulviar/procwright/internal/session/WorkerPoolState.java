@@ -2,10 +2,8 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -350,29 +348,6 @@ final class WorkerPoolState<S> {
     boolean replenishmentNeeded() {
         synchronized (monitor) {
             return !termination.closing() && needsReplenishmentLocked();
-        }
-    }
-
-    boolean awaitBackoff(Duration backoff) {
-        Objects.requireNonNull(backoff, "backoff");
-        if (backoff.isZero()) {
-            return true;
-        }
-        long deadlineNanos = DurationSupport.deadlineFromNow(backoff);
-        synchronized (monitor) {
-            while (!termination.closing()) {
-                long remainingNanos = deadlineNanos - System.nanoTime();
-                if (remainingNanos <= 0) {
-                    return true;
-                }
-                try {
-                    TimeUnit.NANOSECONDS.timedWait(monitor, remainingNanos);
-                } catch (InterruptedException failure) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
-            return false;
         }
     }
 

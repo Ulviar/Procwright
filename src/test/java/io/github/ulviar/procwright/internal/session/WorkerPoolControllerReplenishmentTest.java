@@ -26,7 +26,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(created.incrementAndGet()),
                 worker -> {},
-                settings(2, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
+                settings(2, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             assertTrue(awaitMetrics(pool, metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
 
@@ -59,7 +59,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     throw new IllegalStateException("startup failed");
                 },
                 worker -> {},
-                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
+                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO));
 
         try {
             WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
@@ -100,14 +100,13 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     throw fatalFailure;
                 },
                 worker -> {},
-                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true),
-                task -> Threading.start("test-replenish-", task),
+                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO),
+                threadedScheduler("test-replenish-"),
                 (thread, failure) -> {
                     reported.compareAndSet(null, failure);
                     reportReceived.countDown();
                 },
-                System::nanoTime,
-                null);
+                System::nanoTime);
 
         try {
             WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
@@ -137,8 +136,8 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                settings(2, 1, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
-                task -> {
+                settings(2, 1, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                (task, delay) -> {
                     throw schedulingFailure;
                 });
         WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
@@ -166,8 +165,8 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 () -> controller(
                         () -> new TestWorker(factoryInvocations.incrementAndGet()),
                         worker -> closedWorkers.incrementAndGet(),
-                        settings(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
-                        task -> {
+                        settings(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                        (task, delay) -> {
                             throw schedulingFailure;
                         }));
 
@@ -193,8 +192,8 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                             closedWorkers.incrementAndGet();
                             workerClosed.countDown();
                         },
-                        settings(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
-                        task -> {
+                        settings(2, 1, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                        (task, delay) -> {
                             throw schedulingError;
                         }));
 
@@ -217,8 +216,8 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                             closed.incrementAndGet();
                             throw new IllegalStateException("warm worker close failed: " + worker.id());
                         },
-                        settings(3, 2, 3, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
-                        task -> {
+                        settings(3, 2, 3, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                        (task, delay) -> {
                             throw schedulingError;
                         }));
 
@@ -230,19 +229,34 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
     @Test
     void replenishmentRetriesFailedStartupWithoutExternalActivity() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger reports = new AtomicInteger();
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        CountDownLatch reportReceived = new CountDownLatch(1);
+        IllegalStateException startupFailure = new IllegalStateException("transient startup failure");
         WorkerPoolController<TestWorker> pool = controller(
                 () -> {
                     if (attempts.incrementAndGet() == 1) {
-                        throw new IllegalStateException("transient startup failure");
+                        throw startupFailure;
                     }
                     return new TestWorker(2);
                 },
                 worker -> {},
-                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                PoolReplenishmentScheduler::schedule,
+                (thread, failure) -> {
+                    reports.incrementAndGet();
+                    reported.compareAndSet(null, failure);
+                    reportReceived.countDown();
+                },
+                System::nanoTime);
 
         assertTrue(awaitMetrics(pool, metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
+        assertTrue(reportReceived.await(1, TimeUnit.SECONDS));
         assertEquals(2, attempts.get());
         assertEquals(1, pool.metrics().failedStartups());
+        PoolFailure diagnostic = (PoolFailure) reported.get();
+        assertSame(startupFailure, diagnostic.getCause());
+        assertEquals(1, reports.get());
         pool.closeAsync();
         pool.closeAsync().get(1, TimeUnit.SECONDS);
     }
@@ -250,101 +264,91 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
     @Test
     void closeStopsReplenishmentDuringRetryBackoff() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
-        CountDownLatch backoffEntered = new CountDownLatch(1);
-        CountDownLatch releaseBackoff = new CountDownLatch(1);
-        CountDownLatch ownerFinished = new CountDownLatch(1);
+        AtomicInteger cancellations = new AtomicInteger();
+        CountDownLatch retryScheduled = new CountDownLatch(1);
+        AtomicReference<Runnable> retry = new AtomicReference<>();
         WorkerPoolController<TestWorker> pool = controller(
                 () -> {
                     attempts.incrementAndGet();
                     throw new IllegalStateException("startup unavailable");
                 },
                 worker -> {},
-                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
-                task -> Threading.start("test-replenish-", () -> {
-                    try {
-                        task.run();
-                    } finally {
-                        ownerFinished.countDown();
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                (task, delay) -> {
+                    if (delay.isZero()) {
+                        Threading.start("test-replenish-", task);
+                    } else {
+                        retry.set(task);
+                        retryScheduled.countDown();
                     }
-                }),
-                (thread, failure) -> {},
-                System::nanoTime,
-                backoff -> {
-                    if (backoff.isZero()) {
-                        return true;
-                    }
-                    backoffEntered.countDown();
-                    awaitIgnoringInterrupt(releaseBackoff);
-                    return true;
+                    return cancellations::incrementAndGet;
                 });
         try {
-            assertTrue(backoffEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(retryScheduled.await(1, TimeUnit.SECONDS));
 
-            pool.closeAsync();
             pool.closeAsync().get(1, TimeUnit.SECONDS);
             int attemptsAfterDrain = attempts.get();
-            releaseBackoff.countDown();
-            assertTrue(ownerFinished.await(1, TimeUnit.SECONDS));
+            retry.get().run();
 
             assertEquals(attemptsAfterDrain, attempts.get());
+            assertEquals(1, cancellations.get());
         } finally {
-            releaseBackoff.countDown();
             pool.closeAsync();
-            assertTrue(ownerFinished.await(1, TimeUnit.SECONDS));
         }
     }
 
     @Test
-    void fatalBackoffFailureAfterSuccessfulDrainIsReportedExactlyOnce() throws Exception {
-        CountDownLatch backoffEntered = new CountDownLatch(1);
-        CountDownLatch releaseBackoff = new CountDownLatch(1);
-        CountDownLatch ownerFinished = new CountDownLatch(1);
-        CountDownLatch failureReported = new CountDownLatch(1);
-        AtomicInteger reports = new AtomicInteger();
-        AtomicReference<Throwable> reported = new AtomicReference<>();
-        AssertionError lateFailure = new AssertionError("late replenishment backoff failure");
+    void lateRetrySchedulingFailureAfterSuccessfulDrainIsReportedExactlyOnce() throws Exception {
+        CountDownLatch retrySchedulingEntered = new CountDownLatch(1);
+        CountDownLatch releaseRetryScheduling = new CountDownLatch(1);
+        CountDownLatch startupFailureReported = new CountDownLatch(1);
+        CountDownLatch lateFailureReported = new CountDownLatch(1);
+        AtomicInteger startupReports = new AtomicInteger();
+        AtomicInteger lateReports = new AtomicInteger();
+        AtomicReference<Throwable> startupReport = new AtomicReference<>();
+        IllegalStateException startupFailure = new IllegalStateException("startup unavailable");
+        AssertionError lateFailure = new AssertionError("late replenishment scheduling failure");
         WorkerPoolController<TestWorker> pool = controller(
                 () -> {
-                    throw new IllegalStateException("startup unavailable");
+                    throw startupFailure;
                 },
                 worker -> {},
-                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
-                task -> Threading.start("test-replenish-", () -> {
-                    try {
-                        task.run();
-                    } finally {
-                        ownerFinished.countDown();
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                (task, delay) -> {
+                    if (delay.isZero()) {
+                        Threading.start("test-replenish-", task);
+                        return PoolScheduledAttempt.Cancellation.NONE;
                     }
-                }),
-                (thread, failure) -> {
-                    reports.incrementAndGet();
-                    reported.set(failure);
-                    failureReported.countDown();
-                },
-                System::nanoTime,
-                backoff -> {
-                    if (backoff.isZero()) {
-                        return true;
-                    }
-                    backoffEntered.countDown();
-                    awaitIgnoringInterrupt(releaseBackoff);
+                    retrySchedulingEntered.countDown();
+                    awaitIgnoringInterrupt(releaseRetryScheduling);
                     throw lateFailure;
-                });
+                },
+                (thread, failure) -> {
+                    if (failure == lateFailure) {
+                        lateReports.incrementAndGet();
+                        lateFailureReported.countDown();
+                    } else {
+                        startupReports.incrementAndGet();
+                        startupReport.set(failure);
+                        startupFailureReported.countDown();
+                    }
+                },
+                System::nanoTime);
         try {
-            assertTrue(backoffEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(retrySchedulingEntered.await(1, TimeUnit.SECONDS));
+            assertTrue(startupFailureReported.await(1, TimeUnit.SECONDS));
 
             pool.closeAsync().get(1, TimeUnit.SECONDS);
-            releaseBackoff.countDown();
+            releaseRetryScheduling.countDown();
 
-            assertTrue(failureReported.await(1, TimeUnit.SECONDS));
-            assertTrue(ownerFinished.await(1, TimeUnit.SECONDS));
-            assertSame(lateFailure, reported.get());
-            assertEquals(1, reports.get());
+            assertTrue(lateFailureReported.await(1, TimeUnit.SECONDS));
+            assertSame(startupFailure, ((PoolFailure) startupReport.get()).getCause());
+            assertEquals(1, startupReports.get());
+            assertEquals(1, lateReports.get());
             pool.closeAsync().get(1, TimeUnit.SECONDS);
         } finally {
-            releaseBackoff.countDown();
+            releaseRetryScheduling.countDown();
             pool.closeAsync();
-            assertTrue(ownerFinished.await(1, TimeUnit.SECONDS));
         }
     }
 }

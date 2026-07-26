@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.FailureAggregation;
-import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import java.time.Duration;
@@ -62,7 +61,7 @@ final class WorkerPoolControllerCloseIsolationTest extends WorkerPoolControllerT
                     closeEntered.countDown();
                     awaitIgnoringInterrupt(releaseClose);
                 },
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         try {
             CompletableFuture<Void> cancelledView = pool.closeAsync();
             assertTrue(closeEntered.await(1, TimeUnit.SECONDS));
@@ -93,11 +92,11 @@ final class WorkerPoolControllerCloseIsolationTest extends WorkerPoolControllerT
                     firstWorkerCloseEntered.countDown();
                     awaitIgnoringInterrupt(releaseFirstWorkerClose);
                 },
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         WorkerPoolController<TestWorker> second = controller(
                 () -> new TestWorker(2),
                 worker -> {},
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         CompletableFuture<Void> callback = null;
         try {
             CompletableFuture<Void> firstClose = publicCloseView(first);
@@ -140,15 +139,14 @@ final class WorkerPoolControllerCloseIsolationTest extends WorkerPoolControllerT
                 pools.add(WorkerPoolController.fromSettings(
                         () -> worker,
                         session -> WorkerCloseSupport.closeOutcome(session, session.onExit()),
-                        settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                        settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                         Failures.INSTANCE,
                         "exit-callback worker",
                         "test-exit-callback-",
                         new WorkerPoolController.Dependencies(
-                                task -> Threading.start("test-exit-callback-replenish-", task),
+                                threadedScheduler("test-exit-callback-replenish-"),
                                 (thread, failure) -> {},
-                                System::nanoTime,
-                                null)));
+                                System::nanoTime)));
             }
 
             for (int index = 0; index < blockingPools; index++) {
@@ -193,8 +191,7 @@ final class WorkerPoolControllerCloseIsolationTest extends WorkerPoolControllerT
     @Test
     void completedCloseFailureDoesNotPoisonLaterPoolConstruction() throws Exception {
         IllegalStateException closeFailure = new IllegalStateException("physical close failed");
-        WorkerPoolSettings<?> options =
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false);
+        WorkerPoolSettings<?> options = settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO);
         WorkerPoolController<TestWorker> failed = controller(
                 () -> new TestWorker(1),
                 worker -> {
@@ -221,7 +218,7 @@ final class WorkerPoolControllerCloseIsolationTest extends WorkerPoolControllerT
         WorkerPoolController<TestWorker> pool = controller(
                 () -> new TestWorker(1),
                 worker -> {},
-                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
         AtomicReference<PooledSessionMetrics> callbackMetrics = new AtomicReference<>();
         ExecutorService metricsExecutor = Executors.newSingleThreadExecutor();
         CompletableFuture<Void> callback = pool.closeAsync().thenRun(() -> {

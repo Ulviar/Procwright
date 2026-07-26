@@ -47,7 +47,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
                 options,
                 POOL_FAILURES,
                 "pooled protocol-session worker",
-                "procwright-protocol-pool-replenish-",
+                "procwright-protocol-pool-worker-",
                 System::nanoTime);
         requestRunner = new PooledRequestRunner<>(pool, this::acquire, this::runReset, this::mapFailure);
     }

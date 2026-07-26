@@ -10,9 +10,8 @@ import java.util.Objects;
  * Runs mandatory pool lifecycle work on a fixed set of owners.
  *
  * <p>Each owner set has bounded queue admission. Mandatory retirement work runs on the caller when its queue is full;
- * reports and replenishment wait for their independent bounded capacity. A task submitted recursively into its current
- * owner set also runs inline, so queue capacity cannot make every owner wait for capacity that only those owners can
- * release.
+ * reports wait for independent bounded capacity. A task submitted recursively into its current owner set also runs
+ * inline, so queue capacity cannot make every owner wait for capacity that only those owners can release.
  *
  * <p>All owners are started before this dispatcher becomes usable. A starter failure therefore fails construction
  * before any mandatory task can be accepted or abandoned.
@@ -45,10 +44,6 @@ final class PoolLifecycleDispatcher {
 
     static void executeRetirementBatch(Runnable task) {
         Retirements.INSTANCE.dispatchRetirementBatch(task);
-    }
-
-    static void replenish(Runnable task) {
-        Replenishments.INSTANCE.dispatch(task);
     }
 
     static void report(Runnable task) {
@@ -162,12 +157,6 @@ final class PoolLifecycleDispatcher {
 
         private static final PoolLifecycleDispatcher INSTANCE =
                 shared("procwright-pool-late-report-", SHARED_QUEUE_CAPACITY);
-    }
-
-    private static final class Replenishments {
-
-        private static final PoolLifecycleDispatcher INSTANCE =
-                shared("procwright-pool-replenishment-", SHARED_QUEUE_CAPACITY);
     }
 
     private static int defaultTaskCapacity(int parallelism) {

@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -98,16 +97,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 this::completeUnexpectedRetirementFailure,
                 failurePublisher::publish);
         state = new WorkerPoolState<>(policy, this::newStartupWorker, retirements);
-        PoolReplenisher.Waiter configuredWaiter = configuredDependencies.backoffWaiter() == null
-                ? state::awaitBackoff
-                : configuredDependencies.backoffWaiter();
         replenisher = new PoolReplenisher(
-                policy.replenishmentEnabled(),
-                configuredDependencies.replenishmentStarter(),
+                configuredDependencies.replenishmentScheduler(),
                 state::replenishmentNeeded,
                 this::replenishOne,
-                configuredWaiter,
-                this::failReplenishmentOwner);
+                this::failReplenishment);
         startups = new WorkerStartupCoordinator<>(failures, workerLabel, this);
 
         List<FailureReport> commitReports = new WorkerPoolConstruction<>(
@@ -116,7 +110,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                         failures,
                         this::failConstructionAndClose,
                         this::warmup,
-                        this::ensureReplenishmentOwner)
+                        this::ensureReplenishment)
                 .commit();
         failurePublisher.publishAll(commitReports);
     }
@@ -129,7 +123,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             while (true) {
                 WorkerPoolState.Lease<S> lease = takeOrStartLease(deadlineNanos);
                 try {
-                    ensureReplenishmentOwner();
+                    ensureReplenishment();
                 } catch (RuntimeException | Error failure) {
                     rethrow(retireFailedLease(lease, failure, PooledWorkerRetireReason.WORKER_FAILED, true));
                     throw new AssertionError("unreachable");
@@ -167,12 +161,12 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     void releaseReusable(WorkerPoolState.Lease<S> lease) {
         state.releaseReusable(lease);
-        ensureReplenishmentOwner();
+        ensureReplenishment();
     }
 
     void retire(WorkerPoolState.Lease<S> lease, PooledWorkerRetireReason reason) {
         state.retire(lease, reason);
-        ensureReplenishmentOwner();
+        ensureReplenishment();
     }
 
     PooledWorkerRetireReason recordRequestAndRetirementReason(WorkerPoolState.Lease<S> lease) {
@@ -188,7 +182,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     CompletableFuture<Void> closeAsync() {
-        state.beginClose(null);
+        try {
+            state.beginClose(null);
+        } finally {
+            replenisher.stop();
+        }
         return state.terminationView();
     }
 
@@ -212,7 +210,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     private List<FailureReport> failConstructionAndClose() {
-        return state.failConstructionAndClose();
+        try {
+            return state.failConstructionAndClose();
+        } finally {
+            replenisher.stop();
+        }
     }
 
     private WorkerPoolState.Lease<S> takeOrStartLease(long deadlineNanos) {
@@ -284,7 +286,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         if (!present) {
             return;
         }
-        ensureReplenishmentOwner();
+        ensureReplenishment();
         if (completion.failureTarget() != null) {
             reportLateFailure(
                     completion.failureTarget(), Objects.requireNonNull(completion.failure(), "late startup failure"));
@@ -293,7 +295,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     private void retireLease(WorkerPoolState.Lease<S> lease, PooledWorkerRetireReason reason) {
         state.retireLeaseIfOwned(lease, reason, false);
-        ensureReplenishmentOwner();
+        ensureReplenishment();
     }
 
     private Throwable retireFailedLease(
@@ -308,7 +310,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             cleanupFailures.add(cleanupFailure);
         }
         try {
-            ensureReplenishmentOwner();
+            ensureReplenishment();
         } catch (RuntimeException | Error cleanupFailure) {
             cleanupFailures.add(cleanupFailure);
         }
@@ -333,18 +335,15 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 ? null
                 : PoolFailurePublisher.capture(Thread.currentThread(), outcome.failure());
         FailureReport lateReport = state.completeRetirement(worker, outcome, closeFailureReport);
-        ensureReplenishmentOwner();
+        ensureReplenishment();
         return lateReport;
     }
 
-    private void ensureReplenishmentOwner() {
+    private void ensureReplenishment() {
         replenisher.ensureStarted();
     }
 
     private PoolReplenisher.Step replenishOne() {
-        if (!state.replenishmentNeeded()) {
-            return PoolReplenisher.Step.STOP;
-        }
         PoolWorker<S> worker = state.tryReserveReplenishment();
         if (worker == null) {
             return PoolReplenisher.Step.STOP;
@@ -363,12 +362,16 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             if (terminalFailure instanceof Error error) {
                 throw error;
             }
+            if (!state.replenishmentNeeded()) {
+                return PoolReplenisher.Step.STOP;
+            }
+            failurePublisher.publish(PoolFailurePublisher.capture(Thread.currentThread(), failure));
             reportAdditionalFailures(failure, terminalFailure);
             return PoolReplenisher.Step.RETRY;
         }
     }
 
-    private void failReplenishmentOwner(Throwable failure) {
+    private void failReplenishment(Throwable failure) {
         FailureReport lateReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
         PoolTermination.FailureDisposition disposition = null;
         Throwable cleanupFailure = null;
@@ -376,6 +379,8 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             disposition = state.beginClose(failure);
         } catch (RuntimeException | Error failureToClose) {
             cleanupFailure = failureToClose;
+        } finally {
+            replenisher.stop();
         }
         if (disposition == PoolTermination.FailureDisposition.REPORT) {
             failurePublisher.publish(lateReport);
@@ -416,14 +421,14 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     @Override
     public boolean factoryFailed(PoolWorker<S> worker, Throwable failure) {
         boolean closedStartup = state.factoryFailed(worker, failure);
-        ensureReplenishmentOwner();
+        ensureReplenishment();
         return closedStartup;
     }
 
     @Override
     public void discardStartingWorker(PoolWorker<S> worker) {
         state.discardStartingWorker(worker);
-        ensureReplenishmentOwner();
+        ensureReplenishment();
     }
 
     private static void rethrow(Throwable failure) {
@@ -484,20 +489,19 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     record Dependencies(
-            Consumer<Runnable> replenishmentStarter,
+            PoolReplenisher.Scheduler replenishmentScheduler,
             BiConsumer<Thread, Throwable> lateFailureReporter,
-            LongSupplier metricsClock,
-            PoolReplenisher.Waiter backoffWaiter) {
+            LongSupplier metricsClock) {
 
         Dependencies {
-            Objects.requireNonNull(replenishmentStarter, "replenishmentStarter");
+            Objects.requireNonNull(replenishmentScheduler, "replenishmentScheduler");
             Objects.requireNonNull(lateFailureReporter, "lateFailureReporter");
             Objects.requireNonNull(metricsClock, "metricsClock");
         }
 
         static Dependencies defaults(LongSupplier metricsClock) {
             return new Dependencies(
-                    PoolLifecycleDispatcher::replenish, PoolFailurePublisher::reportBounded, metricsClock, null);
+                    PoolReplenishmentScheduler::schedule, PoolFailurePublisher::reportBounded, metricsClock);
         }
     }
 }

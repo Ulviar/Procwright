@@ -16,7 +16,7 @@ final class WorkerPoolPolicyTest {
 
     @Test
     void idleAndReplenishingWorkersBothSatisfyMinIdle() {
-        WorkerPoolPolicy policy = new WorkerPoolPolicy(settings(3, 2, true, 10));
+        WorkerPoolPolicy policy = new WorkerPoolPolicy(settings(3, 2, 10));
 
         assertTrue(policy.needsReplenishment(1, 1, 0));
 
@@ -25,7 +25,7 @@ final class WorkerPoolPolicyTest {
 
     @Test
     void requestLimitRetiresWorkerAtTheConfiguredBoundary() {
-        WorkerPoolPolicy policy = new WorkerPoolPolicy(settings(1, 0, false, 2));
+        WorkerPoolPolicy policy = new WorkerPoolPolicy(settings(1, 0, 2));
         PoolWorker<String> worker = worker(PoolWorker.StartupPurpose.DEMAND);
         worker.recordRequest();
         assertNull(policy.retirementReasonFor(worker));
@@ -40,11 +40,10 @@ final class WorkerPoolPolicyTest {
                 session -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()), purpose);
     }
 
-    private static WorkerPoolSettings<Object> settings(int maxSize, int minIdle, boolean background, int maxRequests) {
+    private static WorkerPoolSettings<Object> settings(int maxSize, int minIdle, int maxRequests) {
         return WorkerPoolSettings.defaults()
                 .withMaxSize(maxSize)
                 .withMinIdle(minIdle)
-                .withBackgroundReplenishment(background)
                 .withMaxRequestsPerWorker(maxRequests);
     }
 }

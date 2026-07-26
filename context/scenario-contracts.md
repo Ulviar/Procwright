@@ -160,7 +160,7 @@ Listener должен быстро завершаться; тяжелая обр
 - line и protocol pools возвращают общий `PooledSessionMetrics` и используют общий `PooledSessionException` для
   acquisition/startup/hooks/close; request failures остаются `LineSessionException` или `ProtocolSessionException`;
 - `withMaxSize` сразу отклоняет неположительный `maxSize`; `PoolDraft.open()` до запуска workers отклоняет
-  `maxSize > 256`, `warmupSize > maxSize`, `minIdle > maxSize` и `minIdle > 0` без background replenishment;
+  `maxSize > 256`, `warmupSize > maxSize` и `minIdle > maxSize`;
 - после проверки в terminal `maxSize` ограничивает все slots одного pool: starting, idle, leased и retiring; значение по
   умолчанию — 1, допустимый диапазон — от 1 до 256;
 - разные pools и direct sessions не делят process-global worker quota; приложение ограничивает суммарное число процессов
@@ -175,7 +175,8 @@ Listener должен быстро завершаться; тяжелая обр
 - timeout, protocol/decoder failure и process exit retire worker;
 - reset выполняется после успешного response, health — перед повторным использованием;
 - hook timeout ограничивает reset/health;
-- `maxRequestsPerWorker`, `maxWorkerAge`, `minIdle` и background replenishment не раскрывают lifecycle caller-у;
+- `maxRequestsPerWorker`, `maxWorkerAge` и `minIdle` не раскрывают lifecycle caller-у; `minIdle == 0` отключает
+  replenishment, положительное значение включает его;
 - `close()` bounded синхронно запрещает новые requests, закрывает idle workers и ждет retirement активных после request;
 - `closeAsync()` запускает тот же terminal cleanup и возвращает cancellation-isolated future;
 - `DRAIN_TIMEOUT` не отменяет cleanup; failed worker close дает `WORKER_FAILED` и остается видимым в metrics/outcome;

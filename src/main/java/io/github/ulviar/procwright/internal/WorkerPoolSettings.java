@@ -17,7 +17,6 @@ public record WorkerPoolSettings<W>(
         Duration closeTimeout,
         int maxRequestsPerWorker,
         Duration maxWorkerAge,
-        boolean backgroundReplenishment,
         Consumer<W> resetHook,
         Predicate<W> healthCheck) {
 
@@ -47,7 +46,6 @@ public record WorkerPoolSettings<W>(
                 Duration.ofSeconds(15),
                 Integer.MAX_VALUE,
                 Duration.ZERO,
-                true,
                 worker -> {},
                 worker -> true);
     }
@@ -62,9 +60,6 @@ public record WorkerPoolSettings<W>(
         if (minIdle > maxSize) {
             throw new IllegalArgumentException("minIdle must not exceed maxSize");
         }
-        if (minIdle > 0 && !backgroundReplenishment) {
-            throw new IllegalArgumentException("minIdle requires backgroundReplenishment");
-        }
         return this;
     }
 
@@ -78,7 +73,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }
@@ -93,7 +87,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }
@@ -108,7 +101,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }
@@ -123,7 +115,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }
@@ -138,7 +129,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }
@@ -153,7 +143,6 @@ public record WorkerPoolSettings<W>(
                 value,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }
@@ -168,7 +157,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 value,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }
@@ -182,22 +170,6 @@ public record WorkerPoolSettings<W>(
                 hookTimeout,
                 closeTimeout,
                 maxRequestsPerWorker,
-                value,
-                backgroundReplenishment,
-                resetHook,
-                healthCheck);
-    }
-
-    public WorkerPoolSettings<W> withBackgroundReplenishment(boolean value) {
-        return copy(
-                maxSize,
-                warmupSize,
-                minIdle,
-                acquireTimeout,
-                hookTimeout,
-                closeTimeout,
-                maxRequestsPerWorker,
-                maxWorkerAge,
                 value,
                 resetHook,
                 healthCheck);
@@ -213,7 +185,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 value,
                 healthCheck);
     }
@@ -228,7 +199,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 value);
     }
@@ -242,7 +212,6 @@ public record WorkerPoolSettings<W>(
             Duration closeTimeout,
             int maxRequestsPerWorker,
             Duration maxWorkerAge,
-            boolean backgroundReplenishment,
             Consumer<W> resetHook,
             Predicate<W> healthCheck) {
         return new WorkerPoolSettings<>(
@@ -254,7 +223,6 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                backgroundReplenishment,
                 resetHook,
                 healthCheck);
     }

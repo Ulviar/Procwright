@@ -33,7 +33,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                 () -> controller(
                         () -> new TestWorker(factoryCalls.incrementAndGet()),
                         worker -> {},
-                        settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false)));
+                        settings(1, 0, 2, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO)));
 
         assertEquals(0, factoryCalls.get());
     }
@@ -55,19 +55,21 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                     throw fatalError;
                 },
                 worker -> {},
-                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
-                task -> Threading.start("test-fatal-replenish-", () -> {
-                    try {
-                        task.run();
-                    } catch (Throwable failure) {
-                        ownerFailure.set(failure);
-                    } finally {
-                        ownerFinished.countDown();
-                    }
-                }),
+                settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
+                (task, delay) -> {
+                    Threading.start("test-fatal-replenish-", () -> {
+                        try {
+                            task.run();
+                        } catch (Throwable failure) {
+                            ownerFailure.set(failure);
+                        } finally {
+                            ownerFinished.countDown();
+                        }
+                    });
+                    return PoolScheduledAttempt.Cancellation.NONE;
+                },
                 (thread, failure) -> {},
-                System::nanoTime,
-                null);
+                System::nanoTime);
         try {
             assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
             releaseFactory.countDown();
@@ -119,15 +121,14 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                     }
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false),
-                task -> Threading.start("test-replenish-", task),
+                settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO),
+                threadedScheduler("test-replenish-"),
                 (thread, failure) -> {
                     reported.set(failure);
                     reporterEntered.countDown();
                     awaitIgnoringInterrupt(releaseReporter);
                 },
-                System::nanoTime,
-                null);
+                System::nanoTime);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             assertTrue(reportsStarted.await(1, TimeUnit.SECONDS));
@@ -188,7 +189,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                                 closeCalls.incrementAndGet();
                                 workerClosed.countDown();
                             },
-                            settings(1, 1, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false))));
+                            settings(1, 1, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO))));
 
             assertTrue(startupEntered.await(1, TimeUnit.SECONDS));
             PoolFailure primary = construction.get(1, TimeUnit.SECONDS);
@@ -227,7 +228,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                         worker -> {
                             throw closeFailure;
                         },
-                        settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false)));
+                        settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO)));
 
         assertEquals(FailureKind.STARTUP_FAILED, thrown.kind);
         Throwable aggregate = thrown.getCause();
@@ -270,15 +271,14 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                                 throw lateCloseFailure;
                             }
                         },
-                        settings(2, 2, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO, false),
-                        task -> Threading.start("test-replenish-", task),
+                        settings(2, 2, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO),
+                        threadedScheduler("test-replenish-"),
                         (thread, failure) -> {
                             reported.compareAndSet(null, failure);
                             reports.incrementAndGet();
                             reportPublished.countDown();
                         },
-                        System::nanoTime,
-                        null));
+                        System::nanoTime));
 
         try {
             assertEquals(FailureKind.STARTUP_FAILED, thrown.kind);
@@ -309,7 +309,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                                 return new TestWorker(1);
                             },
                             worker -> {},
-                            settings(1, 1, 0, Duration.ofMillis(30), Integer.MAX_VALUE, Duration.ZERO, false)));
+                            settings(1, 1, 0, Duration.ofMillis(30), Integer.MAX_VALUE, Duration.ZERO)));
 
             assertEquals(FailureKind.STARTUP_FAILED, failure.kind);
         } finally {
@@ -327,7 +327,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                     throw startupFailure;
                 },
                 worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
 
         AssertionError thrown = assertThrows(AssertionError.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
 

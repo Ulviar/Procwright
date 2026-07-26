@@ -315,6 +315,10 @@ public final class LineSessionScenario {
         /**
          * Sets the maintained idle-worker floor.
          *
+         * <p>Zero disables background replenishment. A positive value starts establishing the idle floor
+         * asynchronously when the pool opens and restores it after workers are acquired or retired, without exceeding
+         * the maximum pool size.
+         *
          * @param minIdle non-negative idle-worker count
          * @return updated pool draft
          */
@@ -361,14 +365,6 @@ public final class LineSessionScenario {
          * @return updated pool draft
          */
         PoolDraft withMaxWorkerAge(Duration maxWorkerAge);
-
-        /**
-         * Enables or disables background worker replacement.
-         *
-         * @param backgroundReplenishment whether background replacement is enabled
-         * @return updated pool draft
-         */
-        PoolDraft withBackgroundReplenishment(boolean backgroundReplenishment);
 
         /**
          * Sets the hook run before a worker returns to idle.
