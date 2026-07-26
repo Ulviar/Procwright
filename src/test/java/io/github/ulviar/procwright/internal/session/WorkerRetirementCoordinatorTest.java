@@ -147,32 +147,6 @@ final class WorkerRetirementCoordinatorTest {
     }
 
     @Test
-    void dispatcherFailureAfterInlineExecutionDoesNotRepeatOutcomeProcessing() {
-        IllegalStateException dispatchFailure = new IllegalStateException("dispatcher failed after execution");
-        AtomicInteger initiated = new AtomicInteger();
-        AtomicInteger completed = new AtomicInteger();
-        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
-                task -> {
-                    task.run();
-                    throw dispatchFailure;
-                },
-                (worker, outcome) -> {
-                    completed.incrementAndGet();
-                    return null;
-                },
-                (worker, failure) -> {
-                    throw new AssertionError(failure);
-                },
-                report -> {});
-        IllegalStateException observed =
-                assertThrows(IllegalStateException.class, () -> coordinator.dispatch(List.of(worker(initiated))));
-
-        assertSame(dispatchFailure, observed);
-        assertEquals(1, initiated.get());
-        assertEquals(1, completed.get());
-    }
-
-    @Test
     void exceptionalCloseFutureIsDeliveredAsNormalizedOutcome() {
         CompletableFuture<WorkerRetirement.Outcome> outcome = new CompletableFuture<>();
         PoolWorker<String> worker = new PoolWorker<>(session -> outcome, PoolWorker.StartupPurpose.DEMAND);

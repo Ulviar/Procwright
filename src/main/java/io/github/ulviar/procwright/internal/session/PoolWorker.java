@@ -16,8 +16,9 @@ final class PoolWorker<S> {
 
     private WorkerStartup<S> startup;
     private final StartupPurpose startupPurpose;
+    private final WorkerRetirement.Action<S> closeAction;
     private S session;
-    private final WorkerRetirement<S> retirement;
+    private WorkerRetirement<S> retirement;
     private boolean detachedStartup;
     private long createdAtNanos;
     private long startupNanos;
@@ -25,7 +26,7 @@ final class PoolWorker<S> {
     private PooledWorkerRetireReason retireReason;
 
     PoolWorker(WorkerRetirement.Action<S> closeAction, StartupPurpose startupPurpose) {
-        retirement = new WorkerRetirement<>(closeAction);
+        this.closeAction = Objects.requireNonNull(closeAction, "closeAction");
         this.startupPurpose = Objects.requireNonNull(startupPurpose, "startupPurpose");
     }
 
@@ -69,7 +70,7 @@ final class PoolWorker<S> {
             throw new IllegalArgumentException("worker startup duration must be non-negative");
         }
         S candidate = Objects.requireNonNull(acceptedSession, "workerFactory returned null");
-        retirement.accept(candidate);
+        retirement = new WorkerRetirement<>(candidate, closeAction);
         session = candidate;
         createdAtNanos = System.nanoTime();
         startupNanos = measuredStartupNanos;
@@ -88,11 +89,11 @@ final class PoolWorker<S> {
     }
 
     void initiateClose() {
-        retirement.initiate();
+        retirement().initiate();
     }
 
     CompletableFuture<WorkerRetirement.Outcome> closeOutcome() {
-        return retirement.outcome();
+        return retirement().outcome();
     }
 
     StartupPurpose startupPurpose() {
@@ -105,6 +106,10 @@ final class PoolWorker<S> {
 
     void retireReason(PooledWorkerRetireReason retireReason) {
         this.retireReason = retireReason;
+    }
+
+    private WorkerRetirement<S> retirement() {
+        return Objects.requireNonNull(retirement, "worker has not completed startup");
     }
 
     enum StartupPurpose {

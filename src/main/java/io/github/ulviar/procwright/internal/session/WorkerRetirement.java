@@ -9,35 +9,26 @@ import java.util.concurrent.CompletionException;
 /** Owns exact-once initiation and one stable outcome for a worker retirement. */
 final class WorkerRetirement<S> {
 
+    private final S session;
     private final Action<S> action;
     private final CompletableFuture<Outcome> outcome = new CompletableFuture<>();
-    private S session;
     private boolean initiationStarted;
 
-    WorkerRetirement(Action<S> action) {
+    WorkerRetirement(S session, Action<S> action) {
+        this.session = Objects.requireNonNull(session, "session");
         this.action = Objects.requireNonNull(action, "action");
     }
 
-    synchronized void accept(S acceptedSession) {
-        if (session != null) {
-            throw new IllegalStateException("worker session is already accepted");
-        }
-        session = Objects.requireNonNull(acceptedSession, "workerFactory returned null");
-    }
-
     void initiate() {
-        S acceptedSession;
         synchronized (this) {
             if (initiationStarted) {
                 return;
             }
-            acceptedSession = Objects.requireNonNull(session, "worker has no accepted session");
             initiationStarted = true;
         }
         CompletableFuture<Outcome> selected;
         try {
-            selected = Objects.requireNonNull(
-                    action.initiate(acceptedSession), "worker close action returned null future");
+            selected = Objects.requireNonNull(action.initiate(session), "worker close action returned null future");
         } catch (Throwable failure) {
             outcome.complete(Outcome.failure(failure));
             return;

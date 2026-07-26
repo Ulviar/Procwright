@@ -28,7 +28,7 @@ final class WorkerCloseSupport {
         CompletableFuture<Throwable> closeFailure = observe(initiateClose(session, starter));
         CompletableFuture<Void> terminalSettlement = terminalOutcome.handle((ignored, failure) -> null);
         return CompletableFuture.allOf(closeFailure, terminalSettlement)
-                .thenApply(ignored -> aggregate(closeFailure.join()));
+                .thenApply(ignored -> outcome(closeFailure.join()));
     }
 
     private static CompletableFuture<Void> initiateClose(AutoCloseable session, CloseStarter starter) {
@@ -54,8 +54,10 @@ final class WorkerCloseSupport {
             CompletableFuture<Void> completion, Throwable primary, String message) {
         CompletableFuture<Void> combined = new CompletableFuture<>();
         completion.whenComplete((ignored, failure) -> {
-            Throwable outcome = failure == null ? primary : FailureAggregation.combine(primary, failure, message);
-            combined.completeExceptionally(outcome);
+            FailureAccumulator failures = new FailureAccumulator();
+            failures.add(primary);
+            failures.add(failure);
+            combined.completeExceptionally(failures.aggregateErrorFirst(message));
         });
         return combined;
     }
@@ -64,12 +66,7 @@ final class WorkerCloseSupport {
         return future.handle((ignored, failure) -> failure);
     }
 
-    private static WorkerRetirement.Outcome aggregate(Throwable... observedFailures) {
-        FailureAccumulator failures = new FailureAccumulator();
-        for (Throwable failure : observedFailures) {
-            failures.add(failure);
-        }
-        Throwable failure = failures.aggregateErrorFirst("Multiple failures occurred while closing a pool worker");
+    private static WorkerRetirement.Outcome outcome(Throwable failure) {
         return failure == null ? WorkerRetirement.Outcome.success() : WorkerRetirement.Outcome.failure(failure);
     }
 

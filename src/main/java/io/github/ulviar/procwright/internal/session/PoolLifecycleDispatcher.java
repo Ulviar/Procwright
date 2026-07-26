@@ -3,192 +3,153 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.Threading;
-import java.util.ArrayDeque;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Runs mandatory pool lifecycle work on a fixed set of owners.
+ * Runs mandatory pool lifecycle work with fixed parallelism and bounded admission.
  *
- * <p>Each owner set has bounded queue admission. Mandatory retirement work runs on the caller when its queue is full;
- * reports wait for independent bounded capacity. A task submitted recursively into its current owner set also runs
- * inline, so queue capacity cannot make every owner wait for capacity that only those owners can release.
- *
- * <p>All owners are started before this dispatcher becomes usable. A starter failure therefore fails construction
- * before any mandatory task can be accepted or abandoned.
+ * <p>Retirement runs on the submitting thread when saturated. Failure reports wait for independent capacity, except
+ * when recursively submitted by their own owner.
  */
 final class PoolLifecycleDispatcher {
 
     private static final int SHARED_PARALLELISM = 8;
-    private static final int SHARED_QUEUE_CAPACITY = 256;
+    private static final int SHARED_TASK_CAPACITY = 256;
 
-    private final Object lock = new Object();
-    private final ArrayDeque<TaskRequest> pending = new ArrayDeque<>();
-    private final BoundedTaskLimiter taskPermits;
     private final ThreadLocal<Boolean> ownerThread = new ThreadLocal<>();
-    private boolean ready;
-    private boolean running = true;
+    private final ThreadPoolExecutor executor;
+    private final Saturation saturation;
 
-    PoolLifecycleDispatcher(int parallelism, TaskStarter starter, String threadPrefix) {
-        this(parallelism, starter, threadPrefix, defaultTaskCapacity(parallelism));
-    }
-
-    PoolLifecycleDispatcher(int parallelism, TaskStarter starter, String threadPrefix, int taskCapacity) {
-        Objects.requireNonNull(starter, "starter");
-        Objects.requireNonNull(threadPrefix, "threadPrefix");
-        taskPermits = new BoundedTaskLimiter(taskCapacity);
+    PoolLifecycleDispatcher(int parallelism, int taskCapacity, ThreadFactory threadFactory, Saturation saturation) {
         if (parallelism <= 0) {
             throw new IllegalArgumentException("dispatcher parallelism must be positive");
         }
-        startOwners(parallelism, starter, threadPrefix);
+        if (taskCapacity <= parallelism) {
+            throw new IllegalArgumentException("task capacity must be larger than parallelism");
+        }
+        Objects.requireNonNull(threadFactory, "threadFactory");
+        this.saturation = Objects.requireNonNull(saturation, "saturation");
+        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(taskCapacity - parallelism);
+        executor = new ThreadPoolExecutor(
+                parallelism,
+                parallelism,
+                0,
+                TimeUnit.MILLISECONDS,
+                queue,
+                task -> Objects.requireNonNull(threadFactory.newThread(owned(task)), "thread factory returned null"),
+                this::reject);
+        prestartInitialOwners();
     }
 
     static void executeRetirementBatch(Runnable task) {
-        Retirements.INSTANCE.dispatchRetirementBatch(task);
+        Retirements.INSTANCE.execute(task);
     }
 
     static void report(Runnable task) {
-        Reports.INSTANCE.dispatch(task);
+        Reports.INSTANCE.execute(task);
     }
 
-    void dispatch(Runnable task) {
+    void execute(Runnable task) {
+        Objects.requireNonNull(task, "task");
+        Runnable safeTask = safe(task);
         if (Boolean.TRUE.equals(ownerThread.get())) {
-            runInline(task);
+            safeTask.run();
             return;
         }
-        BoundedTaskPermit permit = taskPermits.acquireUninterruptibly();
+        executor.execute(safeTask);
+    }
+
+    private void reject(Runnable task, ThreadPoolExecutor selectedExecutor) {
+        if (selectedExecutor.isShutdown()) {
+            throw new RejectedExecutionException("pool lifecycle dispatcher is unavailable");
+        }
+        if (saturation == Saturation.CALLER_RUNS) {
+            task.run();
+            return;
+        }
+        putUninterruptibly(selectedExecutor.getQueue(), task);
+    }
+
+    private void prestartInitialOwners() {
         try {
-            enqueue(new TaskRequest(task, permit));
+            executor.prestartAllCoreThreads();
         } catch (RuntimeException | Error failure) {
-            permit.close();
+            executor.shutdownNow();
             throw failure;
         }
     }
 
-    void dispatchRetirementBatch(Runnable task) {
-        if (Boolean.TRUE.equals(ownerThread.get())) {
-            runInline(task);
-            return;
-        }
-        BoundedTaskPermit permit = taskPermits.tryAcquire();
-        if (permit == null) {
-            runInline(task);
-            return;
-        }
-        try {
-            enqueue(new TaskRequest(task, permit));
-        } catch (RuntimeException | Error failure) {
-            permit.close();
-            throw failure;
-        }
+    private Runnable owned(Runnable owner) {
+        return () -> {
+            ownerThread.set(Boolean.TRUE);
+            try {
+                owner.run();
+            } finally {
+                ownerThread.remove();
+            }
+        };
     }
 
-    private void enqueue(TaskRequest request) {
-        synchronized (lock) {
-            if (!running || !ready) {
-                throw new IllegalStateException("pool lifecycle dispatcher is unavailable");
+    private static Runnable safe(Runnable task) {
+        return () -> {
+            try {
+                task.run();
+            } catch (Throwable ignored) {
+                // Mandatory tasks expose failures through their own outcome channel.
             }
-            pending.addLast(request);
-            lock.notifyAll();
-        }
+        };
     }
 
-    private void startOwners(int parallelism, TaskStarter starter, String threadPrefix) {
-        try {
-            for (int index = 0; index < parallelism; index++) {
-                starter.start(threadPrefix, this::runOwner);
-            }
-        } catch (RuntimeException | Error failure) {
-            synchronized (lock) {
-                running = false;
-                ready = true;
-                lock.notifyAll();
-            }
-            throw failure;
-        }
-        synchronized (lock) {
-            ready = true;
-            lock.notifyAll();
-        }
-    }
-
-    private void runOwner() {
+    private static void putUninterruptibly(BlockingQueue<Runnable> queue, Runnable task) {
         boolean interrupted = false;
-        ownerThread.set(Boolean.TRUE);
-        try {
-            while (true) {
-                TaskRequest request;
-                synchronized (lock) {
-                    while (running && (!ready || pending.isEmpty())) {
-                        try {
-                            lock.wait();
-                        } catch (InterruptedException ignored) {
-                            interrupted = true;
-                        }
-                    }
-                    if (!running) {
-                        if (interrupted) {
-                            Thread.currentThread().interrupt();
-                        }
-                        return;
-                    }
-                    request = pending.removeFirst();
-                }
-                request.run();
+        while (true) {
+            try {
+                queue.put(task);
+                break;
+            } catch (InterruptedException ignored) {
+                interrupted = true;
             }
-        } finally {
-            ownerThread.remove();
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 
-    private static void runInline(Runnable task) {
-        new TaskRequest(task, null).run();
+    private static PoolLifecycleDispatcher shared(String threadPrefix, Saturation saturation) {
+        AtomicInteger sequence = new AtomicInteger();
+        return new PoolLifecycleDispatcher(
+                SHARED_PARALLELISM,
+                SHARED_TASK_CAPACITY,
+                task -> {
+                    Thread thread =
+                            Threading.unstartedPlatformNonInheriting(threadPrefix + sequence.getAndIncrement(), task);
+                    thread.setContextClassLoader(ClassLoader.getPlatformClassLoader());
+                    return thread;
+                },
+                saturation);
     }
 
-    private static PoolLifecycleDispatcher shared(String threadPrefix, int taskCapacity) {
-        return new PoolLifecycleDispatcher(SHARED_PARALLELISM, Threading::start, threadPrefix, taskCapacity);
+    enum Saturation {
+        BLOCK,
+        CALLER_RUNS
     }
 
     private static final class Retirements {
 
-        private static final PoolLifecycleDispatcher INSTANCE = shared("procwright-retirement-", SHARED_QUEUE_CAPACITY);
+        private static final PoolLifecycleDispatcher INSTANCE =
+                shared("procwright-retirement-", Saturation.CALLER_RUNS);
     }
 
     private static final class Reports {
 
         private static final PoolLifecycleDispatcher INSTANCE =
-                shared("procwright-pool-late-report-", SHARED_QUEUE_CAPACITY);
-    }
-
-    private static int defaultTaskCapacity(int parallelism) {
-        return Math.max(16, Math.multiplyExact(parallelism, 8));
-    }
-
-    @FunctionalInterface
-    interface TaskStarter {
-
-        Thread start(String threadPrefix, Runnable task);
-    }
-
-    private static final class TaskRequest {
-
-        private final Runnable task;
-        private final BoundedTaskPermit permit;
-
-        private TaskRequest(Runnable task, BoundedTaskPermit permit) {
-            this.task = Objects.requireNonNull(task, "task");
-            this.permit = permit;
-        }
-
-        private void run() {
-            try {
-                task.run();
-            } catch (Throwable ignored) {
-                // Mandatory tasks expose failures through their own outcome channel.
-            } finally {
-                if (permit != null) {
-                    permit.close();
-                }
-            }
-        }
+                shared("procwright-pool-late-report-", Saturation.BLOCK);
     }
 }

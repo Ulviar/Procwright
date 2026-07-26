@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CompletableFuture;
@@ -106,19 +105,6 @@ final class WorkerRetirementTest {
     }
 
     @Test
-    void prematureInitiationDoesNotPoisonRetirement() {
-        WorkerRetirement<String> retirement =
-                new WorkerRetirement<>(worker -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()));
-
-        assertThrows(NullPointerException.class, retirement::initiate);
-
-        retirement.accept("worker");
-        CompletableFuture<WorkerRetirement.Outcome> outcome = retirement.outcome();
-        assertTrue(outcome.isDone());
-        assertNull(outcome.join().failure());
-    }
-
-    @Test
     void reentrantOutcomeAccessCannotInitiateCloseTwice() {
         AtomicInteger initiations = new AtomicInteger();
         AtomicReference<WorkerRetirement<String>> owner = new AtomicReference<>();
@@ -168,8 +154,6 @@ final class WorkerRetirementTest {
     }
 
     private static WorkerRetirement<String> retirement(WorkerRetirement.Action<String> action) {
-        WorkerRetirement<String> retirement = new WorkerRetirement<>(action);
-        retirement.accept("worker");
-        return retirement;
+        return new WorkerRetirement<>("worker", action);
     }
 }

@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -14,13 +13,13 @@ import java.util.function.Consumer;
 /** Owns post-monitor retirement batches, close completion, and late failure publication. */
 final class WorkerRetirementCoordinator<S> {
 
-    private final Consumer<Runnable> dispatcher;
+    private final Dispatcher dispatcher;
     private final BiFunction<PoolWorker<S>, WorkerRetirement.Outcome, FailureReport> completion;
     private final BiConsumer<PoolWorker<S>, Throwable> unexpectedFailure;
     private final Consumer<FailureReport> reporter;
 
     WorkerRetirementCoordinator(
-            Consumer<Runnable> dispatcher,
+            Dispatcher dispatcher,
             BiFunction<PoolWorker<S>, WorkerRetirement.Outcome, FailureReport> completion,
             BiConsumer<PoolWorker<S>, Throwable> unexpectedFailure,
             Consumer<FailureReport> reporter) {
@@ -36,14 +35,9 @@ final class WorkerRetirementCoordinator<S> {
             throw new IllegalArgumentException("retirement batch must not be empty");
         }
         batch.forEach(PoolWorker::initiateClose);
-        AtomicBoolean processingStarted = new AtomicBoolean();
-        Runnable outcomeProcessing = () -> {
-            if (processingStarted.compareAndSet(false, true)) {
-                processOutcomes(batch);
-            }
-        };
+        Runnable outcomeProcessing = () -> processOutcomes(batch);
         try {
-            dispatcher.accept(outcomeProcessing);
+            dispatcher.dispatch(outcomeProcessing);
         } catch (RuntimeException | Error dispatchFailure) {
             outcomeProcessing.run();
             throw dispatchFailure;
@@ -75,11 +69,7 @@ final class WorkerRetirementCoordinator<S> {
         if (closeOutcome.isDone()) {
             return completion.apply(worker, closeOutcome.join());
         }
-        closeOutcome.whenComplete((outcome, failure) -> {
-            if (failure != null) {
-                unexpectedFailure.accept(worker, PoolFailurePublisher.unwrap(failure));
-                return;
-            }
+        closeOutcome.thenAccept(outcome -> {
             try {
                 reporter.accept(completion.apply(worker, outcome));
             } catch (RuntimeException | Error completionFailure) {
@@ -87,5 +77,12 @@ final class WorkerRetirementCoordinator<S> {
             }
         });
         return null;
+    }
+
+    @FunctionalInterface
+    interface Dispatcher {
+
+        /** Accepts the task or throws before the task can run. */
+        void dispatch(Runnable task);
     }
 }

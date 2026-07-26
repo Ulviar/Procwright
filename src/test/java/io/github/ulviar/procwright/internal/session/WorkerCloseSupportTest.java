@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.Threading;
 import java.util.concurrent.CompletableFuture;
@@ -104,6 +105,25 @@ final class WorkerCloseSupportTest {
         ownerThread.get().join(TimeUnit.SECONDS.toMillis(1));
         assertFalse(ownerThread.get().isAlive());
         assertEquals(1, closeRuns.get());
+    }
+
+    @Test
+    void fatalCloseFailureRemainsPrimaryAfterStarterFailure() throws Exception {
+        IllegalStateException starterFailure = new IllegalStateException("worker close owner launch failed");
+        AssertionError closeFailure = new AssertionError("worker close failed fatally");
+
+        CompletableFuture<WorkerRetirement.Outcome> retirement = WorkerCloseSupport.closeOutcome(
+                () -> {
+                    throw closeFailure;
+                },
+                CompletableFuture.completedFuture(null),
+                (prefix, owner) -> {
+                    throw starterFailure;
+                });
+
+        Throwable observed = retirement.get(1, TimeUnit.SECONDS).failure();
+        assertTrue(observed instanceof Error);
+        assertSame(closeFailure, observed.getCause());
     }
 
     private static void assertStarterFailure(Throwable expected, boolean runBeforeFailure) throws Exception {

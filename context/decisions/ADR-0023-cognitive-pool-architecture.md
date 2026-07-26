@@ -51,9 +51,10 @@ factory. Проигравший поздний factory result передаётс
 `WorkerPoolState.Lease` создаётся только в атомарном переходе `STARTING -> LEASED`. Lease не раскрывается public API и
 может быть освобождён или retire-нут ровно один раз.
 
-`WorkerRetirement` владеет exact-once принятием session, запуском close action и стабильным outcome.
-`WorkerRetirementCoordinator` сначала инициирует весь выбранный batch, затем наблюдает outcomes вне pool monitor и
-возвращает их в state.
+После успешного factory result `PoolWorker` одной операцией принимает session и создаёт `WorkerRetirement`.
+`WorkerRetirement` поэтому не имеет состояния «ещё нет session» и владеет только exact-once запуском close action и
+стабильным outcome. `WorkerRetirementCoordinator` сначала инициирует весь выбранный batch, затем наблюдает outcomes вне
+pool monitor и возвращает их в state.
 
 ### Closing
 
@@ -77,6 +78,13 @@ fixed-parallelism `PoolReplenishmentScheduler`; размер его очеред
 `PoolScheduledAttempt` изолирует гонку между немедленным запуском, attachment cancellation handle и close; закрытие
 pool удаляет pending task из scheduler. Backoff не занимает worker thread, поэтому failing pool не удерживает lifecycle
 owner бесконечным retry-loop. `PooledRequestRunner` владеет request observation и exact-once возвратом lease.
+
+`PoolLifecycleDispatcher` failure-atomically создаёт фиксированный набор daemon owner-потоков в стандартном
+`ThreadPoolExecutor` и использует bounded internal queue. Owner-потоки не завершаются по idle timeout, поэтому после
+успешного construction обычная отправка task не зависит от повторного вызова thread factory. Saturation policy
+различается по смыслу работы: обязательный retirement выполняется вызывающим потоком сверх executor parallelism, а
+producer публикации diagnostics ждёт места в отдельной очереди. Рекурсивная отправка из owner thread выполняется сразу
+и не может заблокироваться на собственной очереди.
 
 ## Инварианты
 
