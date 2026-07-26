@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -18,7 +19,7 @@ abstract class WorkerPoolControllerTestSupport {
 
     static void assertPartition(
             WorkerPoolController<?> pool, int size, int idle, int leased, int starting, int retiring) {
-        PoolMetrics.Snapshot metrics = pool.metrics();
+        PooledSessionMetrics metrics = pool.metrics();
         assertEquals(size, metrics.size());
         assertEquals(idle, metrics.idle());
         assertEquals(leased, metrics.leased());

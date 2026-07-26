@@ -16,16 +16,11 @@ import io.github.ulviar.procwright.internal.RunSettings;
 import io.github.ulviar.procwright.internal.SessionSettings;
 import io.github.ulviar.procwright.internal.StreamSettings;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
-import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
-import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import io.github.ulviar.procwright.terminal.PtyProvider;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import io.github.ulviar.procwright.terminal.TerminalSize;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.EnumMap;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 final class PolicyValueTest {
@@ -232,40 +227,6 @@ final class PolicyValueTest {
     }
 
     @Test
-    void pooledLineSessionMetricsRejectImpossibleSnapshots() {
-        assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 1, 1, 1, 0, 0, 0));
-        assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 2, 0, 2, 0, 0, 0));
-        assertThrows(IllegalArgumentException.class, () -> basicMetrics(1, 0, 2, 2, 0, 0, 0));
-        assertThrows(IllegalArgumentException.class, () -> basicMetrics(0, 0, 0, 0, 1, 0, 0));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledLineSessionMetrics(
-                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledLineSessionMetrics(1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledLineSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledLineSessionMetrics(2, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledLineSessionMetrics(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledLineSessionMetrics(
-                        0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 0, 0, 0, Map.of(PooledWorkerRetireReason.CLOSED, 1L)));
-    }
-
-    private static PooledLineSessionMetrics basicMetrics(
-            int size, int idle, int leased, long created, long retired, long completed, long failed) {
-        return new PooledLineSessionMetrics(
-                size, idle, leased, 0, 0, created, retired, completed, failed, 0, 0, 0, 0, 0, Map.of());
-    }
-
-    @Test
     void protocolSessionSettingsRejectInvalidLimits() {
         assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withRequestTimeout(Duration.ZERO));
@@ -281,61 +242,6 @@ final class PolicyValueTest {
                 .withMaxResponseBytes(0));
         assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
                 .withMaxResponseChars(0));
-    }
-
-    @Test
-    void pooledProtocolSessionMetricsRejectImpossibleSnapshots() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(
-                        1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of(PooledWorkerRetireReason.TIMEOUT, -1L)));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(2, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Map.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new PooledProtocolSessionMetrics(1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 2, 0, 0, 0, Map.of()));
-    }
-
-    @Test
-    void pooledProtocolSessionMetricsSnapshotRetireReasons() {
-        EnumMap<PooledWorkerRetireReason, Long> retireReasons = new EnumMap<>(PooledWorkerRetireReason.class);
-        retireReasons.put(PooledWorkerRetireReason.MAX_REQUESTS, 1L);
-
-        PooledProtocolSessionMetrics metrics =
-                new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, retireReasons);
-        retireReasons.put(PooledWorkerRetireReason.TIMEOUT, 1L);
-
-        assertEquals(Map.of(PooledWorkerRetireReason.MAX_REQUESTS, 1L), metrics.retireReasons());
-        assertThrows(UnsupportedOperationException.class, () -> metrics.retireReasons()
-                .put(PooledWorkerRetireReason.TIMEOUT, 1L));
-        assertThrows(
-                NullPointerException.class,
-                () -> new PooledProtocolSessionMetrics(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, null));
     }
 
     private static RunSettings runSettings() {

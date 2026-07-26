@@ -18,8 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.session.PoolTestAccess;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
-import io.github.ulviar.procwright.session.PooledProtocolSessionException;
-import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionException;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReader;
@@ -57,7 +57,7 @@ final class PooledProtocolSessionIntegrationTest {
             assertEquals("first", pool.request("first"));
             assertEquals("second", pool.request("second"));
 
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1, metrics.created());
             assertEquals(2, metrics.completedRequests());
             assertEquals(0, metrics.failedRequests());
@@ -75,7 +75,7 @@ final class PooledProtocolSessionIntegrationTest {
             assertThrows(NullPointerException.class, () -> pool.request(null));
             assertThrows(NullPointerException.class, () -> pool.request(null, Duration.ofSeconds(1)));
 
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1, metrics.idle());
             assertEquals(0, metrics.leased());
             assertEquals(0, metrics.retired());
@@ -154,16 +154,16 @@ final class PooledProtocolSessionIntegrationTest {
             assertEquals(1, pool.metrics().leased());
             CompletableFuture<Void> eventual = pool.closeAsync();
 
-            PooledProtocolSessionException interrupted;
+            PooledSessionException interrupted;
             try {
                 Thread.currentThread().interrupt();
-                interrupted = assertThrows(PooledProtocolSessionException.class, pool::close);
+                interrupted = assertThrows(PooledSessionException.class, pool::close);
                 assertEquals(true, Thread.currentThread().isInterrupted());
             } finally {
                 Thread.interrupted();
             }
 
-            assertEquals(PooledProtocolSessionException.Reason.INTERRUPTED, interrupted.reason());
+            assertEquals(PooledSessionException.Reason.INTERRUPTED, interrupted.reason());
             adapter.releaseResponse();
             assertEquals("slept:hold", request.get(2, TimeUnit.SECONDS));
             eventual.get(2, TimeUnit.SECONDS);
@@ -185,7 +185,7 @@ final class PooledProtocolSessionIntegrationTest {
             assertEquals("first", pool.request("first"));
 
             pool.closeAsync().get(2, TimeUnit.SECONDS);
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1L, metrics.retireReasons().get(PooledWorkerRetireReason.MAX_REQUESTS));
         }
     }
@@ -243,7 +243,7 @@ final class PooledProtocolSessionIntegrationTest {
                 Future<String> second = executor.submit(() -> pool.request("second"));
                 assertTrue(secondResponseEntered.await(2, TimeUnit.SECONDS));
 
-                PooledProtocolSessionMetrics metrics = pool.metrics();
+                PooledSessionMetrics metrics = pool.metrics();
                 assertEquals(1L, metrics.retireReasons().get(PooledWorkerRetireReason.MAX_REQUESTS));
                 assertEquals(1, metrics.size());
                 assertEquals(1, metrics.leased());
@@ -261,18 +261,17 @@ final class PooledProtocolSessionIntegrationTest {
 
     @Test
     void pooledProtocolWarmupReadinessFailureIsStartupFailure() {
-        PooledProtocolSessionException exception =
-                assertThrows(PooledProtocolSessionException.class, () -> fixtureService()
-                        .protocolSession(FramedStringAdapter::new)
-                        .withArgs("length-line-frame")
-                        .withReadiness(ready -> {
-                            throw new IllegalStateException("not ready");
-                        })
-                        .pooled()
-                        .withWarmupSize(1)
-                        .open());
+        PooledSessionException exception = assertThrows(PooledSessionException.class, () -> fixtureService()
+                .protocolSession(FramedStringAdapter::new)
+                .withArgs("length-line-frame")
+                .withReadiness(ready -> {
+                    throw new IllegalStateException("not ready");
+                })
+                .pooled()
+                .withWarmupSize(1)
+                .open());
 
-        assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, exception.reason());
+        assertEquals(PooledSessionException.Reason.STARTUP_FAILED, exception.reason());
     }
 
     @Test
@@ -294,10 +293,10 @@ final class PooledProtocolSessionIntegrationTest {
                 assertTrue(adapter.awaitResponseEntered());
                 assertEquals(1, pool.metrics().leased());
 
-                PooledProtocolSessionException exception =
-                        assertThrows(PooledProtocolSessionException.class, () -> pool.request("second"));
+                PooledSessionException exception =
+                        assertThrows(PooledSessionException.class, () -> pool.request("second"));
 
-                assertEquals(PooledProtocolSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
+                assertEquals(PooledSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
                 adapter.releaseResponse();
                 assertEquals("slept:first", first.get(2, TimeUnit.SECONDS));
             } finally {
@@ -349,21 +348,21 @@ final class PooledProtocolSessionIntegrationTest {
                         return true;
                     })
                     .open()) {
-                Future<PooledProtocolSessionException> request = executor.submit(() -> {
+                Future<PooledSessionException> request = executor.submit(() -> {
                     try {
                         pool.request("hello");
                         throw new AssertionError("expected health timeout");
-                    } catch (PooledProtocolSessionException exception) {
+                    } catch (PooledSessionException exception) {
                         return exception;
                     }
                 });
-                PooledProtocolSessionException exception = request.get(1, TimeUnit.SECONDS);
+                PooledSessionException exception = request.get(1, TimeUnit.SECONDS);
 
                 assertTrue(health.awaitEntered());
-                assertEquals(PooledProtocolSessionException.Reason.HOOK_TIMEOUT, exception.reason());
+                assertEquals(PooledSessionException.Reason.HOOK_TIMEOUT, exception.reason());
                 health.releaseAndJoin();
                 assertEquals("second", pool.request("second"));
-                PooledProtocolSessionMetrics metrics = pool.metrics();
+                PooledSessionMetrics metrics = pool.metrics();
                 assertEquals(1, metrics.retired());
                 assertEquals(1, metrics.retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
                 assertFalse(metrics.retireReasons().containsKey(PooledWorkerRetireReason.PROCESS_EXITED));
@@ -397,7 +396,7 @@ final class PooledProtocolSessionIntegrationTest {
                 assertEquals(0, pool.metrics().failedRequests());
                 reset.releaseAndJoin();
                 assertEquals("second", pool.request("second"));
-                PooledProtocolSessionMetrics metrics = pool.metrics();
+                PooledSessionMetrics metrics = pool.metrics();
                 assertEquals(1, metrics.retired());
                 assertEquals(1, metrics.retireReasons().get(PooledWorkerRetireReason.RESET_FAILED));
                 assertEquals(2, metrics.created());
@@ -424,7 +423,7 @@ final class PooledProtocolSessionIntegrationTest {
 
             assertSame(resetError, thrown);
             pool.closeAsync().get(2, TimeUnit.SECONDS);
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1, metrics.completedRequests());
             assertEquals(0, metrics.failedRequests());
             assertEquals(1, metrics.retired());
@@ -450,7 +449,7 @@ final class PooledProtocolSessionIntegrationTest {
 
             assertSame(decoderError, thrown);
             pool.closeAsync().get(2, TimeUnit.SECONDS);
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(0, metrics.completedRequests());
             assertEquals(1, metrics.failedRequests());
             assertEquals(1, metrics.retired());
@@ -484,7 +483,7 @@ final class PooledProtocolSessionIntegrationTest {
             assertTrue(exception.transcript().truncated());
             assertTrue(exception.transcript().text().length() <= 8);
             pool.closeAsync().get(2, TimeUnit.SECONDS);
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(0, metrics.completedRequests());
             assertEquals(1, metrics.failedRequests());
             assertEquals(1, metrics.retired());

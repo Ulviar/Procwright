@@ -8,7 +8,7 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticListener;
 import io.github.ulviar.procwright.diagnostics.DiagnosticTranscriptSink;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.ResponseDecoder;
 import io.github.ulviar.procwright.terminal.PtyProvider;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
@@ -396,7 +396,7 @@ public final class LineSessionScenario {
          * Opens a new worker pool.
          *
          * @return newly opened worker pool
-         * @throws PooledLineSessionException with reason {@link PooledLineSessionException.Reason#STARTUP_FAILED} when
+         * @throws PooledSessionException with reason {@link PooledSessionException.Reason#STARTUP_FAILED} when
          *     synchronous warmup fails
          */
         PooledLineSession open();

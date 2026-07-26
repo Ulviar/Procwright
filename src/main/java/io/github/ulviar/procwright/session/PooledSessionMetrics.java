@@ -6,9 +6,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Snapshot of pooled protocol-session runtime counters.
+ * Snapshot of one pooled-session runtime's counters.
  *
- * <p>This snapshot describes one pool. Its {@code size} is bounded by that pool's configured maximum from 1 through 256
+ * <p>The snapshot describes one pool. Its {@code size} is bounded by that pool's configured maximum from 1 through 256
  * and includes starting, idle, leased, and retiring workers. It does not report workers owned by other pools or directly
  * opened sessions.
  *
@@ -28,7 +28,7 @@ import java.util.Objects;
  * @param totalWorkerStartupNanos accumulated successful worker startup duration
  * @param retireReasons retired worker counts by reason
  */
-public record PooledProtocolSessionMetrics(
+public record PooledSessionMetrics(
         int size,
         int idle,
         int leased,
@@ -64,7 +64,7 @@ public record PooledProtocolSessionMetrics(
      * @param totalWorkerStartupNanos accumulated successful worker startup duration
      * @param retireReasons retired worker counts by reason
      */
-    public PooledProtocolSessionMetrics {
+    public PooledSessionMetrics {
         requireNonNegative(size, "size");
         requireNonNegative(idle, "idle");
         requireNonNegative(leased, "leased");

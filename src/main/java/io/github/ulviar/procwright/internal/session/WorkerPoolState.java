@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.DurationSupport;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.List;
@@ -418,17 +419,17 @@ final class WorkerPoolState<S> {
         }
     }
 
-    PoolMetrics.Snapshot metrics() {
+    PooledSessionMetrics metrics() {
         synchronized (monitor) {
             return metricsLocked();
         }
     }
 
-    boolean awaitMetrics(Predicate<PoolMetrics.Snapshot> condition, Duration timeout) throws InterruptedException {
+    boolean awaitMetrics(Predicate<PooledSessionMetrics> condition, Duration timeout) throws InterruptedException {
         Objects.requireNonNull(condition, "condition");
         long deadlineNanos = DurationSupport.deadlineFromNow(DurationSupport.requirePositive(timeout, "timeout"));
         while (true) {
-            PoolMetrics.Snapshot snapshot;
+            PooledSessionMetrics snapshot;
             long observedRevision;
             synchronized (monitor) {
                 snapshot = metricsLocked();
@@ -507,7 +508,7 @@ final class WorkerPoolState<S> {
         return policy.needsReplenishment(partition.size(), partition.idleCount(), replenishingStarts);
     }
 
-    private PoolMetrics.Snapshot metricsLocked() {
+    private PooledSessionMetrics metricsLocked() {
         PoolPartition.Counts counts = partition.counts();
         return metrics.snapshot(counts.size(), counts.idle(), counts.leased(), counts.starting(), counts.retiring());
     }

@@ -22,8 +22,7 @@ import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.LineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
-import io.github.ulviar.procwright.session.PooledProtocolSessionException;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.ProtocolSession;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -51,9 +50,9 @@ final class PooledWorkerLatePhysicalOutputFailureTest {
             CompletableFuture<Void> eventual = pool.closeAsync();
             assertTrue(stdout.awaitCloseInvoked(), "line stdout physical close was not dispatched");
 
-            PooledLineSessionException timeout = assertThrows(PooledLineSessionException.class, pool::close);
+            PooledSessionException timeout = assertThrows(PooledSessionException.class, pool::close);
 
-            assertEquals(PooledLineSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
+            assertEquals(PooledSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
             assertFalse(eventual.isDone());
             assertTrue(dispatcher.outstandingCount() > 0);
 
@@ -61,11 +60,11 @@ final class PooledWorkerLatePhysicalOutputFailureTest {
             assertTrue(stdout.awaitReadFinished());
             ExecutionException observed =
                     assertThrows(ExecutionException.class, () -> eventual.get(1, TimeUnit.SECONDS));
-            PooledLineSessionException workerFailure = (PooledLineSessionException) observed.getCause();
-            assertEquals(PooledLineSessionException.Reason.WORKER_FAILED, workerFailure.reason());
+            PooledSessionException workerFailure = (PooledSessionException) observed.getCause();
+            assertEquals(PooledSessionException.Reason.WORKER_FAILED, workerFailure.reason());
             assertSame(closeFailure, workerFailure.getCause());
-            PooledLineSessionException repeated = assertThrows(PooledLineSessionException.class, pool::close);
-            assertEquals(PooledLineSessionException.Reason.WORKER_FAILED, repeated.reason());
+            PooledSessionException repeated = assertThrows(PooledSessionException.class, pool::close);
+            assertEquals(PooledSessionException.Reason.WORKER_FAILED, repeated.reason());
             assertSame(closeFailure, repeated.getCause());
             assertNoDispatcherLeak(dispatcher);
         } finally {
@@ -93,9 +92,9 @@ final class PooledWorkerLatePhysicalOutputFailureTest {
             CompletableFuture<Void> eventual = pool.closeAsync();
             assertTrue(stdout.awaitCloseInvoked(), "protocol stdout physical close was not dispatched");
 
-            PooledProtocolSessionException timeout = assertThrows(PooledProtocolSessionException.class, pool::close);
+            PooledSessionException timeout = assertThrows(PooledSessionException.class, pool::close);
 
-            assertEquals(PooledProtocolSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
+            assertEquals(PooledSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
             assertFalse(eventual.isDone());
             assertTrue(dispatcher.outstandingCount() > 0);
 

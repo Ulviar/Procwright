@@ -56,6 +56,8 @@ Session.expect() -> Expect.Draft -> open()
 - process/resource создается только `execute()` или `open()`;
 - protocol entry point принимает factory, создающую adapter на каждый session/worker;
 - pooled configuration вложена в line/protocol scenario и не раскрывает lease;
+- line/protocol pool handles остаются разными сценариями, но возвращают общий `PooledSessionMetrics` и используют
+  общий `PooledSessionException` для pool lifecycle; request-level exceptions остаются сценарными;
 - `maxSize` каждого pool принимает значения от 1 до 256, по умолчанию равен 1 и включает starting, idle, leased и
   retiring slots; разные pools и direct sessions не делят process-global worker quota;
 - pool Draft задает bounded close timeout; pool handle предоставляет только synchronous `close()` и cancellation-isolated

@@ -22,8 +22,8 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.DiagnosticAttributeSchema;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolSession;
@@ -101,7 +101,7 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         IllegalStateException readinessFailure = new IllegalStateException("worker not ready");
 
-        PooledLineSessionException thrown = assertThrows(PooledLineSessionException.class, () -> fixtureService()
+        PooledSessionException thrown = assertThrows(PooledSessionException.class, () -> fixtureService()
                 .lineSession()
                 .withDiagnosticListener(recorder)
                 .withArg("controlled-line-repl")
@@ -113,7 +113,7 @@ final class DiagnosticsIntegrationTest {
                 .withWarmupSize(1)
                 .open());
 
-        assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, thrown.reason());
+        assertEquals(PooledSessionException.Reason.STARTUP_FAILED, thrown.reason());
         assertOpenFailureLifecycle(recorder, "pooled", CommandExecutionException.class);
     }
 

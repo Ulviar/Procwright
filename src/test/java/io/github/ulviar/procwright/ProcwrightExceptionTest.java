@@ -13,8 +13,7 @@ import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.LineTranscript;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
-import io.github.ulviar.procwright.session.PooledProtocolSessionException;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolTranscript;
 import io.github.ulviar.procwright.session.StreamException;
@@ -36,11 +35,7 @@ final class ProcwrightExceptionTest {
                 new ProtocolSessionException(
                         ProtocolSessionException.Reason.TIMEOUT, new ProtocolTranscript("", false, false), "failed"));
         assertInstanceOf(
-                ProcwrightException.class,
-                new PooledLineSessionException(PooledLineSessionException.Reason.CLOSED, "failed"));
-        assertInstanceOf(
-                ProcwrightException.class,
-                new PooledProtocolSessionException(PooledProtocolSessionException.Reason.CLOSED, "failed"));
+                ProcwrightException.class, new PooledSessionException(PooledSessionException.Reason.CLOSED, "failed"));
         assertInstanceOf(
                 ProcwrightException.class,
                 new ExpectException(ExpectException.Reason.TIMEOUT, new LineTranscript("", false, false), "failed"));

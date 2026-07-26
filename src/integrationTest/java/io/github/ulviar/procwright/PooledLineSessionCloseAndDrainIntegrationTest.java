@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionException;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -39,9 +39,8 @@ final class PooledLineSessionCloseAndDrainIntegrationTest extends PooledLineSess
 
                 pool.close();
 
-                PooledLineSessionException closed =
-                        assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
-                assertEquals(PooledLineSessionException.Reason.CLOSED, closed.reason());
+                PooledSessionException closed = assertThrows(PooledSessionException.class, () -> pool.request("hello"));
+                assertEquals(PooledSessionException.Reason.CLOSED, closed.reason());
                 assertEquals("response:hold", inFlight.get().text());
                 assertEquals(0, pool.metrics().size());
                 assertEquals(1, pool.metrics().completedRequests());
@@ -69,7 +68,7 @@ final class PooledLineSessionCloseAndDrainIntegrationTest extends PooledLineSess
                 assertTrue(awaitLeased(pool, 1));
 
                 CompletableFuture<Void> close = pool.closeAsync();
-                PooledLineSessionMetrics closing = pool.metrics();
+                PooledSessionMetrics closing = pool.metrics();
 
                 assertEquals(2, closing.size());
                 assertEquals(0, closing.idle());
@@ -118,10 +117,10 @@ final class PooledLineSessionCloseAndDrainIntegrationTest extends PooledLineSess
             Future<LineResponse> request = executor.submit(() -> pool.request("hello"));
             assertTrue(resetEntered.await(1, TimeUnit.SECONDS));
 
-            Future<PooledLineSessionException> closeAttempt =
-                    executor.submit(() -> assertThrows(PooledLineSessionException.class, pool::close));
-            PooledLineSessionException timeout = closeAttempt.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS);
-            assertEquals(PooledLineSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
+            Future<PooledSessionException> closeAttempt =
+                    executor.submit(() -> assertThrows(PooledSessionException.class, pool::close));
+            PooledSessionException timeout = closeAttempt.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS);
+            assertEquals(PooledSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
             CompletableFuture<Void> cancelled = pool.closeAsync();
             CompletableFuture<Void> eventual = pool.closeAsync();
             assertTrue(cancelled.cancel(true));
@@ -161,15 +160,15 @@ final class PooledLineSessionCloseAndDrainIntegrationTest extends PooledLineSess
             assertTrue(resetEntered.await(1, TimeUnit.SECONDS));
             CompletableFuture<Void> eventual = pool.closeAsync();
 
-            PooledLineSessionException interrupted;
+            PooledSessionException interrupted;
             try {
                 Thread.currentThread().interrupt();
-                interrupted = assertThrows(PooledLineSessionException.class, pool::close);
+                interrupted = assertThrows(PooledSessionException.class, pool::close);
                 assertTrue(Thread.currentThread().isInterrupted());
             } finally {
                 Thread.interrupted();
             }
-            assertEquals(PooledLineSessionException.Reason.INTERRUPTED, interrupted.reason());
+            assertEquals(PooledSessionException.Reason.INTERRUPTED, interrupted.reason());
 
             releaseReset.countDown();
             assertEquals("response:hello", request.get(1, TimeUnit.SECONDS).text());
@@ -219,7 +218,7 @@ final class PooledLineSessionCloseAndDrainIntegrationTest extends PooledLineSess
             for (Future<?> closer : closers) {
                 closer.get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS);
             }
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(0, metrics.size());
             assertEquals(1, metrics.retired());
             assertEquals(0, metrics.failedWorkerCloses());
@@ -235,19 +234,18 @@ final class PooledLineSessionCloseAndDrainIntegrationTest extends PooledLineSess
     @Test
     void closeFromResetCallbackIsBoundedAndEventuallyDrains() throws Exception {
         AtomicReference<PooledLineSession> poolReference = new AtomicReference<>();
-        AtomicReference<PooledLineSessionException> closeFailure = new AtomicReference<>();
+        AtomicReference<PooledSessionException> closeFailure = new AtomicReference<>();
         PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
                 .withWarmupSize(1)
                 .withCloseTimeout(Duration.ofMillis(40))
                 .withReset(worker -> closeFailure.set(assertThrows(
-                        PooledLineSessionException.class,
-                        () -> poolReference.get().close())))
+                        PooledSessionException.class, () -> poolReference.get().close())))
                 .open();
         poolReference.set(pool);
         try {
             assertEquals("response:hello", pool.request("hello").text());
             assertEquals(
-                    PooledLineSessionException.Reason.DRAIN_TIMEOUT,
+                    PooledSessionException.Reason.DRAIN_TIMEOUT,
                     closeFailure.get().reason());
 
             pool.closeAsync().get(1, TimeUnit.SECONDS);
@@ -285,8 +283,8 @@ final class PooledLineSessionCloseAndDrainIntegrationTest extends PooledLineSess
             assertSame(primary, observed);
             assertEquals(1, observed.getSuppressed().length);
             assertEquals(
-                    PooledLineSessionException.Reason.DRAIN_TIMEOUT,
-                    ((PooledLineSessionException) observed.getSuppressed()[0]).reason());
+                    PooledSessionException.Reason.DRAIN_TIMEOUT,
+                    ((PooledSessionException) observed.getSuppressed()[0]).reason());
         } finally {
             releaseReset.countDown();
             Future<LineResponse> activeRequest = request.get();

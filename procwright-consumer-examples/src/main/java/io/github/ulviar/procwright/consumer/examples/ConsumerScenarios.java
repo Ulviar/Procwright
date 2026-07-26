@@ -10,6 +10,8 @@ import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
+import io.github.ulviar.procwright.session.PooledSessionException;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReader;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -17,6 +19,7 @@ import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 
 public final class ConsumerScenarios {
 
@@ -75,6 +78,20 @@ public final class ConsumerScenarios {
                 .open()) {
             return pool.request("pooled\nbody", Duration.ofSeconds(2));
         }
+    }
+
+    public static List<PooledSessionMetrics> pooledMetrics(
+            PooledLineSession linePool, PooledProtocolSession<?, ?> protocolPool) {
+        return List.of(linePool.metrics(), protocolPool.metrics());
+    }
+
+    public static PooledSessionException.Reason pooledFailureReason(Runnable operation) {
+        try {
+            operation.run();
+        } catch (PooledSessionException failure) {
+            return failure.reason();
+        }
+        throw new IllegalStateException("The pooled operation completed successfully");
     }
 
     private static final class LengthLineFrameAdapter implements ProtocolAdapter<String, String> {

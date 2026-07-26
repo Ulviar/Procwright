@@ -151,6 +151,8 @@ Listener должен быстро завершаться; тяжелая обр
 - pool переиспользует direct line/protocol runtime;
 - lease не раскрывается;
 - live worker находится ровно в одном состоянии: starting, idle, leased или retiring;
+- line и protocol pools возвращают общий `PooledSessionMetrics` и используют общий `PooledSessionException` для
+  acquisition/startup/hooks/close; request failures остаются `LineSessionException` или `ProtocolSessionException`;
 - `withMaxSize` сразу отклоняет неположительный `maxSize`; `PoolDraft.open()` до запуска workers отклоняет
   `maxSize > 256`, `warmupSize > maxSize`, `minIdle > maxSize` и `minIdle > 0` без background replenishment;
 - после проверки в terminal `maxSize` ограничивает все slots одного pool: starting, idle, leased и retiring; значение по

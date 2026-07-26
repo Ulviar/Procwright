@@ -7,7 +7,7 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticListener;
 import io.github.ulviar.procwright.diagnostics.DiagnosticTranscriptSink;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
-import io.github.ulviar.procwright.session.PooledProtocolSessionException;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.terminal.PtyProvider;
@@ -383,8 +383,8 @@ public final class ProtocolSessionScenario {
          * Opens a new typed worker pool.
          *
          * @return newly opened typed worker pool
-         * @throws PooledProtocolSessionException with reason
-         *     {@link PooledProtocolSessionException.Reason#STARTUP_FAILED} when synchronous warmup fails
+         * @throws PooledSessionException with reason
+         *     {@link PooledSessionException.Reason#STARTUP_FAILED} when synchronous warmup fails
          */
         PooledProtocolSession<I, O> open();
     }

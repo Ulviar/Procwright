@@ -146,8 +146,8 @@ phases rather than stopping at one overall deadline.
 | Reset fails after a successful response | A runtime failure, including reset timeout, does not replace the completed response; an `Error` is rethrown. | The worker retires as `RESET_FAILED`. |
 | `close()` times out or is interrupted | The pooled exception reports `DRAIN_TIMEOUT` or `INTERRUPTED`; interruption restores the thread flag. | Cleanup continues and remains observable through `closeAsync()`. |
 
-`PooledLineSessionException` and `PooledProtocolSessionException` are reserved for acquisition, startup, surfaced hook or
-lifecycle failures, and close. Worker loss can report `EOF` when output closure is selected first or `PROCESS_EXITED`
+`PooledSessionException` is reserved for acquisition, startup, surfaced hook or lifecycle failures, and close. Worker
+loss can report `EOF` when output closure is selected first or `PROCESS_EXITED`
 when process exit is selected first. For `ProtocolSessionException`, `exitCode()` is optional: `EOF` has no code, and
 `PROCESS_EXITED` carries one only when it was available at failure selection.
 

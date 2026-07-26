@@ -12,7 +12,7 @@ import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.terminal.PtyProvider;
 import io.github.ulviar.procwright.terminal.TerminalPolicy;
@@ -138,7 +138,7 @@ final class ProcessStressTest {
                     assertEquals("response:hold", future.get(8, TimeUnit.SECONDS));
                 }
 
-                PooledLineSessionMetrics metrics = pool.metrics();
+                PooledSessionMetrics metrics = pool.metrics();
                 assertTrue(metrics.created() <= 3);
                 assertTrue(metrics.size() <= 3);
                 assertTrue(metrics.idle() <= 3);
@@ -152,7 +152,7 @@ final class ProcessStressTest {
                 assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             }
             pool.close();
-            PooledLineSessionMetrics drained = pool.metrics();
+            PooledSessionMetrics drained = pool.metrics();
             assertEquals(0, drained.size());
             assertEquals(0, drained.idle());
             assertEquals(0, drained.leased());

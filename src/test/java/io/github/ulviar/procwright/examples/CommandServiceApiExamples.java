@@ -13,9 +13,8 @@ import io.github.ulviar.procwright.session.Expect;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
-import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.Session;
 import io.github.ulviar.procwright.session.SessionExit;
@@ -221,7 +220,7 @@ final class CommandServiceApiExamples {
                 })
                 .open()) {
             LineResponse response = pool.request("status", Duration.ofSeconds(2));
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             if (response.text().isBlank() || metrics.size() > 4) {
                 throw new IllegalStateException("unexpected pooled response");
             }
@@ -264,7 +263,7 @@ final class CommandServiceApiExamples {
                 .withMinIdle(1)
                 .open()) {
             String response = pool.request("document\nbody", Duration.ofSeconds(2));
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             if (response.isBlank() || metrics.size() > 4) {
                 throw new IllegalStateException("unexpected pooled response");
             }

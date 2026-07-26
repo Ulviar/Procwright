@@ -10,8 +10,8 @@ import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.LineTranscript;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionException;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -46,12 +46,11 @@ final class DefaultPooledLineSessionTest {
                 WorkerPoolSettings.defaults(),
                 clock::get);
         try {
-            PooledLineSessionException failure =
-                    assertThrows(PooledLineSessionException.class, () -> pool.request("request"));
+            PooledSessionException failure = assertThrows(PooledSessionException.class, () -> pool.request("request"));
 
-            assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, failure.reason());
+            assertEquals(PooledSessionException.Reason.STARTUP_FAILED, failure.reason());
             assertEquals(startupFailure, failure.getCause());
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1, metrics.failedRequests());
             assertEquals(50, metrics.totalRequestDurationNanos());
             assertEquals(0, metrics.totalAcquireWaitNanos());

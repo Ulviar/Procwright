@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
-import io.github.ulviar.procwright.session.PooledProtocolSessionException;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import java.nio.file.Path;
 import java.util.List;
@@ -69,11 +69,11 @@ final class ProtocolAdapterFactoryIntegrationTest {
         ProtocolSessionScenario.Draft<String, String> draft = protocolDraft(factory, missingExecutable);
 
         assertSame(factoryFailure, assertThrows(IllegalStateException.class, draft::open));
-        PooledProtocolSessionException poolFailure = assertThrows(
-                PooledProtocolSessionException.class,
+        PooledSessionException poolFailure = assertThrows(
+                PooledSessionException.class,
                 () -> draft.pooled().withWarmupSize(1).open());
 
-        assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, poolFailure.reason());
+        assertEquals(PooledSessionException.Reason.STARTUP_FAILED, poolFailure.reason());
         assertSame(factoryFailure, poolFailure.getCause());
     }
 
@@ -84,12 +84,12 @@ final class ProtocolAdapterFactoryIntegrationTest {
         ProtocolSessionScenario.Draft<String, String> draft = protocolDraft(factory, missingExecutable);
 
         NullPointerException directFailure = assertThrows(NullPointerException.class, draft::open);
-        PooledProtocolSessionException poolFailure = assertThrows(
-                PooledProtocolSessionException.class,
+        PooledSessionException poolFailure = assertThrows(
+                PooledSessionException.class,
                 () -> draft.pooled().withWarmupSize(1).open());
 
         assertEquals("adapterFactory returned null", directFailure.getMessage());
-        assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, poolFailure.reason());
+        assertEquals(PooledSessionException.Reason.STARTUP_FAILED, poolFailure.reason());
         assertEquals("adapterFactory returned null", poolFailure.getCause().getMessage());
     }
 

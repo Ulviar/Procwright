@@ -24,8 +24,7 @@ import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.LineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
-import io.github.ulviar.procwright.session.PooledProtocolSessionException;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.ProtocolSession;
 import java.time.Duration;
 import java.util.List;
@@ -67,8 +66,8 @@ final class PooledWorkerWarmupFailureCleanupTest {
 
             assertSame(cleanupFailure, FailureAggregation.primary(observed));
             List<Throwable> sources = FailureAggregation.sources(observed);
-            PooledLineSessionException startup = assertInstanceOf(PooledLineSessionException.class, sources.get(0));
-            assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, startup.reason());
+            PooledSessionException startup = assertInstanceOf(PooledSessionException.class, sources.get(0));
+            assertEquals(PooledSessionException.Reason.STARTUP_FAILED, startup.reason());
             assertSame(startupFailure, startup.getCause());
             assertSame(cleanupFailure, sources.get(1));
             assertEquals(0, startup.getSuppressed().length);
@@ -110,9 +109,8 @@ final class PooledWorkerWarmupFailureCleanupTest {
 
             assertSame(cleanupFailure, FailureAggregation.primary(observed));
             List<Throwable> sources = FailureAggregation.sources(observed);
-            PooledProtocolSessionException startup =
-                    assertInstanceOf(PooledProtocolSessionException.class, sources.get(0));
-            assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, startup.reason());
+            PooledSessionException startup = assertInstanceOf(PooledSessionException.class, sources.get(0));
+            assertEquals(PooledSessionException.Reason.STARTUP_FAILED, startup.reason());
             assertSame(startupFailure, startup.getCause());
             assertSame(cleanupFailure, sources.get(1));
             assertEquals(0, startup.getSuppressed().length);
@@ -138,8 +136,8 @@ final class PooledWorkerWarmupFailureCleanupTest {
         IllegalStateException startupFailure = new IllegalStateException("second worker startup failed");
 
         try {
-            PooledLineSessionException failure = assertThrows(
-                    PooledLineSessionException.class,
+            PooledSessionException failure = assertThrows(
+                    PooledSessionException.class,
                     () -> new DefaultPooledLineSession(
                             () -> {
                                 if (starts.incrementAndGet() == 1) {
@@ -153,16 +151,16 @@ final class PooledWorkerWarmupFailureCleanupTest {
                                     .withWarmupSize(2)
                                     .withCloseTimeout(CLOSE_TIMEOUT)));
 
-            assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, failure.reason());
+            assertEquals(PooledSessionException.Reason.STARTUP_FAILED, failure.reason());
             assertEquals("Could not start pooled line-session worker", failure.getMessage());
             Throwable aggregate = failure.getCause();
-            PooledLineSessionException primary = (PooledLineSessionException) FailureAggregation.primary(aggregate);
+            PooledSessionException primary = (PooledSessionException) FailureAggregation.primary(aggregate);
             List<Throwable> sources = FailureAggregation.sources(aggregate);
             assertSame(startupFailure, primary.getCause());
             assertSame(primary, sources.get(0));
             assertEquals(2, sources.size());
-            PooledLineSessionException cleanup = (PooledLineSessionException) sources.get(1);
-            assertEquals(PooledLineSessionException.Reason.WORKER_FAILED, cleanup.reason());
+            PooledSessionException cleanup = (PooledSessionException) sources.get(1);
+            assertEquals(PooledSessionException.Reason.WORKER_FAILED, cleanup.reason());
             assertTrue(cleanup.getCause() instanceof TimeoutException);
             assertEquals(0, primary.getSuppressed().length);
             assertEquals(0, cleanup.getSuppressed().length);
@@ -197,8 +195,8 @@ final class PooledWorkerWarmupFailureCleanupTest {
         IllegalStateException startupFailure = new IllegalStateException("second worker startup failed");
 
         try {
-            PooledProtocolSessionException failure = assertThrows(
-                    PooledProtocolSessionException.class,
+            PooledSessionException failure = assertThrows(
+                    PooledSessionException.class,
                     () -> new DefaultPooledProtocolSession<>(
                             () -> {
                                 if (starts.incrementAndGet() == 1) {
@@ -211,17 +209,16 @@ final class PooledWorkerWarmupFailureCleanupTest {
                                     .withWarmupSize(2)
                                     .withCloseTimeout(CLOSE_TIMEOUT)));
 
-            assertEquals(PooledProtocolSessionException.Reason.STARTUP_FAILED, failure.reason());
+            assertEquals(PooledSessionException.Reason.STARTUP_FAILED, failure.reason());
             assertEquals("Could not start pooled protocol-session worker", failure.getMessage());
             Throwable aggregate = failure.getCause();
-            PooledProtocolSessionException primary =
-                    (PooledProtocolSessionException) FailureAggregation.primary(aggregate);
+            PooledSessionException primary = (PooledSessionException) FailureAggregation.primary(aggregate);
             assertSame(startupFailure, primary.getCause());
             List<Throwable> sources = FailureAggregation.sources(aggregate);
             assertSame(primary, sources.get(0));
             assertEquals(2, sources.size());
-            PooledProtocolSessionException cleanup = (PooledProtocolSessionException) sources.get(1);
-            assertEquals(PooledProtocolSessionException.Reason.WORKER_FAILED, cleanup.reason());
+            PooledSessionException cleanup = (PooledSessionException) sources.get(1);
+            assertEquals(PooledSessionException.Reason.WORKER_FAILED, cleanup.reason());
             assertTrue(cleanup.getCause() instanceof TimeoutException);
             assertEquals(0, primary.getSuppressed().length);
             assertEquals(0, cleanup.getSuppressed().length);

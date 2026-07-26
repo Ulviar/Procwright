@@ -56,8 +56,7 @@ final class PublicNullnessContractTest {
             "io.github.ulviar.procwright.session.ExpectMatch",
             "io.github.ulviar.procwright.session.LineResponse",
             "io.github.ulviar.procwright.session.LineTranscript",
-            "io.github.ulviar.procwright.session.PooledLineSessionMetrics",
-            "io.github.ulviar.procwright.session.PooledProtocolSessionMetrics",
+            "io.github.ulviar.procwright.session.PooledSessionMetrics",
             "io.github.ulviar.procwright.session.ProtocolTranscript",
             "io.github.ulviar.procwright.session.SessionExit",
             "io.github.ulviar.procwright.session.StreamChunk",
@@ -77,8 +76,7 @@ final class PublicNullnessContractTest {
             "io.github.ulviar.procwright.session.ExpectMatch",
             "io.github.ulviar.procwright.session.LineResponse",
             "io.github.ulviar.procwright.session.LineTranscript",
-            "io.github.ulviar.procwright.session.PooledLineSessionMetrics",
-            "io.github.ulviar.procwright.session.PooledProtocolSessionMetrics",
+            "io.github.ulviar.procwright.session.PooledSessionMetrics",
             "io.github.ulviar.procwright.session.ProtocolTranscript",
             "io.github.ulviar.procwright.session.SessionExit",
             "io.github.ulviar.procwright.session.StreamChunk",
@@ -101,8 +99,7 @@ final class PublicNullnessContractTest {
             "io.github.ulviar.procwright.command.CommandSpec#equals(java.lang.Object) parameter[0]",
             "io.github.ulviar.procwright.session.ExpectException#<init>(io.github.ulviar.procwright.session.ExpectException$Reason,io.github.ulviar.procwright.session.LineTranscript,java.lang.String,java.lang.Throwable) parameter[3]",
             "io.github.ulviar.procwright.session.LineSessionException#<init>(io.github.ulviar.procwright.session.LineSessionException$Reason,io.github.ulviar.procwright.session.LineTranscript,java.lang.String,java.lang.Throwable) parameter[3]",
-            "io.github.ulviar.procwright.session.PooledLineSessionException#<init>(io.github.ulviar.procwright.session.PooledLineSessionException$Reason,java.lang.String,java.lang.Throwable) parameter[2]",
-            "io.github.ulviar.procwright.session.PooledProtocolSessionException#<init>(io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason,java.lang.String,java.lang.Throwable) parameter[2]",
+            "io.github.ulviar.procwright.session.PooledSessionException#<init>(io.github.ulviar.procwright.session.PooledSessionException$Reason,java.lang.String,java.lang.Throwable) parameter[2]",
             "io.github.ulviar.procwright.session.ProtocolSessionException#<init>(io.github.ulviar.procwright.session.ProtocolSessionException$Reason,io.github.ulviar.procwright.session.ProtocolTranscript,java.lang.String,java.lang.Throwable) parameter[3]",
             "io.github.ulviar.procwright.session.ProtocolSessionException#<init>(io.github.ulviar.procwright.session.ProtocolSessionException$Reason,io.github.ulviar.procwright.session.ProtocolTranscript,java.util.OptionalInt,java.lang.String,java.lang.Throwable) parameter[4]",
             "io.github.ulviar.procwright.session.StreamException#<init>(io.github.ulviar.procwright.session.StreamException$Reason,java.lang.String,io.github.ulviar.procwright.session.StreamTranscript,java.lang.Throwable) parameter[3]");
@@ -146,7 +143,7 @@ final class PublicNullnessContractTest {
                 .map(Class::getName)
                 .collect(Collectors.toCollection(TreeSet::new));
         assertEquals(EXPORTED_PUBLIC_RECORDS, records);
-        assertEquals(19, GENERATED_RECORD_EQUALS.size());
+        assertEquals(18, GENERATED_RECORD_EQUALS.size());
 
         for (String recordName : records) {
             Class<?> record = Class.forName(recordName, false, CommandSpec.class.getClassLoader());

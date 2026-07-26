@@ -225,6 +225,8 @@ scenario flags.
 ### Pool
 
 - pool использует существующий line/protocol runtime и не раскрывает lease;
+- line и protocol pool handles остаются сценарными, но общий pool lifecycle выражают одни
+  `PooledSessionMetrics` и `PooledSessionException`; request failures остаются line/protocol-specific;
 - каждый worker всегда принадлежит ровно одному состоянию: starting, idle, leased или retiring;
 - `maxSize` одного pool принимает значения от 1 до 256, по умолчанию равен 1 и ограничивает starting, idle, leased и
   retiring slots этого pool;

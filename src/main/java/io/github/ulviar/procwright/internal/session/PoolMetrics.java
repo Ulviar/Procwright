@@ -2,9 +2,9 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.util.EnumMap;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -55,8 +55,8 @@ final class PoolMetrics {
         totalRequestDurationNanos += nonNegative(durationNanos);
     }
 
-    Snapshot snapshot(int size, int idle, int leased, int starting, int retiring) {
-        return new Snapshot(
+    PooledSessionMetrics snapshot(int size, int idle, int leased, int starting, int retiring) {
+        return new PooledSessionMetrics(
                 size,
                 idle,
                 leased,
@@ -71,27 +71,10 @@ final class PoolMetrics {
                 totalAcquireWaitNanos,
                 totalRequestDurationNanos,
                 totalWorkerStartupNanos,
-                Map.copyOf(retireReasons));
+                retireReasons);
     }
 
     private static long nonNegative(long value) {
         return Math.max(0, value);
     }
-
-    record Snapshot(
-            int size,
-            int idle,
-            int leased,
-            int starting,
-            int retiring,
-            long created,
-            long retired,
-            long completedRequests,
-            long failedRequests,
-            long failedStartups,
-            long failedWorkerCloses,
-            long totalAcquireWaitNanos,
-            long totalRequestDurationNanos,
-            long totalWorkerStartupNanos,
-            Map<PooledWorkerRetireReason, Long> retireReasons) {}
 }

@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -535,7 +536,7 @@ final class WorkerPoolControllerLifecycleTest extends WorkerPoolControllerTestSu
                 () -> new TestWorker(1),
                 worker -> {},
                 settings(1, 1, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
-        AtomicReference<PoolMetrics.Snapshot> callbackMetrics = new AtomicReference<>();
+        AtomicReference<PooledSessionMetrics> callbackMetrics = new AtomicReference<>();
         ExecutorService metricsExecutor = Executors.newSingleThreadExecutor();
         CompletableFuture<Void> callback = pool.closeAsync().thenRun(() -> {
             try {

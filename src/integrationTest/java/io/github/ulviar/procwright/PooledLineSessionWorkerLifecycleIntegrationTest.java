@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionException;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.List;
@@ -27,11 +27,11 @@ final class PooledLineSessionWorkerLifecycleIntegrationTest extends PooledLineSe
     void warmupLaunchFailureIsPooledStartupFailure() {
         CommandService missingExecutable = Procwright.command("procwright-missing-executable-for-startup-test");
 
-        PooledLineSessionException exception = assertThrows(
-                PooledLineSessionException.class,
+        PooledSessionException exception = assertThrows(
+                PooledSessionException.class,
                 () -> missingExecutable.lineSession().pooled().withWarmupSize(1).open());
 
-        assertEquals(PooledLineSessionException.Reason.STARTUP_FAILED, exception.reason());
+        assertEquals(PooledSessionException.Reason.STARTUP_FAILED, exception.reason());
     }
 
     @Test
@@ -44,7 +44,7 @@ final class PooledLineSessionWorkerLifecycleIntegrationTest extends PooledLineSe
             String secondPid = pool.request("pid").text();
 
             assertEquals(firstPid, secondPid);
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1, metrics.size());
             assertEquals(1, metrics.idle());
             assertEquals(0, metrics.leased());
@@ -63,7 +63,7 @@ final class PooledLineSessionWorkerLifecycleIntegrationTest extends PooledLineSe
                 .open()) {
             String firstPid = pool.request("pid").text();
 
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertTrue(firstPid.startsWith("response:pid:"));
             assertEquals(1, metrics.created());
             assertTrue(awaitRetired(pool, 1));
@@ -84,7 +84,7 @@ final class PooledLineSessionWorkerLifecycleIntegrationTest extends PooledLineSe
                 .open()) {
             String firstPid = pool.request("pid").text();
 
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertTrue(firstPid.startsWith("response:pid:"));
             assertEquals(1, metrics.created());
             assertTrue(awaitRetired(pool, 1));
@@ -201,7 +201,7 @@ final class PooledLineSessionWorkerLifecycleIntegrationTest extends PooledLineSe
             assertEquals("response:hello", pool.request("hello").text());
 
             assertTrue(awaitIdle(pool, 1));
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1, metrics.size());
             assertEquals(1, metrics.idle());
             assertEquals(2, metrics.created());
@@ -215,7 +215,7 @@ final class PooledLineSessionWorkerLifecycleIntegrationTest extends PooledLineSe
                 .withMaxSize(2)
                 .withWarmupSize(2)
                 .open()) {
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
 
             assertEquals(2, metrics.size());
             assertEquals(2, metrics.idle());

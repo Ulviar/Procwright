@@ -14,9 +14,8 @@ import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
-import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -368,7 +367,7 @@ final class TestCliStressTest {
                     expectedPoolResponses(),
                     awaitAll(futures, POOL_BATCH_WATCHDOG).stream().sorted().toList());
 
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(9, metrics.completedRequests());
             assertEquals(1, metrics.failedRequests());
             assertTrue(metrics.created() >= 2);
@@ -378,7 +377,7 @@ final class TestCliStressTest {
             assertTrue(metrics.size() <= 2);
             assertEquals(0, metrics.leased());
             poolCleanup.runNow();
-            PooledLineSessionMetrics drained = pool.metrics();
+            PooledSessionMetrics drained = pool.metrics();
             assertEquals(0, drained.size());
             assertEquals(0, drained.idle());
             assertEquals(0, drained.leased());
@@ -427,7 +426,7 @@ final class TestCliStressTest {
                     expectedPoolResponses(),
                     awaitAll(futures, POOL_BATCH_WATCHDOG).stream().sorted().toList());
 
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(9, metrics.completedRequests());
             assertEquals(1, metrics.failedRequests());
             assertTrue(metrics.created() >= 2);
@@ -437,7 +436,7 @@ final class TestCliStressTest {
             assertTrue(metrics.size() <= 2);
             assertEquals(0, metrics.leased());
             poolCleanup.runNow();
-            PooledProtocolSessionMetrics drained = pool.metrics();
+            PooledSessionMetrics drained = pool.metrics();
             assertEquals(0, drained.size());
             assertEquals(0, drained.idle());
             assertEquals(0, drained.leased());
@@ -578,7 +577,7 @@ final class TestCliStressTest {
     private static void awaitLineRetirement(PooledLineSession pool) throws InterruptedException {
         long deadlineNanos = deadlineAfter(RESOURCE_CLEANUP_TIMEOUT);
         while (System.nanoTime() < deadlineNanos) {
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             if (metrics.retired() >= 1 && metrics.retireReasons().get(PooledWorkerRetireReason.TIMEOUT) >= 1) {
                 return;
             }
@@ -591,7 +590,7 @@ final class TestCliStressTest {
             throws InterruptedException {
         long deadlineNanos = deadlineAfter(RESOURCE_CLEANUP_TIMEOUT);
         while (System.nanoTime() < deadlineNanos) {
-            PooledProtocolSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             if (metrics.retired() >= 1 && metrics.retireReasons().get(PooledWorkerRetireReason.TIMEOUT) >= 1) {
                 return;
             }

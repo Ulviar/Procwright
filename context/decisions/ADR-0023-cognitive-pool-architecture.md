@@ -72,8 +72,9 @@ Pool runtime перестраивается вокруг следующих вл
 State transition выполняется под одним pool monitor. Factory, hooks, worker close, reporting и completion callbacks
 выполняются вне monitor и возвращают typed outcome владельцу состояния.
 
-Line и protocol public API, отсутствие public lease, timeout taxonomy, retirement reasons, metrics и worker reuse
-сохраняются.
+Line и protocol pool handles остаются отдельными сценариями без public lease. Общий lifecycle выражают
+`PooledSessionMetrics` и `PooledSessionException`, а request-level errors остаются line/protocol-specific. Timeout
+taxonomy, retirement reasons и worker reuse сохраняются.
 
 ## Инварианты
 

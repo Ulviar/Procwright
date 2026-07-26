@@ -6,6 +6,7 @@ import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.List;
@@ -189,11 +190,11 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         return new RequestObservation(metricsClock, state::recordRequest);
     }
 
-    PoolMetrics.Snapshot metrics() {
+    PooledSessionMetrics metrics() {
         return state.metrics();
     }
 
-    boolean awaitMetrics(Predicate<PoolMetrics.Snapshot> condition, Duration timeout) throws InterruptedException {
+    boolean awaitMetrics(Predicate<PooledSessionMetrics> condition, Duration timeout) throws InterruptedException {
         return state.awaitMetrics(condition, timeout);
     }
 

@@ -11,8 +11,8 @@ import io.github.ulviar.procwright.internal.session.PoolTestAccess;
 import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionException;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionException;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -36,7 +36,7 @@ final class PooledLineSessionRequestAndHooksIntegrationTest extends PooledLineSe
             assertThrows(NullPointerException.class, () -> pool.request(null));
             assertThrows(NullPointerException.class, () -> pool.request("a", null));
 
-            PooledLineSessionMetrics metrics = pool.metrics();
+            PooledSessionMetrics metrics = pool.metrics();
             assertEquals(1, metrics.size());
             assertEquals(1, metrics.idle());
             assertEquals(1, metrics.created());
@@ -125,11 +125,11 @@ final class PooledLineSessionRequestAndHooksIntegrationTest extends PooledLineSe
                 assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
                 assertTrue(awaitLeased(pool, 1));
 
-                PooledLineSessionException exception =
-                        assertThrows(PooledLineSessionException.class, () -> pool.request("hello"));
+                PooledSessionException exception =
+                        assertThrows(PooledSessionException.class, () -> pool.request("hello"));
 
-                PooledLineSessionMetrics waiting = pool.metrics();
-                assertEquals(PooledLineSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
+                PooledSessionMetrics waiting = pool.metrics();
+                assertEquals(PooledSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
                 assertTrue(waiting.totalAcquireWaitNanos() > 0);
                 assertTrue(waiting.totalRequestDurationNanos() > 0);
                 assertEquals("response:hold", first.get().text());
@@ -254,18 +254,18 @@ final class PooledLineSessionRequestAndHooksIntegrationTest extends PooledLineSe
                         return true;
                     })
                     .open()) {
-                Future<PooledLineSessionException> request = executor.submit(() -> {
+                Future<PooledSessionException> request = executor.submit(() -> {
                     try {
                         pool.request("hello");
                         throw new AssertionError("expected health timeout");
-                    } catch (PooledLineSessionException exception) {
+                    } catch (PooledSessionException exception) {
                         return exception;
                     }
                 });
-                PooledLineSessionException exception = request.get(1, TimeUnit.SECONDS);
+                PooledSessionException exception = request.get(1, TimeUnit.SECONDS);
 
                 assertTrue(health.awaitEntered());
-                assertEquals(PooledLineSessionException.Reason.HOOK_TIMEOUT, exception.reason());
+                assertEquals(PooledSessionException.Reason.HOOK_TIMEOUT, exception.reason());
                 assertTrue(PoolTestAccess.awaitLineMetrics(
                         pool,
                         metrics -> metrics.retired() == 1
@@ -279,7 +279,7 @@ final class PooledLineSessionRequestAndHooksIntegrationTest extends PooledLineSe
                         replacement
                                 .get(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS)
                                 .text());
-                PooledLineSessionMetrics metrics = pool.metrics();
+                PooledSessionMetrics metrics = pool.metrics();
                 assertEquals(1, metrics.retired());
                 assertEquals(1, metrics.retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
                 assertEquals(2, metrics.created());

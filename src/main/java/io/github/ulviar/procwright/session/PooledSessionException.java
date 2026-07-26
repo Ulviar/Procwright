@@ -6,40 +6,37 @@ import io.github.ulviar.procwright.ProcwrightException;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
-/**
- * Signals a pooled protocol-session failure outside the underlying protocol request itself.
- */
+/** Signals a pooled-session lifecycle failure outside the underlying request itself. */
 @SuppressWarnings("serial")
-public final class PooledProtocolSessionException extends ProcwrightException {
+public final class PooledSessionException extends ProcwrightException {
 
-    /** Failure reason. */
     private final Reason reason;
 
     /**
-     * Creates a pooled protocol-session exception.
+     * Creates a pooled-session exception.
      *
      * @param reason failure reason
      * @param message failure message
      */
-    public PooledProtocolSessionException(Reason reason, String message) {
+    public PooledSessionException(Reason reason, String message) {
         super(message);
         this.reason = Objects.requireNonNull(reason, "reason");
     }
 
     /**
-     * Creates a pooled protocol-session exception with a cause.
+     * Creates a pooled-session exception with a cause.
      *
      * @param reason failure reason
      * @param message failure message
      * @param cause failure cause, or {@code null} when unavailable
      */
-    public PooledProtocolSessionException(Reason reason, String message, @Nullable Throwable cause) {
+    public PooledSessionException(Reason reason, String message, @Nullable Throwable cause) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
     }
 
     /**
-     * Returns the pooled scenario failure reason.
+     * Returns the pooled-session lifecycle failure reason.
      *
      * @return failure reason
      */
@@ -47,9 +44,7 @@ public final class PooledProtocolSessionException extends ProcwrightException {
         return reason;
     }
 
-    /**
-     * Stable pooled protocol-session failure reasons.
-     */
+    /** Stable pooled-session lifecycle failure reasons. */
     public enum Reason {
         /** No worker became available before the acquire deadline. */
         ACQUIRE_TIMEOUT,
@@ -63,7 +58,7 @@ public final class PooledProtocolSessionException extends ProcwrightException {
         INTERRUPTED,
         /** Pool close did not drain every worker within its configured timeout. */
         DRAIN_TIMEOUT,
-        /** Worker lifecycle hook or request handling failed outside normal protocol-session errors. */
+        /** Worker lifecycle hook or request handling failed outside the underlying request's normal errors. */
         WORKER_FAILED
     }
 }

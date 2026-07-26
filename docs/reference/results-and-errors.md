@@ -43,12 +43,12 @@ Pooled requests keep worker request failures separate from pool orchestration fa
 `PROCESS_EXITED`, broken pipe or write failure, decoding failure, response overflow, and output-backlog overflow are
 thrown directly as `LineSessionException` or `ProtocolSessionException`; they are not wrapped in a pooled exception.
 
-`PooledLineSessionException` and `PooledProtocolSessionException` cover acquisition, pool construction, worker startup,
-surfaced hook or lifecycle failures, and close. Their reason enums define `ACQUIRE_TIMEOUT`, `CLOSED`, `STARTUP_FAILED`,
+`PooledSessionException` covers acquisition, pool construction, worker startup,
+surfaced hook or lifecycle failures, and close. Its reason enum defines `ACQUIRE_TIMEOUT`, `CLOSED`, `STARTUP_FAILED`,
 `HOOK_TIMEOUT`, `INTERRUPTED`, `DRAIN_TIMEOUT`, and `WORKER_FAILED`. A pooled exception cause belongs to that pool phase,
 such as a worker factory, readiness, or startup-execution failure during warmup; it is not the wrapper for a normal worker
 request exception.
-`PooledLineSessionMetrics.retireReasons()` and `PooledProtocolSessionMetrics.retireReasons()` return counts keyed by
-`PooledWorkerRetireReason`; the same metrics snapshots expose startup, request, acquire, and lifecycle counts.
+`PooledSessionMetrics.retireReasons()` returns counts keyed by `PooledWorkerRetireReason`; the same snapshot exposes
+startup, request, acquire, and lifecycle counts.
 
 Use reason enums for program logic. Messages are for diagnostics and may change.

@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
-import io.github.ulviar.procwright.session.PooledProtocolSessionException;
+import io.github.ulviar.procwright.session.PooledSessionException;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -42,8 +42,8 @@ final class PooledProtocolSessionCloseAndDrainIntegrationTest {
             Future<String> request = executor.submit(() -> pool.request("hello"));
             assertTrue(resetEntered.await(1, TimeUnit.SECONDS));
 
-            PooledProtocolSessionException timeout = assertThrows(PooledProtocolSessionException.class, pool::close);
-            assertEquals(PooledProtocolSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
+            PooledSessionException timeout = assertThrows(PooledSessionException.class, pool::close);
+            assertEquals(PooledSessionException.Reason.DRAIN_TIMEOUT, timeout.reason());
             CompletableFuture<Void> cancelled = pool.closeAsync();
             CompletableFuture<Void> eventual = pool.closeAsync();
             assertTrue(cancelled.cancel(true));

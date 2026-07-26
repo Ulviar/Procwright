@@ -27,12 +27,9 @@ CTOR public io.github.ulviar.procwright.session.LineResponse(java.util.List<java
 CTOR public io.github.ulviar.procwright.session.LineSessionException(io.github.ulviar.procwright.session.LineSessionException$Reason, io.github.ulviar.procwright.session.LineTranscript, java.lang.String)
 CTOR public io.github.ulviar.procwright.session.LineSessionException(io.github.ulviar.procwright.session.LineSessionException$Reason, io.github.ulviar.procwright.session.LineTranscript, java.lang.String, java.lang.Throwable)
 CTOR public io.github.ulviar.procwright.session.LineTranscript(java.lang.String, boolean, boolean)
-CTOR public io.github.ulviar.procwright.session.PooledLineSessionException(io.github.ulviar.procwright.session.PooledLineSessionException$Reason, java.lang.String)
-CTOR public io.github.ulviar.procwright.session.PooledLineSessionException(io.github.ulviar.procwright.session.PooledLineSessionException$Reason, java.lang.String, java.lang.Throwable)
-CTOR public io.github.ulviar.procwright.session.PooledLineSessionMetrics(int, int, int, int, int, long, long, long, long, long, long, long, long, long, java.util.Map<io.github.ulviar.procwright.session.PooledWorkerRetireReason, java.lang.Long>)
-CTOR public io.github.ulviar.procwright.session.PooledProtocolSessionException(io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason, java.lang.String)
-CTOR public io.github.ulviar.procwright.session.PooledProtocolSessionException(io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason, java.lang.String, java.lang.Throwable)
-CTOR public io.github.ulviar.procwright.session.PooledProtocolSessionMetrics(int, int, int, int, int, long, long, long, long, long, long, long, long, long, java.util.Map<io.github.ulviar.procwright.session.PooledWorkerRetireReason, java.lang.Long>)
+CTOR public io.github.ulviar.procwright.session.PooledSessionException(io.github.ulviar.procwright.session.PooledSessionException$Reason, java.lang.String)
+CTOR public io.github.ulviar.procwright.session.PooledSessionException(io.github.ulviar.procwright.session.PooledSessionException$Reason, java.lang.String, java.lang.Throwable)
+CTOR public io.github.ulviar.procwright.session.PooledSessionMetrics(int, int, int, int, int, long, long, long, long, long, long, long, long, long, java.util.Map<io.github.ulviar.procwright.session.PooledWorkerRetireReason, java.lang.Long>)
 CTOR public io.github.ulviar.procwright.session.ProtocolSessionException(io.github.ulviar.procwright.session.ProtocolSessionException$Reason, io.github.ulviar.procwright.session.ProtocolTranscript, java.lang.String)
 CTOR public io.github.ulviar.procwright.session.ProtocolSessionException(io.github.ulviar.procwright.session.ProtocolSessionException$Reason, io.github.ulviar.procwright.session.ProtocolTranscript, java.lang.String, java.lang.Throwable)
 CTOR public io.github.ulviar.procwright.session.ProtocolSessionException(io.github.ulviar.procwright.session.ProtocolSessionException$Reason, io.github.ulviar.procwright.session.ProtocolTranscript, java.util.OptionalInt, java.lang.String, java.lang.Throwable)
@@ -78,20 +75,13 @@ FIELD public static final io.github.ulviar.procwright.session.LineSessionExcepti
 FIELD public static final io.github.ulviar.procwright.session.LineSessionException$Reason io.github.ulviar.procwright.session.LineSessionException$Reason#RESPONSE_TOO_LARGE
 FIELD public static final io.github.ulviar.procwright.session.LineSessionException$Reason io.github.ulviar.procwright.session.LineSessionException$Reason#STDOUT_BACKLOG_OVERFLOW
 FIELD public static final io.github.ulviar.procwright.session.LineSessionException$Reason io.github.ulviar.procwright.session.LineSessionException$Reason#TIMEOUT
-FIELD public static final io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#ACQUIRE_TIMEOUT
-FIELD public static final io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#CLOSED
-FIELD public static final io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#DRAIN_TIMEOUT
-FIELD public static final io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#HOOK_TIMEOUT
-FIELD public static final io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#INTERRUPTED
-FIELD public static final io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#STARTUP_FAILED
-FIELD public static final io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#WORKER_FAILED
-FIELD public static final io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#ACQUIRE_TIMEOUT
-FIELD public static final io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#CLOSED
-FIELD public static final io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#DRAIN_TIMEOUT
-FIELD public static final io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#HOOK_TIMEOUT
-FIELD public static final io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#INTERRUPTED
-FIELD public static final io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#STARTUP_FAILED
-FIELD public static final io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#WORKER_FAILED
+FIELD public static final io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#ACQUIRE_TIMEOUT
+FIELD public static final io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#CLOSED
+FIELD public static final io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#DRAIN_TIMEOUT
+FIELD public static final io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#HOOK_TIMEOUT
+FIELD public static final io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#INTERRUPTED
+FIELD public static final io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#STARTUP_FAILED
+FIELD public static final io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#WORKER_FAILED
 FIELD public static final io.github.ulviar.procwright.session.PooledWorkerRetireReason io.github.ulviar.procwright.session.PooledWorkerRetireReason#AGE
 FIELD public static final io.github.ulviar.procwright.session.PooledWorkerRetireReason io.github.ulviar.procwright.session.PooledWorkerRetireReason#CLOSED
 FIELD public static final io.github.ulviar.procwright.session.PooledWorkerRetireReason io.github.ulviar.procwright.session.PooledWorkerRetireReason#DECODER_FAILED
@@ -286,9 +276,9 @@ METHOD public abstract io.github.ulviar.procwright.session.LineSession io.github
 METHOD public abstract io.github.ulviar.procwright.session.LineTranscript io.github.ulviar.procwright.session.Expect#transcript()
 METHOD public abstract io.github.ulviar.procwright.session.LineTranscript io.github.ulviar.procwright.session.LineSession#transcript()
 METHOD public abstract io.github.ulviar.procwright.session.PooledLineSession io.github.ulviar.procwright.LineSessionScenario$PoolDraft#open()
-METHOD public abstract io.github.ulviar.procwright.session.PooledLineSessionMetrics io.github.ulviar.procwright.session.PooledLineSession#metrics()
 METHOD public abstract io.github.ulviar.procwright.session.PooledProtocolSession<I, O> io.github.ulviar.procwright.ProtocolSessionScenario$PoolDraft#open()
-METHOD public abstract io.github.ulviar.procwright.session.PooledProtocolSessionMetrics io.github.ulviar.procwright.session.PooledProtocolSession#metrics()
+METHOD public abstract io.github.ulviar.procwright.session.PooledSessionMetrics io.github.ulviar.procwright.session.PooledLineSession#metrics()
+METHOD public abstract io.github.ulviar.procwright.session.PooledSessionMetrics io.github.ulviar.procwright.session.PooledProtocolSession#metrics()
 METHOD public abstract io.github.ulviar.procwright.session.ProtocolReader io.github.ulviar.procwright.session.ProtocolReaders#stderr()
 METHOD public abstract io.github.ulviar.procwright.session.ProtocolReader io.github.ulviar.procwright.session.ProtocolReaders#stdout()
 METHOD public abstract io.github.ulviar.procwright.session.ProtocolSession<I, O> io.github.ulviar.procwright.ProtocolSessionScenario$Draft#open()
@@ -363,8 +353,7 @@ METHOD public final boolean io.github.ulviar.procwright.diagnostics.DiagnosticEv
 METHOD public final boolean io.github.ulviar.procwright.session.ExpectMatch#equals(java.lang.Object)
 METHOD public final boolean io.github.ulviar.procwright.session.LineResponse#equals(java.lang.Object)
 METHOD public final boolean io.github.ulviar.procwright.session.LineTranscript#equals(java.lang.Object)
-METHOD public final boolean io.github.ulviar.procwright.session.PooledLineSessionMetrics#equals(java.lang.Object)
-METHOD public final boolean io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#equals(java.lang.Object)
+METHOD public final boolean io.github.ulviar.procwright.session.PooledSessionMetrics#equals(java.lang.Object)
 METHOD public final boolean io.github.ulviar.procwright.session.ProtocolTranscript#equals(java.lang.Object)
 METHOD public final boolean io.github.ulviar.procwright.session.SessionExit#equals(java.lang.Object)
 METHOD public final boolean io.github.ulviar.procwright.session.StreamChunk#equals(java.lang.Object)
@@ -382,8 +371,7 @@ METHOD public final int io.github.ulviar.procwright.diagnostics.DiagnosticEvent#
 METHOD public final int io.github.ulviar.procwright.session.ExpectMatch#hashCode()
 METHOD public final int io.github.ulviar.procwright.session.LineResponse#hashCode()
 METHOD public final int io.github.ulviar.procwright.session.LineTranscript#hashCode()
-METHOD public final int io.github.ulviar.procwright.session.PooledLineSessionMetrics#hashCode()
-METHOD public final int io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#hashCode()
+METHOD public final int io.github.ulviar.procwright.session.PooledSessionMetrics#hashCode()
 METHOD public final int io.github.ulviar.procwright.session.ProtocolTranscript#hashCode()
 METHOD public final int io.github.ulviar.procwright.session.SessionExit#hashCode()
 METHOD public final int io.github.ulviar.procwright.session.StreamChunk#hashCode()
@@ -402,8 +390,7 @@ METHOD public final java.lang.String io.github.ulviar.procwright.diagnostics.Dia
 METHOD public final java.lang.String io.github.ulviar.procwright.session.ExpectMatch#toString()
 METHOD public final java.lang.String io.github.ulviar.procwright.session.LineResponse#toString()
 METHOD public final java.lang.String io.github.ulviar.procwright.session.LineTranscript#toString()
-METHOD public final java.lang.String io.github.ulviar.procwright.session.PooledLineSessionMetrics#toString()
-METHOD public final java.lang.String io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#toString()
+METHOD public final java.lang.String io.github.ulviar.procwright.session.PooledSessionMetrics#toString()
 METHOD public final java.lang.String io.github.ulviar.procwright.session.ProtocolTranscript#toString()
 METHOD public final java.lang.String io.github.ulviar.procwright.session.SessionExit#toString()
 METHOD public final java.lang.String io.github.ulviar.procwright.session.StreamChunk#toString()
@@ -416,16 +403,11 @@ METHOD public int io.github.ulviar.procwright.command.CommandInput#hashCode()
 METHOD public int io.github.ulviar.procwright.command.CommandResult#hashCode()
 METHOD public int io.github.ulviar.procwright.command.CommandSpec#hashCode()
 METHOD public int io.github.ulviar.procwright.diagnostics.CommandEcho#argumentCount()
-METHOD public int io.github.ulviar.procwright.session.PooledLineSessionMetrics#idle()
-METHOD public int io.github.ulviar.procwright.session.PooledLineSessionMetrics#leased()
-METHOD public int io.github.ulviar.procwright.session.PooledLineSessionMetrics#retiring()
-METHOD public int io.github.ulviar.procwright.session.PooledLineSessionMetrics#size()
-METHOD public int io.github.ulviar.procwright.session.PooledLineSessionMetrics#starting()
-METHOD public int io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#idle()
-METHOD public int io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#leased()
-METHOD public int io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#retiring()
-METHOD public int io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#size()
-METHOD public int io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#starting()
+METHOD public int io.github.ulviar.procwright.session.PooledSessionMetrics#idle()
+METHOD public int io.github.ulviar.procwright.session.PooledSessionMetrics#leased()
+METHOD public int io.github.ulviar.procwright.session.PooledSessionMetrics#retiring()
+METHOD public int io.github.ulviar.procwright.session.PooledSessionMetrics#size()
+METHOD public int io.github.ulviar.procwright.session.PooledSessionMetrics#starting()
 METHOD public int io.github.ulviar.procwright.terminal.TerminalSize#columns()
 METHOD public int io.github.ulviar.procwright.terminal.TerminalSize#rows()
 METHOD public io.github.ulviar.procwright.InteractiveScenario$Draft io.github.ulviar.procwright.CommandService#interactive()
@@ -453,8 +435,7 @@ METHOD public io.github.ulviar.procwright.session.LineSessionException$Reason io
 METHOD public io.github.ulviar.procwright.session.LineTranscript io.github.ulviar.procwright.session.ExpectException#transcript()
 METHOD public io.github.ulviar.procwright.session.LineTranscript io.github.ulviar.procwright.session.LineResponse#transcript()
 METHOD public io.github.ulviar.procwright.session.LineTranscript io.github.ulviar.procwright.session.LineSessionException#transcript()
-METHOD public io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException#reason()
-METHOD public io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException#reason()
+METHOD public io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException#reason()
 METHOD public io.github.ulviar.procwright.session.ProtocolSessionException$Reason io.github.ulviar.procwright.session.ProtocolSessionException#reason()
 METHOD public io.github.ulviar.procwright.session.ProtocolTranscript io.github.ulviar.procwright.session.ProtocolSessionException#transcript()
 METHOD public io.github.ulviar.procwright.session.StreamException$Reason io.github.ulviar.procwright.session.StreamException#reason()
@@ -493,8 +474,7 @@ METHOD public java.util.List<java.lang.String> io.github.ulviar.procwright.diagn
 METHOD public java.util.List<java.lang.String> io.github.ulviar.procwright.session.ExpectMatch#groups()
 METHOD public java.util.List<java.lang.String> io.github.ulviar.procwright.session.LineResponse#lines()
 METHOD public java.util.List<java.lang.String> io.github.ulviar.procwright.terminal.PtyRequest#command()
-METHOD public java.util.Map<io.github.ulviar.procwright.session.PooledWorkerRetireReason, java.lang.Long> io.github.ulviar.procwright.session.PooledLineSessionMetrics#retireReasons()
-METHOD public java.util.Map<io.github.ulviar.procwright.session.PooledWorkerRetireReason, java.lang.Long> io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#retireReasons()
+METHOD public java.util.Map<io.github.ulviar.procwright.session.PooledWorkerRetireReason, java.lang.Long> io.github.ulviar.procwright.session.PooledSessionMetrics#retireReasons()
 METHOD public java.util.Map<java.lang.String, java.lang.String> io.github.ulviar.procwright.command.CommandSpec#environment()
 METHOD public java.util.Map<java.lang.String, java.lang.String> io.github.ulviar.procwright.diagnostics.DiagnosticEvent#attributes()
 METHOD public java.util.Map<java.lang.String, java.lang.String> io.github.ulviar.procwright.terminal.PtyRequest#environment()
@@ -508,24 +488,15 @@ METHOD public java.util.OptionalInt io.github.ulviar.procwright.command.CommandR
 METHOD public java.util.OptionalInt io.github.ulviar.procwright.session.ProtocolSessionException#exitCode()
 METHOD public java.util.OptionalInt io.github.ulviar.procwright.session.SessionExit#exitCode()
 METHOD public java.util.OptionalInt io.github.ulviar.procwright.session.StreamExit#exitCode()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#completedRequests()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#created()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#failedRequests()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#failedStartups()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#failedWorkerCloses()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#retired()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#totalAcquireWaitNanos()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#totalRequestDurationNanos()
-METHOD public long io.github.ulviar.procwright.session.PooledLineSessionMetrics#totalWorkerStartupNanos()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#completedRequests()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#created()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#failedRequests()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#failedStartups()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#failedWorkerCloses()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#retired()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#totalAcquireWaitNanos()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#totalRequestDurationNanos()
-METHOD public long io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#totalWorkerStartupNanos()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#completedRequests()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#created()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#failedRequests()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#failedStartups()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#failedWorkerCloses()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#retired()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#totalAcquireWaitNanos()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#totalRequestDurationNanos()
+METHOD public long io.github.ulviar.procwright.session.PooledSessionMetrics#totalWorkerStartupNanos()
 METHOD public long io.github.ulviar.procwright.session.ProtocolWriter#remainingByteCapacity()
 METHOD public static io.github.ulviar.procwright.CommandService io.github.ulviar.procwright.Procwright#command(io.github.ulviar.procwright.command.CommandSpec)
 METHOD public static io.github.ulviar.procwright.CommandService io.github.ulviar.procwright.Procwright#command(java.lang.String)
@@ -559,10 +530,8 @@ METHOD public static io.github.ulviar.procwright.session.ExpectTranscriptValues 
 METHOD public static io.github.ulviar.procwright.session.ExpectTranscriptValues[] io.github.ulviar.procwright.session.ExpectTranscriptValues#values()
 METHOD public static io.github.ulviar.procwright.session.LineSessionException$Reason io.github.ulviar.procwright.session.LineSessionException$Reason#valueOf(java.lang.String)
 METHOD public static io.github.ulviar.procwright.session.LineSessionException$Reason[] io.github.ulviar.procwright.session.LineSessionException$Reason#values()
-METHOD public static io.github.ulviar.procwright.session.PooledLineSessionException$Reason io.github.ulviar.procwright.session.PooledLineSessionException$Reason#valueOf(java.lang.String)
-METHOD public static io.github.ulviar.procwright.session.PooledLineSessionException$Reason[] io.github.ulviar.procwright.session.PooledLineSessionException$Reason#values()
-METHOD public static io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#valueOf(java.lang.String)
-METHOD public static io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason[] io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason#values()
+METHOD public static io.github.ulviar.procwright.session.PooledSessionException$Reason io.github.ulviar.procwright.session.PooledSessionException$Reason#valueOf(java.lang.String)
+METHOD public static io.github.ulviar.procwright.session.PooledSessionException$Reason[] io.github.ulviar.procwright.session.PooledSessionException$Reason#values()
 METHOD public static io.github.ulviar.procwright.session.PooledWorkerRetireReason io.github.ulviar.procwright.session.PooledWorkerRetireReason#valueOf(java.lang.String)
 METHOD public static io.github.ulviar.procwright.session.PooledWorkerRetireReason[] io.github.ulviar.procwright.session.PooledWorkerRetireReason#values()
 METHOD public static io.github.ulviar.procwright.session.ProtocolSessionException$Reason io.github.ulviar.procwright.session.ProtocolSessionException$Reason#valueOf(java.lang.String)
@@ -596,8 +565,7 @@ NULLNESS CTOR io.github.ulviar.procwright.command.CommandExecutionException#<ini
 NULLNESS CTOR io.github.ulviar.procwright.command.CommandExecutionException#<init>(java.lang.String,java.lang.Throwable) parameter[1] @org.jspecify.annotations.Nullable
 NULLNESS CTOR io.github.ulviar.procwright.session.ExpectException#<init>(io.github.ulviar.procwright.session.ExpectException$Reason,io.github.ulviar.procwright.session.LineTranscript,java.lang.String,java.lang.Throwable) parameter[3] @org.jspecify.annotations.Nullable
 NULLNESS CTOR io.github.ulviar.procwright.session.LineSessionException#<init>(io.github.ulviar.procwright.session.LineSessionException$Reason,io.github.ulviar.procwright.session.LineTranscript,java.lang.String,java.lang.Throwable) parameter[3] @org.jspecify.annotations.Nullable
-NULLNESS CTOR io.github.ulviar.procwright.session.PooledLineSessionException#<init>(io.github.ulviar.procwright.session.PooledLineSessionException$Reason,java.lang.String,java.lang.Throwable) parameter[2] @org.jspecify.annotations.Nullable
-NULLNESS CTOR io.github.ulviar.procwright.session.PooledProtocolSessionException#<init>(io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason,java.lang.String,java.lang.Throwable) parameter[2] @org.jspecify.annotations.Nullable
+NULLNESS CTOR io.github.ulviar.procwright.session.PooledSessionException#<init>(io.github.ulviar.procwright.session.PooledSessionException$Reason,java.lang.String,java.lang.Throwable) parameter[2] @org.jspecify.annotations.Nullable
 NULLNESS CTOR io.github.ulviar.procwright.session.ProtocolSessionException#<init>(io.github.ulviar.procwright.session.ProtocolSessionException$Reason,io.github.ulviar.procwright.session.ProtocolTranscript,java.lang.String,java.lang.Throwable) parameter[3] @org.jspecify.annotations.Nullable
 NULLNESS CTOR io.github.ulviar.procwright.session.ProtocolSessionException#<init>(io.github.ulviar.procwright.session.ProtocolSessionException$Reason,io.github.ulviar.procwright.session.ProtocolTranscript,java.util.OptionalInt,java.lang.String,java.lang.Throwable) parameter[4] @org.jspecify.annotations.Nullable
 NULLNESS CTOR io.github.ulviar.procwright.session.StreamException#<init>(io.github.ulviar.procwright.session.StreamException$Reason,java.lang.String,io.github.ulviar.procwright.session.StreamTranscript,java.lang.Throwable) parameter[3] @org.jspecify.annotations.Nullable
@@ -621,8 +589,7 @@ NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.diagnostics.DiagnosticEvent
 NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.ExpectMatch#equals(java.lang.Object) parameter[0] UNION_NULL
 NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.LineResponse#equals(java.lang.Object) parameter[0] UNION_NULL
 NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.LineTranscript#equals(java.lang.Object) parameter[0] UNION_NULL
-NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.PooledLineSessionMetrics#equals(java.lang.Object) parameter[0] UNION_NULL
-NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.PooledProtocolSessionMetrics#equals(java.lang.Object) parameter[0] UNION_NULL
+NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.PooledSessionMetrics#equals(java.lang.Object) parameter[0] UNION_NULL
 NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.ProtocolTranscript#equals(java.lang.Object) parameter[0] UNION_NULL
 NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.SessionExit#equals(java.lang.Object) parameter[0] UNION_NULL
 NULLNESS_SEMANTIC METHOD io.github.ulviar.procwright.session.StreamChunk#equals(java.lang.Object) parameter[0] UNION_NULL
@@ -670,8 +637,7 @@ TYPE public final class io.github.ulviar.procwright.command.CommandInput
 TYPE public final class io.github.ulviar.procwright.command.CommandSpec
 TYPE public final class io.github.ulviar.procwright.session.ExpectException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final class io.github.ulviar.procwright.session.LineSessionException extends io.github.ulviar.procwright.ProcwrightException
-TYPE public final class io.github.ulviar.procwright.session.PooledLineSessionException extends io.github.ulviar.procwright.ProcwrightException
-TYPE public final class io.github.ulviar.procwright.session.PooledProtocolSessionException extends io.github.ulviar.procwright.ProcwrightException
+TYPE public final class io.github.ulviar.procwright.session.PooledSessionException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final class io.github.ulviar.procwright.session.ProtocolSessionException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final class io.github.ulviar.procwright.session.StreamException extends io.github.ulviar.procwright.ProcwrightException
 TYPE public final enum io.github.ulviar.procwright.command.EnvironmentPolicy extends java.lang.Enum<io.github.ulviar.procwright.command.EnvironmentPolicy>
@@ -690,8 +656,7 @@ TYPE public final record io.github.ulviar.procwright.diagnostics.DiagnosticEvent
 TYPE public final record io.github.ulviar.procwright.session.ExpectMatch extends java.lang.Record
 TYPE public final record io.github.ulviar.procwright.session.LineResponse extends java.lang.Record
 TYPE public final record io.github.ulviar.procwright.session.LineTranscript extends java.lang.Record
-TYPE public final record io.github.ulviar.procwright.session.PooledLineSessionMetrics extends java.lang.Record
-TYPE public final record io.github.ulviar.procwright.session.PooledProtocolSessionMetrics extends java.lang.Record
+TYPE public final record io.github.ulviar.procwright.session.PooledSessionMetrics extends java.lang.Record
 TYPE public final record io.github.ulviar.procwright.session.ProtocolTranscript extends java.lang.Record
 TYPE public final record io.github.ulviar.procwright.session.SessionExit extends java.lang.Record
 TYPE public final record io.github.ulviar.procwright.session.StreamChunk extends java.lang.Record
@@ -702,8 +667,7 @@ TYPE public final record io.github.ulviar.procwright.terminal.TerminalSize exten
 TYPE public static final enum io.github.ulviar.procwright.command.CommandExecutionException$Reason extends java.lang.Enum<io.github.ulviar.procwright.command.CommandExecutionException$Reason>
 TYPE public static final enum io.github.ulviar.procwright.session.ExpectException$Reason extends java.lang.Enum<io.github.ulviar.procwright.session.ExpectException$Reason>
 TYPE public static final enum io.github.ulviar.procwright.session.LineSessionException$Reason extends java.lang.Enum<io.github.ulviar.procwright.session.LineSessionException$Reason>
-TYPE public static final enum io.github.ulviar.procwright.session.PooledLineSessionException$Reason extends java.lang.Enum<io.github.ulviar.procwright.session.PooledLineSessionException$Reason>
-TYPE public static final enum io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason extends java.lang.Enum<io.github.ulviar.procwright.session.PooledProtocolSessionException$Reason>
+TYPE public static final enum io.github.ulviar.procwright.session.PooledSessionException$Reason extends java.lang.Enum<io.github.ulviar.procwright.session.PooledSessionException$Reason>
 TYPE public static final enum io.github.ulviar.procwright.session.ProtocolSessionException$Reason extends java.lang.Enum<io.github.ulviar.procwright.session.ProtocolSessionException$Reason>
 TYPE public static final enum io.github.ulviar.procwright.session.StreamException$Reason extends java.lang.Enum<io.github.ulviar.procwright.session.StreamException$Reason>
 TYPE public static final record io.github.ulviar.procwright.command.CapturePolicy$Bounded extends java.lang.Record implements io.github.ulviar.procwright.command.CapturePolicy

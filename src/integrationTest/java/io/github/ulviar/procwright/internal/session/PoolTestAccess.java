@@ -3,15 +3,14 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.session.PooledLineSession;
-import io.github.ulviar.procwright.session.PooledLineSessionMetrics;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
-import io.github.ulviar.procwright.session.PooledProtocolSessionMetrics;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Predicate;
 
 /**
- * Integration-test access to process-wide bounded lifecycle capacity.
+ * Integration-test access to internal pool observations.
  */
 public final class PoolTestAccess {
 
@@ -22,7 +21,7 @@ public final class PoolTestAccess {
     }
 
     public static boolean awaitLineMetrics(
-            PooledLineSession pool, Predicate<PooledLineSessionMetrics> condition, Duration timeout)
+            PooledLineSession pool, Predicate<PooledSessionMetrics> condition, Duration timeout)
             throws InterruptedException {
         Objects.requireNonNull(pool, "pool");
         if (!(pool instanceof DefaultPooledLineSession defaultPool)) {
@@ -32,7 +31,7 @@ public final class PoolTestAccess {
     }
 
     public static boolean awaitProtocolMetrics(
-            PooledProtocolSession<?, ?> pool, Predicate<PooledProtocolSessionMetrics> condition, Duration timeout)
+            PooledProtocolSession<?, ?> pool, Predicate<PooledSessionMetrics> condition, Duration timeout)
             throws InterruptedException {
         Objects.requireNonNull(pool, "pool");
         if (!(pool instanceof DefaultPooledProtocolSession<?, ?> defaultPool)) {

@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -52,7 +53,7 @@ final class WorkerPoolStateTest {
             state.releaseReusable(firstLease, effects);
         }
         assertMetrics(state.metrics(), 1, 1, 0, 0, 0, 1, 0);
-        PoolMetrics.Snapshot released = state.metrics();
+        PooledSessionMetrics released = state.metrics();
         try (PoolStateEffects<String> effects = fixture.effects()) {
             assertThrows(IllegalStateException.class, () -> state.releaseReusable(firstLease, effects));
         }
@@ -77,7 +78,7 @@ final class WorkerPoolStateTest {
         }
 
         assertNull(lateReport);
-        PoolMetrics.Snapshot completed = state.metrics();
+        PooledSessionMetrics completed = state.metrics();
         assertMetrics(completed, 0, 0, 0, 0, 0, 1, 1);
         assertEquals(1L, completed.retireReasons().get(PooledWorkerRetireReason.MAX_REQUESTS));
     }
@@ -496,7 +497,7 @@ final class WorkerPoolStateTest {
     }
 
     private static void assertMetrics(
-            PoolMetrics.Snapshot snapshot,
+            PooledSessionMetrics snapshot,
             int size,
             int idle,
             int leased,

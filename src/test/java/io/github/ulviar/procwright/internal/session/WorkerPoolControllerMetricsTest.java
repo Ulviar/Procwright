@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.Threading;
+import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -205,7 +206,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
                     Duration.ofSeconds(1)));
             assertTrue(predicateEntered.await(1, TimeUnit.SECONDS));
 
-            Future<PoolMetrics.Snapshot> concurrentSnapshot = executor.submit(pool::metrics);
+            Future<PooledSessionMetrics> concurrentSnapshot = executor.submit(pool::metrics);
             concurrentSnapshot.get(200, TimeUnit.MILLISECONDS);
 
             releasePredicate.countDown();

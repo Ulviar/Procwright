@@ -50,13 +50,13 @@ public sealed interface PooledLineSession extends AutoCloseable permits DefaultP
      *
      * @return metrics snapshot
      */
-    PooledLineSessionMetrics metrics();
+    PooledSessionMetrics metrics();
 
     /**
      * Atomically starts closing the pool and returns a future for complete worker drain.
      *
      * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. The
-     * returned future completes exceptionally with reason {@link PooledLineSessionException.Reason#WORKER_FAILED} when
+     * returned future completes exceptionally with reason {@link PooledSessionException.Reason#WORKER_FAILED} when
      * ordinary worker cleanup fails. A single cleanup {@link Error} is preserved by identity; multiple failures with an
      * {@code Error} primary produce an {@code Error} aggregate whose cause is that primary. Cancelling or completing the
      * returned future does not cancel or alter internal cleanup. Repeated calls return independent views of the same
@@ -74,11 +74,11 @@ public sealed interface PooledLineSession extends AutoCloseable permits DefaultP
      * timeout includes close initiation and future lookup. It does not cancel cleanup; {@link #closeAsync()} can observe
      * eventual completion. This method is safe for try-with-resources.
      *
-     * @throws PooledLineSessionException with reason {@link PooledLineSessionException.Reason#DRAIN_TIMEOUT} when the
+     * @throws PooledSessionException with reason {@link PooledSessionException.Reason#DRAIN_TIMEOUT} when the
      *     configured close timeout elapses
-     * @throws PooledLineSessionException with reason {@link PooledLineSessionException.Reason#INTERRUPTED} when the
+     * @throws PooledSessionException with reason {@link PooledSessionException.Reason#INTERRUPTED} when the
      *     waiting thread is interrupted
-     * @throws PooledLineSessionException with reason {@link PooledLineSessionException.Reason#WORKER_FAILED} when worker
+     * @throws PooledSessionException with reason {@link PooledSessionException.Reason#WORKER_FAILED} when worker
      *     cleanup fails
      * @throws Error when worker cleanup observes an {@code Error}; multiple cleanup failures may be represented by an
      *     {@code Error} aggregate

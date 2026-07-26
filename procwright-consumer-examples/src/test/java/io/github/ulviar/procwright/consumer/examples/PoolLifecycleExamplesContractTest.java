@@ -25,7 +25,7 @@ final class PoolLifecycleExamplesContractTest {
         assertTrue(drainTimeout.indexOf("PooledLineSession pool = draft.open();") < drainTimeout.indexOf("try (pool)"));
         assertTrue(drainTimeout.indexOf("try (pool)") < drainTimeout.indexOf("finally"));
         assertTrue(drainTimeout.indexOf("finally") < drainTimeout.indexOf("pool.closeAsync()"));
-        assertFalse(drainTimeout.contains("catch (PooledLineSessionException"));
+        assertFalse(drainTimeout.contains("catch (PooledSessionException"));
 
         String consumerExamples = read(
                 "procwright-consumer-examples/src/main/java/io/github/ulviar/procwright/consumer/examples/ConsumerScenarios.java");
