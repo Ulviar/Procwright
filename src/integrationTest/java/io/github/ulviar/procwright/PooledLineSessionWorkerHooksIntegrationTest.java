@@ -3,13 +3,13 @@
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.session.PoolTestAccess;
 import io.github.ulviar.procwright.session.LineResponse;
-import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledSessionException;
 import io.github.ulviar.procwright.session.PooledSessionMetrics;
@@ -23,124 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-final class PooledLineSessionRequestAndHooksIntegrationTest extends PooledLineSessionRequestAndHooksIntegrationSupport {
-
-    @Test
-    void callerValidationHappensBeforeWorkerAcquire() {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
-                .withMaxSize(1)
-                .withWarmupSize(1)
-                .open()) {
-            assertThrows(IllegalArgumentException.class, () -> pool.request("a\nb"));
-            assertThrows(IllegalArgumentException.class, () -> pool.request("a", Duration.ZERO));
-            assertThrows(NullPointerException.class, () -> pool.request(null));
-            assertThrows(NullPointerException.class, () -> pool.request("a", null));
-
-            PooledSessionMetrics metrics = pool.metrics();
-            assertEquals(1, metrics.size());
-            assertEquals(1, metrics.idle());
-            assertEquals(1, metrics.created());
-            assertEquals(0, metrics.retired());
-            assertEquals(0, metrics.completedRequests());
-            assertEquals(0, metrics.failedRequests());
-        }
-    }
-
-    @Test
-    void requestSizeValidationHappensBeforeWorkerAcquire() {
-        LineSessionScenario.Draft scenario = fixtureScenario().withMaxRequestChars(4);
-
-        try (PooledLineSession pool =
-                scenario.withArgs("controlled-line-repl").pooled().open()) {
-            LineSessionException exception = assertThrows(LineSessionException.class, () -> pool.request("hello"));
-
-            assertEquals(LineSessionException.Reason.REQUEST_TOO_LARGE, exception.reason());
-            assertEquals(0, pool.metrics().created());
-            assertEquals(1, pool.metrics().failedRequests());
-        }
-    }
-
-    @Test
-    void validatedPooledRequestIsEncodedOnlyOnce() {
-        CountingUtf8Charset charset = new CountingUtf8Charset();
-        LineSessionScenario.Draft scenario = fixtureScenario().withCharset(charset);
-
-        try (PooledLineSession pool =
-                scenario.withArgs("controlled-line-repl").pooled().open()) {
-            assertThrows(IllegalArgumentException.class, () -> pool.request("hello", Duration.ZERO));
-            assertEquals(0, charset.encoderCreations());
-            assertEquals("response:hello", pool.request("hello").text());
-        }
-
-        assertEquals(2, charset.encoderCreations());
-    }
-
-    @Test
-    void pooledRequestEncodingIsBoundedBeforeWorkerAcquire() throws Exception {
-        BlockingUtf8Charset charset = new BlockingUtf8Charset();
-        LineSessionScenario.Draft scenario = fixtureScenario().withCharset(charset);
-
-        try (PooledLineSession pool = scenario.withArgs("controlled-line-repl")
-                .pooled()
-                .withMaxSize(1)
-                .open()) {
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            try {
-                Future<Throwable> request =
-                        executor.submit(() -> captureFailure(() -> pool.request("first", Duration.ofMillis(50))));
-                assertTrue(charset.awaitEncoderStarted());
-
-                Throwable failure = request.get(500, TimeUnit.MILLISECONDS);
-
-                assertTrue(failure instanceof LineSessionException);
-                assertEquals(LineSessionException.Reason.TIMEOUT, ((LineSessionException) failure).reason());
-                assertEquals(0, pool.metrics().created());
-                assertEquals(1, pool.metrics().failedRequests());
-            } finally {
-                charset.releaseEncoder();
-                executor.shutdownNow();
-                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            }
-
-            assertEquals(
-                    "response:second",
-                    pool.request("second", Duration.ofSeconds(1)).text());
-            assertEquals(1, pool.metrics().created());
-        }
-    }
-
-    @Test
-    void acquireTimeoutIsDistinctWhenAllWorkersAreBusy() throws Exception {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
-                .withMaxSize(1)
-                .withAcquireTimeout(Duration.ofMillis(100))
-                .open()) {
-            ExecutorService executor = Executors.newCachedThreadPool();
-            CountDownLatch firstStarted = new CountDownLatch(1);
-            try {
-                Future<LineResponse> first = executor.submit(() -> {
-                    firstStarted.countDown();
-                    return pool.request("hold", Duration.ofSeconds(2));
-                });
-                assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
-                assertTrue(awaitLeased(pool, 1));
-
-                PooledSessionException exception =
-                        assertThrows(PooledSessionException.class, () -> pool.request("hello"));
-
-                PooledSessionMetrics waiting = pool.metrics();
-                assertEquals(PooledSessionException.Reason.ACQUIRE_TIMEOUT, exception.reason());
-                assertTrue(waiting.totalAcquireWaitNanos() > 0);
-                assertTrue(waiting.totalRequestDurationNanos() > 0);
-                assertEquals("response:hold", first.get().text());
-                assertEquals(1, pool.metrics().completedRequests());
-                assertEquals(1, pool.metrics().failedRequests());
-            } finally {
-                executor.shutdownNow();
-                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            }
-        }
-    }
+final class PooledLineSessionWorkerHooksIntegrationTest extends PooledLineSessionIntegrationSupport {
 
     @Test
     void resetFailureRetiresWorkerWithoutChangingCompletedRequestOutcome() {
@@ -179,26 +62,6 @@ final class PooledLineSessionRequestAndHooksIntegrationTest extends PooledLineSe
             assertTrue(awaitRetired(pool, 1));
             assertEquals(1, pool.metrics().retired());
             assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.RESET_FAILED));
-        }
-    }
-
-    @Test
-    void requestErrorIsRethrownAndRecordedAsFailedRequest() {
-        AssertionError decoderError = new AssertionError("decoder invariant failed");
-        LineSessionScenario.Draft scenario = fixtureScenario().withResponseDecoder(reader -> {
-            reader.readLine();
-            throw decoderError;
-        });
-        try (PooledLineSession pool =
-                pool(scenario, "controlled-line-repl").withMaxSize(1).open()) {
-            AssertionError thrown = assertThrows(AssertionError.class, () -> pool.request("hello"));
-
-            assertSame(decoderError, thrown);
-            assertEquals(0, pool.metrics().completedRequests());
-            assertEquals(1, pool.metrics().failedRequests());
-            assertTrue(awaitRetired(pool, 1));
-            assertEquals(1, pool.metrics().retired());
-            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.WORKER_FAILED));
         }
     }
 
@@ -332,6 +195,45 @@ final class PooledLineSessionRequestAndHooksIntegrationTest extends PooledLineSe
             assertEquals(2, pool.metrics().created());
             assertEquals(1, pool.metrics().retired());
             assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
+        }
+    }
+
+    private static final class NonCooperativeTask {
+
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+        private volatile Thread thread;
+
+        private void run() {
+            thread = Thread.currentThread();
+            entered.countDown();
+            awaitIgnoringInterrupt(release);
+        }
+
+        private boolean awaitEntered() {
+            try {
+                return entered.await(1, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+
+        private void release() {
+            release.countDown();
+        }
+
+        private void releaseAndJoin() throws InterruptedException {
+            release();
+            join();
+        }
+
+        private void join() throws InterruptedException {
+            Thread callback = thread;
+            if (callback != null) {
+                callback.join(TimeUnit.SECONDS.toMillis(1));
+                assertFalse(callback.isAlive(), "lifecycle callback retained its bounded-runner permit");
+            }
         }
     }
 }
