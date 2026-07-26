@@ -14,14 +14,21 @@ import io.github.ulviar.procwright.session.StreamSession;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CoderResult;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-final class StreamRuntimeOutputPumpTest extends StreamRuntimeOutputPumpTestSupport {
+final class StreamRuntimeOutputPumpTest extends StreamRuntimeTestSupport {
 
     @Test
     void outputReadFailureHasStableReason() throws Exception {
@@ -155,6 +162,230 @@ final class StreamRuntimeOutputPumpTest extends StreamRuntimeOutputPumpTestSuppo
                 backoff.release();
                 stream.close();
             }
+        }
+    }
+
+    private static boolean causeChainContains(Throwable failure, Throwable expected) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current == expected) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static final class FailingInputStream extends InputStream {
+
+        private final IOException failure;
+
+        private FailingInputStream(IOException failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public int read() throws IOException {
+            throw failure;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            throw failure;
+        }
+    }
+
+    private static final class BlockingUntilClosedInputStream extends InputStream {
+
+        private final CountDownLatch closed = new CountDownLatch(1);
+        private final AtomicInteger closes = new AtomicInteger();
+
+        @Override
+        public int read() {
+            awaitUninterruptibly(closed);
+            return -1;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) {
+            return length == 0 ? 0 : read();
+        }
+
+        @Override
+        public void close() {
+            closes.incrementAndGet();
+            closed.countDown();
+        }
+
+        private int closeCalls() {
+            return closes.get();
+        }
+    }
+
+    private static final class ZeroForeverInputStream extends InputStream {
+
+        private final AtomicInteger reads = new AtomicInteger();
+        private final AtomicInteger closes = new AtomicInteger();
+        private final CountDownLatch closed = new CountDownLatch(1);
+        private volatile Thread readerThread;
+
+        @Override
+        public int read() {
+            recordRead();
+            return 0;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) {
+            recordRead();
+            return 0;
+        }
+
+        @Override
+        public void close() {
+            closes.incrementAndGet();
+            closed.countDown();
+        }
+
+        private void recordRead() {
+            readerThread = Thread.currentThread();
+            reads.incrementAndGet();
+        }
+
+        private int reads() {
+            return reads.get();
+        }
+
+        private int closeCalls() {
+            return closes.get();
+        }
+
+        private boolean awaitClose() throws InterruptedException {
+            return closed.await(1, TimeUnit.SECONDS);
+        }
+
+        private Thread readerThread() {
+            return readerThread;
+        }
+    }
+
+    private static final class BlockingZeroReadBackoff implements ZeroReadBackoff {
+
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public boolean pause(int consecutiveZeroReads, java.util.function.BooleanSupplier closed) {
+            entered.countDown();
+            awaitUninterruptibly(release);
+            return !closed.getAsBoolean();
+        }
+
+        private boolean awaitEntered() throws InterruptedException {
+            return entered.await(1, TimeUnit.SECONDS);
+        }
+
+        private void release() {
+            release.countDown();
+        }
+    }
+
+    private static final class ThreadSelectedNewDecoderFailureCharset extends Charset {
+
+        private final String failingThreadFragment;
+        private final RuntimeException failure;
+
+        private ThreadSelectedNewDecoderFailureCharset(String failingThreadFragment, RuntimeException failure) {
+            super("X-Procwright-Stream-New-Decoder-Failure-" + failingThreadFragment, new String[0]);
+            this.failingThreadFragment = failingThreadFragment;
+            this.failure = failure;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            if (Thread.currentThread().getName().contains(failingThreadFragment)) {
+                throw failure;
+            }
+            return passthroughDecoder(this);
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+    }
+
+    private static final class RuntimeFailureCharset extends Charset {
+
+        private final RuntimeException failure;
+
+        private RuntimeFailureCharset(RuntimeException failure) {
+            super("X-Procwright-Stream-Runtime-Failure", new String[0]);
+            this.failure = failure;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            return new CharsetDecoder(this, 1, 1) {
+                @Override
+                protected CoderResult decodeLoop(ByteBuffer input, CharBuffer output) {
+                    if (input.hasRemaining()) {
+                        throw failure;
+                    }
+                    return CoderResult.UNDERFLOW;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
+        }
+    }
+
+    private static final class ThreadSelectedOutputOnlyCharset extends Charset {
+
+        private final String failingThreadFragment;
+
+        private ThreadSelectedOutputOnlyCharset(String failingThreadFragment) {
+            super("X-Procwright-Stream-Output-Only-" + failingThreadFragment, new String[0]);
+            this.failingThreadFragment = failingThreadFragment;
+        }
+
+        @Override
+        public boolean contains(Charset charset) {
+            return false;
+        }
+
+        @Override
+        public CharsetDecoder newDecoder() {
+            if (!Thread.currentThread().getName().contains(failingThreadFragment)) {
+                return passthroughDecoder(this);
+            }
+            return new CharsetDecoder(this, 1, 1) {
+                @Override
+                protected CoderResult decodeLoop(ByteBuffer input, CharBuffer output) {
+                    while (output.hasRemaining()) {
+                        output.put('x');
+                    }
+                    return CoderResult.OVERFLOW;
+                }
+            };
+        }
+
+        @Override
+        public CharsetEncoder newEncoder() {
+            return StandardCharsets.UTF_8.newEncoder();
         }
     }
 }
