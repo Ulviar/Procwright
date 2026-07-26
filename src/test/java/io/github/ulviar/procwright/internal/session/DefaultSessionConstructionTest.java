@@ -2,6 +2,11 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatch;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.CloseTrackingInputStream;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -21,6 +26,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -169,6 +175,58 @@ final class DefaultSessionConstructionTest {
         assertTrue(process.destroyed.await(1, TimeUnit.SECONDS));
         assertEquals(2, watcherBodies.get(), "both guards may run, but neither guarded watcher body may execute");
         assertEquals(0, process.waitCalls.get());
+    }
+
+    @Test
+    void rejectedSessionAdmissionFailsBeforeOutputAndPumpPublication() throws Exception {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
+        CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
+        CountDownLatch releaseOccupyingClose = new CountDownLatch(1);
+        CountDownLatch pendingClosesFinished = new CountDownLatch(2);
+        CountDownLatch acceptedClosesSettled = new CountDownLatch(3);
+        BoundedCloseDispatcher.Reservation occupiedCapacity = closeDispatcher.reserve(3);
+        dispatch(
+                occupiedCapacity,
+                () -> {
+                    occupyingCloseStarted.countDown();
+                    awaitUninterruptibly(releaseOccupyingClose);
+                },
+                "procwright-occupying-output-close-",
+                failure -> {},
+                acceptedClosesSettled::countDown);
+        assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
+        dispatch(
+                occupiedCapacity,
+                pendingClosesFinished::countDown,
+                "procwright-pending-output-close-",
+                failure -> {},
+                acceptedClosesSettled::countDown);
+        dispatch(
+                occupiedCapacity,
+                pendingClosesFinished::countDown,
+                "procwright-pending-output-close-",
+                failure -> {},
+                acceptedClosesSettled::countDown);
+
+        CloseTrackingInputStream stdout = new CloseTrackingInputStream();
+        CloseTrackingInputStream stderr = new CloseTrackingInputStream();
+        ControllableProcess process = new ControllableProcess(stdout, stderr);
+        try {
+            assertThrows(RejectedExecutionException.class, () -> session(process, closeDispatcher));
+
+            assertTrue(process.awaitDestroyed());
+            assertEquals(0, stdout.closeCalls());
+            assertEquals(0, stderr.closeCalls());
+
+            releaseOccupyingClose.countDown();
+            assertTrue(pendingClosesFinished.await(1, TimeUnit.SECONDS), "previously accepted work must drain");
+            assertTrue(
+                    acceptedClosesSettled.await(1, TimeUnit.SECONDS),
+                    "accepted close completion callbacks must be published");
+            assertEquals(0, closeDispatcher.outstandingCount());
+        } finally {
+            releaseOccupyingClose.countDown();
+        }
     }
 
     private static DiagnosticEmitter diagnostics() {

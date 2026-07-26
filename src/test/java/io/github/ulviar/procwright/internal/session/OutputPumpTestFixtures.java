@@ -13,6 +13,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -22,7 +24,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
-abstract class OutputPumpTestSupport {
+final class OutputPumpTestFixtures {
+    private OutputPumpTestFixtures() {}
+
     static DiagnosticEmitter diagnostics() {
         return DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "pump-startup-test", CommandEcho.empty());
     }
@@ -163,6 +167,43 @@ abstract class OutputPumpTestSupport {
             }
             thread.join(TimeUnit.SECONDS.toMillis(1));
             return !thread.isAlive();
+        }
+    }
+
+    static final class GatedThrowingCloseInputStream extends InputStream {
+
+        final Error closeFailure;
+        final CountDownLatch closeStarted = new CountDownLatch(1);
+        final CountDownLatch closeRelease = new CountDownLatch(1);
+        final CountDownLatch closeCompleted = new CountDownLatch(1);
+
+        GatedThrowingCloseInputStream(Error closeFailure) {
+            this.closeFailure = closeFailure;
+        }
+
+        @Override
+        public int read() {
+            return -1;
+        }
+
+        @Override
+        public void close() {
+            closeStarted.countDown();
+            awaitUninterruptibly(closeRelease);
+            closeCompleted.countDown();
+            throw closeFailure;
+        }
+
+        boolean awaitCloseStarted() throws InterruptedException {
+            return closeStarted.await(1, TimeUnit.SECONDS);
+        }
+
+        boolean awaitCloseCompleted() throws InterruptedException {
+            return closeCompleted.await(1, TimeUnit.SECONDS);
+        }
+
+        void releaseClose() {
+            closeRelease.countDown();
         }
     }
 
@@ -321,6 +362,42 @@ abstract class OutputPumpTestSupport {
         void failIsAliveOnCurrentThread(RuntimeException failure) {
             isAliveFailure = failure;
             isAliveFailureThread = Thread.currentThread();
+        }
+    }
+
+    static final class FailingPumpStarter implements PumpStarter {
+
+        final int failingOrdinal;
+        final Throwable failure;
+        final AtomicInteger starts = new AtomicInteger();
+        final List<Thread> startedThreads = new ArrayList<>();
+
+        FailingPumpStarter(int failingOrdinal, Throwable failure) {
+            this.failingOrdinal = failingOrdinal;
+            this.failure = failure;
+        }
+
+        @Override
+        public Thread start(String namePrefix, Runnable task) {
+            if (starts.incrementAndGet() == failingOrdinal) {
+                if (failure instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw (Error) failure;
+            }
+            Thread thread = Threading.start(namePrefix, task);
+            startedThreads.add(thread);
+            return thread;
+        }
+
+        boolean awaitStartedThreadsStopped() throws InterruptedException {
+            for (Thread thread : startedThreads) {
+                thread.join(TimeUnit.SECONDS.toMillis(1));
+                if (thread.isAlive()) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 

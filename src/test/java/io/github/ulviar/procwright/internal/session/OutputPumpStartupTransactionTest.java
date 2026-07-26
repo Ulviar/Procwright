@@ -2,20 +2,45 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.BlockingCloseInputStream;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.CloseTrackingInputStream;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.FailingPumpStarter;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.awaitSettlement;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.diagnostics;
+import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.command.CommandExecutionException;
+import io.github.ulviar.procwright.command.EnvironmentPolicy;
+import io.github.ulviar.procwright.command.OutputMode;
+import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
-import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
+import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.internal.ExpectSettings;
+import io.github.ulviar.procwright.internal.LaunchPlan;
+import io.github.ulviar.procwright.internal.LineSessionSettings;
+import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
+import io.github.ulviar.procwright.internal.SessionExecutionPlan;
+import io.github.ulviar.procwright.internal.StreamExecutionPlan;
 import io.github.ulviar.procwright.internal.Threading;
+import io.github.ulviar.procwright.session.ProtocolAdapter;
+import io.github.ulviar.procwright.session.ProtocolReaders;
+import io.github.ulviar.procwright.session.ProtocolWriter;
+import io.github.ulviar.procwright.terminal.PtyProvider;
+import io.github.ulviar.procwright.terminal.TerminalPolicy;
+import io.github.ulviar.procwright.terminal.TerminalSize;
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -24,10 +49,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSupport {
+final class OutputPumpStartupTransactionTest {
 
     @Test
     void failedOwnershipClaimLeavesInFlightPublicReadAndRawSessionUntouchedForEveryHelper() throws Exception {
@@ -295,206 +319,178 @@ final class OutputPumpStartupTransactionTest extends OutputPumpStartupTestSuppor
         }
     }
 
-    @Test
-    void startupFailureRemainsPrimaryWhenBothOwnedStreamClosesFail() throws Exception {
-        IllegalStateException startupFailure = new IllegalStateException("second pump failed");
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
-        ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process);
-        FailingPumpStarter starter = new FailingPumpStarter(2, startupFailure);
-        try {
-            Throwable thrown = captureFailure(() ->
-                    new DefaultExpect(rawSession, ExpectSettings.defaults(), ZeroReadBackoff.exponential(), starter));
-
-            assertSame(startupFailure, thrown);
-            assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitCloseCompleted());
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(0, startupFailure.getSuppressed().length);
-            assertEquals(1, stdout.closeCalls());
-            assertEquals(1, stderr.closeCalls());
-        } finally {
-            rawSession.close();
+    private static void construct(HelperKind helper, DefaultSession session, PumpStarter starter) {
+        ZeroReadBackoff backoff = ZeroReadBackoff.exponential();
+        switch (helper) {
+            case EXPECT -> new DefaultExpect(session, ExpectSettings.defaults(), backoff, starter);
+            case LINE ->
+                new DefaultLineSession(
+                        session,
+                        LineSessionSettings.defaults(),
+                        LineSessionTestDependencies.withBackoffAndPumpStarter(backoff, starter));
+            case PROTOCOL ->
+                new DefaultProtocolSession<>(
+                        session,
+                        noOpAdapter(),
+                        ProtocolSessionSettings.defaults(),
+                        ProtocolSessionTestDependencies.withBackoffAndPumpStarter(backoff, starter));
+            case STREAM ->
+                new DefaultStreamSession(
+                        session,
+                        streamPlan(),
+                        diagnostics(),
+                        StreamSessionTestDependencies.withBackoffAndPumpStarter(backoff, starter));
         }
     }
 
-    @Test
-    void publicSessionFailureEnvelopeRetainsTheExactRuntimeCause() throws Exception {
-        IllegalStateException sessionFailure = new IllegalStateException("session close failed");
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
-        ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        List<Throwable> reportedFailures = new CopyOnWriteArrayList<>();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((ignored, failure) -> reportedFailures.add(failure));
-            thread.start();
-        });
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "exact-session");
-        CountDownLatch pumpsFinished = new CountDownLatch(2);
-        try {
-            coordinator.start(
-                    PumpStarter.threading(),
-                    "procwright-exact-session-stdout-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    "procwright-exact-session-stderr-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    () -> {});
-            assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
+    private static ProtocolAdapter<String, String> noOpAdapter() {
+        return new ProtocolAdapter<>() {
+            @Override
+            public void writeRequest(String request, ProtocolWriter writer) {
+                writer.flush();
+            }
 
-            process.failIsAliveOnCurrentThread(sessionFailure);
-            CommandExecutionException thrown = assertThrows(CommandExecutionException.class, coordinator::closeSession);
-
-            assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, thrown.reason());
-            assertSame(sessionFailure, thrown.getCause());
-            assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitCloseCompleted());
-            awaitSettlement(rawSession.onExit());
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(0, sessionFailure.getSuppressed().length);
-            assertEquals(
-                    1,
-                    reportedFailures.stream()
-                            .filter(failure -> failure == stdoutCloseFailure)
-                            .count());
-            assertEquals(
-                    1,
-                    reportedFailures.stream()
-                            .filter(failure -> failure == stderrCloseFailure)
-                            .count());
-        } finally {
-            coordinator.closeSessionPreserving(sessionFailure);
-            rawSession.close();
-        }
-    }
-
-    @Test
-    void authoritativePrimaryRegisteredBeforePhysicalCloseOwnsEveryCloseFailureOnce() throws Exception {
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        AssertionError workerFailure = new AssertionError("worker failed after close started");
-        ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
-        ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        List<Throwable> reportedFailures = new CopyOnWriteArrayList<>();
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((ignored, failure) -> reportedFailures.add(failure));
-            thread.start();
-        });
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "shutdown-race");
-        CountDownLatch pumpsFinished = new CountDownLatch(2);
-        try {
-            coordinator.start(
-                    PumpStarter.threading(),
-                    "procwright-shutdown-race-stdout-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    "procwright-shutdown-race-stderr-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    () -> {});
-            assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
-
-            coordinator.closeSessionPreserving(workerFailure);
-            assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitCloseCompleted());
-            awaitSettlement(rawSession.onExit());
-
-            coordinator.closeSessionPreserving(workerFailure);
-
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertEquals(
-                    1,
-                    reportedFailures.stream()
-                            .filter(failure -> failure == stdoutCloseFailure)
-                            .count());
-            assertEquals(
-                    1,
-                    reportedFailures.stream()
-                            .filter(failure -> failure == stderrCloseFailure)
-                            .count());
-            assertEquals(0, workerFailure.getSuppressed().length);
-            assertEquals(1, stdout.closeCalls());
-            assertEquals(1, stderr.closeCalls());
-        } finally {
-            coordinator.closeSessionPreserving(workerFailure);
-            rawSession.close();
-        }
-    }
-
-    @Test
-    void reentrantUncaughtHandlerCannotRunUnderCoordinatorMonitor() throws Exception {
-        AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
-        AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        AssertionError workerFailure = new AssertionError("worker failure selected by handler");
-        ThrowingCloseInputStream stdout = new ThrowingCloseInputStream(stdoutCloseFailure);
-        ThrowingCloseInputStream stderr = new ThrowingCloseInputStream(stderrCloseFailure);
-        ControllableProcess process = new ControllableProcess(stdout, stderr);
-        AtomicReference<OutputPumpCoordinator> coordinatorReference = new AtomicReference<>();
-        List<Throwable> reportedFailures = new CopyOnWriteArrayList<>();
-        CountDownLatch handlersEntered = new CountDownLatch(2);
-        CountDownLatch handlersReturned = new CountDownLatch(2);
-        Thread.UncaughtExceptionHandler handler = (ignored, failure) -> {
-            if (failure == stdoutCloseFailure || failure == stderrCloseFailure) {
-                reportedFailures.add(failure);
-                handlersEntered.countDown();
-                coordinatorReference.get().closeSessionPreserving(workerFailure);
-                handlersReturned.countDown();
+            @Override
+            public String readResponse(ProtocolReaders readers) {
+                return "unused";
             }
         };
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2, (name, task) -> {
-            Thread thread = new Thread(task, name);
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler(handler);
-            thread.start();
-        });
-        DefaultSession rawSession = session(process, closeDispatcher);
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "reentrant");
-        coordinatorReference.set(coordinator);
-        CountDownLatch pumpsFinished = new CountDownLatch(2);
+    }
+
+    private static StreamExecutionPlan streamPlan() {
+        LaunchPlan launchPlan = new LaunchPlan(
+                List.of("stub"),
+                Optional.empty(),
+                EnvironmentPolicy.INHERIT,
+                Map.of(),
+                OutputMode.SEPARATE,
+                TerminalPolicy.DISABLED);
+        SessionExecutionPlan sessionPlan = new SessionExecutionPlan(
+                launchPlan,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                Duration.ZERO,
+                StandardCharsets.UTF_8,
+                PtyProvider.unavailable(),
+                TerminalSize.defaults());
+        return new StreamExecutionPlan(sessionPlan, Duration.ZERO, 64, chunk -> {}, DiagnosticsSettings.disabled());
+    }
+
+    private static Throwable captureFailure(Runnable operation) {
         try {
-            coordinator.start(
-                    PumpStarter.threading(),
-                    "procwright-reentrant-stdout-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    "procwright-reentrant-stderr-pump-",
-                    stream -> drainToEof(stream, pumpsFinished),
-                    () -> {});
-            assertTrue(pumpsFinished.await(1, TimeUnit.SECONDS));
+            operation.run();
+            return null;
+        } catch (Throwable failure) {
+            return failure;
+        }
+    }
 
-            coordinator.closeSession();
+    private static void closePumpStream(InputStream stream) {
+        try {
+            stream.close();
+        } catch (IOException failure) {
+            throw new IllegalStateException("test pump close failed", failure);
+        }
+    }
 
-            assertTrue(
-                    handlersEntered.await(1, TimeUnit.SECONDS),
-                    "both uncaught handlers must run without acquiring the coordinator monitor");
-            assertTrue(handlersReturned.await(1, TimeUnit.SECONDS));
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-            assertTrue(stdout.awaitCloseCompleted());
-            assertTrue(stderr.awaitCloseCompleted());
-            assertEquals(
-                    1,
-                    reportedFailures.stream()
-                            .filter(failure -> failure == stdoutCloseFailure)
-                            .count());
-            assertEquals(
-                    1,
-                    reportedFailures.stream()
-                            .filter(failure -> failure == stderrCloseFailure)
-                            .count());
-            assertEquals(0, workerFailure.getSuppressed().length);
-            assertEquals(1, stdout.closeCalls());
-            assertEquals(1, stderr.closeCalls());
-        } finally {
-            coordinator.closeSessionPreserving(workerFailure);
-            rawSession.close();
+    private enum HelperKind {
+        EXPECT,
+        LINE,
+        PROTOCOL,
+        STREAM
+    }
+
+    private static final class StartThenThrowPumpStarter implements PumpStarter {
+
+        final int failingOrdinal;
+        final Throwable failure;
+        final AtomicInteger starts = new AtomicInteger();
+        final List<Thread> startedThreads = new ArrayList<>();
+        final List<Throwable> uncaughtFailures = new CopyOnWriteArrayList<>();
+
+        StartThenThrowPumpStarter(int failingOrdinal, Throwable failure) {
+            this.failingOrdinal = failingOrdinal;
+            this.failure = failure;
+        }
+
+        @Override
+        public Thread start(String namePrefix, Runnable task) {
+            int ordinal = starts.incrementAndGet();
+            Thread thread = new Thread(task, namePrefix + ordinal);
+            thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler((ignored, uncaught) -> uncaughtFailures.add(uncaught));
+            thread.start();
+            startedThreads.add(thread);
+            if (ordinal == failingOrdinal) {
+                if (failure instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw (Error) failure;
+            }
+            return thread;
+        }
+
+        boolean awaitStartedThreadsStopped() throws InterruptedException {
+            for (Thread thread : startedThreads) {
+                thread.join(TimeUnit.SECONDS.toMillis(1));
+                if (thread.isAlive()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        List<Throwable> uncaughtFailures() {
+            return List.copyOf(uncaughtFailures);
+        }
+    }
+
+    private static final class BlockingPublicReadInputStream extends InputStream {
+
+        final CountDownLatch readStarted = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final AtomicBoolean closed = new AtomicBoolean();
+        final AtomicInteger closes = new AtomicInteger();
+
+        @Override
+        public int read() throws IOException {
+            readStarted.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while waiting for test input", exception);
+            }
+            if (closed.get()) {
+                throw new IOException("Stream closed");
+            }
+            return -1;
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            if (length == 0) {
+                return 0;
+            }
+            return read();
+        }
+
+        @Override
+        public void close() {
+            closes.incrementAndGet();
+            closed.set(true);
+            release.countDown();
+        }
+
+        boolean awaitReadStarted() throws InterruptedException {
+            return readStarted.await(1, TimeUnit.SECONDS);
+        }
+
+        void releaseEof() {
+            release.countDown();
+        }
+
+        int closeCalls() {
+            return closes.get();
         }
     }
 }
