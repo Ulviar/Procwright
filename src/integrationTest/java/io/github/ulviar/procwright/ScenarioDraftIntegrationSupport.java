@@ -2,8 +2,6 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.EXTERNAL_WATCHDOG_SECONDS;
-
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.Session;
@@ -21,6 +19,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 final class ScenarioDraftIntegrationSupport {
+
+    static final long SCENARIO_WATCHDOG_SECONDS = 10;
 
     private ScenarioDraftIntegrationSupport() {}
 
@@ -116,7 +116,7 @@ final class ScenarioDraftIntegrationSupport {
 
     private static <T> T get(Future<T> future) throws Exception {
         try {
-            return future.get(EXTERNAL_WATCHDOG_SECONDS + 2, TimeUnit.SECONDS);
+            return future.get(SCENARIO_WATCHDOG_SECONDS + 2, TimeUnit.SECONDS);
         } catch (ExecutionException failure) {
             Throwable cause = failure.getCause();
             if (cause instanceof Exception exception) {

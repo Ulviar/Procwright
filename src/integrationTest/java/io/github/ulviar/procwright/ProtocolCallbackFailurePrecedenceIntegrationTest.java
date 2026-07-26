@@ -2,8 +2,8 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.openProtocolSession;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;

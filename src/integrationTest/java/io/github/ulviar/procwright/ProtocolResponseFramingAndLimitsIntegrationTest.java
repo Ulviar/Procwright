@@ -2,12 +2,12 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.FramedStringAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.StdoutLineAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TwoLineTextAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.openProtocolSession;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.parseLength;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.FramedStringAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.StdoutLineAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TwoLineTextAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.parseLength;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;

@@ -3,8 +3,8 @@
 package io.github.ulviar.procwright;
 
 import static io.github.ulviar.procwright.PooledProtocolSessionIntegrationFixtures.poolDraft;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.FramedStringAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.FramedStringAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -52,11 +52,11 @@ final class PooledProtocolSessionRequestIntegrationTest {
 
     @Test
     void pooledProtocolRejectsNullBeforeLeasingOrRetiringWorker() {
-        try (PooledProtocolSession<String, String> pool =
-                poolDraft(fixtureService(), FramedStringAdapter::new, "length-line-frame")
-                        .withMaxSize(1)
-                        .withWarmupSize(1)
-                        .open()) {
+        try (PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), FramedStringAdapter::new, "length-line-frame")
+                .withMaxSize(1)
+                .withWarmupSize(1)
+                .open()) {
             assertThrows(NullPointerException.class, () -> pool.request(null));
             assertThrows(NullPointerException.class, () -> pool.request(null, Duration.ofSeconds(1)));
 
@@ -72,11 +72,11 @@ final class PooledProtocolSessionRequestIntegrationTest {
     @Test
     void pooledProtocolAcquireTimeoutIsDistinctFromRequestTimeout() throws Exception {
         CoordinatedResponseAdapter adapter = new CoordinatedResponseAdapter();
-        try (PooledProtocolSession<String, String> pool =
-                poolDraft(fixtureService(), () -> adapter, "ignore-stdin", "--millis=5000")
-                        .withMaxSize(1)
-                        .withAcquireTimeout(Duration.ofMillis(100))
-                        .open()) {
+        try (PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), () -> adapter, "ignore-stdin", "--millis=5000")
+                .withMaxSize(1)
+                .withAcquireTimeout(Duration.ofMillis(100))
+                .open()) {
             ExecutorService executor = Executors.newCachedThreadPool();
             CountDownLatch firstStarted = new CountDownLatch(1);
             try {
@@ -112,10 +112,10 @@ final class PooledProtocolSessionRequestIntegrationTest {
                 throw decoderError;
             }
         };
-        try (PooledProtocolSession<String, String> pool =
-                poolDraft(fixtureService(), adapterFactory, "length-line-frame")
-                        .withMaxSize(1)
-                        .open()) {
+        try (PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), adapterFactory, "length-line-frame")
+                .withMaxSize(1)
+                .open()) {
             AssertionError thrown = assertThrows(AssertionError.class, () -> pool.request("hello"));
 
             assertSame(decoderError, thrown);

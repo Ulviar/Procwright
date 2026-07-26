@@ -2,7 +2,7 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.parseLength;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.parseLength;
 import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.interactiveResponse;
 import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.lineResponse;
 import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.protocolResponse;
@@ -10,7 +10,7 @@ import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.stream
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
+import io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TextLineAdapter;
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.session.LineSession;
 import io.github.ulviar.procwright.session.LineSessionException;

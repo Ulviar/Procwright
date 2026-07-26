@@ -2,11 +2,11 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.StdoutLineAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.awaitIgnoringInterrupts;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.openProtocolSession;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.StdoutLineAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TextLineAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.awaitIgnoringInterrupts;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;

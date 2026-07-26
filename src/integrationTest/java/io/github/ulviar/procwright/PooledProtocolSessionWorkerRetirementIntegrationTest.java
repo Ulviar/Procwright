@@ -3,11 +3,10 @@
 package io.github.ulviar.procwright;
 
 import static io.github.ulviar.procwright.PooledProtocolSessionIntegrationFixtures.poolDraft;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.EXTERNAL_WATCHDOG_SECONDS;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.FramedStringAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.captureFailure;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.FramedStringAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TextLineAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.captureFailure;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -32,6 +31,8 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 final class PooledProtocolSessionWorkerRetirementIntegrationTest {
+
+    private static final long EXTERNAL_WATCHDOG_SECONDS = 10;
 
     @Test
     void retiredProtocolWorkerCleansObservedDescendantBeforeMetricsPublication() throws Exception {
@@ -91,11 +92,11 @@ final class PooledProtocolSessionWorkerRetirementIntegrationTest {
 
     @Test
     void pooledProtocolSessionRecordsRetireReason() throws Exception {
-        try (PooledProtocolSession<String, String> pool =
-                poolDraft(fixtureService(), FramedStringAdapter::new, "length-line-frame")
-                        .withMaxSize(1)
-                        .withMaxRequestsPerWorker(1)
-                        .open()) {
+        try (PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), FramedStringAdapter::new, "length-line-frame")
+                .withMaxSize(1)
+                .withMaxRequestsPerWorker(1)
+                .open()) {
             assertEquals("first", pool.request("first"));
 
             pool.closeAsync().get(2, TimeUnit.SECONDS);
@@ -106,12 +107,12 @@ final class PooledProtocolSessionWorkerRetirementIntegrationTest {
 
     @Test
     void pooledProtocolExitedWorkerUsesOnlyProcessExitedRetirementReason() {
-        try (PooledProtocolSession<String, String> pool =
-                poolDraft(fixtureService(), TextLineAdapter::new, "exit-after-read", "--stdout=ok")
-                        .withMaxSize(1)
-                        .withWarmupSize(1)
-                        .withReset(worker -> worker.onExit().join())
-                        .open()) {
+        try (PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), TextLineAdapter::new, "exit-after-read", "--stdout=ok")
+                .withMaxSize(1)
+                .withWarmupSize(1)
+                .withReset(worker -> worker.onExit().join())
+                .open()) {
             assertEquals("ok", pool.request("first"));
             assertEquals("ok", pool.request("second"));
 

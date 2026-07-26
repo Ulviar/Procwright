@@ -13,12 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.UnaryOperator;
 
-final class ProtocolSessionIntegrationSupport {
+final class ProtocolSessionIntegrationFixtures {
 
-    // This only bounds the test harness; scenario timeouts remain longer than this watchdog.
-    static final long EXTERNAL_WATCHDOG_SECONDS = 10;
-
-    private ProtocolSessionIntegrationSupport() {}
+    private ProtocolSessionIntegrationFixtures() {}
 
     static CommandService fixtureService() {
         return Procwright.command(TestCliSupport.command());

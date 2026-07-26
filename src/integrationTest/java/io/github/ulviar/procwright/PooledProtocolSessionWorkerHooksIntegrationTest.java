@@ -3,9 +3,9 @@
 package io.github.ulviar.procwright;
 
 import static io.github.ulviar.procwright.PooledProtocolSessionIntegrationFixtures.poolDraft;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.FramedStringAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.awaitIgnoringInterrupts;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.FramedStringAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.awaitIgnoringInterrupts;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -31,16 +31,16 @@ final class PooledProtocolSessionWorkerHooksIntegrationTest {
         NonCooperativeTask health = new NonCooperativeTask();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            try (PooledProtocolSession<String, String> pool =
-                    poolDraft(fixtureService(), FramedStringAdapter::new, "length-line-frame")
-                            .withMaxSize(1)
-                            .withWarmupSize(1)
-                            .withHookTimeout(Duration.ofMillis(50))
-                            .withHealthCheck(worker -> {
-                                health.run();
-                                return true;
-                            })
-                            .open()) {
+            try (PooledProtocolSession<String, String> pool = poolDraft(
+                            fixtureService(), FramedStringAdapter::new, "length-line-frame")
+                    .withMaxSize(1)
+                    .withWarmupSize(1)
+                    .withHookTimeout(Duration.ofMillis(50))
+                    .withHealthCheck(worker -> {
+                        health.run();
+                        return true;
+                    })
+                    .open()) {
                 Future<PooledSessionException> request = executor.submit(() -> {
                     try {
                         pool.request("hello");
@@ -74,12 +74,12 @@ final class PooledProtocolSessionWorkerHooksIntegrationTest {
         NonCooperativeTask reset = new NonCooperativeTask();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            try (PooledProtocolSession<String, String> pool =
-                    poolDraft(fixtureService(), FramedStringAdapter::new, "length-line-frame")
-                            .withMaxSize(1)
-                            .withHookTimeout(Duration.ofMillis(50))
-                            .withReset(worker -> reset.run())
-                            .open()) {
+            try (PooledProtocolSession<String, String> pool = poolDraft(
+                            fixtureService(), FramedStringAdapter::new, "length-line-frame")
+                    .withMaxSize(1)
+                    .withHookTimeout(Duration.ofMillis(50))
+                    .withReset(worker -> reset.run())
+                    .open()) {
                 Future<String> request = executor.submit(() -> pool.request("hello"));
                 String response = request.get(1, TimeUnit.SECONDS);
 
@@ -105,13 +105,13 @@ final class PooledProtocolSessionWorkerHooksIntegrationTest {
     @Test
     void protocolPoolResetErrorIsRethrownAfterRecordingCompletedRequestAndResetRetirement() throws Exception {
         AssertionError resetError = new AssertionError("reset invariant failed");
-        try (PooledProtocolSession<String, String> pool =
-                poolDraft(fixtureService(), FramedStringAdapter::new, "length-line-frame")
-                        .withMaxSize(1)
-                        .withReset(worker -> {
-                            throw resetError;
-                        })
-                        .open()) {
+        try (PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), FramedStringAdapter::new, "length-line-frame")
+                .withMaxSize(1)
+                .withReset(worker -> {
+                    throw resetError;
+                })
+                .open()) {
             AssertionError thrown = assertThrows(AssertionError.class, () -> pool.request("hello"));
 
             assertSame(resetError, thrown);
@@ -136,13 +136,8 @@ final class PooledProtocolSessionWorkerHooksIntegrationTest {
             awaitIgnoringInterrupts(release);
         }
 
-        private boolean awaitEntered() {
-            try {
-                return entered.await(1, TimeUnit.SECONDS);
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
+        private boolean awaitEntered() throws InterruptedException {
+            return entered.await(1, TimeUnit.SECONDS);
         }
 
         private void release() {

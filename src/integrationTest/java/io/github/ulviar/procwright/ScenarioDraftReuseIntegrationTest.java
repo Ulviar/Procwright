@@ -2,7 +2,7 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.EXTERNAL_WATCHDOG_SECONDS;
+import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.SCENARIO_WATCHDOG_SECONDS;
 import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.awaitStream;
 import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.interactivePid;
 import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.invokeConcurrently;
@@ -11,7 +11,7 @@ import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.protoc
 import static io.github.ulviar.procwright.ScenarioDraftIntegrationSupport.responsePid;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
+import io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TextLineAdapter;
 import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.session.LineSession;
 import java.util.List;
@@ -123,7 +123,7 @@ final class ScenarioDraftReuseIntegrationTest {
             maximumConcurrentCalls.accumulateAndGet(active, Math::max);
             bothInsideReadiness.countDown();
             try {
-                if (!bothInsideReadiness.await(EXTERNAL_WATCHDOG_SECONDS, TimeUnit.SECONDS)) {
+                if (!bothInsideReadiness.await(SCENARIO_WATCHDOG_SECONDS, TimeUnit.SECONDS)) {
                     throw new AssertionError("Procwright serialized retained readiness probe calls");
                 }
             } catch (InterruptedException exception) {

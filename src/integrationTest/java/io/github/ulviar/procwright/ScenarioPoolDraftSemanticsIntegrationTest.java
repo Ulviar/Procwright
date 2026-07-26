@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
+import io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TextLineAdapter;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
 import java.nio.file.Path;

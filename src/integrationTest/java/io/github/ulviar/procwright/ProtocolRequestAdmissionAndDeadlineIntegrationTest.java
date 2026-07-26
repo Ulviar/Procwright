@@ -2,13 +2,13 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.StdoutLineAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TwoLineTextAdapter;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.awaitIgnoringInterrupts;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.captureFailure;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.openProtocolSession;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.StdoutLineAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TextLineAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TwoLineTextAdapter;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.awaitIgnoringInterrupts;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.captureFailure;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class ProtocolRequestSerializationAndDeadlineIntegrationTest {
+final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
 
     @Test
     void protocolRequestTimeoutClosesProcessAndPreservesTerminalReason() throws Exception {

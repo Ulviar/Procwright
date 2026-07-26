@@ -3,15 +3,15 @@
 package io.github.ulviar.procwright;
 
 import static io.github.ulviar.procwright.PooledProtocolSessionIntegrationFixtures.poolDraft;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.awaitIgnoringInterrupts;
-import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.awaitIgnoringInterrupts;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.PooledProtocolSessionIntegrationFixtures.CoordinatedResponseAdapter;
-import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
+import io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.TextLineAdapter;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
 import io.github.ulviar.procwright.session.PooledSessionException;
 import java.time.Duration;
@@ -28,10 +28,10 @@ final class PooledProtocolSessionCloseCoordinationIntegrationTest {
     @Test
     void pooledProtocolCloseDistinguishesInterruptionFromDrainTimeout() throws Exception {
         CoordinatedResponseAdapter adapter = new CoordinatedResponseAdapter();
-        PooledProtocolSession<String, String> pool =
-                poolDraft(fixtureService(), () -> adapter, "ignore-stdin", "--millis=5000")
-                        .withMaxSize(1)
-                        .open();
+        PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), () -> adapter, "ignore-stdin", "--millis=5000")
+                .withMaxSize(1)
+                .open();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<String> request = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));

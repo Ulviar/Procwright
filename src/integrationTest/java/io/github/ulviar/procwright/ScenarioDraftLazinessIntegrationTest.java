@@ -4,7 +4,7 @@ package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.FramedStringAdapter;
+import io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.FramedStringAdapter;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
