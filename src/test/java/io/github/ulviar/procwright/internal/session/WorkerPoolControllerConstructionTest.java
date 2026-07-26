@@ -135,14 +135,12 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
             assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
             ExecutionException timeout = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
             assertEquals(FailureKind.ACQUIRE_TIMEOUT, ((PoolFailure) timeout.getCause()).kind);
-            pool.closeAsync();
-            assertFalse(pool.closeAsync().isDone());
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
 
             releaseFactory.countDown();
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
             assertEquals(1L, reporterEntered.getCount(), "late report must remain queued behind active owners");
-            assertEquals(1, pool.metrics().failedStartups());
+            assertTrue(awaitMetrics(pool, metrics -> metrics.failedStartups() == 1, Duration.ofSeconds(1)));
             assertPartition(pool, 0, 0, 0, 0, 0);
 
             releaseReports.countDown();

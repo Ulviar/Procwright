@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Owns construction resolution, closing state, terminal failure precedence, and the pool drain outcome.
@@ -17,14 +18,11 @@ import java.util.concurrent.CompletableFuture;
 final class PoolTermination {
 
     private final ArrayDeque<FailureReport> constructionReports = new ArrayDeque<>();
-    private final FailureAccumulator failures = new FailureAccumulator();
-    private final PoolDrain drain;
+    private final CompletableFuture<Void> terminal = new CompletableFuture<>();
     private ConstructionPhase construction = ConstructionPhase.CONSTRUCTING;
     private boolean closing;
-
-    PoolTermination() {
-        drain = new PoolDrain();
-    }
+    private boolean drainClaimed;
+    private Throwable terminalFailure;
 
     boolean closing() {
         return closing;
@@ -32,12 +30,13 @@ final class PoolTermination {
 
     FailureDisposition beginClosing(Throwable failure) {
         closing = true;
-        if (!failures.add(failure)) {
+        if (failure == null || failure == terminalFailure) {
             return FailureDisposition.NONE;
         }
-        if (drain.claimed()) {
-            return FailureDisposition.LATE;
+        if (terminalFailure != null || drainClaimed) {
+            return FailureDisposition.REPORT;
         }
+        terminalFailure = failure;
         return FailureDisposition.TERMINAL;
     }
 
@@ -45,9 +44,7 @@ final class PoolTermination {
         requireConstructing();
         if (closing) {
             construction = ConstructionPhase.FAILED;
-            return new ConstructionFailed(
-                    failures.aggregateErrorFirst("Multiple failures occurred while constructing the pool"),
-                    drainConstructionReports());
+            return new ConstructionFailed(terminalFailure, drainConstructionReports());
         }
         construction = ConstructionPhase.COMMITTED;
         return new ConstructionSucceeded(drainConstructionReports());
@@ -79,25 +76,36 @@ final class PoolTermination {
             constructionReports.addLast(observed);
             return null;
         }
-        return construction == ConstructionPhase.FAILED ? observed : null;
+        if (construction == ConstructionPhase.FAILED) {
+            return observed;
+        }
+        return observed.failure() == terminalFailure ? null : observed;
     }
 
-    PoolDrain.Publication claimDrainIfReady(int liveWorkers) {
+    Publication claimDrainIfReady(int liveWorkers) {
         if (liveWorkers < 0) {
             throw new IllegalArgumentException("liveWorkers must not be negative");
         }
-        if (!closing || liveWorkers != 0) {
+        if (!closing || liveWorkers != 0 || drainClaimed) {
             return null;
         }
-        return drain.claim(failures.aggregateErrorFirst("Multiple failures occurred while closing the pool"));
+        drainClaimed = true;
+        return new Publication(this, terminalFailure);
     }
 
     CompletableFuture<Void> view() {
-        return drain.view();
+        return terminal.copy();
     }
 
-    void publish(PoolDrain.Publication publication) {
-        Objects.requireNonNull(publication, "publication").publish();
+    private void publish(Publication publication) {
+        if (publication.owner != this) {
+            throw new IllegalArgumentException("pool termination publication belongs to another pool");
+        }
+        if (publication.failure == null) {
+            terminal.complete(null);
+        } else {
+            terminal.completeExceptionally(publication.failure);
+        }
     }
 
     private List<FailureReport> drainConstructionReports() {
@@ -131,7 +139,30 @@ final class PoolTermination {
     enum FailureDisposition {
         NONE,
         TERMINAL,
-        LATE
+        REPORT
+    }
+
+    static final class Publication {
+
+        private final PoolTermination owner;
+        private final Throwable failure;
+        private final AtomicBoolean published = new AtomicBoolean();
+
+        private Publication(PoolTermination owner, Throwable failure) {
+            this.owner = owner;
+            this.failure = failure;
+        }
+
+        Throwable failure() {
+            return failure;
+        }
+
+        void publish() {
+            if (!published.compareAndSet(false, true)) {
+                throw new IllegalStateException("pool termination outcome is already published");
+            }
+            owner.publish(this);
+        }
     }
 
     private enum ConstructionPhase {

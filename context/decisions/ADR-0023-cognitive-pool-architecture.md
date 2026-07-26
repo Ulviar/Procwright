@@ -6,136 +6,110 @@
 
 ## Контекст
 
-Pool runtime содержит несколько независимых инвариантов: partition workers, startup races, request lease, retirement,
-replenishment, terminal publication и metrics. Если ими одновременно владеет controller, локальное изменение требует
-помнить несколько автоматов и synchronization domains.
+Pool runtime одновременно отвечает за capacity, startup, leases, retirement, replenishment, terminal outcome и
+metrics. Эти обязанности нельзя сводить в один controller, но механическое разбиение на helpers также вредно: оно
+заменяет локальные инварианты скрытыми протоколами между классами.
 
-Уменьшение числа строк само по себе проблему не решает. Механический перенос методов в helper-классы оставил бы те же
-скрытые протоколы между ними.
+Архитектура должна позволять понять один компонент без удержания в голове всего pool. Внутренние типы оправданы только
+тогда, когда каждый из них владеет самостоятельным инвариантом.
 
 ## Решение
 
-Pool runtime перестраивается вокруг следующих владельцев:
+### Consistency domain
 
-- `WorkerPoolState` является aggregate root единственного consistency domain пула. Он владеет monitor,
-  `PoolPartition`, `PoolMetrics`, `PoolTermination`, revision ожиданий и связанными с partition полями уже
-  зарезервированного `PoolWorker`; acquire transition возвращает sealed variants, поэтому lease, reservation и
-  interruption нельзя сочетать с неверным status или `null`; warmup различает только successful reservation и closed
-  pool, а replenishment использует семантику `tryReserve`; внутренними автоматами startup и physical retirement владеют
-  отдельные компоненты;
-- `PoolPartition` единолично представляет взаимоисключающие состояния `starting`, `idle`, `leased` и `retiring`;
-  принадлежность коллекции является состоянием worker-а, но partition не покидает `WorkerPoolState`; bounded
-  collections резервируют `maxSize` при создании, а переход добавляет worker в target до удаления из source;
-- `WorkerStartup` выбирает ровно один terminal outcome между factory completion, timeout, close и interruption;
-- `WorkerStartupCoordinator` владеет typed reservation, bounded launch, wait, abandon и failure mapping.
-  `WorkerPoolState` атомарно создаёт и регистрирует reservation с подготовленным lease и
-  worker cleanup owner. Startup purpose задаётся при создании worker и остаётся неизменным. Успешный launch claim под
-  тем же monitor однократно передаёт ownership startup attempt; terminal transition затем либо выдаёт lease, либо
-  инвалидирует внутренние capabilities. Reservation привязана к создавшему её `WorkerPoolState`, поэтому другой pool
-  не может завершить её. Узкий state port выражает только startup events;
-- `PoolWorker` хранит только lifecycle-local state одного worker: startup, принятую session, retirement, request count и
-  retire reason;
-- `WorkerRetirement` создаётся вместе с reservation до регистрации slot, затем принимает factory session, атомарно
-  заявляет начало close, выполняет потенциально реентрантный close action вне monitor и нормализует один возвращённый
-  future в стабильный outcome;
-- `WorkerRetirementCoordinator` владеет post-monitor batch: сначала инициирует все closes, затем обрабатывает outcomes и
-  включает все outcomes в state и только после этого публикует late failures;
-- `WorkerCloseSupport` владеет exact-once запуском worker close, fallback в bounded retirement domain и ожиданием
-  logical terminal outcome. Potentially blocking physical stream close наблюдается session runtime независимо и не
-  удерживает pool capacity;
-- `PoolStateEffects` является одноразовым `AutoCloseable`: накапливает выбранные state-транзакцией retirement,
-  terminal-publication effects и при закрытии пытается выполнить их все вне monitor, даже если один effect завершился
-  ошибкой;
-- `PoolReplenisher` поддерживает не более одного активного цикла `minIdle` и владеет backoff;
-- `WorkerPoolConstruction` владеет внешней транзакцией создания пула: warmup, запуск replenishment, commit и bounded
-  rollback. При отказе он дожидается logical retirement в пределах `closeTimeout`, сохраняет interruption и не позволяет
-  physical stream close переписать startup failure;
-- `PoolTermination` сам владеет construction phase и pending reports и возвращает отдельные завершённые construction
-  success/failure variants вместо tag, nullable payload и обязательного второго transition;
-- `WorkerPoolSettings` является единственным configuration dialect и проходит полную validation до создания
-  `WorkerPoolPolicy`; policy владеет reuse policy и чистым расчетом `minIdle` по state counts;
-- `PooledRequestRunner` владеет observation, preparation и exact-once `WorkerPoolState.Lease`, не получая сырой
-  `PoolWorker`;
-- `PoolTermination` владеет решением construction, состоянием closing, приоритетом terminal failures и готовностью к
-  drain. `PoolDrain` атомарно выдает единственный publication token, публикует зафиксированный outcome после освобождения
-  pool monitor и сохраняет cancellation-isolated views;
-- `PoolMetrics` владеет накопительными счетчиками и snapshot type, а текущие state counts получает от `PoolPartition`;
-- `PoolFailurePublisher` владеет bounded late-failure publication;
-- `PoolLifecycleDispatcher` ограничивает очереди retirement, reporting и replenishment как внутреннюю защиту runtime.
-  Переполнение retirement queue выполняет обязательную работу на caller thread; эти пределы не задают пользовательскую
-  квоту workers или процессов. Terminal publication в dispatcher не входит;
-- controller координирует factory, hooks, worker close и reporting, но не содержит monitor и не дублирует mutable
-  state. Каждая state-транзакция получает новый `PoolStateEffects` того же pool; metrics clock является внутренним
-  total/non-throwing monotonic source. Сырой `PoolWorker` остаётся внутренней деталью state/startup/retirement
-  collaborators и не достигает request runner или public pooled wrappers.
+`WorkerPoolState` является единственным consistency domain pool. Один monitor сериализует:
 
-State transition выполняется под одним pool monitor. Factory, hooks, worker close, reporting и completion callbacks
-выполняются вне monitor и возвращают typed outcome владельцу состояния.
+- взаимоисключающее состояние каждого зарегистрированного worker;
+- capacity и выдачу lease;
+- накопительные metrics;
+- construction, closing и terminal outcome;
+- request count, retire reason и решения о replenishment.
 
-Line и protocol pool handles остаются отдельными сценариями без public lease. Общий lifecycle выражают
-`PooledSessionMetrics` и `PooledSessionException`, а request-level errors остаются line/protocol-specific. Timeout
-taxonomy, retirement reasons и worker reuse сохраняются.
+Одна state-транзакция сначала изменяет состояние и выбирает обязательную post-commit работу. После освобождения monitor
+она запускает physical retirement и публикует terminal outcome. Пользовательские callbacks, factory, hooks, close action
+и completion continuations под monitor не выполняются.
+
+`PoolPartition` хранит один identity map `worker -> state`. Состояния `STARTING`, `IDLE`, `LEASED` и `RETIRING`
+взаимоисключающие. Отдельная FIFO-очередь является только индексом idle workers, а не вторым источником состояния.
+
+`PoolMetrics` хранит накопительные события, а текущие counts получает только из `PoolPartition`. Поздно созданный
+worker, отделённый от logical pool при close, не возвращается в текущие counts. После его physical retirement
+накопительные `created` и `retired` обновляются одной state-транзакцией.
+
+### Worker lifecycle
+
+`PoolWorker` является startup slot, а после успешного factory result — владельцем принятой session, retirement,
+request count, startup duration и retire reason. Отдельной reservation и заранее подготовленного lease нет.
+
+`WorkerStartup` владеет одним terminal race между factory completion, timeout, interruption и close. Он также владеет
+factory thread, cancellable admission и одним outcome future, который атомарно содержит terminal decision и результат
+factory. Проигравший поздний factory result передаётся ровно один раз в late-completion callback.
+
+`WorkerStartupCoordinator` не содержит второго автомата. Он последовательно выполняет admission, атомарный launch claim
+через узкий state port, запуск, ожидание и отображение результата в typed pool failures.
+
+`WorkerPoolState.Lease` создаётся только в атомарном переходе `STARTING -> LEASED`. Lease не раскрывается public API и
+может быть освобождён или retire-нут ровно один раз.
+
+`WorkerRetirement` владеет exact-once принятием session, запуском close action и стабильным outcome.
+`WorkerRetirementCoordinator` сначала инициирует весь выбранный batch, затем наблюдает outcomes вне pool monitor и
+возвращает их в state.
+
+### Closing
+
+`PoolTermination` владеет construction phase, первым terminal failure, очередью construction diagnostics, единственным
+drain claim и cancellation-isolated future views. Publication token выбирается под monitor и исполняется после него.
+
+При close:
+
+- новые acquire и startup запрещаются;
+- все `STARTING` немедленно отделяются от partition и перестают быть logical drain gate;
+- permit wait и ожидающий startup caller получают cancellation;
+- поздний successful worker закрывается напрямую и никогда не становится idle или leased;
+- `IDLE` переходит в `RETIRING`;
+- уже выданный lease остаётся у caller и retire-ится при возврате;
+- physical close отделённого late worker не задерживает terminal future; после retirement он отражается только в
+  накопительных metrics.
+
+`WorkerPoolConstruction` владеет warmup, commit и bounded rollback. `PoolReplenisher` владеет единственным циклом
+поддержания `minIdle` и backoff. `PooledRequestRunner` владеет request observation и exact-once возвратом lease.
 
 ## Инварианты
 
-- `starting + idle + leased + retiring == size <= maxSize`;
-- worker принадлежит ровно одному состоянию, которое не дублируется mutable enum field;
-- partition membership, startup purpose/stage, retire reason и request count согласуются через `WorkerPoolState`;
-  startup purpose неизменяем и задаётся до регистрации worker; terminal startup и physical retirement имеют собственных
-  владельцев;
-- startup terminal winner выбирается ровно один раз, а поздний успешный startup обязательно retire-ится;
-- каждый зарегистрированный worker уже имеет cleanup owner до запуска factory;
-- retirement удерживает capacity до worker close и logical terminal outcome, но не до physical stream close;
+- `starting + idle + leased + retiring == size <= maxSize` для logical partition;
+- один identity map является единственным источником registered worker state;
+- startup purpose неизменяем и задаётся до регистрации worker;
+- factory не запускается без успешного state claim;
+- terminal startup winner выбирается один раз;
+- timeout или interruption после запуска удерживает slot до late completion, если pool остаётся открыт;
+- close отделяет любой `STARTING` независимо от состояния factory thread;
+- late worker закрывается и не возвращается в logical partition;
+- текущие metrics имеют единственный источник в partition; late physical retirement атомарно обновляет только
+  накопительные counters;
+- worker принимает session и startup duration одной операцией;
+- lease создаётся только после принятия session и перехода в `LEASED`;
 - lease завершается ровно один раз;
-- одна acquire attempt атомарно получает idle lease или зарегистрированную startup reservation; attempt либо
-  возвращает заранее подготовленный lease, либо сама завершает reservation; retries используют один исходный absolute
-  deadline;
-- close запрещает новые acquisitions, но не отнимает уже переданный lease;
-- retirement dispatch bounded; при заполненной очереди обязательная работа выполняется на caller thread и не теряется;
-- startup reservation до launch и startup attempt после launch не имеют совместного ownership;
-- успешный launch claim и передача ownership startup attempt являются одним переходом под pool monitor;
-- startup completion принимает только уже переданный attempt; выдать lease непосредственно из reservation нельзя;
-- terminal startup reservation не раскрывает worker или prepared lease; `PoolStateEffects` принадлежит pool, а не
-  reservation, и создаётся отдельно для каждой state-транзакции;
-- `maxSize` одного pool принимает значения от 1 до 256, по умолчанию равен 1 и ограничивает starting, idle, leased и
-  retiring slots;
-- независимые pools и direct sessions не делят process-global worker quota; суммарное число процессов задает приложение
-  количеством ресурсов и `maxSize` каждого pool;
-- startup и hooks имеют bounded admission; retirement processing использует fixed owner set и bounded queue с
-  caller-runs backpressure при насыщении. Эти механизмы не являются пользовательской resource policy;
-- closing во время construction является явным неуспешным результатом даже без attached cause;
-- construction либо commit-ится один раз, либо проходит bounded rollback до возврата failure пользователю; controller
-  не дублирует этот протокол;
-- fatal background startup входит в terminal outcome до освобождения последнего startup slot; новая failure после drain
-  claim публикуется ровно один раз как bounded late failure, а не меняет уже выбранный outcome;
-- ни один внешний callback и ни одно завершение public future не выполняются под pool monitor;
-- первый terminal outcome и дополнительный диагностический контекст фиксируются под pool monitor без обхода
-  cause/suppressed graph; точная форма secondary failures не является контрактом, публикация выполняется после
-  освобождения monitor;
-- перед выходом через public pooled API ordinary terminal outcome получает scenario-specific exception с сохраненными
-  reason и message; fatal outcome может распространяться как `Error`;
-- startup reservation создается до регистрации worker; terminal publication capability выбирается под pool monitor, а
-  отдельный post-monitor effects batch выполняет её после освобождения monitor;
-- controller не содержит `synchronized` и не получает ссылку на monitor или partition;
-- тестовые seams находятся на границах владельцев и не добавляют test-only переходы в production lifecycle.
+- обычный retirement удерживает capacity до logical close outcome;
+- terminal outcome публикуется один раз после освобождения monitor;
+- первый terminal failure стабилен; дополнительные failures публикуются отдельно без контракта на точный
+  `cause`/`suppressed` graph;
+- controller не содержит monitor и не получает partition;
+- production lifecycle не содержит переходов, существующих только ради тестов.
 
-## Отклоненные варианты
+## Отклонённые варианты
 
 - Actor на каждый pool добавляет mailbox, owner-thread lifecycle и future hops в синхронный API.
-- Несколько независимо синхронизированных state owners переносят сложность в lock ordering и handshake protocols.
-- Механическое разбиение исходного controller по файлам не уменьшает число одновременно удерживаемых инвариантов.
-- Предварительное резервирование capacity каждого внутреннего effects-списка усложняет state transitions ради попытки
-  пережить `OutOfMemoryError` во время служебной аллокации. JVM после исчерпания памяти не даёт надежной транзакционной
-  гарантии всему process runtime, поэтому pool сохраняет обязательный порядок effects и обработку ошибок callbacks,
-  но не строит отдельный протокол OOME-atomicity.
+- Несколько synchronization domains требуют lock ordering и межкомпонентных handshake.
+- Отдельные reservation ownership, startup stage и prepared lease дублируют уже существующие partition, terminal race и
+  факт запуска factory.
+- Отдельные drain и effects owners не владеют самостоятельным инвариантом: их обязанности локальны для state transition
+  и `PoolTermination`.
+- Попытка гарантировать атомарный rollback при `OutOfMemoryError` добавляет сложность, но не даёт надёжной гарантии JVM
+  после исчерпания памяти.
 
 ## Проверка
 
-State owners проверяются прямыми unit tests. `WorkerPoolStateTest` проверяет составной lifecycle, close-транзакцию и
-revision wakeup; `PoolTerminationTest` проверяет construction/closing/drain как локальный инвариант.
-`WorkerPoolControllerCapacityTest` проверяет construction и независимость pools,
-`WorkerPoolControllerCloseIsolationTest` — public close и callbacks, а `WorkerPoolControllerRetirementTest` —
-освобождение worker capacity и drain.
-Orchestration collaborators дополнительно доказываются через controller и pooled-wrapper contracts; line и protocol
-integration tests проверяют пользовательские сценарии. `publicationReadinessCheck` включает unit, integration, bounded
-stress, API/ABI, документацию, publication structure и consumer examples.
+`PoolPartitionTest`, `PoolMetricsTest`, `PoolTerminationTest`, `WorkerPoolStateTest`, `WorkerStartupTest`,
+`WorkerStartupCoordinatorTest`, `WorkerRetirementTest` и `WorkerRetirementCoordinatorTest` проверяют локальных
+владельцев. Controller lifecycle tests проверяют races, construction, capacity, close, retirement и replenishment.
+Line/protocol integration и stress tests доказывают пользовательские сценарии без public lease.

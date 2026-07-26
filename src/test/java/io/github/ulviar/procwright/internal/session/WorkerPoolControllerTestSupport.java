@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 abstract class WorkerPoolControllerTestSupport {
 
@@ -24,6 +25,19 @@ abstract class WorkerPoolControllerTestSupport {
         assertEquals(starting, metrics.starting());
         assertEquals(retiring, metrics.retiring());
         assertEquals(size, idle + leased + starting + retiring);
+    }
+
+    static boolean awaitMetrics(
+            WorkerPoolController<?> pool, Predicate<PooledSessionMetrics> condition, Duration timeout)
+            throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        do {
+            if (condition.test(pool.metrics())) {
+                return true;
+            }
+            TimeUnit.MILLISECONDS.sleep(1);
+        } while (System.nanoTime() < deadlineNanos);
+        return condition.test(pool.metrics());
     }
 
     static WorkerPoolController<TestWorker> controller(
@@ -87,8 +101,7 @@ abstract class WorkerPoolControllerTestSupport {
                 WorkerCloseSupport.closeOutcome(() -> closer.accept(worker), CompletableFuture.completedFuture(null));
     }
 
-    private static WorkerRetirement.Action<TestWorker> inlineCloseAction(
-            java.util.function.Consumer<TestWorker> closer) {
+    static WorkerRetirement.Action<TestWorker> inlineCloseAction(java.util.function.Consumer<TestWorker> closer) {
         return worker -> {
             try {
                 closer.accept(worker);

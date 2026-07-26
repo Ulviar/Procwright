@@ -3,34 +3,30 @@
 package io.github.ulviar.procwright.internal.session;
 
 import java.util.ArrayDeque;
-import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Owns the mutually exclusive lifecycle partition of one worker pool.
  *
- * <p>The collection containing a worker is its state. Workers do not carry a second mutable state flag.
+ * <p>One identity map is the canonical worker state. The idle queue is only the FIFO acquisition
+ * index.
  */
 final class PoolPartition<W> {
 
     private final int maxSize;
-    private final Set<W> starting;
+    private final IdentityHashMap<W, State> states;
     private final ArrayDeque<W> idle;
-    private final Set<W> leased;
-    private final Set<W> retiring;
 
     PoolPartition(int maxSize) {
         if (maxSize <= 0) {
             throw new IllegalArgumentException("maxSize must be positive");
         }
         this.maxSize = maxSize;
-        starting = identitySet(maxSize);
+        states = new IdentityHashMap<>(maxSize);
         idle = new ArrayDeque<>(maxSize);
-        leased = identitySet(maxSize);
-        retiring = identitySet(maxSize);
     }
 
     void addStarting(W worker) {
@@ -38,8 +34,9 @@ final class PoolPartition<W> {
         if (size() >= maxSize) {
             throw new IllegalStateException("pool capacity is exhausted");
         }
-        requireAbsent(candidate);
-        addTarget(starting, candidate);
+        if (states.putIfAbsent(candidate, State.STARTING) != null) {
+            throw new IllegalStateException("worker already belongs to the pool");
+        }
     }
 
     W leaseIdle() {
@@ -47,12 +44,8 @@ final class PoolPartition<W> {
         if (worker == null) {
             return null;
         }
-        addTarget(leased, worker);
-        W removed = idle.removeFirst();
-        if (removed != worker) {
-            leased.remove(worker);
-            throw new IllegalStateException("pool idle order changed while leasing");
-        }
+        transition(worker, State.IDLE, State.LEASED);
+        idle.removeFirst();
         return worker;
     }
 
@@ -61,47 +54,39 @@ final class PoolPartition<W> {
     }
 
     void startingToLeased(W worker) {
-        moveFromSet(starting, worker, leased, State.STARTING);
+        transition(worker, State.STARTING, State.LEASED);
     }
 
     void startingToRetiring(W worker) {
-        moveToRetiring(starting, worker, State.STARTING);
+        transition(worker, State.STARTING, State.RETIRING);
     }
 
     void leasedToIdle(W worker) {
-        W candidate = requireInSet(leased, worker, State.LEASED);
+        W candidate = requireStateWorker(worker, State.LEASED);
+        states.put(candidate, State.IDLE);
         idle.addLast(candidate);
-        if (!leased.remove(candidate)) {
-            removeIdle(candidate);
-            throw new IllegalStateException("worker state must be " + State.LEASED);
-        }
     }
 
     void leasedToRetiring(W worker) {
-        moveToRetiring(leased, worker, State.LEASED);
+        transition(worker, State.LEASED, State.RETIRING);
     }
 
     void idleToRetiring(W worker) {
-        W candidate = requireIdle(worker);
-        addTarget(retiring, candidate);
-        try {
-            removeIdle(candidate);
-        } catch (RuntimeException | Error failure) {
-            retiring.remove(candidate);
-            throw failure;
-        }
+        W candidate = requireStateWorker(worker, State.IDLE);
+        removeIdle(candidate);
+        states.put(candidate, State.RETIRING);
     }
 
     void removeStarting(W worker) {
-        removeFromSet(starting, worker, State.STARTING);
+        remove(worker, State.STARTING);
     }
 
     void removeRetiring(W worker) {
-        removeFromSet(retiring, worker, State.RETIRING);
+        remove(worker, State.RETIRING);
     }
 
     boolean contains(W worker) {
-        return stateOf(worker) != null;
+        return worker != null && states.containsKey(worker);
     }
 
     boolean is(W worker, State expected) {
@@ -117,26 +102,15 @@ final class PoolPartition<W> {
     }
 
     State stateOf(W worker) {
-        if (worker == null) {
-            return null;
-        }
-        if (starting.contains(worker)) {
-            return State.STARTING;
-        }
-        if (containsIdentity(idle, worker)) {
-            return State.IDLE;
-        }
-        if (leased.contains(worker)) {
-            return State.LEASED;
-        }
-        if (retiring.contains(worker)) {
-            return State.RETIRING;
-        }
-        return null;
+        return worker == null ? null : states.get(worker);
     }
 
     int size() {
-        return starting.size() + idle.size() + leased.size() + retiring.size();
+        return states.size();
+    }
+
+    boolean hasCapacity() {
+        return size() < maxSize;
     }
 
     int idleCount() {
@@ -144,56 +118,26 @@ final class PoolPartition<W> {
     }
 
     Counts counts() {
-        return new Counts(size(), idle.size(), leased.size(), starting.size(), retiring.size());
+        int leased = 0;
+        int starting = 0;
+        int retiring = 0;
+        for (State state : states.values()) {
+            switch (state) {
+                case IDLE -> {}
+                case LEASED -> leased++;
+                case STARTING -> starting++;
+                case RETIRING -> retiring++;
+            }
+        }
+        return new Counts(size(), idle.size(), leased, starting, retiring);
     }
 
     List<W> startingWorkers() {
-        return List.copyOf(starting);
+        return workersIn(State.STARTING);
     }
 
     List<W> idleWorkers() {
         return List.copyOf(idle);
-    }
-
-    private void moveFromSet(Set<W> source, W worker, Set<W> target, State expected) {
-        W candidate = requireInSet(source, worker, expected);
-        addTarget(target, candidate);
-        if (!source.remove(candidate)) {
-            target.remove(candidate);
-            throw new IllegalStateException("worker state must be " + expected);
-        }
-    }
-
-    private void moveToRetiring(Set<W> source, W worker, State expected) {
-        moveFromSet(source, worker, retiring, expected);
-    }
-
-    private W removeFromSet(Set<W> source, W worker, State expected) {
-        W candidate = requireInSet(source, worker, expected);
-        removeKnown(source, candidate, expected);
-        return candidate;
-    }
-
-    private W requireInSet(Set<W> source, W worker, State expected) {
-        W candidate = Objects.requireNonNull(worker, "worker");
-        if (!source.contains(candidate)) {
-            throw new IllegalStateException("worker state must be " + expected);
-        }
-        return candidate;
-    }
-
-    private void removeKnown(Set<W> source, W worker, State expected) {
-        if (!source.remove(worker)) {
-            throw new IllegalStateException("worker state must be " + expected);
-        }
-    }
-
-    private W requireIdle(W worker) {
-        W candidate = Objects.requireNonNull(worker, "worker");
-        if (!containsIdentity(idle, candidate)) {
-            throw new IllegalStateException("worker state must be " + State.IDLE);
-        }
-        return candidate;
     }
 
     private W removeIdle(W worker) {
@@ -208,29 +152,32 @@ final class PoolPartition<W> {
         throw new IllegalStateException("worker state must be " + State.IDLE);
     }
 
-    private void requireAbsent(W worker) {
-        if (contains(worker)) {
-            throw new IllegalStateException("worker already belongs to the pool");
-        }
+    private void transition(W worker, State expected, State target) {
+        W candidate = requireStateWorker(worker, expected);
+        states.put(candidate, target);
     }
 
-    private static <W> void addTarget(Set<W> target, W worker) {
-        if (!target.add(worker)) {
-            throw new IllegalStateException("worker already belongs to the target pool state");
-        }
+    private void remove(W worker, State expected) {
+        W candidate = requireStateWorker(worker, expected);
+        states.remove(candidate);
     }
 
-    private static <W> boolean containsIdentity(Iterable<W> values, W candidate) {
-        for (W value : values) {
-            if (value == candidate) {
-                return true;
+    private W requireStateWorker(W worker, State expected) {
+        W candidate = Objects.requireNonNull(worker, "worker");
+        if (states.get(candidate) != expected) {
+            throw new IllegalStateException("worker state must be " + expected);
+        }
+        return candidate;
+    }
+
+    private List<W> workersIn(State expected) {
+        java.util.ArrayList<W> selected = new java.util.ArrayList<>();
+        for (Map.Entry<W, State> entry : states.entrySet()) {
+            if (entry.getValue() == expected) {
+                selected.add(entry.getKey());
             }
         }
-        return false;
-    }
-
-    private static <W> Set<W> identitySet(int expectedSize) {
-        return Collections.newSetFromMap(new IdentityHashMap<>(expectedSize));
+        return List.copyOf(selected);
     }
 
     enum State {

@@ -4,7 +4,6 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.HEALTHY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -12,9 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
-import java.util.Collections;
-import java.util.IdentityHashMap;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -32,11 +28,11 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 worker -> {},
                 settings(2, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
         try {
-            assertTrue(pool.awaitMetrics(metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
 
             WorkerPoolState.Lease<TestWorker> leased = pool.acquire((worker, deadline) -> HEALTHY);
 
-            assertTrue(pool.awaitMetrics(metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
             assertEquals(2, pool.metrics().size());
             assertEquals(1, pool.metrics().leased());
             pool.releaseReusable(leased);
@@ -71,11 +67,10 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
             pool.releaseReusable(worker);
             assertTrue(replenishmentEntered.await(1, TimeUnit.SECONDS));
 
-            pool.closeAsync();
-            assertFalse(pool.closeAsync().isDone());
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
             failReplenishment.countDown();
 
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            joinThread(replenishmentThread, "failed replenishment startup");
             assertEquals(0, pool.metrics().size());
             assertEquals(1, pool.metrics().failedStartups());
         } finally {
@@ -86,11 +81,13 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
     }
 
     @Test
-    void fatalBackgroundFactoryFailureReachesDrainBeforeTheLastStartupSlotLeaves() throws Exception {
+    void lateFatalBackgroundFailureDoesNotRewriteCompletedClose() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
         CountDownLatch replenishmentEntered = new CountDownLatch(1);
         CountDownLatch failReplenishment = new CountDownLatch(1);
+        CountDownLatch reportReceived = new CountDownLatch(1);
         AtomicReference<Thread> replenishmentThread = new AtomicReference<>();
+        AtomicReference<Throwable> reported = new AtomicReference<>();
         AssertionError fatalFailure = new AssertionError("fatal replenishment startup");
         WorkerPoolController<TestWorker> pool = controller(
                 () -> {
@@ -103,7 +100,14 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     throw fatalFailure;
                 },
                 worker -> {},
-                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true));
+                settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO, true),
+                task -> Threading.start("test-replenish-", task),
+                (thread, failure) -> {
+                    reported.compareAndSet(null, failure);
+                    reportReceived.countDown();
+                },
+                System::nanoTime,
+                null);
 
         try {
             WorkerPoolState.Lease<TestWorker> worker = pool.acquire((candidate, deadline) -> HEALTHY);
@@ -111,14 +115,15 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
             pool.releaseReusable(worker);
             assertTrue(replenishmentEntered.await(1, TimeUnit.SECONDS));
 
-            pool.closeAsync();
-            assertFalse(pool.closeAsync().isDone());
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
             failReplenishment.countDown();
 
-            ExecutionException observed = assertThrows(
-                    ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
-            assertSame(fatalFailure, observed.getCause());
+            joinThread(replenishmentThread, "fatal replenishment startup");
+            assertTrue(reportReceived.await(1, TimeUnit.SECONDS));
+            assertSame(fatalFailure, reported.get());
+            assertTrue(pool.closeAsync().isDone());
             assertEquals(0, pool.metrics().size());
+            assertEquals(1, pool.metrics().failedStartups());
         } finally {
             failReplenishment.countDown();
             pool.closeAsync();
@@ -199,21 +204,18 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
     }
 
     @Test
-    void constructorRetainsEveryWarmWorkerCloseFailureAfterFatalReplenishmentScheduling() {
+    void constructorPreservesSchedulingFailureAndClosesEveryWarmWorker() {
         AssertionError schedulingError = new AssertionError("replenishment scheduling failed");
-        IllegalStateException firstCloseFailure = new IllegalStateException("first warm worker close failed");
-        IllegalArgumentException secondCloseFailure = new IllegalArgumentException("second warm worker close failed");
         AtomicInteger created = new AtomicInteger();
+        AtomicInteger closed = new AtomicInteger();
 
         Error thrown = assertThrows(
                 Error.class,
                 () -> controller(
                         () -> new TestWorker(created.incrementAndGet()),
                         worker -> {
-                            if (worker.id() == 1) {
-                                throw firstCloseFailure;
-                            }
-                            throw secondCloseFailure;
+                            closed.incrementAndGet();
+                            throw new IllegalStateException("warm worker close failed: " + worker.id());
                         },
                         settings(3, 2, 3, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true),
                         task -> {
@@ -221,8 +223,8 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                         }));
 
         assertSame(schedulingError, FailureAggregation.primary(thrown));
-        assertEquals(1, countIdentity(thrown, firstCloseFailure));
-        assertEquals(1, countIdentity(thrown, secondCloseFailure));
+        assertEquals(2, created.get());
+        assertEquals(2, closed.get());
     }
 
     @Test
@@ -238,27 +240,11 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 worker -> {},
                 settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, true));
 
-        assertTrue(pool.awaitMetrics(metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
+        assertTrue(awaitMetrics(pool, metrics -> metrics.idle() == 1, Duration.ofSeconds(1)));
         assertEquals(2, attempts.get());
         assertEquals(1, pool.metrics().failedStartups());
         pool.closeAsync();
         pool.closeAsync().get(1, TimeUnit.SECONDS);
-    }
-
-    private static int countIdentity(Throwable root, Throwable expected) {
-        return countIdentity(root, expected, Collections.newSetFromMap(new IdentityHashMap<>()));
-    }
-
-    private static int countIdentity(Throwable current, Throwable expected, Set<Throwable> visited) {
-        if (current == null || !visited.add(current)) {
-            return 0;
-        }
-        int count = current == expected ? 1 : 0;
-        count += countIdentity(current.getCause(), expected, visited);
-        for (Throwable suppressed : current.getSuppressed()) {
-            count += countIdentity(suppressed, expected, visited);
-        }
-        return count;
     }
 
     @Test

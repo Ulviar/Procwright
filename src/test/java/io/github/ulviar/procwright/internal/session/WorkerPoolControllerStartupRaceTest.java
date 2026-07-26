@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
@@ -55,24 +54,22 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
             assertPartition(pool, 1, 0, 0, 1, 0);
 
-            pool.closeAsync();
-
-            assertFalse(acquire.isDone());
-            assertFalse(pool.closeAsync().isDone(), "the running startup still owns the pool slot");
-            assertPartition(pool, 1, 0, 0, 1, 0);
-            releaseFactory.countDown();
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
 
             ExecutionException failure = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
             PoolFailure poolFailure = (PoolFailure) failure.getCause();
             assertEquals(FailureKind.CLOSED, poolFailure.kind);
+            assertPartition(pool, 0, 0, 0, 0, 0);
+            releaseFactory.countDown();
+
             assertTrue(retirementEntered.await(1, TimeUnit.SECONDS));
-            assertFalse(pool.closeAsync().isDone(), "the physical worker close is still in progress");
-            assertPartition(pool, 1, 0, 0, 0, 1);
-            assertEquals(0, pool.metrics().idle());
-            assertEquals(0, pool.metrics().leased());
+            assertTrue(pool.closeAsync().isDone(), "late physical close must not gate logical pool termination");
+            assertPartition(pool, 0, 0, 0, 0, 0);
+            assertEquals(0, pool.metrics().created());
+            assertEquals(0, pool.metrics().retired());
 
             releaseRetirement.countDown();
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            assertTrue(awaitMetrics(pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
 
             assertEquals(1, factoryCalls.get());
             assertEquals(1, physicalCloses.get());
@@ -91,6 +88,66 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                 executor.shutdownNow();
                 assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
             }
+        }
+    }
+
+    @Test
+    void lateWorkerCloseFailureIsReportedWithoutRewritingCompletedPoolClose() throws Exception {
+        CountDownLatch factoryEntered = new CountDownLatch(1);
+        CountDownLatch releaseFactory = new CountDownLatch(1);
+        CountDownLatch reportReceived = new CountDownLatch(1);
+        IllegalStateException closeFailure = new IllegalStateException("controlled late close failure");
+        AtomicInteger closeCalls = new AtomicInteger();
+        AtomicInteger reports = new AtomicInteger();
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        WorkerPoolController<TestWorker> pool = controller(
+                () -> {
+                    factoryEntered.countDown();
+                    awaitIgnoringInterrupt(releaseFactory);
+                    return new TestWorker(1);
+                },
+                worker -> {
+                    closeCalls.incrementAndGet();
+                    throw closeFailure;
+                },
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                task -> Threading.start("test-replenish-", task),
+                (thread, failure) -> {
+                    reports.incrementAndGet();
+                    reported.compareAndSet(null, failure);
+                    reportReceived.countDown();
+                },
+                System::nanoTime,
+                null);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
+            assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
+
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            ExecutionException acquisitionFailure =
+                    assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
+            assertEquals(FailureKind.CLOSED, ((PoolFailure) acquisitionFailure.getCause()).kind);
+
+            releaseFactory.countDown();
+            assertTrue(reportReceived.await(1, TimeUnit.SECONDS));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
+
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            assertSame(closeFailure, reported.get());
+            assertEquals(1, reports.get());
+            assertEquals(1, closeCalls.get());
+            assertEquals(1, pool.metrics().created());
+            assertEquals(1, pool.metrics().retired());
+            assertEquals(1, pool.metrics().failedWorkerCloses());
+            assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.CLOSED));
+            assertPartition(pool, 0, 0, 0, 0, 0);
+        } finally {
+            releaseFactory.countDown();
+            pool.closeAsync();
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
     }
 
@@ -166,26 +223,25 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
             assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
 
-            pool.closeAsync();
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
 
             ExecutionException failure = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
             assertEquals(FailureKind.CLOSED, ((PoolFailure) failure.getCause()).kind);
-            assertFalse(pool.closeAsync().isDone(), "the abandoned factory still owns its startup slot");
-            assertPartition(pool, 1, 0, 0, 1, 0);
+            assertPartition(pool, 0, 0, 0, 0, 0);
 
             releaseFactory.countDown();
             assertTrue(retirementEntered.await(1, TimeUnit.SECONDS));
-            assertFalse(pool.closeAsync().isDone(), "the late worker is still being physically closed");
-            assertPartition(pool, 1, 0, 0, 0, 1);
-            assertEquals(0, pool.metrics().idle());
-            assertEquals(0, pool.metrics().leased());
+            assertTrue(pool.closeAsync().isDone(), "late physical close must not gate logical pool termination");
+            assertPartition(pool, 0, 0, 0, 0, 0);
+            assertEquals(0, pool.metrics().created());
+            assertEquals(0, pool.metrics().retired());
 
             releaseRetirement.countDown();
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            assertTrue(awaitMetrics(pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
             assertEquals(1, physicalCloses.get());
             assertEquals(1, pool.metrics().created());
             assertEquals(1, pool.metrics().retired());
-            assertEquals(1, pool.metrics().failedStartups());
+            assertEquals(0, pool.metrics().failedStartups());
             assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.CLOSED));
             assertPartition(pool, 0, 0, 0, 0, 0);
         } finally {
@@ -204,6 +260,8 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
         CountDownLatch releaseFactory = new CountDownLatch(1);
         IllegalStateException startupFailure = new IllegalStateException("controlled startup failure");
         AtomicInteger physicalCloses = new AtomicInteger();
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        CountDownLatch reportReceived = new CountDownLatch(1);
         WorkerPoolController<TestWorker> pool = controller(
                 () -> {
                     factoryEntered.countDown();
@@ -211,7 +269,14 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     throw startupFailure;
                 },
                 worker -> physicalCloses.incrementAndGet(),
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                task -> Threading.start("test-replenish-", task),
+                (thread, failure) -> {
+                    reported.compareAndSet(null, failure);
+                    reportReceived.countDown();
+                },
+                System::nanoTime,
+                null);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
@@ -223,11 +288,9 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             ExecutionException failure = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
             PoolFailure poolFailure = (PoolFailure) failure.getCause();
             assertEquals(FailureKind.CLOSED, poolFailure.kind);
-            Throwable aggregate = poolFailure.getCause();
-            assertEquals(FailureKind.CLOSED, ((PoolFailure) FailureAggregation.primary(aggregate)).kind);
-            assertTrue(FailureAggregation.sources(aggregate).contains(startupFailure));
-            assertEquals(0, FailureAggregation.primary(aggregate).getSuppressed().length);
             pool.closeAsync().get(1, TimeUnit.SECONDS);
+            assertTrue(reportReceived.await(1, TimeUnit.SECONDS));
+            assertSame(startupFailure, reported.get());
             assertEquals(0, physicalCloses.get(), "a failed factory did not create a worker to close");
             assertEquals(1, pool.metrics().failedStartups());
             assertPartition(pool, 0, 0, 0, 0, 0);
@@ -310,12 +373,14 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertEquals(0, failure.getSuppressed().length);
             assertPartition(pool, 1, 0, 0, 1, 0);
 
-            pool.closeAsync();
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
             releaseFactory.countDown();
             assertTrue(retirementEntered.await(1, TimeUnit.SECONDS));
-            assertPartition(pool, 1, 0, 0, 0, 1);
+            assertPartition(pool, 0, 0, 0, 0, 0);
+            assertEquals(0, pool.metrics().created());
+            assertEquals(0, pool.metrics().retired());
             releaseRetirement.countDown();
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            assertTrue(awaitMetrics(pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
 
             assertEquals(1, physicalCloses.get());
             assertEquals(1, pool.metrics().created());
@@ -391,11 +456,10 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
-            assertTrue(pool.awaitMetrics(metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
 
             pool.closeAsync();
             assertPartition(pool, 0, 0, 0, 0, 0);
-            occupied.remove(occupied.size() - 1).close();
 
             ExecutionException failure = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
             assertEquals(FailureKind.CLOSED, ((PoolFailure) failure.getCause()).kind);
@@ -438,7 +502,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
         });
         try {
             acquire.start();
-            assertTrue(pool.awaitMetrics(metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
             assertTrue(awaitStackFrame(acquire, BoundedTaskLimiter.class.getName(), "acquire", Duration.ofSeconds(1)));
 
             pool.closeAsync();
@@ -478,7 +542,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
-            assertTrue(pool.awaitMetrics(metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
             pool.closeAsync();
 
             ExecutionException failure =
@@ -571,7 +635,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertPartition(pool, 1, 0, 0, 1, 0);
 
             releaseStartup.countDown();
-            assertTrue(pool.awaitMetrics(metrics -> metrics.size() == 0, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.size() == 0, Duration.ofSeconds(1)));
             assertEquals(1, pool.metrics().failedStartups());
             pool.closeAsync();
             pool.closeAsync().get(1, TimeUnit.SECONDS);
@@ -662,7 +726,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertEquals(FailureKind.INTERRUPTED, ((PoolFailure) failure.get()).kind);
 
             releaseStartup.countDown();
-            assertTrue(pool.awaitMetrics(metrics -> metrics.size() == 0, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.size() == 0, Duration.ofSeconds(1)));
             assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.STARTUP_INTERRUPTED));
             pool.closeAsync();
             pool.closeAsync().get(1, TimeUnit.SECONDS);

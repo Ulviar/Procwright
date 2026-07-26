@@ -27,7 +27,7 @@ final class PoolMetricsTest {
         metrics.requestCompleted(true, 13);
         metrics.requestCompleted(false, 17);
 
-        PooledSessionMetrics snapshot = metrics.snapshot(3, 1, 1, 0, 1);
+        PooledSessionMetrics snapshot = metrics.snapshot(new PoolPartition.Counts(3, 1, 1, 0, 1));
 
         assertEquals(3, snapshot.size());
         assertEquals(1, snapshot.idle());
@@ -54,5 +54,20 @@ final class PoolMetricsTest {
         PoolMetrics metrics = new PoolMetrics();
 
         assertThrows(NullPointerException.class, () -> metrics.workerRetired(null, false));
+    }
+
+    @Test
+    void lateWorkerRetirementUpdatesCumulativeMetricsWithoutCreatingCurrentState() {
+        PoolMetrics metrics = new PoolMetrics();
+
+        metrics.lateWorkerRetired(9, PooledWorkerRetireReason.CLOSED, true);
+        PooledSessionMetrics retired = metrics.snapshot(new PoolPartition.Counts(0, 0, 0, 0, 0));
+
+        assertEquals(0, retired.size());
+        assertEquals(0, retired.retiring());
+        assertEquals(1, retired.created());
+        assertEquals(1, retired.retired());
+        assertEquals(1, retired.failedWorkerCloses());
+        assertEquals(9, retired.totalWorkerStartupNanos());
     }
 }

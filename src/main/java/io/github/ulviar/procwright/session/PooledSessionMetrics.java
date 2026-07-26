@@ -9,10 +9,11 @@ import java.util.Objects;
  * Snapshot of one pooled-session runtime's counters.
  *
  * <p>The snapshot describes one pool. Its {@code size} is bounded by that pool's configured maximum from 1 through 256
- * and includes starting, idle, leased, and retiring workers. It does not report workers owned by other pools or directly
- * opened sessions.
+ * and includes starting, idle, leased, and retiring workers. A startup detached by logical pool closure is no longer
+ * current pool state. If its factory later returns a worker, {@code created} and {@code retired} advance together after
+ * that worker is retired. The snapshot does not report workers owned by other pools or directly opened sessions.
  *
- * @param size current occupied pool slots, including workers that are starting or retiring
+ * @param size current workers known to the pool, including workers that are starting or retiring
  * @param idle current idle worker count
  * @param leased current leased worker count
  * @param starting current workers being started
@@ -21,7 +22,8 @@ import java.util.Objects;
  * @param retired total workers retired
  * @param completedRequests total public requests completed successfully
  * @param failedRequests total public requests completed with failure
- * @param failedStartups total worker factory invocations that failed or whose result could not be accepted
+ * @param failedStartups total worker startup attempts that failed; a successful result retired only because the pool
+ *     closed is not a failed startup
  * @param failedWorkerCloses total completed worker retirements whose close reported a failure
  * @param totalAcquireWaitNanos accumulated worker acquire wait time
  * @param totalRequestDurationNanos accumulated request duration
@@ -48,7 +50,7 @@ public record PooledSessionMetrics(
     /**
      * Creates a metrics snapshot.
      *
-     * @param size current occupied pool slots, including workers that are starting or retiring
+     * @param size current workers known to the pool, including workers that are starting or retiring
      * @param idle current idle worker count
      * @param leased current leased worker count
      * @param starting current workers being started
@@ -57,7 +59,8 @@ public record PooledSessionMetrics(
      * @param retired total workers retired
      * @param completedRequests total public requests completed successfully
      * @param failedRequests total public requests completed with failure
-     * @param failedStartups total worker factory invocations that failed or whose result could not be accepted
+     * @param failedStartups total worker startup attempts that failed; a successful result retired only because the pool
+     *     closed is not a failed startup
      * @param failedWorkerCloses total completed worker retirements whose close reported a failure
      * @param totalAcquireWaitNanos accumulated worker acquire wait time
      * @param totalRequestDurationNanos accumulated request duration

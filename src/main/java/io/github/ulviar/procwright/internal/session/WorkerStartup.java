@@ -10,7 +10,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -21,18 +21,12 @@ final class WorkerStartup<S> {
     private final String threadPrefix;
     private final Consumer<LateCompletion<S>> lateCompletion;
     private final ThreadFactory threadFactory;
-    private final AtomicReference<TerminalDecision> terminal = new AtomicReference<>(TerminalDecision.UNDECIDED);
-    private final CompletableFuture<CreatedWorker<S>> completion = new CompletableFuture<>();
+    private final BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
+    private final AtomicBoolean startClaimed = new AtomicBoolean();
+    private final CompletableFuture<Outcome<S>> outcome = new CompletableFuture<>();
 
-    private AttemptState state = AttemptState.WAITING;
-    private boolean taskFinished;
-    private CreatedWorker<S> completedWorker;
-    private Throwable completedFailure;
-    private BoundedFailureReporter.FailureTarget completedFailureTarget;
-    private PooledWorkerRetireReason abandonReason;
-    private Thread thread;
+    private volatile Thread thread;
     private long startedAtNanos;
-    private boolean errorReported;
 
     WorkerStartup(Supplier<S> factory, String threadPrefix, Consumer<LateCompletion<S>> lateCompletion) {
         this(factory, threadPrefix, lateCompletion, Threading::unstarted);
@@ -49,13 +43,31 @@ final class WorkerStartup<S> {
         this.threadFactory = Objects.requireNonNull(threadFactory, "threadFactory");
     }
 
+    BoundedTaskPermit acquirePermit(BoundedTaskLimiter limiter, long deadlineNanos)
+            throws TimeoutException, InterruptedException, BoundedTaskRunner.TaskCancelledException {
+        return Objects.requireNonNull(limiter, "limiter").acquire(deadlineNanos, cancellation);
+    }
+
     void start(BoundedTaskPermit permit) {
         Objects.requireNonNull(permit, "permit");
+        if (!startClaimed.compareAndSet(false, true)) {
+            permit.close();
+            throw new IllegalStateException("worker startup is already started");
+        }
+        if (outcome.isDone()) {
+            permit.close();
+            return;
+        }
         try {
             startedAtNanos = System.nanoTime();
-            thread = Objects.requireNonNull(
+            Thread candidate = Objects.requireNonNull(
                     threadFactory.unstarted(threadPrefix, () -> run(permit)), "threadFactory returned null");
-            thread.start();
+            thread = candidate;
+            if (!outcome.isDone()) {
+                candidate.start();
+            } else {
+                permit.close();
+            }
         } catch (RuntimeException | Error failure) {
             permit.close();
             throw failure;
@@ -63,187 +75,137 @@ final class WorkerStartup<S> {
     }
 
     CreatedWorker<S> await(long deadlineNanos) throws TimeoutException, InterruptedException, ExecutionException {
-        boolean restoreInterrupt = false;
+        Outcome<S> observed;
+        boolean restoreInterrupted = false;
         try {
-            CreatedWorker<S> result;
-            try {
-                result = awaitCompletion(deadlineNanos);
-            } catch (InterruptedException failure) {
-                TerminalDecision decision = signalInterrupted();
-                if (decision != TerminalDecision.FACTORY_COMPLETED) {
-                    throw failure;
-                }
-                restoreInterrupt = true;
-                result = awaitFactoryCompletionUninterruptibly();
+            observed = awaitOutcome(deadlineNanos);
+        } catch (TimeoutException failure) {
+            observed = decide(TerminalDecision.TIMED_OUT);
+            if (observed.decision() != TerminalDecision.FACTORY_COMPLETED) {
+                throw failure;
             }
-            synchronized (this) {
-                if (state != AttemptState.WAITING) {
-                    throw new TimeoutException("worker startup was abandoned");
-                }
-                acceptResult();
+        } catch (InterruptedException failure) {
+            observed = decide(TerminalDecision.INTERRUPTED);
+            if (observed.decision() != TerminalDecision.FACTORY_COMPLETED) {
+                throw failure;
             }
-            return result;
-        } catch (ExecutionException failure) {
-            synchronized (this) {
-                if (state == AttemptState.WAITING) {
-                    acceptResult();
-                }
-            }
-            throw failure;
+            restoreInterrupted = true;
+        }
+        try {
+            return createdWorker(observed);
         } finally {
-            if (restoreInterrupt) {
+            if (restoreInterrupted) {
                 Thread.currentThread().interrupt();
             }
         }
     }
 
-    void abandon(PooledWorkerRetireReason reason) {
-        CreatedWorker<S> lateWorker;
-        Throwable lateFailure;
-        BoundedFailureReporter.FailureTarget lateFailureTarget;
-        boolean finished;
-        synchronized (this) {
-            if (state != AttemptState.WAITING) {
-                return;
-            }
-            state = AttemptState.ABANDONED;
-            abandonReason = Objects.requireNonNull(reason, "reason");
-            lateWorker = completedWorker;
-            lateFailure = completedFailure;
-            lateFailureTarget = completedFailureTarget;
-            finished = taskFinished;
-            clearCompletedResult();
-        }
-        thread.interrupt();
-        if (finished) {
-            finishStoredAbandonment(lateWorker, lateFailure, lateFailureTarget, reason);
-        }
-    }
-
     TerminalDecision signalTimeout() {
-        return decideTerminal(TerminalDecision.TIMED_OUT);
+        return decide(TerminalDecision.TIMED_OUT).decision();
     }
 
     TerminalDecision signalClosed() {
-        return decideTerminal(TerminalDecision.CLOSED);
+        return decide(TerminalDecision.CLOSED).decision();
     }
 
     TerminalDecision signalInterrupted() {
-        return decideTerminal(TerminalDecision.INTERRUPTED);
+        return decide(TerminalDecision.INTERRUPTED).decision();
     }
 
     TerminalDecision terminalDecision() {
-        return terminal.get();
+        Outcome<S> selected = outcome.getNow(null);
+        return selected == null ? TerminalDecision.UNDECIDED : selected.decision();
     }
 
     private void run(BoundedTaskPermit permit) {
         S session = null;
         Throwable failure = null;
         BoundedFailureReporter.FailureTarget failureTarget = null;
+        Outcome<S> beforeFactory = outcome.getNow(null);
         try {
-            session = Objects.requireNonNull(factory.get(), "workerFactory returned null");
-        } catch (Throwable startupFailure) {
-            failure = startupFailure;
-            failureTarget = captureFailureTarget();
+            if (beforeFactory == null) {
+                try {
+                    session = Objects.requireNonNull(factory.get(), "workerFactory returned null");
+                } catch (Throwable startupFailure) {
+                    failure = startupFailure;
+                    failureTarget = captureFailureTarget();
+                }
+            }
         } finally {
             permit.close();
         }
-
-        CreatedWorker<S> createdWorker =
-                session == null ? null : new CreatedWorker<>(session, System.nanoTime() - startedAtNanos);
-        decideTerminal(TerminalDecision.FACTORY_COMPLETED);
-        PooledWorkerRetireReason reason = null;
-        boolean reportError = false;
-        synchronized (this) {
-            if (state == AttemptState.WAITING) {
-                taskFinished = true;
-                completedWorker = createdWorker;
-                completedFailure = failure;
-                completedFailureTarget = failureTarget;
-                if (failure == null) {
-                    completion.complete(createdWorker);
-                } else {
-                    completion.completeExceptionally(failure);
-                }
-                return;
-            }
-            if (state == AttemptState.ABANDONED) {
-                reason = abandonReason;
-                state = AttemptState.FINISHED;
-                reportError = failure instanceof Error && failureTarget != null && claimErrorReport();
-            }
+        if (beforeFactory != null) {
+            lateCompletion.accept(new LateCompletion<>(
+                    null, System.nanoTime() - startedAtNanos, retireReason(beforeFactory.decision()), null, null));
+            return;
         }
-        lateCompletion.accept(new LateCompletion<>(
-                session,
-                System.nanoTime() - startedAtNanos,
-                Objects.requireNonNull(reason, "abandonReason"),
-                failure,
-                reportError ? Objects.requireNonNull(failureTarget, "failureTarget") : null));
+        if (session == null && failure == null) {
+            return;
+        }
+
+        long startupNanos = System.nanoTime() - startedAtNanos;
+        Outcome<S> factoryOutcome = Outcome.factoryCompleted(session, startupNanos, failure);
+        if (outcome.complete(factoryOutcome)) {
+            return;
+        }
+        Outcome<S> selected = outcome.join();
+        lateCompletion.accept(
+                new LateCompletion<>(session, startupNanos, retireReason(selected.decision()), failure, failureTarget));
     }
 
-    private CreatedWorker<S> awaitCompletion(long deadlineNanos)
-            throws TimeoutException, InterruptedException, ExecutionException {
+    private Outcome<S> awaitOutcome(long deadlineNanos) throws TimeoutException, InterruptedException {
         long remainingNanos = deadlineNanos - System.nanoTime();
         if (remainingNanos <= 0) {
-            return resolveStartupTimeout(new TimeoutException("worker startup deadline elapsed"));
+            throw new TimeoutException("worker startup deadline elapsed");
         }
         try {
-            return completion.get(remainingNanos, TimeUnit.NANOSECONDS);
-        } catch (TimeoutException failure) {
-            return resolveStartupTimeout(failure);
+            return outcome.get(remainingNanos, TimeUnit.NANOSECONDS);
+        } catch (ExecutionException impossible) {
+            throw new AssertionError("worker startup outcome completed exceptionally", impossible);
         }
     }
 
-    private CreatedWorker<S> resolveStartupTimeout(TimeoutException failure)
+    private Outcome<S> decide(TerminalDecision candidate) {
+        Objects.requireNonNull(candidate, "candidate");
+        if (candidate == TerminalDecision.FACTORY_COMPLETED || candidate == TerminalDecision.UNDECIDED) {
+            throw new IllegalArgumentException("external decision must stop worker startup");
+        }
+        Outcome<S> selected = Outcome.stopped(candidate);
+        if (outcome.complete(selected)) {
+            cancellation.cancel();
+            Thread running = thread;
+            if (running != null) {
+                running.interrupt();
+            }
+            return selected;
+        }
+        return outcome.join();
+    }
+
+    private static <S> CreatedWorker<S> createdWorker(Outcome<S> outcome)
             throws TimeoutException, InterruptedException, ExecutionException {
-        TerminalDecision decision = signalTimeout();
-        if (decision == TerminalDecision.FACTORY_COMPLETED) {
-            return completion.get();
-        }
-        throw failure;
-    }
-
-    private CreatedWorker<S> awaitFactoryCompletionUninterruptibly() throws ExecutionException {
-        boolean interrupted = false;
-        try {
-            while (true) {
-                try {
-                    return completion.get();
-                } catch (InterruptedException ignored) {
-                    interrupted = true;
+        return switch (outcome.decision()) {
+            case FACTORY_COMPLETED -> {
+                if (outcome.failure() != null) {
+                    throw new ExecutionException(outcome.failure());
                 }
+                yield new CreatedWorker<>(outcome.session(), outcome.startupNanos());
             }
-        } finally {
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
+            case CLOSED -> throw new TimeoutException("worker startup was closed");
+            case TIMED_OUT -> throw new TimeoutException("worker startup deadline elapsed");
+            case INTERRUPTED -> throw new InterruptedException("worker startup was interrupted");
+            case UNDECIDED -> throw new AssertionError("worker startup has no terminal outcome");
+        };
     }
 
-    private void finishStoredAbandonment(
-            CreatedWorker<S> lateWorker,
-            Throwable lateFailure,
-            BoundedFailureReporter.FailureTarget lateFailureTarget,
-            PooledWorkerRetireReason reason) {
-        boolean reportError;
-        synchronized (this) {
-            if (state != AttemptState.ABANDONED) {
-                return;
-            }
-            state = AttemptState.FINISHED;
-            reportError = lateFailure instanceof Error && lateFailureTarget != null && claimErrorReport();
-        }
-        lateCompletion.accept(new LateCompletion<>(
-                lateWorker == null ? null : lateWorker.session(),
-                lateWorker == null ? System.nanoTime() - startedAtNanos : lateWorker.startupNanos(),
-                reason,
-                lateFailure,
-                reportError ? Objects.requireNonNull(lateFailureTarget, "failureTarget") : null));
-    }
-
-    private TerminalDecision decideTerminal(TerminalDecision candidate) {
-        terminal.compareAndSet(TerminalDecision.UNDECIDED, Objects.requireNonNull(candidate, "candidate"));
-        return terminal.get();
+    private static PooledWorkerRetireReason retireReason(TerminalDecision decision) {
+        return switch (decision) {
+            case CLOSED -> PooledWorkerRetireReason.CLOSED;
+            case TIMED_OUT -> PooledWorkerRetireReason.STARTUP_TIMEOUT;
+            case INTERRUPTED -> PooledWorkerRetireReason.STARTUP_INTERRUPTED;
+            case FACTORY_COMPLETED, UNDECIDED ->
+                throw new IllegalStateException("late startup has incompatible terminal decision: " + decision);
+        };
     }
 
     private static BoundedFailureReporter.FailureTarget captureFailureTarget() {
@@ -254,31 +216,38 @@ final class WorkerStartup<S> {
         }
     }
 
-    private void acceptResult() {
-        state = AttemptState.ACCEPTED;
-        clearCompletedResult();
-    }
-
-    private void clearCompletedResult() {
-        completedWorker = null;
-        completedFailure = null;
-        completedFailureTarget = null;
-    }
-
-    private boolean claimErrorReport() {
-        if (errorReported) {
-            return false;
-        }
-        errorReported = true;
-        return true;
-    }
-
     enum TerminalDecision {
         UNDECIDED,
         FACTORY_COMPLETED,
         TIMED_OUT,
         INTERRUPTED,
         CLOSED
+    }
+
+    private record Outcome<S>(TerminalDecision decision, S session, long startupNanos, Throwable failure) {
+
+        private Outcome {
+            Objects.requireNonNull(decision, "decision");
+            if (decision == TerminalDecision.FACTORY_COMPLETED) {
+                if ((session == null) == (failure == null)) {
+                    throw new IllegalArgumentException(
+                            "factory outcome must contain exactly one of session or failure");
+                }
+            } else if (decision == TerminalDecision.UNDECIDED
+                    || session != null
+                    || startupNanos != 0
+                    || failure != null) {
+                throw new IllegalArgumentException("stopped outcome must contain only its terminal decision");
+            }
+        }
+
+        private static <S> Outcome<S> stopped(TerminalDecision decision) {
+            return new Outcome<>(decision, null, 0, null);
+        }
+
+        private static <S> Outcome<S> factoryCompleted(S session, long startupNanos, Throwable failure) {
+            return new Outcome<>(TerminalDecision.FACTORY_COMPLETED, session, startupNanos, failure);
+        }
     }
 
     record CreatedWorker<S>(S session, long startupNanos) {
@@ -293,7 +262,7 @@ final class WorkerStartup<S> {
             long startupNanos,
             PooledWorkerRetireReason reason,
             Throwable failure,
-            BoundedFailureReporter.FailureTarget errorTarget) {
+            BoundedFailureReporter.FailureTarget failureTarget) {
 
         LateCompletion {
             Objects.requireNonNull(reason, "reason");
@@ -304,12 +273,5 @@ final class WorkerStartup<S> {
     interface ThreadFactory {
 
         Thread unstarted(String threadPrefix, Runnable task);
-    }
-
-    private enum AttemptState {
-        WAITING,
-        ACCEPTED,
-        ABANDONED,
-        FINISHED
     }
 }

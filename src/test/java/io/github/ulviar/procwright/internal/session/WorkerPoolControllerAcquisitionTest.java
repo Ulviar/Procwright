@@ -176,7 +176,7 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
                     }));
 
             assertSame(healthFailure, observed);
-            assertTrue(pool.awaitMetrics(metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
             assertEquals(1, physicalCloses.get());
             assertEquals(1L, pool.metrics().retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
             assertPartition(pool, 0, 0, 0, 0, 0);
@@ -251,11 +251,10 @@ final class WorkerPoolControllerAcquisitionTest extends WorkerPoolControllerTest
             assertEquals(FailureKind.ACQUIRE_TIMEOUT, ((PoolFailure) secondException.getCause()).kind);
             assertEquals(1, startupAttempts.get(), "the abandoned startup must keep the only worker slot");
 
-            pool.closeAsync();
-            assertFalse(pool.closeAsync().isDone());
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
             allowStartupToFinish.countDown();
 
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
+            assertTrue(awaitMetrics(pool, metrics -> metrics.retired() == 1, Duration.ofSeconds(1)));
             assertEquals(1, closedWorkers.get());
             assertEquals(0, pool.metrics().size());
             assertEquals(0, pool.metrics().starting());

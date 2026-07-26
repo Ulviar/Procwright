@@ -15,11 +15,12 @@ import java.util.concurrent.CompletableFuture;
 final class PoolWorker<S> {
 
     private WorkerStartup<S> startup;
-    private StartupStage startupStage = StartupStage.QUEUED;
     private final StartupPurpose startupPurpose;
     private S session;
     private final WorkerRetirement<S> retirement;
+    private boolean detachedStartup;
     private long createdAtNanos;
+    private long startupNanos;
     private int requests;
     private PooledWorkerRetireReason retireReason;
 
@@ -34,6 +35,11 @@ final class PoolWorker<S> {
 
     long createdAtNanos() {
         return createdAtNanos;
+    }
+
+    long startupNanos() {
+        session();
+        return startupNanos;
     }
 
     int requests() {
@@ -55,15 +61,30 @@ final class PoolWorker<S> {
         this.startup = Objects.requireNonNull(startup, "startup");
     }
 
-    void accept(S acceptedSession) {
+    void accept(S acceptedSession, long measuredStartupNanos) {
         if (session != null) {
             throw new IllegalStateException("worker session is already accepted");
+        }
+        if (measuredStartupNanos < 0) {
+            throw new IllegalArgumentException("worker startup duration must be non-negative");
         }
         S candidate = Objects.requireNonNull(acceptedSession, "workerFactory returned null");
         retirement.accept(candidate);
         session = candidate;
         createdAtNanos = System.nanoTime();
+        startupNanos = measuredStartupNanos;
         startup = null;
+    }
+
+    boolean detachedStartup() {
+        return detachedStartup;
+    }
+
+    void detachStartup() {
+        if (startup == null || detachedStartup) {
+            throw new IllegalStateException("worker has no attached startup");
+        }
+        detachedStartup = true;
     }
 
     void initiateClose() {
@@ -78,14 +99,6 @@ final class PoolWorker<S> {
         return startupPurpose;
     }
 
-    StartupStage startupStage() {
-        return startupStage;
-    }
-
-    void startupStage(StartupStage startupStage) {
-        this.startupStage = Objects.requireNonNull(startupStage, "startupStage");
-    }
-
     PooledWorkerRetireReason retireReason() {
         return retireReason;
     }
@@ -98,10 +111,5 @@ final class PoolWorker<S> {
         DEMAND,
         WARMUP,
         REPLENISHMENT
-    }
-
-    enum StartupStage {
-        QUEUED,
-        RUNNING
     }
 }

@@ -42,6 +42,11 @@ final class PoolMetrics {
         }
     }
 
+    void lateWorkerRetired(long startupNanos, PooledWorkerRetireReason reason, boolean closeFailed) {
+        workerCreated(startupNanos);
+        workerRetired(reason, closeFailed);
+    }
+
     void acquired(long waitNanos) {
         totalAcquireWaitNanos += nonNegative(waitNanos);
     }
@@ -55,13 +60,14 @@ final class PoolMetrics {
         totalRequestDurationNanos += nonNegative(durationNanos);
     }
 
-    PooledSessionMetrics snapshot(int size, int idle, int leased, int starting, int retiring) {
+    PooledSessionMetrics snapshot(PoolPartition.Counts workers) {
+        Objects.requireNonNull(workers, "workers");
         return new PooledSessionMetrics(
-                size,
-                idle,
-                leased,
-                starting,
-                retiring,
+                workers.size(),
+                workers.idle(),
+                workers.leased(),
+                workers.starting(),
+                workers.retiring(),
                 created,
                 retired,
                 completedRequests,

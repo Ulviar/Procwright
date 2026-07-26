@@ -61,7 +61,7 @@ final class PoolPartitionTest {
     }
 
     @Test
-    void failedStartupReleasesItsReservation() {
+    void failedStartupReleasesItsSlot() {
         PoolPartition<Object> partition = new PoolPartition<>(1);
         Object reservation = new Object();
         partition.addStarting(reservation);

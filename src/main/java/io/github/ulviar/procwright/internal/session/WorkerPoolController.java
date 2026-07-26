@@ -8,15 +8,12 @@ import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
-import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.LongSupplier;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -100,7 +97,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                 this::processRetirement,
                 this::completeUnexpectedRetirementFailure,
                 failurePublisher::publish);
-        state = new WorkerPoolState<>(policy, new PoolTermination(), this::newStartupReservation);
+        state = new WorkerPoolState<>(policy, this::newStartupWorker, retirements);
         PoolReplenisher.Waiter configuredWaiter = configuredDependencies.backoffWaiter() == null
                 ? state::awaitBackoff
                 : configuredDependencies.backoffWaiter();
@@ -169,16 +166,12 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     void releaseReusable(WorkerPoolState.Lease<S> lease) {
-        runEffects(newEffects(), effects -> {
-            state.releaseReusable(lease, effects);
-        });
+        state.releaseReusable(lease);
         ensureReplenishmentOwner();
     }
 
     void retire(WorkerPoolState.Lease<S> lease, PooledWorkerRetireReason reason) {
-        runEffects(newEffects(), effects -> {
-            state.retire(lease, reason, effects);
-        });
+        state.retire(lease, reason);
         ensureReplenishmentOwner();
     }
 
@@ -194,30 +187,20 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         return state.metrics();
     }
 
-    boolean awaitMetrics(Predicate<PooledSessionMetrics> condition, Duration timeout) throws InterruptedException {
-        return state.awaitMetrics(condition, timeout);
-    }
-
     CompletableFuture<Void> closeAsync() {
-        runEffects(newEffects(), effects -> {
-            state.beginClose(null, effects);
-        });
+        state.beginClose(null);
         return state.terminationView();
     }
 
     private void warmup() {
         for (int index = 0; index < policy.warmupSize(); index++) {
-            WorkerStartupCoordinator.Reservation<S> reservation = null;
             WorkerPoolState.Lease<S> lease = null;
             try {
-                reservation = reserveWarmupSlot();
-                lease = openReservedWorker(reservation, DurationSupport.deadlineFromNow(policy.acquireTimeout()));
+                PoolWorker<S> worker = reserveWarmupSlot();
+                lease = openReservedWorker(worker, DurationSupport.deadlineFromNow(policy.acquireTimeout()));
                 returnLease(lease);
             } catch (RuntimeException | Error failure) {
                 Throwable terminalFailure = failure;
-                if (reservation != null) {
-                    terminalFailure = failStartupReservation(reservation, terminalFailure);
-                }
                 if (lease != null) {
                     terminalFailure =
                             retireFailedLease(lease, terminalFailure, PooledWorkerRetireReason.WORKER_FAILED, true);
@@ -229,18 +212,15 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     private List<FailureReport> failConstructionAndClose() {
-        return applyEffects(newEffects(), state::failConstructionAndClose);
+        return state.failConstructionAndClose();
     }
 
     private WorkerPoolState.Lease<S> takeOrStartLease(long deadlineNanos) {
         while (true) {
             WorkerPoolState.AcquireResult<S> acquisition;
-            acquisition = applyEffects(newEffects(), effects -> state.awaitAcquire(deadlineNanos, effects));
+            acquisition = state.awaitAcquire(deadlineNanos);
             if (acquisition instanceof WorkerPoolState.LeaseAcquired<S> acquired) {
                 return acquired.lease();
-            }
-            if (acquisition instanceof WorkerPoolState.RetryAcquire<S>) {
-                continue;
             }
             if (acquisition instanceof WorkerPoolState.AcquireClosed<S>) {
                 throw failures.closed("Pool is closed");
@@ -253,49 +233,34 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
                         "Interrupted while waiting for " + workerLabel, interrupted.interruption());
             }
             if (acquisition instanceof WorkerPoolState.StartupReserved<S> reserved) {
-                WorkerStartupCoordinator.Reservation<S> reservation = reserved.reservation();
-                try {
-                    return openReservedWorker(reservation, deadlineNanos);
-                } catch (RuntimeException | Error failure) {
-                    rethrow(failStartupReservation(reservation, failure));
-                    throw new AssertionError("unreachable");
-                }
+                return openReservedWorker(reserved.worker(), deadlineNanos);
             }
             throw new AssertionError("Unknown pool acquisition result: " + acquisition);
         }
     }
 
-    private WorkerStartupCoordinator.Reservation<S> reserveWarmupSlot() {
-        WorkerPoolState.ReservationResult<S> result = state.reserveWarmup();
-        if (result instanceof WorkerPoolState.SlotReserved<S> reserved) {
-            return reserved.reservation();
-        }
-        if (result instanceof WorkerPoolState.ReservationClosed<S>) {
+    private PoolWorker<S> reserveWarmupSlot() {
+        PoolWorker<S> worker = state.reserveWarmup();
+        if (worker == null) {
             throw failures.closed("Pool is closed");
         }
-        throw new AssertionError("Unknown warmup reservation result: " + result);
+        return worker;
     }
 
-    private WorkerStartupCoordinator.Reservation<S> newStartupReservation(PoolWorker.StartupPurpose purpose) {
+    private PoolWorker<S> newStartupWorker(PoolWorker.StartupPurpose purpose) {
         PoolWorker<S> worker = new PoolWorker<>(workerCloser, purpose);
-        WorkerStartupCoordinator.Reservation<S> reservation = new WorkerStartupCoordinator.Reservation<>(worker);
         worker.startup(new WorkerStartup<>(
-                workerFactory, threadPrefix + "start-", completion -> finishAbandonedStart(reservation, completion)));
-        return reservation;
+                workerFactory, threadPrefix + "start-", completion -> finishAbandonedStart(worker, completion)));
+        return worker;
     }
 
-    private WorkerPoolState.Lease<S> openReservedWorker(
-            WorkerStartupCoordinator.Reservation<S> reservation, long deadlineNanos) {
-        PoolWorker.StartupPurpose purpose = reservation.purpose();
-        WorkerStartupCoordinator.Completion<S> completion = startups.start(reservation, deadlineNanos);
-        WorkerStartup.TerminalDecision decision = completion.decision();
-        WorkerPoolState.Lease<S> lease = applyEffects(
-                newEffects(),
-                effects -> state.completeStartup(reservation, completion.createdWorker(), decision, effects));
-        if (decision == WorkerStartup.TerminalDecision.FACTORY_COMPLETED) {
-            return Objects.requireNonNull(lease, "completed startup lease");
+    private WorkerPoolState.Lease<S> openReservedWorker(PoolWorker<S> worker, long deadlineNanos) {
+        WorkerStartup.CreatedWorker<S> createdWorker = startups.start(worker, deadlineNanos);
+        WorkerPoolState.Lease<S> lease = state.completeStartup(worker, createdWorker);
+        if (lease == null) {
+            throw failures.closed("Pool is closed");
         }
-        throw startups.rejectedCompletion(purpose, decision);
+        return lease;
     }
 
     private RuntimeException acquireTimeoutAfterReturning(WorkerPoolState.Lease<S> lease) {
@@ -314,24 +279,20 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         return (RuntimeException) exposed;
     }
 
-    private void finishAbandonedStart(
-            WorkerStartupCoordinator.Reservation<S> reservation, WorkerStartup.LateCompletion<S> completion) {
-        boolean present =
-                applyEffects(newEffects(), effects -> state.completeAbandonedStartup(reservation, completion, effects));
+    private void finishAbandonedStart(PoolWorker<S> worker, WorkerStartup.LateCompletion<S> completion) {
+        boolean present = state.completeAbandonedStartup(worker, completion);
         if (!present) {
             return;
         }
         ensureReplenishmentOwner();
-        if (completion.errorTarget() != null) {
-            reportOrRecordLateError(
-                    completion.errorTarget(), Objects.requireNonNull(completion.failure(), "late startup failure"));
+        if (completion.failureTarget() != null) {
+            reportLateFailure(
+                    completion.failureTarget(), Objects.requireNonNull(completion.failure(), "late startup failure"));
         }
     }
 
     private void retireLease(WorkerPoolState.Lease<S> lease, PooledWorkerRetireReason reason) {
-        runEffects(newEffects(), effects -> {
-            state.retireLeaseIfOwned(lease, reason, false, effects);
-        });
+        state.retireLeaseIfOwned(lease, reason, false);
         ensureReplenishmentOwner();
     }
 
@@ -342,9 +303,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
             boolean closedTakesPrecedence) {
         FailureAccumulator cleanupFailures = new FailureAccumulator();
         try {
-            runEffects(newEffects(), effects -> {
-                state.retireLeaseIfOwned(lease, reason, closedTakesPrecedence, effects);
-            });
+            state.retireLeaseIfOwned(lease, reason, closedTakesPrecedence);
         } catch (RuntimeException | Error cleanupFailure) {
             cleanupFailures.add(cleanupFailure);
         }
@@ -360,16 +319,12 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     private void returnLease(WorkerPoolState.Lease<S> lease) {
-        runEffects(newEffects(), effects -> {
-            state.releaseReusable(lease, effects);
-        });
+        state.releaseReusable(lease);
     }
 
     private void completeUnexpectedRetirementFailure(PoolWorker<S> worker, Throwable failure) {
         FailureReport failureReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
-        runEffects(newEffects(), effects -> {
-            state.failRetirementCompletion(worker, failure, effects);
-        });
+        state.failRetirementCompletion(worker, failure);
         failurePublisher.publish(failureReport);
     }
 
@@ -377,14 +332,9 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         FailureReport closeFailureReport = outcome.failure() == null
                 ? null
                 : PoolFailurePublisher.capture(Thread.currentThread(), outcome.failure());
-        FailureReport lateReport = applyEffects(
-                newEffects(), effects -> state.completeRetirement(worker, outcome, closeFailureReport, effects));
+        FailureReport lateReport = state.completeRetirement(worker, outcome, closeFailureReport);
         ensureReplenishmentOwner();
         return lateReport;
-    }
-
-    private PoolStateEffects<S> newEffects() {
-        return new PoolStateEffects<>(state, retirements);
     }
 
     private void ensureReplenishmentOwner() {
@@ -395,17 +345,17 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         if (!state.replenishmentNeeded()) {
             return PoolReplenisher.Step.STOP;
         }
-        WorkerStartupCoordinator.Reservation<S> reservation = state.tryReserveReplenishment();
-        if (reservation == null) {
+        PoolWorker<S> worker = state.tryReserveReplenishment();
+        if (worker == null) {
             return PoolReplenisher.Step.STOP;
         }
         WorkerPoolState.Lease<S> lease = null;
         try {
-            lease = openReservedWorker(reservation, DurationSupport.deadlineFromNow(policy.acquireTimeout()));
+            lease = openReservedWorker(worker, DurationSupport.deadlineFromNow(policy.acquireTimeout()));
             returnLease(lease);
             return PoolReplenisher.Step.SUCCESS;
         } catch (RuntimeException | Error failure) {
-            Throwable terminalFailure = failStartupReservation(reservation, failure);
+            Throwable terminalFailure = failure;
             if (lease != null) {
                 terminalFailure =
                         retireFailedLease(lease, terminalFailure, PooledWorkerRetireReason.WORKER_FAILED, true);
@@ -418,40 +368,16 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         }
     }
 
-    private Throwable failStartupReservation(
-            WorkerStartupCoordinator.Reservation<S> reservation, Throwable primaryFailure) {
-        Objects.requireNonNull(reservation, "reservation");
-        Objects.requireNonNull(primaryFailure, "primaryFailure");
-        if (!reservation.canRollback()) {
-            return primaryFailure;
-        }
-        FailureAccumulator cleanupFailures = new FailureAccumulator();
-        try {
-            runEffects(newEffects(), effects -> state.removeFailedStartup(reservation, effects));
-        } catch (RuntimeException | Error cleanupFailure) {
-            cleanupFailures.add(cleanupFailure);
-        }
-        try {
-            ensureReplenishmentOwner();
-        } catch (RuntimeException | Error cleanupFailure) {
-            cleanupFailures.add(cleanupFailure);
-        }
-        return combineErrorFirst(
-                primaryFailure,
-                cleanupFailures.aggregateErrorFirst("Multiple startup reservation cleanup operations failed"),
-                "Worker startup and reservation cleanup both failed");
-    }
-
     private void failReplenishmentOwner(Throwable failure) {
         FailureReport lateReport = PoolFailurePublisher.capture(Thread.currentThread(), failure);
         PoolTermination.FailureDisposition disposition = null;
         Throwable cleanupFailure = null;
         try {
-            disposition = applyEffects(newEffects(), effects -> state.beginClose(failure, effects));
+            disposition = state.beginClose(failure);
         } catch (RuntimeException | Error failureToClose) {
             cleanupFailure = failureToClose;
         }
-        if (disposition == PoolTermination.FailureDisposition.LATE) {
+        if (disposition == PoolTermination.FailureDisposition.REPORT) {
             failurePublisher.publish(lateReport);
         }
         if (cleanupFailure != null) {
@@ -464,7 +390,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         state.recordAcquireWait(elapsedNanos);
     }
 
-    private void reportOrRecordLateError(BoundedFailureReporter.FailureTarget failureTarget, Throwable failure) {
+    private void reportLateFailure(BoundedFailureReporter.FailureTarget failureTarget, Throwable failure) {
         FailureReport report = state.routeLateFailure(new FailureReport(failureTarget, failure));
         failurePublisher.publish(report);
     }
@@ -483,53 +409,21 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     @Override
-    public WorkerStartupCoordinator.StartupClaim claimLaunch(
-            WorkerStartupCoordinator.Reservation<S> reservation, long deadlineNanos) {
-        return state.claimStartup(reservation, deadlineNanos);
+    public WorkerStartupCoordinator.StartupClaim claimLaunch(PoolWorker<S> worker, long deadlineNanos) {
+        return state.claimStartup(worker, deadlineNanos);
     }
 
     @Override
-    public void launchFailed(WorkerStartupCoordinator.Reservation<S> reservation) {
-        runEffects(newEffects(), effects -> {
-            state.launchFailed(reservation, effects);
-        });
-        ensureReplenishmentOwner();
-    }
-
-    @Override
-    public boolean factoryFailed(WorkerStartupCoordinator.Reservation<S> reservation, Throwable failure) {
-        boolean closedStartup =
-                applyEffects(newEffects(), effects -> state.factoryFailed(reservation, failure, effects));
+    public boolean factoryFailed(PoolWorker<S> worker, Throwable failure) {
+        boolean closedStartup = state.factoryFailed(worker, failure);
         ensureReplenishmentOwner();
         return closedStartup;
     }
 
-    private <T> T applyEffects(PoolStateEffects<S> effects, Function<PoolStateEffects<S>, T> operation) {
-        Objects.requireNonNull(effects, "effects");
-        Objects.requireNonNull(operation, "operation");
-        T result = null;
-        Throwable failure = null;
-        try {
-            result = operation.apply(effects);
-        } catch (RuntimeException | Error operationFailure) {
-            failure = operationFailure;
-        }
-        try {
-            effects.close();
-        } catch (RuntimeException | Error closeFailure) {
-            failure = combineErrorFirst(failure, closeFailure, "Pool state transition and its effects both failed");
-        }
-        if (failure != null) {
-            rethrow(failure);
-        }
-        return result;
-    }
-
-    private void runEffects(PoolStateEffects<S> effects, Consumer<PoolStateEffects<S>> operation) {
-        applyEffects(effects, selected -> {
-            operation.accept(selected);
-            return null;
-        });
+    @Override
+    public void discardStartingWorker(PoolWorker<S> worker) {
+        state.discardStartingWorker(worker);
+        ensureReplenishmentOwner();
     }
 
     private static void rethrow(Throwable failure) {

@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +51,6 @@ final class WorkerStartupTest {
         assertTrue(factoryStarted.await(1, TimeUnit.SECONDS));
 
         assertThrows(TimeoutException.class, () -> startup.await(System.nanoTime()));
-        startup.abandon(PooledWorkerRetireReason.STARTUP_TIMEOUT);
         releaseFactory.countDown();
 
         WorkerStartup.LateCompletion<String> completion = awaitLate(late);
@@ -69,6 +69,121 @@ final class WorkerStartupTest {
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.signalClosed());
 
         assertEquals("worker", startup.await(deadline()).session());
+    }
+
+    @Test
+    void closeBeforeThreadStartPreventsFactoryExecutionAndReleasesPermit() throws Exception {
+        AtomicInteger factoryCalls = new AtomicInteger();
+        CountDownLatch startEntered = new CountDownLatch(1);
+        CountDownLatch releaseStart = new CountDownLatch(1);
+        AtomicReference<Thread> workerThread = new AtomicReference<>();
+        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
+        WorkerStartup<String> startup = new WorkerStartup<>(
+                () -> {
+                    factoryCalls.incrementAndGet();
+                    return "worker";
+                },
+                "startup-close-before-start-test-",
+                ignored -> {},
+                (name, task) -> {
+                    Thread thread = new Thread(task, name) {
+                        @Override
+                        public synchronized void start() {
+                            startEntered.countDown();
+                            awaitIgnoringInterrupt(releaseStart);
+                            super.start();
+                        }
+                    };
+                    workerThread.set(thread);
+                    return thread;
+                });
+        BoundedTaskPermit initialPermit = limiter.tryAcquire();
+        assertNotNull(initialPermit);
+        Thread launcher = new Thread(() -> startup.start(initialPermit));
+        launcher.start();
+        assertTrue(startEntered.await(1, TimeUnit.SECONDS));
+
+        assertEquals(WorkerStartup.TerminalDecision.CLOSED, startup.signalClosed());
+        releaseStart.countDown();
+        launcher.join(1_000);
+        workerThread.get().join(1_000);
+
+        assertEquals(0, factoryCalls.get());
+        BoundedTaskPermit recoveredPermit = limiter.tryAcquire();
+        assertNotNull(recoveredPermit, "startup permit was not released");
+        recoveredPermit.close();
+    }
+
+    @Test
+    void startupCanBeLaunchedOnlyOnce() throws Exception {
+        AtomicInteger factoryCalls = new AtomicInteger();
+        CountDownLatch factoryEntered = new CountDownLatch(1);
+        CountDownLatch releaseFactory = new CountDownLatch(1);
+        WorkerStartup<String> startup = new WorkerStartup<>(
+                () -> {
+                    factoryCalls.incrementAndGet();
+                    factoryEntered.countDown();
+                    awaitIgnoringInterrupt(releaseFactory);
+                    return "worker";
+                },
+                "startup-once-test-",
+                ignored -> {});
+        BoundedTaskLimiter secondLimiter = new BoundedTaskLimiter(1);
+        startup.start(permit());
+        assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
+        BoundedTaskPermit secondPermit = secondLimiter.tryAcquire();
+        assertNotNull(secondPermit);
+
+        assertThrows(IllegalStateException.class, () -> startup.start(secondPermit));
+
+        BoundedTaskPermit recovered = secondLimiter.tryAcquire();
+        assertNotNull(recovered, "rejected second launch did not release its permit");
+        recovered.close();
+        releaseFactory.countDown();
+        assertEquals("worker", startup.await(deadline()).session());
+        assertEquals(1, factoryCalls.get());
+    }
+
+    @Test
+    void timeoutAfterThreadLaunchButBeforeFactoryEntryPublishesLateCompletion() throws Exception {
+        AtomicInteger factoryCalls = new AtomicInteger();
+        CountDownLatch startEntered = new CountDownLatch(1);
+        CountDownLatch releaseStart = new CountDownLatch(1);
+        AtomicReference<Thread> workerThread = new AtomicReference<>();
+        AtomicReference<WorkerStartup.LateCompletion<String>> late = new AtomicReference<>();
+        WorkerStartup<String> startup = new WorkerStartup<>(
+                () -> {
+                    factoryCalls.incrementAndGet();
+                    return "worker";
+                },
+                "startup-timeout-before-entry-test-",
+                late::set,
+                (name, task) -> {
+                    Thread thread = new Thread(task, name) {
+                        @Override
+                        public synchronized void start() {
+                            startEntered.countDown();
+                            awaitIgnoringInterrupt(releaseStart);
+                            super.start();
+                        }
+                    };
+                    workerThread.set(thread);
+                    return thread;
+                });
+        Thread launcher = new Thread(() -> startup.start(permit()));
+        launcher.start();
+        assertTrue(startEntered.await(1, TimeUnit.SECONDS));
+
+        assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, startup.signalTimeout());
+        releaseStart.countDown();
+        launcher.join(1_000);
+        workerThread.get().join(1_000);
+
+        WorkerStartup.LateCompletion<String> completion = awaitLate(late);
+        assertNull(completion.session());
+        assertNull(completion.failure());
+        assertEquals(PooledWorkerRetireReason.STARTUP_TIMEOUT, completion.reason());
+        assertEquals(0, factoryCalls.get());
     }
 
     @Test
@@ -168,7 +283,6 @@ final class WorkerStartupTest {
                 startup.await(deadline());
             } catch (Throwable observed) {
                 failure.set(observed);
-                startup.abandon(PooledWorkerRetireReason.STARTUP_INTERRUPTED);
             }
         });
         waiter.start();

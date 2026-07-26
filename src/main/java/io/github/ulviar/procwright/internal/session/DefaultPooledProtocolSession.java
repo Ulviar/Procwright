@@ -13,7 +13,6 @@ import io.github.ulviar.procwright.session.ProtocolSessionException;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -73,11 +72,6 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
     @Override
     public PooledSessionMetrics metrics() {
         return pool.metrics();
-    }
-
-    boolean awaitMetrics(Predicate<PooledSessionMetrics> condition, Duration timeout) throws InterruptedException {
-        Objects.requireNonNull(condition, "condition");
-        return pool.awaitMetrics(condition, timeout);
     }
 
     @Override

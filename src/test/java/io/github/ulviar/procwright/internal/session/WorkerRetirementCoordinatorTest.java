@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -116,12 +115,7 @@ final class WorkerRetirementCoordinatorTest {
                     assertEquals(2, completed.get());
                     reported.incrementAndGet();
                 });
-        PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker(initiated));
-        effects.retire(worker(initiated));
-
-        effects.close();
-        effects.close();
+        coordinator.dispatch(List.of(worker(initiated), worker(initiated)));
 
         assertEquals(2, completed.get());
         assertEquals(2, reported.get());
@@ -144,10 +138,8 @@ final class WorkerRetirementCoordinatorTest {
                     throw new AssertionError(failure);
                 },
                 report -> {});
-        PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker(initiated));
-
-        IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
+        IllegalStateException observed =
+                assertThrows(IllegalStateException.class, () -> coordinator.dispatch(List.of(worker(initiated))));
 
         assertSame(dispatchFailure, observed);
         assertEquals(1, initiated.get());
@@ -172,10 +164,8 @@ final class WorkerRetirementCoordinatorTest {
                     throw new AssertionError(failure);
                 },
                 report -> {});
-        PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker(initiated));
-
-        IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
+        IllegalStateException observed =
+                assertThrows(IllegalStateException.class, () -> coordinator.dispatch(List.of(worker(initiated))));
 
         assertSame(dispatchFailure, observed);
         assertEquals(1, initiated.get());
@@ -186,7 +176,7 @@ final class WorkerRetirementCoordinatorTest {
     void exceptionalCloseFutureIsDeliveredAsNormalizedOutcome() {
         CompletableFuture<WorkerRetirement.Outcome> outcome = new CompletableFuture<>();
         PoolWorker<String> worker = new PoolWorker<>(session -> outcome, PoolWorker.StartupPurpose.DEMAND);
-        worker.accept("worker");
+        worker.accept("worker", 0);
         AtomicReference<Throwable> observed = new AtomicReference<>();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
                 Runnable::run,
@@ -199,11 +189,9 @@ final class WorkerRetirementCoordinatorTest {
                     throw new AssertionError(failure);
                 },
                 report -> {});
-        PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker);
         IllegalStateException failure = new IllegalStateException("close completion failed");
 
-        effects.close();
+        coordinator.dispatch(List.of(worker));
         outcome.completeExceptionally(failure);
 
         assertSame(failure, observed.get());
@@ -213,7 +201,7 @@ final class WorkerRetirementCoordinatorTest {
     void nullCloseOutcomeIsNormalized() {
         PoolWorker<String> worker =
                 new PoolWorker<>(session -> CompletableFuture.completedFuture(null), PoolWorker.StartupPurpose.DEMAND);
-        worker.accept("worker");
+        worker.accept("worker", 0);
         AtomicReference<Throwable> observed = new AtomicReference<>();
         WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
                 Runnable::run,
@@ -225,34 +213,9 @@ final class WorkerRetirementCoordinatorTest {
                     throw new AssertionError(failure);
                 },
                 report -> {});
-        PoolStateEffects<String> effects = effects(coordinator);
-        effects.retire(worker);
-
-        effects.close();
+        coordinator.dispatch(List.of(worker));
 
         assertEquals("worker close future returned null", observed.get().getMessage());
-    }
-
-    @Test
-    void effectFailureDoesNotSkipTerminalPublication() throws Exception {
-        IllegalStateException dispatchFailure = new IllegalStateException("dispatcher unavailable");
-        WorkerPoolState<String> state = state();
-        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
-                task -> {
-                    throw dispatchFailure;
-                },
-                (worker, outcome) -> null,
-                (worker, failure) -> {},
-                report -> {});
-        PoolStateEffects<String> effects = new PoolStateEffects<>(state, coordinator);
-        effects.retire(worker(new AtomicInteger()));
-        state.beginClose(null, effects);
-
-        IllegalStateException observed = assertThrows(IllegalStateException.class, effects::close);
-
-        assertSame(dispatchFailure, observed);
-        state.terminationView().get();
-        assertTrue(state.terminationView().isDone());
     }
 
     private static PoolWorker<String> worker(AtomicInteger initiated) {
@@ -262,24 +225,13 @@ final class WorkerRetirementCoordinatorTest {
                     return CompletableFuture.completedFuture(WorkerRetirement.Outcome.success());
                 },
                 PoolWorker.StartupPurpose.DEMAND);
-        worker.accept("worker");
+        worker.accept("worker", 0);
         return worker;
     }
 
     private static PoolWorker<String> worker(String session, WorkerRetirement.Action<String> closeAction) {
         PoolWorker<String> worker = new PoolWorker<>(closeAction, PoolWorker.StartupPurpose.DEMAND);
-        worker.accept(session);
+        worker.accept(session, 0);
         return worker;
-    }
-
-    private static PoolStateEffects<String> effects(WorkerRetirementCoordinator<String> retirements) {
-        return new PoolStateEffects<>(state(), retirements);
-    }
-
-    private static WorkerPoolState<String> state() {
-        return new WorkerPoolState<>(
-                new WorkerPoolPolicy(WorkerPoolSettings.defaults()), new PoolTermination(), purpose -> {
-                    throw new AssertionError("unused reservation factory");
-                });
     }
 }

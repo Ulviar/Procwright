@@ -47,9 +47,13 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      * Atomically starts closing the pool and returns a future for logical worker drain.
      *
      * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. Drain
-     * completes after every pool slot is released and each worker's process outcome and logical output processing have
-     * settled. It does not wait for a potentially blocking physical close of process streams; a later physical-close
-     * failure cannot change the result.
+     * completes after every logical pool slot is released and each accepted worker's process outcome and logical output
+     * processing have settled. It does not wait for a potentially blocking physical close of process streams; a later
+     * physical-close failure cannot change the result.
+     *
+     * <p>A worker factory still running when close begins is interrupted and its pool slot is released. If the factory
+     * ignores interruption and later returns a worker, Procwright retires that worker asynchronously. That late worker
+     * is not current pool state, and its retirement does not delay or rewrite an already completed close future.
      *
      * <p>The future completes exceptionally with reason
      * {@link PooledSessionException.Reason#WORKER_FAILED} when logical worker cleanup fails; a fatal cleanup failure may
@@ -68,7 +72,8 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
      * <p>Idle workers close immediately. A healthy active request is allowed to finish, then its worker closes. A drain
      * timeout includes close initiation and future lookup. It does not cancel cleanup; {@link #closeAsync()} can observe
      * eventual logical completion. A successful return has the same physical-close boundary documented by
-     * {@link #closeAsync()}. This method is safe for try-with-resources.
+     * {@link #closeAsync()}, including its treatment of a factory that ignores interruption. This method is safe for
+     * try-with-resources.
      *
      * @throws PooledSessionException with reason
      *     {@link PooledSessionException.Reason#DRAIN_TIMEOUT} when the configured close timeout elapses

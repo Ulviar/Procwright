@@ -21,69 +21,63 @@ import org.junit.jupiter.api.Test;
 final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport {
 
     @Test
-    void successfulStartupConsumesReservationAndMapsTerminalDecision() {
-        int startupPermitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
+    void successfulStartupReturnsTheCreatedWorkerAndRestoresAdmission() {
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         StartupState state = new StartupState();
         PoolWorker<String> worker = worker(() -> "ready");
-        WorkerStartupCoordinator<String> coordinator = coordinator(state);
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
-        WorkerStartupCoordinator.Completion<String> completion =
-                coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1));
+        WorkerStartup.CreatedWorker<String> created =
+                coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1));
 
-        assertEquals("ready", completion.createdWorker().session());
-        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, completion.decision());
-        assertThrows(IllegalStateException.class, reservation::worker);
-        assertEquals(startupPermitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
+        assertEquals("ready", created.session());
+        assertEquals(
+                WorkerStartup.TerminalDecision.FACTORY_COMPLETED,
+                worker.startup().terminalDecision());
+        assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
     }
 
     @Test
-    void startupAdmissionTimeoutPreventsFactoryAndPreservesReservation() {
-        int startupPermitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
-        List<BoundedTaskPermit> occupied = occupyStartupPermits(startupPermitsBefore);
+    void startupAdmissionTimeoutPreventsFactory() {
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
+        List<BoundedTaskPermit> occupied = occupyStartupPermits(permitsBefore);
         StartupState state = new StartupState();
         AtomicInteger factoryCalls = new AtomicInteger();
         PoolWorker<String> worker = worker(() -> {
             factoryCalls.incrementAndGet();
             return "unexpected";
         });
-        WorkerStartupCoordinator<String> coordinator = coordinator(state);
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         try {
-            PoolFailure observed = assertThrows(
-                    PoolFailure.class,
-                    () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(25)));
+            PoolFailure observed = assertThrows(PoolFailure.class, () -> coordinator(state)
+                    .start(worker, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(25)));
 
             assertEquals(FailureKind.ACQUIRE_TIMEOUT, observed.kind);
             assertEquals(
                     WorkerStartup.TerminalDecision.TIMED_OUT, worker.startup().terminalDecision());
             assertEquals(0, factoryCalls.get());
-            assertTrue(reservation.canRollback());
-            assertEquals(0, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
+            assertEquals(0, state.launchClaims.get());
+            assertEquals(1, state.discards.get());
         } finally {
             occupied.forEach(BoundedTaskPermit::close);
         }
-        assertEquals(startupPermitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
+        assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
     }
 
     @Test
     void startupAdmissionInterruptionPreventsFactoryAndPreservesInterruptStatus() throws InterruptedException {
-        int startupPermitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
-        List<BoundedTaskPermit> occupied = occupyStartupPermits(startupPermitsBefore);
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
+        List<BoundedTaskPermit> occupied = occupyStartupPermits(permitsBefore);
         StartupState state = new StartupState();
         AtomicInteger factoryCalls = new AtomicInteger();
         PoolWorker<String> worker = worker(() -> {
             factoryCalls.incrementAndGet();
             return "unexpected";
         });
-        WorkerStartupCoordinator<String> coordinator = coordinator(state);
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
         AtomicReference<Throwable> observed = new AtomicReference<>();
         AtomicBoolean interruptPreserved = new AtomicBoolean();
         Thread caller = new Thread(() -> {
             try {
-                coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(10));
+                coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(10));
             } catch (Throwable failure) {
                 observed.set(failure);
             } finally {
@@ -111,9 +105,9 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         assertEquals(
                 WorkerStartup.TerminalDecision.INTERRUPTED, worker.startup().terminalDecision());
         assertEquals(0, factoryCalls.get());
-        assertTrue(reservation.canRollback());
         assertEquals(0, state.launchClaims.get());
-        assertEquals(startupPermitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
+        assertEquals(1, state.discards.get());
+        assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
     }
 
     @Test
@@ -125,22 +119,17 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                     throw factoryFailure;
                 },
                 PoolWorker.StartupPurpose.REPLENISHMENT);
-        WorkerStartupCoordinator<String> coordinator = coordinator(state);
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
-        PoolFailure observed = assertThrows(
-                PoolFailure.class,
-                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        PoolFailure observed = assertThrows(PoolFailure.class, () -> coordinator(state)
+                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.STARTUP_FAILED, observed.kind);
         assertSame(factoryFailure, observed.getCause());
         assertEquals(1, state.factoryFailures.get());
-        assertFalse(reservation.canRollback());
-        assertThrows(IllegalStateException.class, reservation::stateWorker);
     }
 
     @Test
-    void launchClaimFailureRestoresStartupAdmissionAndLeavesReservationForCallerRollback() {
+    void launchClaimFailureRestoresStartupAdmissionWithoutCallingFactory() {
         int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         IllegalStateException claimFailure = new IllegalStateException("claim failed");
         StartupState state = new StartupState();
@@ -150,22 +139,19 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             factoryCalls.incrementAndGet();
             return "unexpected";
         });
-        WorkerStartupCoordinator<String> coordinator = coordinator(state);
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
-        IllegalStateException observed = assertThrows(
-                IllegalStateException.class,
-                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        IllegalStateException observed = assertThrows(IllegalStateException.class, () -> coordinator(state)
+                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertSame(claimFailure, observed);
         assertEquals(0, factoryCalls.get());
         assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
-        assertTrue(reservation.canRollback());
+        assertEquals(1, state.discards.get());
     }
 
     @Test
-    void postClaimLaunchFailureSettlesReservationAndRestoresStartupAdmission() {
-        int startupPermitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
+    void postClaimLaunchFailureInvokesPoolCleanupAndRestoresAdmission() {
+        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         IllegalStateException launchFailure = new IllegalStateException("thread launch failed");
         AtomicInteger factoryCalls = new AtomicInteger();
         StartupState state = new StartupState();
@@ -182,21 +168,18 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 (prefix, task) -> {
                     throw launchFailure;
                 }));
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
         IllegalStateException observed = assertThrows(IllegalStateException.class, () -> coordinator(state)
-                .start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertSame(launchFailure, observed);
         assertEquals(0, factoryCalls.get());
-        assertEquals(1, state.launchFailures.get());
-        assertFalse(reservation.canRollback());
-        assertThrows(IllegalStateException.class, reservation::stateWorker);
-        assertEquals(startupPermitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
+        assertEquals(1, state.discards.get());
+        assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
     }
 
     @Test
-    void closedLaunchClaimPreventsFactoryAndKeepsRollbackOwnershipWithCaller() {
+    void closedLaunchClaimPreventsFactory() {
         StartupState state = new StartupState();
         state.claim = WorkerStartupCoordinator.StartupClaim.CLOSED;
         AtomicInteger factoryCalls = new AtomicInteger();
@@ -204,17 +187,14 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             factoryCalls.incrementAndGet();
             return "unexpected";
         });
-        WorkerStartupCoordinator<String> coordinator = coordinator(state);
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
-        PoolFailure observed = assertThrows(
-                PoolFailure.class,
-                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        PoolFailure observed = assertThrows(PoolFailure.class, () -> coordinator(state)
+                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.CLOSED, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.CLOSED, worker.startup().terminalDecision());
         assertEquals(0, factoryCalls.get());
-        assertTrue(reservation.canRollback());
+        assertEquals(1, state.discards.get());
     }
 
     @Test
@@ -226,17 +206,14 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             factoryCalls.incrementAndGet();
             return "unexpected";
         });
-        WorkerStartupCoordinator<String> coordinator = coordinator(state);
-        WorkerStartupCoordinator.Reservation<String> reservation = reservation(worker);
 
-        PoolFailure observed = assertThrows(
-                PoolFailure.class,
-                () -> coordinator.start(reservation, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        PoolFailure observed = assertThrows(PoolFailure.class, () -> coordinator(state)
+                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.ACQUIRE_TIMEOUT, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, worker.startup().terminalDecision());
         assertEquals(0, factoryCalls.get());
-        assertTrue(reservation.canRollback());
+        assertEquals(1, state.discards.get());
     }
 
     private static WorkerStartupCoordinator<String> coordinator(StartupState state) {
@@ -253,10 +230,6 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 session -> CompletableFuture.completedFuture(WorkerRetirement.Outcome.success()), purpose);
         worker.startup(new WorkerStartup<>(factory, "test-startup-coordinator-", completion -> {}));
         return worker;
-    }
-
-    private static WorkerStartupCoordinator.Reservation<String> reservation(PoolWorker<String> worker) {
-        return new WorkerStartupCoordinator.Reservation<>(worker);
     }
 
     private static List<BoundedTaskPermit> occupyStartupPermits(int capacity) {
@@ -283,40 +256,34 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
     private static final class StartupState implements WorkerStartupCoordinator.PoolState<String> {
 
         private final AtomicInteger factoryFailures = new AtomicInteger();
-        private final AtomicInteger launchFailures = new AtomicInteger();
         private final AtomicInteger launchClaims = new AtomicInteger();
+        private final AtomicInteger discards = new AtomicInteger();
         private WorkerStartupCoordinator.StartupClaim claim = WorkerStartupCoordinator.StartupClaim.RUN;
         private RuntimeException claimFailure;
 
         @Override
-        public WorkerStartupCoordinator.StartupClaim claimLaunch(
-                WorkerStartupCoordinator.Reservation<String> reservation, long deadlineNanos) {
+        public WorkerStartupCoordinator.StartupClaim claimLaunch(PoolWorker<String> worker, long deadlineNanos) {
             launchClaims.incrementAndGet();
             if (claimFailure != null) {
                 throw claimFailure;
             }
             if (claim == WorkerStartupCoordinator.StartupClaim.CLOSED) {
-                reservation.stateWorker().startup().signalClosed();
+                worker.startup().signalClosed();
             } else if (claim == WorkerStartupCoordinator.StartupClaim.TIMED_OUT) {
-                reservation.stateWorker().startup().signalTimeout();
-            } else {
-                reservation.stateWorker().startupStage(PoolWorker.StartupStage.RUNNING);
-                reservation.transferToAttempt();
+                worker.startup().signalTimeout();
             }
             return claim;
         }
 
         @Override
-        public void launchFailed(WorkerStartupCoordinator.Reservation<String> reservation) {
-            launchFailures.incrementAndGet();
-            reservation.completeAttempt();
+        public boolean factoryFailed(PoolWorker<String> worker, Throwable failure) {
+            factoryFailures.incrementAndGet();
+            return false;
         }
 
         @Override
-        public boolean factoryFailed(WorkerStartupCoordinator.Reservation<String> reservation, Throwable failure) {
-            factoryFailures.incrementAndGet();
-            reservation.completeAttempt();
-            return false;
+        public void discardStartingWorker(PoolWorker<String> worker) {
+            discards.incrementAndGet();
         }
     }
 }

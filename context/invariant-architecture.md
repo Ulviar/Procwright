@@ -118,12 +118,12 @@ Runtime получает только согласованный plan и не у
   `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
 - startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
-- обязательные post-monitor retirement и terminal publication — одноразовый `PoolStateEffects`;
-- pool commit — заранее подготовленный startup owner, bounded capacity `PoolPartition`, target-first переходы и
-  post-monitor `PoolStateEffects`;
+- обязательные post-monitor retirement и terminal publication выбирает одна транзакция `WorkerPoolState`;
+- pool commit — созданный до регистрации `PoolWorker`, bounded capacity `PoolPartition` и lease, создаваемый только
+  после успешного `STARTING -> LEASED`;
 - pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
 - construction/closing/failure/drain decision внутри state owner — `PoolTermination`, terminal outcome и
-  cancellation-isolated views — `PoolDrain`;
+  cancellation-isolated views — его publication token;
 - bounded retirement/report/replenishment domains — `PoolLifecycleDispatcher`, late failures — `PoolFailurePublisher`;
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.

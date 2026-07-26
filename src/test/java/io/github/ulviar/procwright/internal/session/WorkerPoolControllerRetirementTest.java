@@ -19,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestSupport {
@@ -51,7 +52,7 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
 
             assertTrue(firstInitiated.await(1, TimeUnit.SECONDS));
             assertTrue(secondInitiated.await(1, TimeUnit.SECONDS));
-            assertTrue(pool.awaitMetrics(metrics -> metrics.size() == 1, Duration.ofSeconds(1)));
+            assertTrue(awaitMetrics(pool, metrics -> metrics.size() == 1, Duration.ofSeconds(1)));
             assertFalse(drained.isDone());
             assertPartition(pool, 1, 0, 0, 0, 1);
             assertEquals(1, pool.metrics().retired());
@@ -117,7 +118,7 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
         pool.closeAsync();
         assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-        assertTrue(pool.awaitMetrics(metrics -> metrics.failedWorkerCloses() == 1, Duration.ofSeconds(1)));
+        assertTrue(awaitMetrics(pool, metrics -> metrics.failedWorkerCloses() == 1, Duration.ofSeconds(1)));
         assertEquals(0, pool.metrics().size());
         assertEquals(0, pool.metrics().retiring());
         assertEquals(1, pool.metrics().retired());
@@ -127,81 +128,41 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
     }
 
     @Test
-    void laterFatalWorkerCloseFailureBecomesDrainPrimary() {
+    void firstWorkerCloseFailureRemainsDrainCauseAndLaterFailureIsReported() throws Exception {
         AtomicInteger workerIds = new AtomicInteger();
-        IllegalStateException runtimeFailure = new IllegalStateException("first close failed");
-        AssertionError fatalFailure = new AssertionError("second close failed fatally");
-        WorkerPoolController<TestWorker> pool = inlineController(
+        IllegalStateException firstFailure = new IllegalStateException("first close failed");
+        AssertionError laterFailure = new AssertionError("second close failed");
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        CountDownLatch reportReceived = new CountDownLatch(1);
+        WorkerPoolController<TestWorker> pool = WorkerPoolController.fromSettings(
                 () -> new TestWorker(workerIds.incrementAndGet()),
-                worker -> {
+                inlineCloseAction(worker -> {
                     if (worker.id() == 1) {
-                        throw runtimeFailure;
+                        throw firstFailure;
                     }
-                    throw fatalFailure;
-                },
-                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
+                    throw laterFailure;
+                }),
+                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false),
+                Failures.INSTANCE,
+                "test worker",
+                "test-",
+                new WorkerPoolController.Dependencies(
+                        Runnable::run,
+                        (thread, failure) -> {
+                            reported.compareAndSet(null, failure);
+                            reportReceived.countDown();
+                        },
+                        System::nanoTime,
+                        null));
 
         ExecutionException observed =
                 assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
 
-        Throwable aggregate = observed.getCause();
-        assertSame(fatalFailure, aggregate.getCause());
-        assertSuppressedExactlyOnce(aggregate, runtimeFailure);
-        assertEquals(0, fatalFailure.getSuppressed().length);
+        assertSame(firstFailure, observed.getCause());
+        assertTrue(awaitMetrics(pool, metrics -> metrics.failedWorkerCloses() == 2, Duration.ofSeconds(1)));
+        assertTrue(reportReceived.await(1, TimeUnit.SECONDS));
+        assertSame(laterFailure, reported.get());
         assertEquals(2, pool.metrics().failedWorkerCloses());
-    }
-
-    @Test
-    void firstFatalWorkerCloseFailureRemainsDrainPrimary() {
-        AtomicInteger workerIds = new AtomicInteger();
-        AssertionError fatalFailure = new AssertionError("first close failed fatally");
-        IllegalStateException runtimeFailure = new IllegalStateException("second close failed");
-        WorkerPoolController<TestWorker> pool = inlineController(
-                () -> new TestWorker(workerIds.incrementAndGet()),
-                worker -> {
-                    if (worker.id() == 1) {
-                        throw fatalFailure;
-                    }
-                    throw runtimeFailure;
-                },
-                settings(2, 2, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
-
-        ExecutionException observed =
-                assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
-
-        Throwable aggregate = observed.getCause();
-        assertSame(fatalFailure, aggregate.getCause());
-        assertSuppressedExactlyOnce(aggregate, runtimeFailure);
-        assertEquals(0, fatalFailure.getSuppressed().length);
-        assertEquals(2, pool.metrics().failedWorkerCloses());
-    }
-
-    @Test
-    void firstFatalWorkerCloseFailureWinsOverLaterFatalFailure() {
-        AtomicInteger workerIds = new AtomicInteger();
-        AssertionError firstFatal = new AssertionError("first fatal close failed");
-        OutOfMemoryError secondFatal = new OutOfMemoryError("second fatal close failed");
-        IllegalStateException runtimeFailure = new IllegalStateException("runtime close failed");
-        WorkerPoolController<TestWorker> pool = inlineController(
-                () -> new TestWorker(workerIds.incrementAndGet()),
-                worker -> {
-                    switch (worker.id()) {
-                        case 1 -> throw firstFatal;
-                        case 2 -> throw runtimeFailure;
-                        default -> throw secondFatal;
-                    }
-                },
-                settings(3, 3, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO, false));
-
-        ExecutionException observed =
-                assertThrows(ExecutionException.class, () -> pool.closeAsync().get(1, TimeUnit.SECONDS));
-
-        Throwable aggregate = observed.getCause();
-        assertSame(firstFatal, aggregate.getCause());
-        assertSuppressedExactlyOnce(aggregate, runtimeFailure);
-        assertSuppressedExactlyOnce(aggregate, secondFatal);
-        assertEquals(0, firstFatal.getSuppressed().length);
-        assertEquals(3, pool.metrics().failedWorkerCloses());
     }
 
     @Test
@@ -242,15 +203,5 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
             releaseExecutor.shutdownNow();
             assertTrue(releaseExecutor.awaitTermination(1, TimeUnit.SECONDS));
         }
-    }
-
-    private static void assertSuppressedExactlyOnce(Throwable primary, Throwable expected) {
-        int matches = 0;
-        for (Throwable suppressed : primary.getSuppressed()) {
-            if (suppressed == expected) {
-                matches++;
-            }
-        }
-        assertEquals(1, matches);
     }
 }

@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.FailureAggregation;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -37,23 +36,20 @@ final class PoolTerminationTest {
     }
 
     @Test
-    void closingConstructionPreservesFatalPrecedenceUntilFailureCleanupClaimsReports() {
+    void closingConstructionKeepsTheFirstTerminalFailure() {
         PoolTermination termination = termination();
         FailureReport pending = report("pending");
         IllegalStateException runtimeFailure = new IllegalStateException("runtime failure");
         AssertionError fatalFailure = new AssertionError("fatal failure");
         termination.routeLateFailure(pending);
 
-        termination.beginClosing(runtimeFailure);
-        termination.beginClosing(fatalFailure);
+        assertSame(PoolTermination.FailureDisposition.TERMINAL, termination.beginClosing(runtimeFailure));
+        assertSame(PoolTermination.FailureDisposition.REPORT, termination.beginClosing(fatalFailure));
         PoolTermination.ConstructionResult result = termination.finishConstruction();
 
         assertTrue(termination.closing());
         PoolTermination.ConstructionFailed failed = assertInstanceOf(PoolTermination.ConstructionFailed.class, result);
-        Throwable aggregate = failed.failure();
-        assertSame(fatalFailure, aggregate.getCause());
-        assertSuppressedExactlyOnce(aggregate, runtimeFailure);
-        assertEquals(0, fatalFailure.getSuppressed().length);
+        assertSame(runtimeFailure, failed.failure());
         assertEquals(List.of(pending), failed.reports());
         assertTrue(termination.failConstruction().isEmpty());
         FailureReport afterDecision = report("after decision");
@@ -84,7 +80,11 @@ final class PoolTerminationTest {
 
         PoolTermination committed = termination();
         committed.finishConstruction();
-        assertNull(committed.routeWorkerCloseFailure(report("committed")));
+        FailureReport terminal = report("committed");
+        committed.beginClosing(terminal.failure());
+        assertNull(committed.routeWorkerCloseFailure(terminal));
+        FailureReport additional = report("additional");
+        assertSame(additional, committed.routeWorkerCloseFailure(additional));
     }
 
     @Test
@@ -97,12 +97,13 @@ final class PoolTerminationTest {
         assertNull(termination.claimDrainIfReady(0));
         termination.beginClosing(closeFailure);
         assertNull(termination.claimDrainIfReady(1));
-        PoolDrain.Publication publication = termination.claimDrainIfReady(0);
+        PoolTermination.Publication publication = termination.claimDrainIfReady(0);
         assertSame(closeFailure, publication.failure());
         assertNull(termination.claimDrainIfReady(0));
 
         assertTrue(cancelled.cancel(true));
-        termination.publish(publication);
+        publication.publish();
+        assertThrows(IllegalStateException.class, publication::publish);
 
         ExecutionException result = assertThrows(ExecutionException.class, () -> observed.get(1, TimeUnit.SECONDS));
         assertSame(closeFailure, result.getCause());
@@ -111,7 +112,7 @@ final class PoolTerminationTest {
     }
 
     @Test
-    void failureAfterDrainClaimIsLateAndEachIdentityIsClassifiedOnce() {
+    void firstFailureIsTerminalAndLaterFailuresAreReported() {
         PoolTermination termination = termination();
         AssertionError terminal = new AssertionError("terminal");
         AssertionError late = new AssertionError("late");
@@ -119,23 +120,7 @@ final class PoolTerminationTest {
         assertSame(PoolTermination.FailureDisposition.TERMINAL, termination.beginClosing(terminal));
         assertSame(PoolTermination.FailureDisposition.NONE, termination.beginClosing(terminal));
         assertTrue(termination.claimDrainIfReady(0) != null);
-        assertSame(PoolTermination.FailureDisposition.LATE, termination.beginClosing(late));
-        assertSame(PoolTermination.FailureDisposition.NONE, termination.beginClosing(late));
-    }
-
-    @Test
-    void aggregateSourcesRemainTheSameObservedFailuresAfterDrainClaim() {
-        PoolTermination termination = termination();
-        IllegalStateException first = new IllegalStateException("first");
-        IllegalArgumentException second = new IllegalArgumentException("second");
-        AssertionError late = new AssertionError("late");
-        Throwable aggregate = FailureAggregation.combine(first, second, "combined");
-
-        assertSame(PoolTermination.FailureDisposition.TERMINAL, termination.beginClosing(aggregate));
-        assertTrue(termination.claimDrainIfReady(0) != null);
-        assertSame(PoolTermination.FailureDisposition.NONE, termination.beginClosing(first));
-        assertSame(PoolTermination.FailureDisposition.NONE, termination.beginClosing(second));
-        assertSame(PoolTermination.FailureDisposition.LATE, termination.beginClosing(late));
+        assertSame(PoolTermination.FailureDisposition.REPORT, termination.beginClosing(late));
     }
 
     @Test
@@ -153,15 +138,5 @@ final class PoolTerminationTest {
         return new FailureReport(
                 BoundedFailureReporter.captureFailureTarget(Thread.currentThread()),
                 new IllegalStateException(message));
-    }
-
-    private static void assertSuppressedExactlyOnce(Throwable primary, Throwable expected) {
-        int matches = 0;
-        for (Throwable suppressed : primary.getSuppressed()) {
-            if (suppressed == expected) {
-                matches++;
-            }
-        }
-        assertEquals(1, matches);
     }
 }
