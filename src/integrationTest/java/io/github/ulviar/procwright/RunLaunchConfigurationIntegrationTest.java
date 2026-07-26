@@ -115,17 +115,17 @@ final class RunLaunchConfigurationIntegrationTest {
             throws Exception {
         assumeTrue(isWindows(), "Windows executable-search regression requires Windows");
 
-        assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(directory, false);
+        assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(directory, EnvironmentMode.INHERITED);
     }
 
     @Test
     void windowsShellIgnoresPoisonedJvmWorkingDirectoryWithCleanEnvironment(@TempDir Path directory) throws Exception {
         assumeTrue(isWindows(), "Windows executable-search regression requires Windows");
 
-        assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(directory, true);
+        assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(directory, EnvironmentMode.CLEAN);
     }
 
-    static RunScenario.Draft putWindowsSystemRootIfNeeded(RunScenario.Draft draft) {
+    private static RunScenario.Draft putWindowsSystemRootIfNeeded(RunScenario.Draft draft) {
         if (!isWindows()) {
             return draft;
         }
@@ -136,15 +136,15 @@ final class RunLaunchConfigurationIntegrationTest {
         return draft;
     }
 
-    static String shellEchoEnvironmentCommand(String variableName) {
+    private static String shellEchoEnvironmentCommand(String variableName) {
         if (isWindows()) {
             return "echo shell:%" + variableName + "%";
         }
         return "printf 'shell:%s\\n' \"$" + variableName + "\"";
     }
 
-    static void assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(Path workingDirectory, boolean cleanEnvironment)
-            throws Exception {
+    private static void assertWindowsShellIgnoresPoisonedJvmWorkingDirectory(
+            Path workingDirectory, EnvironmentMode environmentMode) throws Exception {
         Path javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
         Files.copy(javaExecutable, workingDirectory.resolve("cmd.exe"));
 
@@ -153,7 +153,7 @@ final class RunLaunchConfigurationIntegrationTest {
                         "-cp",
                         absoluteClasspath(),
                         WindowsShellPoisonProbe.class.getName(),
-                        Boolean.toString(cleanEnvironment))
+                        environmentMode.probeArgument())
                 .directory(workingDirectory.toFile())
                 .redirectErrorStream(true);
         String originalPath = builder.environment().getOrDefault("PATH", "");
@@ -169,10 +169,25 @@ final class RunLaunchConfigurationIntegrationTest {
         assertEquals(0, process.exitValue(), () -> "nested Windows shell probe failed:\n" + output);
     }
 
-    static String absoluteClasspath() {
+    private static String absoluteClasspath() {
         return Pattern.compile(Pattern.quote(File.pathSeparator))
                 .splitAsStream(System.getProperty("java.class.path"))
                 .map(entry -> Path.of(entry).toAbsolutePath().normalize().toString())
                 .collect(java.util.stream.Collectors.joining(File.pathSeparator));
+    }
+
+    private enum EnvironmentMode {
+        INHERITED("false"),
+        CLEAN("true");
+
+        private final String probeArgument;
+
+        EnvironmentMode(String probeArgument) {
+            this.probeArgument = probeArgument;
+        }
+
+        private String probeArgument() {
+            return probeArgument;
+        }
     }
 }

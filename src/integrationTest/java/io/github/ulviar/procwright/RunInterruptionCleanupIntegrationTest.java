@@ -204,7 +204,7 @@ final class RunInterruptionCleanupIntegrationTest {
         }
     }
 
-    static void waitForProcessExit(long pid, Duration timeout) throws Exception {
+    private static void waitForProcessExit(long pid, Duration timeout) throws Exception {
         assertTrue(pid > 0, "process pid was not captured");
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
         while (ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) && System.nanoTime() < deadlineNanos) {

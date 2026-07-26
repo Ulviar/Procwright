@@ -76,7 +76,7 @@ final class ProcessTreeIntegrationFixtures {
         throw failure;
     }
 
-    static long readPositivePidBestEffort(Path path, Duration timeout) {
+    private static long readPositivePidBestEffort(Path path, Duration timeout) {
         try {
             return waitForPositivePid(path, timeout);
         } catch (AssertionError ignored) {
@@ -96,7 +96,7 @@ final class ProcessTreeIntegrationFixtures {
         }
     }
 
-    static void waitForProcessStopBestEffort(long pid, Duration timeout) {
+    private static void waitForProcessStopBestEffort(long pid, Duration timeout) {
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
         try {
             while (System.nanoTime() < deadlineNanos

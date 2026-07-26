@@ -151,7 +151,7 @@ final class RunTimeoutCleanupIntegrationTest {
         }
     }
 
-    static boolean isAliveEventually(long pid) {
+    private static boolean isAliveEventually(long pid) {
         long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
         while (System.nanoTime() < deadline) {
             if (ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) {
@@ -168,7 +168,7 @@ final class RunTimeoutCleanupIntegrationTest {
         return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
     }
 
-    static void waitForFile(Path path, Duration timeout) throws Exception {
+    private static void waitForFile(Path path, Duration timeout) throws Exception {
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
         while (!java.nio.file.Files.exists(path) && System.nanoTime() < deadlineNanos) {
             Thread.sleep(10);
@@ -176,7 +176,7 @@ final class RunTimeoutCleanupIntegrationTest {
         assertTrue(java.nio.file.Files.exists(path), () -> "timed out waiting for " + path);
     }
 
-    static void waitForFileUnchecked(Path path, Duration timeout) {
+    private static void waitForFileUnchecked(Path path, Duration timeout) {
         try {
             waitForFile(path, timeout);
         } catch (InterruptedException exception) {
@@ -187,15 +187,15 @@ final class RunTimeoutCleanupIntegrationTest {
         }
     }
 
-    static Duration timeoutAfterFixtureStartup() {
+    private static Duration timeoutAfterFixtureStartup() {
         return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
     }
 
-    static Duration boundedCleanupLimit() {
+    private static Duration boundedCleanupLimit() {
         return isWindows() ? Duration.ofSeconds(6) : Duration.ofSeconds(3);
     }
 
-    static Duration descendantStartupTimeout() {
+    private static Duration descendantStartupTimeout() {
         // The spawned child JVM sleeps for 10 s, so a generous startup window keeps the assertion
         // semantics (timeout fires after the child pid is reported) while absorbing cold JVM starts
         // on loaded machines.

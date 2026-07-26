@@ -197,7 +197,7 @@ final class RunCaptureIntegrationTest {
         assertTrue(result.stderrTruncated());
     }
 
-    static void assertStderrEquals(String expected, CommandResult result) {
+    private static void assertStderrEquals(String expected, CommandResult result) {
         assertEquals(expected, normalizeLineEndings(result.stderr()));
     }
 }

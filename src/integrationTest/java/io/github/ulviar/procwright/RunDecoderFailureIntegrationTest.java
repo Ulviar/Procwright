@@ -5,6 +5,7 @@ package io.github.ulviar.procwright;
 import static io.github.ulviar.procwright.OneShotIntegrationFixtures.boxed;
 import static io.github.ulviar.procwright.OneShotIntegrationFixtures.fixtureService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,7 +34,7 @@ final class RunDecoderFailureIntegrationTest {
                 .run()
                 .withArgs("binary", "--pattern=hex", "--hex=4142")
                 .withCapture(CapturePolicy.bounded(1))
-                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(false)))
+                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(OverflowBehavior.NO_PROGRESS)))
                 .execute());
 
         assertDecodeFailureRetainsCapturedPrefix(exception);
@@ -45,7 +46,7 @@ final class RunDecoderFailureIntegrationTest {
                 .run()
                 .withArgs("binary", "--pattern=hex", "--hex=4142")
                 .withCapture(CapturePolicy.bounded(1))
-                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(true)))
+                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(OverflowBehavior.PRODUCE_OUTPUT)))
                 .execute());
 
         assertDecodeFailureRetainsCapturedPrefix(exception);
@@ -62,7 +63,7 @@ final class RunDecoderFailureIntegrationTest {
                         CharsetPolicy.report(new FailingCharset(DecoderFailureStage.NEW_DECODER, decoderFailure)))
                 .execute());
 
-        assertTypedDecodeFailure(exception, decoderFailure, false);
+        assertTypedDecodeFailure(exception, decoderFailure);
     }
 
     @Test
@@ -76,7 +77,7 @@ final class RunDecoderFailureIntegrationTest {
                         CharsetPolicy.report(new FailingCharset(DecoderFailureStage.CONFIGURE, decoderFailure)))
                 .execute());
 
-        assertTypedDecodeFailure(exception, decoderFailure, false);
+        assertTypedDecodeFailure(exception, decoderFailure);
     }
 
     @Test
@@ -89,7 +90,7 @@ final class RunDecoderFailureIntegrationTest {
                 .withCharsetPolicy(CharsetPolicy.report(new FailingCharset(DecoderFailureStage.DECODE, decoderFailure)))
                 .execute());
 
-        assertTypedDecodeFailure(exception, decoderFailure, false);
+        assertTypedDecodeFailure(exception, decoderFailure);
     }
 
     @Test
@@ -102,7 +103,7 @@ final class RunDecoderFailureIntegrationTest {
                 .withCharsetPolicy(CharsetPolicy.report(new FailingCharset(DecoderFailureStage.FLUSH, decoderFailure)))
                 .execute());
 
-        assertTypedDecodeFailure(exception, decoderFailure, false);
+        assertTypedDecodeFailure(exception, decoderFailure);
     }
 
     @Test
@@ -119,7 +120,7 @@ final class RunDecoderFailureIntegrationTest {
         assertSame(decoderFailure, thrown);
     }
 
-    static void assertDecodeFailureRetainsCapturedPrefix(CommandExecutionException exception) {
+    private static void assertDecodeFailureRetainsCapturedPrefix(CommandExecutionException exception) {
         assertEquals(CommandExecutionException.Reason.DECODE_ERROR, exception.reason());
         CommandResult result = exception.result().orElseThrow();
         assertEquals(List.of((byte) 'A'), boxed(result.stdoutBytes()));
@@ -127,19 +128,18 @@ final class RunDecoderFailureIntegrationTest {
         assertTrue(result.stdoutTruncated());
     }
 
-    static void assertTypedDecodeFailure(
-            CommandExecutionException exception, Throwable decoderFailure, boolean truncated) {
+    private static void assertTypedDecodeFailure(CommandExecutionException exception, Throwable decoderFailure) {
         assertEquals(CommandExecutionException.Reason.DECODE_ERROR, exception.reason());
         assertSame(decoderFailure, exception.getCause());
         CommandResult result = exception.result().orElseThrow();
         assertEquals(List.of((byte) 'A'), boxed(result.stdoutBytes()));
         assertEquals("A", result.stdout());
-        assertEquals(truncated, result.stdoutTruncated());
+        assertFalse(result.stdoutTruncated());
     }
 
-    abstract static class TestCharset extends Charset {
+    private abstract static class TestCharset extends Charset {
 
-        TestCharset(String canonicalName) {
+        private TestCharset(String canonicalName) {
             super(canonicalName, null);
         }
 
@@ -154,14 +154,21 @@ final class RunDecoderFailureIntegrationTest {
         }
     }
 
-    static final class OverflowProbeCharset extends TestCharset {
+    private enum OverflowBehavior {
+        NO_PROGRESS,
+        PRODUCE_OUTPUT
+    }
 
-        private final boolean produceOutput;
+    private static final class OverflowProbeCharset extends TestCharset {
+
+        private final OverflowBehavior behavior;
         private int decoderCreations;
 
-        OverflowProbeCharset(boolean produceOutput) {
-            super(produceOutput ? "x-procwright-output-overflow" : "x-procwright-no-progress-overflow");
-            this.produceOutput = produceOutput;
+        private OverflowProbeCharset(OverflowBehavior behavior) {
+            super(behavior == OverflowBehavior.PRODUCE_OUTPUT
+                    ? "x-procwright-output-overflow"
+                    : "x-procwright-no-progress-overflow");
+            this.behavior = behavior;
         }
 
         @Override
@@ -175,7 +182,7 @@ final class RunDecoderFailureIntegrationTest {
                 @Override
                 protected CoderResult decodeLoop(ByteBuffer input, CharBuffer output) {
                     if (input.hasRemaining() && calls++ < 8) {
-                        if (produceOutput) {
+                        if (behavior == OverflowBehavior.PRODUCE_OUTPUT) {
                             output.put('x');
                         }
                         return CoderResult.OVERFLOW;
@@ -186,19 +193,19 @@ final class RunDecoderFailureIntegrationTest {
         }
     }
 
-    enum DecoderFailureStage {
+    private enum DecoderFailureStage {
         NEW_DECODER,
         CONFIGURE,
         DECODE,
         FLUSH
     }
 
-    static final class FailingCharset extends TestCharset {
+    private static final class FailingCharset extends TestCharset {
 
         private final DecoderFailureStage stage;
         private final Throwable failure;
 
-        FailingCharset(DecoderFailureStage stage, Throwable failure) {
+        private FailingCharset(DecoderFailureStage stage, Throwable failure) {
             super("x-procwright-failing-" + stage.name().toLowerCase(java.util.Locale.ROOT));
             this.stage = stage;
             this.failure = failure;
@@ -239,7 +246,7 @@ final class RunDecoderFailureIntegrationTest {
         }
     }
 
-    static void throwUnchecked(Throwable failure) {
+    private static void throwUnchecked(Throwable failure) {
         if (failure instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;
         }

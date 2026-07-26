@@ -136,7 +136,7 @@ final class RunPostStartFailureCleanupIntegrationTest {
         }
     }
 
-    static String cyclicFailureDiagnostic(Thread worker, long rootPid, long childPid, Path childPidFile) {
+    private static String cyclicFailureDiagnostic(Thread worker, long rootPid, long childPid, Path childPidFile) {
         String pidFileState;
         try {
             pidFileState = java.nio.file.Files.exists(childPidFile)
@@ -153,7 +153,7 @@ final class RunPostStartFailureCleanupIntegrationTest {
                 + ", pidFile='" + pidFileState + "'";
     }
 
-    static boolean processAliveBestEffort(long pid) {
+    private static boolean processAliveBestEffort(long pid) {
         if (pid <= 0) {
             return false;
         }
