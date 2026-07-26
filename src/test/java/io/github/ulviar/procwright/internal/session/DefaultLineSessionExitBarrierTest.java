@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -24,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class DefaultLineSessionExitBarrierTest extends DefaultLineSessionTestSupport {
+final class DefaultLineSessionExitBarrierTest {
 
     @Test
     void blockingPublicExitContinuationObservesReleasedOutputCleanupOwners() throws Exception {
@@ -32,7 +36,7 @@ final class DefaultLineSessionExitBarrierTest extends DefaultLineSessionTestSupp
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
         DefaultLineSession lineSession =
-                new DefaultLineSession(session(process, dispatcher), LineSessionSettings.defaults());
+                new DefaultLineSession(openSession(process, dispatcher), LineSessionSettings.defaults());
         CountDownLatch continuationEntered = new CountDownLatch(1);
         CountDownLatch releaseContinuation = new CountDownLatch(1);
         AtomicBoolean cleanupWasComplete = new AtomicBoolean();
@@ -79,7 +83,7 @@ final class DefaultLineSessionExitBarrierTest extends DefaultLineSessionTestSupp
             io.github.ulviar.procwright.internal.Threading.start(name, task);
         });
         DefaultLineSession lineSession =
-                new DefaultLineSession(session(process, dispatcher), LineSessionSettings.defaults());
+                new DefaultLineSession(openSession(process, dispatcher), LineSessionSettings.defaults());
         AtomicInteger startReports = new AtomicInteger();
         AtomicInteger physicalReports = new AtomicInteger();
         AtomicReference<Throwable> unexpectedReport = new AtomicReference<>();
@@ -133,9 +137,9 @@ final class DefaultLineSessionExitBarrierTest extends DefaultLineSessionTestSupp
         ControllableProcess secondProcess = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
         DefaultLineSession first =
-                new DefaultLineSession(session(firstProcess, dispatcher), LineSessionSettings.defaults());
+                new DefaultLineSession(openSession(firstProcess, dispatcher), LineSessionSettings.defaults());
         DefaultLineSession second =
-                new DefaultLineSession(session(secondProcess, dispatcher), LineSessionSettings.defaults());
+                new DefaultLineSession(openSession(secondProcess, dispatcher), LineSessionSettings.defaults());
         CompletableFuture<Void> escape = new CompletableFuture<>();
         CompletableFuture<Void> secondTerminal = second.onExit().handle((ignored, failure) -> null);
         CountDownLatch firstContinuationEntered = new CountDownLatch(1);

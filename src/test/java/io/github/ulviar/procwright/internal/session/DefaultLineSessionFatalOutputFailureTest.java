@@ -2,6 +2,12 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.BlockingUntilClosedInputStream;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.strictSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -32,7 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class DefaultLineSessionFatalOutputFailureTest extends DefaultLineSessionTestSupport {
+final class DefaultLineSessionFatalOutputFailureTest {
 
     @Test
     void fatalOutputDecoderErrorFailStopsActiveAndFollowUpRequestsForEitherStream() throws Exception {
@@ -46,9 +52,9 @@ final class DefaultLineSessionFatalOutputFailureTest extends DefaultLineSessionT
             InputStream stderr = fatalStdout ? InputStream.nullInputStream() : fatalStream;
             CountingOutputStream stdin = new CountingOutputStream();
             ControllableProcess process = new ControllableProcess(stdin, stdout, stderr);
-            DefaultSession rawSession = session(process);
+            DefaultSession rawSession = openSession(process);
             DefaultLineSession lineSession =
-                    new DefaultLineSession(rawSession, options(charset).withTranscriptLimit(32));
+                    new DefaultLineSession(rawSession, strictSettings(charset).withTranscriptLimit(32));
             ExecutorService executor = Executors.newSingleThreadExecutor();
             try {
                 Future<Throwable> request = executor.submit(() -> captureFailure(() -> lineSession.requestEncoded(
@@ -98,20 +104,22 @@ final class DefaultLineSessionFatalOutputFailureTest extends DefaultLineSessionT
         AtomicReference<LineSessionException> observedResponseFailure = new AtomicReference<>();
         CountDownLatch responseFailureCaught = new CountDownLatch(1);
         CountDownLatch allowCallbackReturn = new CountDownLatch(1);
-        LineSessionSettings options = options(charset).withMaxResponseChars(1).withResponseDecoder(reader -> {
-            try {
-                reader.readLine();
-                throw new AssertionError("response limit was not enforced");
-            } catch (LineSessionException failure) {
-                observedResponseFailure.set(failure);
-                responseFailureCaught.countDown();
-                awaitUninterruptibly(allowCallbackReturn);
-                return List.of("fallback");
-            }
-        });
+        LineSessionSettings settings = strictSettings(charset)
+                .withMaxResponseChars(1)
+                .withResponseDecoder(reader -> {
+                    try {
+                        reader.readLine();
+                        throw new AssertionError("response limit was not enforced");
+                    } catch (LineSessionException failure) {
+                        observedResponseFailure.set(failure);
+                        responseFailureCaught.countDown();
+                        awaitUninterruptibly(allowCallbackReturn);
+                        return List.of("fallback");
+                    }
+                });
         ControllableProcess process = new ControllableProcess(stdin, stdout, stderr);
-        DefaultSession rawSession = session(process);
-        DefaultLineSession lineSession = new DefaultLineSession(rawSession, options);
+        DefaultSession rawSession = openSession(process);
+        DefaultLineSession lineSession = new DefaultLineSession(rawSession, settings);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() ->

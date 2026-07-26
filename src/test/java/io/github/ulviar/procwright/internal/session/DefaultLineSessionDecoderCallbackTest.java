@@ -2,6 +2,14 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ReplyingOutputStream;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ResponseInputStream;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.strictSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -42,7 +50,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
-final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTestSupport {
+final class DefaultLineSessionDecoderCallbackTest {
 
     @Test
     void abandonedDecoderFailureDoesNotChangeTimeoutAndReleasesProtocolCapacity() throws Exception {
@@ -60,7 +68,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         DefaultLineSession lineSession = new DefaultLineSession(
-                session(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
+                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
                 LineSessionSettings.defaults().withResponseDecoder(reader -> {
                     decoderEntered.countDown();
                     awaitUninterruptibly(releaseDecoder);
@@ -113,7 +121,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         DefaultLineSession lineSession = new DefaultLineSession(
-                session(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
+                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())),
                 LineSessionSettings.defaults(),
                 LineSessionTestDependencies.withNanoTime(() -> nanoTime.getAndSet(50)));
         try {
@@ -155,7 +163,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
             return List.of(reader.readLine());
         });
 
-        try (DefaultLineSession lineSession = new DefaultLineSession(session(process), settings)) {
+        try (DefaultLineSession lineSession = new DefaultLineSession(openSession(process), settings)) {
             assertEquals("ok", lineSession.request("first").text());
 
             assertThrows(IllegalStateException.class, retained.get()::readLine);
@@ -193,7 +201,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
             }
         });
         DefaultLineSession lineSession = new DefaultLineSession(
-                session(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
+                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
@@ -270,7 +278,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
             }
         });
         DefaultLineSession lineSession = new DefaultLineSession(
-                session(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
+                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<Thread> callerThread = new AtomicReference<>();
         AtomicBoolean callerInterruptRestored = new AtomicBoolean();
@@ -334,7 +342,7 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
             }
         });
         DefaultLineSession lineSession = new DefaultLineSession(
-                session(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
+                openSession(new ControllableProcess(stdin, stdout, InputStream.nullInputStream())), settings);
         try {
             LineSessionException timeout = assertThrows(
                     LineSessionException.class, () -> lineSession.request("request", Duration.ofMillis(100)));
@@ -365,10 +373,11 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
                 TrackingInputStream stdout = new TrackingInputStream();
                 TrackingInputStream stderr = new TrackingInputStream();
                 ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-                DefaultSession rawSession = session(process);
+                DefaultSession rawSession = openSession(process);
                 try {
                     LineSessionException failure = assertThrows(
-                            LineSessionException.class, () -> new DefaultLineSession(rawSession, options(charset)));
+                            LineSessionException.class,
+                            () -> new DefaultLineSession(rawSession, strictSettings(charset)));
 
                     assertEquals(LineSessionException.Reason.DECODE_ERROR, failure.reason());
                     assertSame(cause, failure.getCause());
@@ -392,10 +401,10 @@ final class DefaultLineSessionDecoderCallbackTest extends DefaultLineSessionTest
             TrackingInputStream stdout = new TrackingInputStream();
             TrackingInputStream stderr = new TrackingInputStream();
             ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-            DefaultSession rawSession = session(process);
+            DefaultSession rawSession = openSession(process);
             try {
-                AssertionError thrown =
-                        assertThrows(AssertionError.class, () -> new DefaultLineSession(rawSession, options(charset)));
+                AssertionError thrown = assertThrows(
+                        AssertionError.class, () -> new DefaultLineSession(rawSession, strictSettings(charset)));
 
                 assertSame(cause, thrown);
                 assertEquals(failingCreation, charset.decoderCreations());

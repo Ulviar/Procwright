@@ -2,6 +2,9 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -18,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-final class DefaultLineSessionZeroReadPumpTest extends DefaultLineSessionTestSupport {
+final class DefaultLineSessionZeroReadPumpTest {
 
     @Test
     void zeroLengthPumpsBackOffAndStopAfterCloseForEitherStream() throws Exception {
@@ -28,7 +31,7 @@ final class DefaultLineSessionZeroReadPumpTest extends DefaultLineSessionTestSup
             InputStream stdout = zeroStdout ? zeroStream : InputStream.nullInputStream();
             InputStream stderr = zeroStdout ? InputStream.nullInputStream() : zeroStream;
             ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-            DefaultSession rawSession = session(process);
+            DefaultSession rawSession = openSession(process);
             DefaultLineSession lineSession = new DefaultLineSession(
                     rawSession, LineSessionSettings.defaults(), LineSessionTestDependencies.withBackoff(backoff));
             try {
@@ -61,7 +64,7 @@ final class DefaultLineSessionZeroReadPumpTest extends DefaultLineSessionTestSup
         ZeroForeverInputStream stdout = new ZeroForeverInputStream();
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
+        DefaultSession rawSession = openSession(process);
         try (DefaultLineSession lineSession = new DefaultLineSession(rawSession, LineSessionSettings.defaults())) {
             assertTrue(stdout.awaitFirstRead());
             Thread readerThread = stdout.readerThread();

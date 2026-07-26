@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -31,7 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class DefaultLineSessionOutputFailureAttributionTest extends DefaultLineSessionTestSupport {
+final class DefaultLineSessionOutputFailureAttributionTest {
 
     @Test
     void userCloseWinningBeforePumpErrorStillRegistersTheErrorForPhysicalCloseFailures() throws Exception {
@@ -41,7 +45,7 @@ final class DefaultLineSessionOutputFailureAttributionTest extends DefaultLineSe
         ControlledPumpFailureInputStream stdout = new ControlledPumpFailureInputStream(pumpError, stdoutCloseFailure);
         ControlledPumpFailureInputStream stderr = new ControlledPumpFailureInputStream(null, stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        DefaultSession rawSession = session(process);
+        DefaultSession rawSession = openSession(process);
         List<Thread> pumpThreads = new ArrayList<>();
         AtomicReference<Throwable> uncaughtPumpFailure = new AtomicReference<>();
         PumpStarter starter = (name, task) -> {
@@ -100,7 +104,7 @@ final class DefaultLineSessionOutputFailureAttributionTest extends DefaultLineSe
         GatedEofCloseFailureInputStream stderr = new GatedEofCloseFailureInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
-        DefaultSession rawSession = session(process, dispatcher);
+        DefaultSession rawSession = openSession(process, dispatcher);
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
         LineSessionSettings settings = LineSessionSettings.defaults().withResponseDecoder(reader -> {
@@ -161,7 +165,7 @@ final class DefaultLineSessionOutputFailureAttributionTest extends DefaultLineSe
         GatedEofCloseFailureInputStream stderr = new GatedEofCloseFailureInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(2, 2);
-        DefaultSession rawSession = session(process, dispatcher);
+        DefaultSession rawSession = openSession(process, dispatcher);
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
         LineSessionSettings settings = LineSessionSettings.defaults().withResponseDecoder(reader -> {

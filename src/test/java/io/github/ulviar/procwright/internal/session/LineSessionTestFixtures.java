@@ -27,13 +27,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
-abstract class DefaultLineSessionTestSupport {
+final class LineSessionTestFixtures {
 
-    static LineSessionSettings options(Charset charset) {
+    private LineSessionTestFixtures() {}
+
+    static LineSessionSettings strictSettings(Charset charset) {
         return LineSessionSettings.defaults().withCharsetPolicy(CharsetPolicy.report(charset));
     }
 
-    static DefaultSession session(Process process) {
+    static DefaultSession openSession(Process process) {
         return SessionTestFixtures.open(
                 process,
                 Duration.ZERO,
@@ -41,7 +43,7 @@ abstract class DefaultLineSessionTestSupport {
                 StandardCharsets.UTF_8);
     }
 
-    static DefaultSession session(Process process, BoundedCloseDispatcher closeDispatcher) {
+    static DefaultSession openSession(Process process, BoundedCloseDispatcher closeDispatcher) {
         return DefaultSession.openTransactionally(
                 process,
                 Duration.ZERO,

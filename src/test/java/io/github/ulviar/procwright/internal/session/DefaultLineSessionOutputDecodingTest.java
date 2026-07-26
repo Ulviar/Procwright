@@ -2,6 +2,11 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.BlockingUntilClosedInputStream;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.strictSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -29,7 +34,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-final class DefaultLineSessionOutputDecodingTest extends DefaultLineSessionTestSupport {
+final class DefaultLineSessionOutputDecodingTest {
 
     @Test
     void overflowPrefixIsNeverPublishedWhenSameDecodeCallEndsMalformed() throws Exception {
@@ -38,9 +43,11 @@ final class DefaultLineSessionOutputDecodingTest extends DefaultLineSessionTestS
                 OutputStream.nullOutputStream(),
                 new ByteArrayInputStream(new byte[] {'x', 'y'}),
                 InputStream.nullInputStream());
-        DefaultSession rawSession = session(process);
+        DefaultSession rawSession = openSession(process);
         try (DefaultLineSession lineSession = new DefaultLineSession(
-                rawSession, options(charset), LineSessionTestDependencies.withBackoff(ZeroReadBackoff.exponential()))) {
+                rawSession,
+                strictSettings(charset),
+                LineSessionTestDependencies.withBackoff(ZeroReadBackoff.exponential()))) {
             ExecutorService executor = Executors.newSingleThreadExecutor();
             try {
                 Future<LineResponse> request = executor.submit(() -> lineSession.requestEncoded(
@@ -69,8 +76,9 @@ final class DefaultLineSessionOutputDecodingTest extends DefaultLineSessionTestS
         InputStream stdout = new BlockingUntilClosedInputStream();
         InputStream stderr = new ByteArrayInputStream(new byte[] {(byte) 0xC3});
         ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream(), stdout, stderr);
-        DefaultSession rawSession = session(process);
-        try (DefaultLineSession lineSession = new DefaultLineSession(rawSession, options(StandardCharsets.UTF_8))) {
+        DefaultSession rawSession = openSession(process);
+        try (DefaultLineSession lineSession =
+                new DefaultLineSession(rawSession, strictSettings(StandardCharsets.UTF_8))) {
             lineSession.onExit().handle((ignored, failure) -> null).get(1, TimeUnit.SECONDS);
 
             LineSessionException failure =

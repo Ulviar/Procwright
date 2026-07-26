@@ -3,6 +3,9 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -28,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class LineOutputTransportTest extends DefaultLineSessionTestSupport {
+final class LineOutputTransportTest {
 
     @Test
     void backlogOverflowWakesAWaitingRequest() throws Exception {
@@ -39,7 +42,7 @@ final class LineOutputTransportTest extends DefaultLineSessionTestSupport {
                 OutputStream.nullOutputStream(),
                 new ByteArrayInputStream("oversized\n".getBytes(StandardCharsets.UTF_8)),
                 InputStream.nullInputStream());
-        DefaultSession session = session(process);
+        DefaultSession session = openSession(process);
         LineOutputTransport transport = transport(options, state, session);
         AtomicReference<LineOutputTransport.Event> returned = new AtomicReference<>();
         AtomicReference<Throwable> thrown = new AtomicReference<>();
@@ -79,7 +82,7 @@ final class LineOutputTransportTest extends DefaultLineSessionTestSupport {
         LineSessionState.Request request = state.beginRequest();
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = session(process);
+        DefaultSession session = openSession(process);
         LineOutputTransport transport = transport(options, state, session);
         AtomicReference<LineOutputTransport.Event> returned = new AtomicReference<>();
         AtomicReference<Throwable> thrown = new AtomicReference<>();
@@ -123,7 +126,7 @@ final class LineOutputTransportTest extends DefaultLineSessionTestSupport {
         state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = session(process);
+        DefaultSession session = openSession(process);
         LineOutputTransport transport = transport(options, state, session);
         try (var monitor = hold(primary)) {
             monitor.verifyHeld();
@@ -152,7 +155,7 @@ final class LineOutputTransportTest extends DefaultLineSessionTestSupport {
         LineSessionState.Request request = state.beginRequest();
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = session(process);
+        DefaultSession session = openSession(process);
         LineOutputTransport transport = transport(LineSessionSettings.defaults(), state, session);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -194,7 +197,7 @@ final class LineOutputTransportTest extends DefaultLineSessionTestSupport {
                 OutputStream.nullOutputStream(),
                 new ByteArrayInputStream("overflow\n".getBytes(StandardCharsets.UTF_8)),
                 InputStream.nullInputStream());
-        DefaultSession session = session(process);
+        DefaultSession session = openSession(process);
         LineOutputTransport transport = transport(options, state, session);
         try {
             transport.start(PumpStarter.threading());
@@ -224,7 +227,7 @@ final class LineOutputTransportTest extends DefaultLineSessionTestSupport {
         LineSessionState.Request request = state.beginRequest();
         ControllableProcess process = new ControllableProcess(
                 OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultSession session = session(process);
+        DefaultSession session = openSession(process);
         LineOutputTransport transport = transport(options, state, session);
         try (var monitor = hold(primary)) {
             monitor.verifyHeld();
