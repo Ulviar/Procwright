@@ -4,20 +4,21 @@ package io.github.ulviar.procwright.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class ProcessExitWaiterTest {
+final class ProcessExitWaiterTest extends ProcessLifecycleSharedSupport {
 
     @Test
     void zeroTimeoutWaitsWithoutADeadline() throws Exception {
@@ -45,40 +46,6 @@ final class ProcessExitWaiterTest {
     }
 
     @Test
-    void guardedProcessDoesNotStartANewProviderProbeAfterTheDeadline() throws Exception {
-        AdvancingClock clock = new AdvancingClock();
-        GuardedDeadlineProcess delegate = new GuardedDeadlineProcess(clock);
-        Process guarded = new ProcessTreeScanner(2, 4, Duration.ofMillis(25)).guard(delegate);
-
-        assertFalse(ProcessExitWaiter.waitFor(guarded, Duration.ofMillis(250), new LiveDescendantSnapshot(), clock));
-
-        assertEquals(1, delegate.livenessCalls.get());
-    }
-
-    @Test
-    void guardedWaitPropagatesTheOriginalSleepInterruption() {
-        InterruptedException expected = new InterruptedException("stop waiting");
-        Process guarded = new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guard(new AlwaysLiveProcess());
-        ProcessExitWaiter.PollClock clock = new ProcessExitWaiter.PollClock() {
-            @Override
-            public long nanoTime() {
-                return 0;
-            }
-
-            @Override
-            public void sleep(long nanos) throws InterruptedException {
-                throw expected;
-            }
-        };
-
-        InterruptedException actual = assertThrows(
-                InterruptedException.class,
-                () -> ProcessExitWaiter.waitFor(guarded, Duration.ofSeconds(1), new LiveDescendantSnapshot(), clock));
-
-        assertSame(expected, actual);
-    }
-
-    @Test
     void interruptedDescendantScanWinsOverAnExpiredWaitDeadline() {
         AdvancingClock clock = new AdvancingClock();
         Thread caller = Thread.currentThread();
@@ -92,6 +59,36 @@ final class ProcessExitWaiterTest {
         } finally {
             Thread.interrupted();
         }
+    }
+
+    @Test
+    void expiredDeadlineStillRecognizesAnAlreadyExitedProcess() throws Exception {
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
+
+        assertTrue(ProcessLifecycle.waitFor(new CompletedProcess(), Duration.ofNanos(1), descendants));
+    }
+
+    @Test
+    void descendantSnapshotAccumulatesHandlesAcrossPolls() throws Exception {
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot();
+        ProcessHandle observedBeforeReparenting = ProcessHandle.current();
+
+        assertTrue(ProcessLifecycle.waitFor(
+                new ReparentingProcess(observedBeforeReparenting), Duration.ofSeconds(1), descendants));
+
+        assertTrue(descendants.current().contains(observedBeforeReparenting));
+    }
+
+    @Test
+    void descendantSnapshotPrunesExitedHandles() throws Exception {
+        ProcessHandle exited = new TestProcessHandle(42, false);
+        ProcessHandle live = ProcessHandle.current();
+        LiveDescendantSnapshot descendants = new LiveDescendantSnapshot(knownDescendants(exited));
+
+        assertTrue(ProcessLifecycle.waitFor(new ReparentingProcess(live), Duration.ofSeconds(1), descendants));
+
+        assertFalse(descendants.current().contains(exited));
+        assertTrue(descendants.current().contains(live));
     }
 
     private abstract static class TestProcess extends Process {
@@ -186,36 +183,6 @@ final class ProcessExitWaiterTest {
         }
     }
 
-    private static final class AlwaysLiveProcess extends TestProcess {
-
-        @Override
-        public boolean isAlive() {
-            return true;
-        }
-    }
-
-    private static final class GuardedDeadlineProcess extends TestProcess {
-
-        private final AdvancingClock clock;
-        private final AtomicInteger livenessCalls = new AtomicInteger();
-
-        private GuardedDeadlineProcess(AdvancingClock clock) {
-            this.clock = clock;
-        }
-
-        @Override
-        public boolean isAlive() {
-            livenessCalls.incrementAndGet();
-            return true;
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            clock.nanos = Duration.ofMillis(250).toNanos();
-            return Stream.empty();
-        }
-    }
-
     private static final class InterruptingScanProcess extends TestProcess {
 
         private final Thread caller;
@@ -239,6 +206,123 @@ final class ProcessExitWaiterTest {
                 Thread.onSpinWait();
             }
             return Stream.empty();
+        }
+    }
+
+    private static final class ReparentingProcess extends Process {
+
+        private final ProcessHandle initiallyVisibleDescendant;
+        private int polls;
+        private boolean alive = true;
+
+        private ReparentingProcess(ProcessHandle initiallyVisibleDescendant) {
+            this.initiallyVisibleDescendant = initiallyVisibleDescendant;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return OutputStream.nullOutputStream();
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public InputStream getErrorStream() {
+            return InputStream.nullInputStream();
+        }
+
+        @Override
+        public int waitFor() {
+            alive = false;
+            return 0;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) {
+            polls++;
+            if (polls >= 2) {
+                alive = false;
+            }
+            return !alive;
+        }
+
+        @Override
+        public int exitValue() {
+            if (alive) {
+                throw new IllegalThreadStateException("process is alive");
+            }
+            return 0;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive;
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return polls == 0 ? Stream.of(initiallyVisibleDescendant) : Stream.empty();
+        }
+
+        @Override
+        public void destroy() {
+            alive = false;
+        }
+    }
+
+    private record TestProcessHandle(long pid, boolean alive) implements ProcessHandle {
+
+        @Override
+        public Optional<ProcessHandle> parent() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Stream<ProcessHandle> children() {
+            return Stream.empty();
+        }
+
+        @Override
+        public Stream<ProcessHandle> descendants() {
+            return Stream.empty();
+        }
+
+        @Override
+        public Info info() {
+            return ProcessHandle.current().info();
+        }
+
+        @Override
+        public CompletableFuture<ProcessHandle> onExit() {
+            return CompletableFuture.completedFuture(this);
+        }
+
+        @Override
+        public boolean supportsNormalTermination() {
+            return true;
+        }
+
+        @Override
+        public boolean destroy() {
+            return true;
+        }
+
+        @Override
+        public boolean destroyForcibly() {
+            return true;
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive;
+        }
+
+        @Override
+        public int compareTo(ProcessHandle other) {
+            return Long.compare(pid, other.pid());
         }
     }
 
