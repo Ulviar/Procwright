@@ -7,9 +7,9 @@ ordinary failure modes that make process libraries useful: a command times out, 
 unusable, or a listener fails. In those cases Procwright applies the configured shutdown policy and drains owned streams.
 
 One topology gets explicit handling in `run`: a descendant that inherited the command's stdout or stderr pipe and
-outlives it. When the process has exited but an inherited output pipe is still open, the run fails with a
-`CommandExecutionException` explaining that a descendant process may be holding the pipe, and forceful cleanup also
-targets descendants observed while the process was alive.
+outlives it. Output drain uses the same deadline as process waiting, so an inherited pipe that remains open produces a
+timed-out `CommandResult` even when the root process exited normally. Cleanup also targets descendants observed while
+the root was alive.
 
 During graceful and forceful shutdown, Procwright refreshes the descendant set and retains observed reparented
 descendants while they remain alive. Interactive-session close and pooled worker retirement use the same

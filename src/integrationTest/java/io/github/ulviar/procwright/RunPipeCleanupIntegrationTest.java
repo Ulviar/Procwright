@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.CommandInput;
+import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.internal.ProcessKernel;
 import java.io.IOException;
@@ -60,11 +61,11 @@ final class RunPipeCleanupIntegrationTest {
     }
 
     @Test
-    void orphanedDescendantHoldingOutputPipeIsKilledAndFailureExplainsCause(@TempDir Path directory) throws Exception {
+    void inheritedOutputPipeCountsAgainstTheRunDeadlineAndItsHolderIsKilled(@TempDir Path directory) throws Exception {
         assumeFalse(isWindows(), "The orphaned POSIX pipe fixture is not portable to Windows");
         Path pidFile = directory.resolve("grandchild.pid");
 
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
+        CommandResult result = fixtureService()
                 .run()
                 .withArgs(
                         "spawn-child",
@@ -72,12 +73,11 @@ final class RunPipeCleanupIntegrationTest {
                         "--inherit-output=true",
                         "--pid-file=" + pidFile,
                         "--linger-millis=500")
-                .withTimeout(Duration.ofSeconds(10))
-                .execute());
+                .withTimeout(Duration.ofSeconds(1))
+                .execute();
 
-        assertTrue(
-                exception.getMessage().contains("a descendant process that inherited stdout or stderr"),
-                () -> "failure message must explain the orphaned pipe holder: " + exception.getMessage());
+        assertTrue(result.timedOut(), "an open inherited pipe is part of the run operation");
+        assertEquals(0, result.exitCode().orElseThrow(), "the root process exited normally before the drain timeout");
         long orphanPid = waitForPositivePid(pidFile, Duration.ofSeconds(5));
         assertProcessEventuallyStops(orphanPid);
     }

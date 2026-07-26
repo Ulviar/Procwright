@@ -74,7 +74,9 @@ Runtime получает только согласованный plan и не у
 
 После запуска владельцем инварианта становится конкретный runtime component:
 
-- первый one-shot terminal outcome из process exit, timeout и stdin failure — `OneShotTermination`;
+- первый сигнал для прекращения one-shot process wait — `OneShotSupervision`; итоговый outcome после capture и cleanup
+  принадлежит `OneShotExecution`;
+- единый absolute deadline ожидания процесса и output capture — `OneShotDeadline`;
 - декодирование завершенных one-shot captures и success/typed decode-failure `CommandResult` snapshot —
   `OneShotResultAssembler`;
 - session construction transaction — `SessionConstruction`;
@@ -88,7 +90,9 @@ Runtime получает только согласованный plan и не у
 - bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; запуск adaptive или
   session-affine execution owner-а задает `BoundedTaskRunner.TaskStarter`, lifecycle одного accepted вызова —
   `BoundedTaskExecution`;
-- транзакционное приобретение process streams и close permits — `ProcessIoAcquisition`, exact-once physical close и
+- стабильные one-shot process streams — `OwnedStreams`, exact-once logical close одного stream — `OwnedStream`;
+  physical close выполняется best effort и не входит в `CommandResult` publication;
+- транзакционное приобретение session streams и close permits — `ProcessIoAcquisition`, exact-once physical close и
   локальная close failure одного stream — `ProcessStreamResource`, bundle-level close и rollback —
   `ProcessIoResources`;
 - stdin serialization и logical close, output ownership и session-level close callbacks — `SessionResources`, output

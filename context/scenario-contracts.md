@@ -43,7 +43,9 @@
 - discard/file capture перенаправляется на уровне ОС без pump retention;
 - strict decoding возвращает typed `DECODE_ERROR`, а raw captured bytes остаются доступными;
 - non-progressing или нарушающий charset contract decoder не может бесконечно удерживать runtime;
-- timeout включает input writing, ожидание процесса, output drain и bounded cleanup;
+- один absolute timeout включает input writing, ожидание процесса и output drain; после его выбора обязательный
+  process-tree cleanup ограничен shutdown policy;
+- готовый result не ждёт поздний physical close уже логически закрытых process streams;
 - non-zero exit остается `CommandResult`; launch, supervision, I/O и decode failures — `CommandExecutionException`.
 
 Caller выбирает timeout, capture budget, charset policy, input, output mode и shutdown escalation.

@@ -37,11 +37,7 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
         TerminalProcess process =
                 new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream());
         ProcessKernel kernel = kernel(
-                ignored -> {},
-                (launchPlan, stdio) -> process,
-                new BoundedCloseDispatcher(3, 3),
-                Duration.ofSeconds(1),
-                () -> nanoTime.getAndSet(50));
+                ignored -> {}, (launchPlan, stdio) -> process, Duration.ofSeconds(1), () -> nanoTime.getAndSet(50));
 
         CommandResult result = kernel.run(executionPlan(
                 DiagnosticsSettings.disabled(), Optional.empty(), OutputMode.SEPARATE, Duration.ofSeconds(1)));
@@ -103,9 +99,9 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
     }
 
     @Test
-    void decodeFailureElapsedIsSampledAfterBlockedSupervisionCleanup() throws Exception {
+    void decodeFailureDoesNotWaitForBlockedPhysicalClose() throws Exception {
         AtomicBoolean cleanupFinished = new AtomicBoolean();
-        AtomicBoolean failureObservedAfterCleanup = new AtomicBoolean();
+        AtomicBoolean failureObservedBeforeCleanup = new AtomicBoolean();
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         BlockingCleanupInputStream stdout = new BlockingCleanupInputStream(cleanupFinished);
         TerminalProcess process = new TerminalProcess(stdout, new TrackingInputStream(), new TrackingOutputStream());
@@ -113,14 +109,13 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
         ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> process,
-                new BoundedCloseDispatcher(3, 3),
                 Duration.ofSeconds(1),
                 () -> nanoReads.getAndIncrement() == 0 ? 100L : cleanupFinished.get() ? 500L : 200L);
         ExecutionPlan plan = executionPlan(
                 DiagnosticsSettings.disabled().withListener(event -> {
                     events.add(event);
                     if (event.type() == DiagnosticEventType.PROCESS_FAILED) {
-                        failureObservedAfterCleanup.set(cleanupFinished.get());
+                        failureObservedBeforeCleanup.set(!cleanupFinished.get());
                     }
                 }),
                 Optional.empty(),
@@ -132,22 +127,22 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
         runner.start();
         try {
             assertTrue(stdout.awaitClose());
-            assertFalse(execution.isDone(), "decode failure must wait for physical supervision cleanup");
+            CommandExecutionException failure = (CommandExecutionException) execution.get(1, TimeUnit.SECONDS);
+            assertEquals(CommandExecutionException.Reason.DECODE_ERROR, failure.reason());
+            assertEquals(Duration.ofNanos(100), failure.result().orElseThrow().elapsed());
+            assertFalse(cleanupFinished.get());
+            assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
+            assertTrue(failureObservedBeforeCleanup.get());
+            assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
         } finally {
             stdout.releaseClose();
         }
 
-        CommandExecutionException failure = (CommandExecutionException) execution.get(1, TimeUnit.SECONDS);
-        assertEquals(CommandExecutionException.Reason.DECODE_ERROR, failure.reason());
-        assertEquals(Duration.ofNanos(400), failure.result().orElseThrow().elapsed());
-        assertTrue(cleanupFinished.get());
-        assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
-        assertTrue(failureObservedAfterCleanup.get());
-        assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
+        assertTrue(eventually(cleanupFinished::get));
     }
 
     @Test
-    void asynchronousStdoutAndStderrErrorsRetainIdentityAndOwnCloseFailures() throws Exception {
+    void asynchronousStdoutAndStderrErrorsRetainIdentityAndCloseStreams() throws Exception {
         for (boolean stdoutFails : new boolean[] {true, false}) {
             AssertionError readFailure = new AssertionError(stdoutFails ? "stdout read" : "stderr read");
             AssertionError closeFailure = new AssertionError(stdoutFails ? "stdout close" : "stderr close");
@@ -166,8 +161,7 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
 
             Error actual = assertThrows(Error.class, () -> kernel.run(plan));
 
-            assertSame(readFailure, FailureAggregation.primary(actual));
-            assertTrue(FailureAggregation.sources(actual).contains(closeFailure));
+            assertSame(readFailure, actual);
             assertEquals(0, readFailure.getSuppressed().length);
             assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
             assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
@@ -179,9 +173,8 @@ final class ProcessKernelFailureDiagnosticsTest extends ProcessKernelProcessFixt
                             .orElseThrow()
                             .attributes()
                             .get("error"));
-            assertEquals(1, failing.closeCalls());
-            assertEquals(1, other.closeCalls());
-            assertEquals(1, process.stdin.closeCalls());
+            assertTrue(eventually(
+                    () -> failing.closeCalls() == 1 && other.closeCalls() == 1 && process.stdin.closeCalls() == 1));
         }
     }
 

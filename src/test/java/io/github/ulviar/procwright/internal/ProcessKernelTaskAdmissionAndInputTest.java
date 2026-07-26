@@ -14,6 +14,7 @@ import io.github.ulviar.procwright.command.CommandInput;
 import io.github.ulviar.procwright.command.OutputMode;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -78,7 +79,6 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
                     return new TerminalProcess(
                             new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream());
                 },
-                new BoundedCloseDispatcher(3, 3),
                 Duration.ofMillis(50),
                 owner);
         ExecutionPlan plan = executionPlan(
@@ -123,12 +123,33 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
 
         Error actual = assertThrows(Error.class, () -> kernel.run(plan));
 
-        assertSame(writeFailure, FailureAggregation.primary(actual));
-        assertTrue(FailureAggregation.sources(actual).contains(closeFailure));
+        assertSame(writeFailure, actual);
         assertEquals(0, writeFailure.getSuppressed().length);
         assertTrue(eventually(() -> terminalCount(events, DiagnosticEventType.PROCESS_FAILED) == 1));
         assertEquals(0, terminalCount(events, DiagnosticEventType.PROCESS_EXITED));
-        assertEquals(1, stdin.closeCalls());
+        assertTrue(eventually(() -> stdin.closeCalls() == 1));
+    }
+
+    @Test
+    void earlyStdoutIoFailureBeatsTheRunDeadlineAndStopsTheLiveProcess() throws Exception {
+        IOException expected = new IOException("stdout read failed");
+        TerminalProcess process = new TerminalProcess(
+                new IoFailingInputStream(expected), new TrackingInputStream(), new TrackingOutputStream(), true);
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process);
+        FutureTask<Throwable> execution = new FutureTask<>(() -> captureFailure(() -> kernel.run(executionPlan(
+                DiagnosticsSettings.disabled(), Optional.empty(), OutputMode.SEPARATE, Duration.ofSeconds(30)))));
+        Thread caller = new Thread(execution, "one-shot-early-output-failure-test");
+        caller.setDaemon(true);
+        caller.start();
+
+        CommandExecutionException failure = (CommandExecutionException) execution.get(1, TimeUnit.SECONDS);
+
+        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, failure.reason());
+        assertSame(expected, failure.getCause().getCause());
+        assertFalse(process.isAlive());
+        assertTrue(eventually(() -> process.stdin.closeCalls() == 1
+                && process.stdout.closeCalls() == 1
+                && process.stderr.closeCalls() == 1));
     }
 
     @Test
@@ -136,8 +157,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
         NonCooperativeOutputStream stdin = new NonCooperativeOutputStream();
         TerminalProcess process = new NonCooperativeStdinProcess(new TrackingInputStream(), stdin);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        ProcessKernel kernel = kernel(
-                ignored -> {}, (launchPlan, stdio) -> process, new BoundedCloseDispatcher(3, 3), Duration.ofMillis(50));
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process, Duration.ofMillis(50));
         try {
             CommandExecutionException failure = assertThrows(
                     CommandExecutionException.class,
@@ -161,8 +181,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
         NonCooperativeOutputStream stdin = new NonCooperativeOutputStream();
         TerminalProcess process = new NonCooperativeStdinProcess(new ReadErrorInputStream(readFailure), stdin);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
-        ProcessKernel kernel = kernel(
-                ignored -> {}, (launchPlan, stdio) -> process, new BoundedCloseDispatcher(3, 3), Duration.ofMillis(50));
+        ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> process, Duration.ofMillis(50));
         try {
             Error actual = assertThrows(
                     Error.class,
@@ -209,7 +228,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
             assertTrue(stdout.readEntered.await(1, TimeUnit.SECONDS));
             assertTrue(eventually(() -> java.util.Arrays.stream(execution.getStackTrace())
                     .anyMatch(frame -> frame.getClassName().equals(OneShotExecution.class.getName())
-                            && frame.getMethodName().equals("awaitCapture"))));
+                            && frame.getMethodName().equals("awaitCaptureUntilDeadline"))));
 
             execution.interrupt();
             execution.join(TimeUnit.SECONDS.toMillis(2));
@@ -236,6 +255,20 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
 
         @Override
         public int read() {
+            throw failure;
+        }
+    }
+
+    private static final class IoFailingInputStream extends TrackingInputStream {
+
+        private final IOException failure;
+
+        private IoFailingInputStream(IOException failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public int read() throws IOException {
             throw failure;
         }
     }

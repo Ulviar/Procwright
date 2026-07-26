@@ -15,50 +15,62 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
-final class OneShotTerminationTest extends ProcessKernelProcessFixtureSupport {
+final class OneShotSupervisionTest extends ProcessKernelProcessFixtureSupport {
 
     @Test
     void completedStdinFailureWinsBeforeProcessExitOrTimeout() throws Exception {
         IllegalStateException expected = new IllegalStateException("stdin failed");
-        OneShotTermination termination = termination(liveProcess(), Duration.ofSeconds(1));
+        OneShotSupervision supervision = supervision(liveProcess(), Duration.ofSeconds(1));
 
-        termination.stdinFailureHandler().accept(expected);
+        supervision.stdinFailureHandler().accept(expected);
 
-        OneShotTermination.StdinFailure outcome =
-                assertInstanceOf(OneShotTermination.StdinFailure.class, termination.await());
-        assertSame(expected, outcome.failure());
+        OneShotSupervision.StdinFailure signal =
+                assertInstanceOf(OneShotSupervision.StdinFailure.class, supervision.await());
+        assertSame(expected, signal.failure());
     }
 
     @Test
     void processExitRemainsWinnerWhenStdinFailsLater() throws Exception {
-        OneShotTermination termination = termination(exitedProcess(), Duration.ofSeconds(1));
+        OneShotSupervision supervision = supervision(exitedProcess(), Duration.ofSeconds(1));
 
-        assertInstanceOf(OneShotTermination.ProcessExited.class, termination.await());
+        assertInstanceOf(OneShotSupervision.ProcessExited.class, supervision.await());
 
-        termination.stdinFailureHandler().accept(new IllegalStateException("late failure"));
-        assertInstanceOf(OneShotTermination.ProcessExited.class, termination.await());
+        supervision.stdinFailureHandler().accept(new IllegalStateException("late failure"));
+        assertInstanceOf(OneShotSupervision.ProcessExited.class, supervision.await());
     }
 
     @Test
-    void timeoutWinsWhenNoEarlierTerminalEventOccurs() throws Exception {
-        OneShotTermination termination = termination(liveProcess(), Duration.ofMillis(1));
+    void completedOutputFailureWinsBeforeProcessExitOrTimeout() throws Exception {
+        IllegalStateException expected = new IllegalStateException("stdout failed");
+        OneShotSupervision supervision = supervision(liveProcess(), Duration.ofSeconds(1));
 
-        assertInstanceOf(OneShotTermination.TimedOut.class, termination.await());
+        supervision.outputFailureHandler().accept(expected);
+
+        OneShotSupervision.OutputFailure signal =
+                assertInstanceOf(OneShotSupervision.OutputFailure.class, supervision.await());
+        assertSame(expected, signal.failure());
     }
 
     @Test
-    void selectedOutcomeWinsConcurrentInterruptionAndInterruptStatusIsRestored() throws Exception {
+    void timeoutWinsWhenNoEarlierSupervisionSignalOccurs() throws Exception {
+        OneShotSupervision supervision = supervision(liveProcess(), Duration.ofMillis(1));
+
+        assertInstanceOf(OneShotSupervision.TimedOut.class, supervision.await());
+    }
+
+    @Test
+    void selectedSignalWinsConcurrentInterruptionAndInterruptStatusIsRestored() throws Exception {
         AtomicReference<Runnable> beforeInterruption = new AtomicReference<>();
         InterruptingWaitProcess process = new InterruptingWaitProcess(beforeInterruption);
-        OneShotTermination termination = termination(process, Duration.ofSeconds(1));
+        OneShotSupervision supervision = supervision(process, Duration.ofSeconds(1));
         IllegalStateException expected = new IllegalStateException("stdin failed");
-        beforeInterruption.set(() -> termination.stdinFailureHandler().accept(expected));
+        beforeInterruption.set(() -> supervision.stdinFailureHandler().accept(expected));
 
         try {
-            OneShotTermination.StdinFailure outcome =
-                    assertInstanceOf(OneShotTermination.StdinFailure.class, termination.await());
+            OneShotSupervision.StdinFailure signal =
+                    assertInstanceOf(OneShotSupervision.StdinFailure.class, supervision.await());
 
-            assertSame(expected, outcome.failure());
+            assertSame(expected, signal.failure());
             assertTrue(Thread.currentThread().isInterrupted());
         } finally {
             Thread.interrupted();
@@ -66,18 +78,18 @@ final class OneShotTerminationTest extends ProcessKernelProcessFixtureSupport {
     }
 
     @Test
-    void interruptionPropagatesWhenNoTerminalOutcomeWasSelected() {
+    void interruptionPropagatesWhenNoSupervisionSignalWasSelected() {
         AtomicReference<Runnable> beforeInterruption = new AtomicReference<>(() -> {});
         InterruptingWaitProcess process = new InterruptingWaitProcess(beforeInterruption);
-        OneShotTermination termination = termination(process, Duration.ofSeconds(1));
+        OneShotSupervision supervision = supervision(process, Duration.ofSeconds(1));
 
-        InterruptedException actual = assertThrows(InterruptedException.class, termination::await);
+        InterruptedException actual = assertThrows(InterruptedException.class, supervision::await);
 
         assertSame(process.interruption, actual);
     }
 
-    private static OneShotTermination termination(Process process, Duration timeout) {
-        return new OneShotTermination(process, timeout, new LiveDescendantSnapshot());
+    private static OneShotSupervision supervision(Process process, Duration timeout) {
+        return new OneShotSupervision(process, OneShotDeadline.start(timeout), new LiveDescendantSnapshot());
     }
 
     private static TerminalProcess exitedProcess() {

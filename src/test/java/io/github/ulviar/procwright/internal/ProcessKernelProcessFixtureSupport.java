@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.concurrent.TimeUnit;
@@ -16,7 +17,7 @@ abstract class ProcessKernelProcessFixtureSupport extends ProcessKernelTestSuppo
         final AtomicInteger closeCalls = new AtomicInteger();
 
         @Override
-        public int read() {
+        public int read() throws IOException {
             return -1;
         }
 

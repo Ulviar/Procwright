@@ -29,56 +29,38 @@ abstract class ProcessKernelTestSupport {
 
     static ProcessKernel kernel(Consumer<Process> postStartHook, ProcessKernel.ProcessStarter processStarter) {
         return kernel(
-                postStartHook,
-                processStarter,
-                BoundedCloseDispatcher.shared(),
-                Duration.ofSeconds(5),
-                OneShotIoTaskOwner.shared(),
-                System::nanoTime);
+                postStartHook, processStarter, Duration.ofSeconds(5), OneShotIoTaskOwner.shared(), System::nanoTime);
+    }
+
+    static ProcessKernel kernel(
+            Consumer<Process> postStartHook, ProcessKernel.ProcessStarter processStarter, Duration cleanupTimeout) {
+        return kernel(postStartHook, processStarter, cleanupTimeout, OneShotIoTaskOwner.shared(), System::nanoTime);
     }
 
     static ProcessKernel kernel(
             Consumer<Process> postStartHook,
             ProcessKernel.ProcessStarter processStarter,
-            BoundedCloseDispatcher closeDispatcher,
-            Duration cleanupTimeout) {
-        return kernel(
-                postStartHook,
-                processStarter,
-                closeDispatcher,
-                cleanupTimeout,
-                OneShotIoTaskOwner.shared(),
-                System::nanoTime);
-    }
-
-    static ProcessKernel kernel(
-            Consumer<Process> postStartHook,
-            ProcessKernel.ProcessStarter processStarter,
-            BoundedCloseDispatcher closeDispatcher,
             Duration cleanupTimeout,
             LongSupplier nanoTime) {
-        return kernel(
-                postStartHook, processStarter, closeDispatcher, cleanupTimeout, OneShotIoTaskOwner.shared(), nanoTime);
+        return kernel(postStartHook, processStarter, cleanupTimeout, OneShotIoTaskOwner.shared(), nanoTime);
     }
 
     static ProcessKernel kernel(
             Consumer<Process> postStartHook,
             ProcessKernel.ProcessStarter processStarter,
-            BoundedCloseDispatcher closeDispatcher,
             Duration cleanupTimeout,
             OneShotIoTaskOwner ioTaskOwner) {
-        return kernel(postStartHook, processStarter, closeDispatcher, cleanupTimeout, ioTaskOwner, System::nanoTime);
+        return kernel(postStartHook, processStarter, cleanupTimeout, ioTaskOwner, System::nanoTime);
     }
 
     static ProcessKernel kernel(
             Consumer<Process> postStartHook,
             ProcessKernel.ProcessStarter processStarter,
-            BoundedCloseDispatcher closeDispatcher,
             Duration cleanupTimeout,
             OneShotIoTaskOwner ioTaskOwner,
             LongSupplier nanoTime) {
-        return new ProcessKernel(new ProcessKernel.Dependencies(
-                postStartHook, processStarter, closeDispatcher, cleanupTimeout, ioTaskOwner, nanoTime));
+        return new ProcessKernel(
+                new ProcessKernel.Dependencies(postStartHook, processStarter, cleanupTimeout, ioTaskOwner, nanoTime));
     }
 
     static int terminalCount(List<DiagnosticEvent> events, DiagnosticEventType type) {

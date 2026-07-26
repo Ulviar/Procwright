@@ -18,12 +18,7 @@ public final class ProcessKernel {
 
     private ProcessKernel(Consumer<Process> postStartHook) {
         this(new Dependencies(
-                postStartHook,
-                ProcessLauncher::start,
-                BoundedCloseDispatcher.shared(),
-                CLEANUP_TIMEOUT,
-                OneShotIoTaskOwner.shared(),
-                System::nanoTime));
+                postStartHook, ProcessLauncher::start, CLEANUP_TIMEOUT, OneShotIoTaskOwner.shared(), System::nanoTime));
     }
 
     ProcessKernel(Dependencies dependencies) {
@@ -46,7 +41,6 @@ public final class ProcessKernel {
     record Dependencies(
             Consumer<Process> postStartHook,
             ProcessStarter processStarter,
-            BoundedCloseDispatcher closeDispatcher,
             Duration cleanupTimeout,
             OneShotIoTaskOwner ioTaskOwner,
             LongSupplier nanoTime) {
@@ -54,7 +48,6 @@ public final class ProcessKernel {
         Dependencies {
             Objects.requireNonNull(postStartHook, "postStartHook");
             Objects.requireNonNull(processStarter, "processStarter");
-            Objects.requireNonNull(closeDispatcher, "closeDispatcher");
             Objects.requireNonNull(cleanupTimeout, "cleanupTimeout");
             Objects.requireNonNull(ioTaskOwner, "ioTaskOwner");
             Objects.requireNonNull(nanoTime, "nanoTime");

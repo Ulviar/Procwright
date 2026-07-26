@@ -21,9 +21,17 @@
 `ProcessKernel` является stateless service и хранит только зависимости one-shot runtime. Один вызов передается новому
 `OneShotExecution`, который владеет всеми mutable ресурсами и фазами ровно одного запуска: подготовкой I/O, launch,
 ожиданием terminal outcome, cleanup и сборкой результата. Immutable `OneShotIoPlan` переводит согласованный
-`ExecutionPlan` в redirects, stdin action и точное число I/O tasks до launch. `OneShotTermination` выбирает первый из
-process exit, timeout и stdin failure. После cleanup `OneShotResultAssembler` декодирует завершенные captures и строит
-success либо typed decode-failure `CommandResult`, сохраняя raw bytes в обоих случаях.
+`ExecutionPlan` в redirects, stdin action и точное число I/O tasks до launch. `OneShotSupervision` выбирает первый
+сигнал, прекращающий ожидание process: exit, timeout, stdin failure или ранний output capture failure.
+`OneShotExecution` остаётся владельцем итогового outcome, потому что output capture после natural exit ещё может
+завершиться failure. После cleanup `OneShotResultAssembler` декодирует завершенные captures и строит success либо typed
+decode-failure `CommandResult`, сохраняя raw bytes в обоих случаях.
+`OneShotDeadline` задаёт один absolute deadline для ожидания terminal outcome и обоих output captures: natural exit
+root не маскирует timeout, если унаследованный pipe остаётся открыт после deadline.
+`OwnedStreams` один раз получает стабильные ссылки на stdin/stdout/stderr, а каждый `OwnedStream` владеет своим
+exact-once logical close. One-shot
+cleanup ожидает обязательные I/O tasks и process-tree termination, но не ожидает поздний physical stream close:
+последний выполняется best effort и не изменяет уже готовый result или failure.
 
 Общий process runtime также разделен по наблюдаемым инвариантам. `ProcessLauncher` владеет launch обычного pipe process.
 `ProcessLiveness` консервативно определяет, доказан ли выход обычного процесса, а для guarded operations различает
@@ -63,6 +71,7 @@ status. Итоговое решение о completion root и всего дер�
 - `CommandSpec` является единственным общим launch snapshot, а `LaunchPlan.from(...)` — единственным местом его
   преобразования в готовую команду; scenario settings не копируют argv, environment или working directory.
 - One-shot I/O topology вычисляется один раз до launch, а первый terminal outcome после выбора не заменяется.
+- One-shot stream ownership не использует глобальную close capacity; physical stream close не является result gate.
 - Mutable state двух one-shot запусков не может пересекаться: каждый запуск получает отдельный `OneShotExecution`.
 - One-shot result decoding не зависит от process lifecycle и сохраняет исходные captured bytes в success и typed
   decode-failure results.
@@ -131,8 +140,8 @@ status. Итоговое решение о completion root и всего дер�
 - `PackageBoundaryTest` допускает dependency на root package только как public error boundary.
 - `ProcwrightExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
 - `CommandSpecTest` и `LaunchPlanTest` проверяют единый launch snapshot и его материализацию.
-- `OneShotIoPlanTest`, `OneShotTerminationTest` и `OneShotResultAssemblerTest` проверяют one-shot topology, terminal
-  arbitration и result assembly напрямую.
+- `OneShotIoPlanTest`, `OneShotSupervisionTest` и `OneShotResultAssemblerTest` проверяют one-shot topology, process
+  supervision и result assembly напрямую.
 - `ProcessLauncherTest`, `ProcessLivenessTest`, `ProcessExitWaiterTest` и `LiveDescendantSnapshotTest` проверяют
   процессный launch, наблюдение, natural wait и snapshot без фиксации внутренностей shutdown-автомата.
 - `ShutdownFailureLedgerTest`, `ShutdownTreeStateTest` и `ProcessShutdownSignalsTest` напрямую проверяют извлеченные

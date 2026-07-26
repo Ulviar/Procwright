@@ -209,9 +209,7 @@ final class ProcessStressTest {
     }
 
     private static ShutdownPolicy timeoutChurnShutdown() {
-        Duration interruptGrace = isWindows() ? Duration.ofMillis(50) : Duration.ofMillis(10);
-        Duration killGrace = isWindows() ? Duration.ofSeconds(1) : Duration.ofMillis(250);
-        return ShutdownPolicy.interruptThenKill(interruptGrace, killGrace);
+        return ShutdownPolicy.interruptThenKill(Duration.ofSeconds(1), Duration.ofSeconds(1));
     }
 
     private static long timeoutChurnWaitSeconds() {

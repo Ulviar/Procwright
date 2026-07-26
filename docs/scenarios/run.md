@@ -59,6 +59,10 @@ decoded text. In the example, `CapturePolicy.bounded(256 * 1024)` retains the fi
 stream while continuing to drain later output. `stdoutTruncated()` and `stderrTruncated()` identify streams whose later
 bytes were discarded. Redirected or discarded streams produce empty captured values.
 
+The timeout is one deadline for stdin writing, process waiting, and output drain. A child process that keeps an
+inherited output pipe open can therefore make the result timed out after the root process has already exited. Required
+process-tree cleanup starts after that outcome is selected and remains bounded by the shutdown policy.
+
 `CommandResult.succeeded()` requires a zero exit code and no timeout. Launch and supervision failures throw
 `CommandExecutionException`; a normal non-zero exit remains a result until the caller converts it with `toException()`.
 

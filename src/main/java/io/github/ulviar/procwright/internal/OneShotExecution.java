@@ -16,28 +16,24 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Consumer;
 
 /** Owns the mutable lifecycle and resources of one one-shot command execution. */
 final class OneShotExecution {
 
-    private static final Duration OUTPUT_DRAIN_TIMEOUT = Duration.ofSeconds(5);
-
     private final ExecutionPlan plan;
     private final ProcessKernel.Dependencies dependencies;
     private final long startedNanos;
+    private final OneShotDeadline deadline;
     private final DiagnosticEmitter diagnostics;
     private final LiveDescendantSnapshot liveDescendants = new LiveDescendantSnapshot();
-    private final FailureCollector asynchronousCloseFailures = new FailureCollector();
-    private final Consumer<Throwable> recordCloseFailure = asynchronousCloseFailures::record;
 
     private OneShotIoPlan ioPlan;
     private OneShotIoTaskOwner.Reservation ioTasks;
     private Process process;
-    private ProcessIoResources resources;
+    private OwnedStreams resources;
     private ExecutorService executor;
-    private Future<CapturedOutput> stdoutCapture;
-    private Future<CapturedOutput> stderrCapture;
+    private OneShotIoTaskOwner.OwnedFuture<CapturedOutput> stdoutCapture;
+    private OneShotIoTaskOwner.OwnedFuture<CapturedOutput> stderrCapture;
     private OneShotIoTaskOwner.OwnedFuture<Void> stdinWriter;
     private PendingCapture pendingCapture;
     private Throwable primaryFailure;
@@ -47,6 +43,7 @@ final class OneShotExecution {
         this.plan = Objects.requireNonNull(plan, "plan");
         this.dependencies = Objects.requireNonNull(dependencies, "dependencies");
         startedNanos = dependencies.nanoTime().getAsLong();
+        deadline = OneShotDeadline.start(plan.timeout());
         diagnostics = DiagnosticEmitter.of(plan.diagnostics(), "run", () -> CommandEchoSupport.from(plan.launchPlan()));
     }
 
@@ -81,19 +78,28 @@ final class OneShotExecution {
 
     private void acquireResources() {
         try {
-            resources = ProcessIoResources.acquire(process, dependencies.closeDispatcher());
+            resources = OwnedStreams.acquire(process);
         } catch (RuntimeException | Error failure) {
+            Throwable outcome = failure;
+            try {
+                ProcessLifecycle.forceStop(process, dependencies.cleanupTimeout());
+            } catch (RuntimeException | Error cleanupFailure) {
+                outcome = combineFailures(outcome, cleanupFailure);
+            }
             ioTasks.close();
-            diagnostics.emitProcessFailure(failure);
-            throw failure;
+            diagnostics.emitProcessFailure(FailureAggregation.primary(outcome));
+            if (outcome instanceof Error error) {
+                throw error;
+            }
+            throw (RuntimeException) outcome;
         }
     }
 
     private void runStartedProcess() {
         try {
             startLifecycle();
-            OneShotTermination.Outcome outcome = awaitTerminalOutcome();
-            ProcessCompletion completion = settleProcess(outcome);
+            OneShotSupervision.Signal signal = awaitSupervisionSignal();
+            ProcessCompletion completion = settleProcess(signal);
             captureOutput(completion);
         } catch (RuntimeException | Error failure) {
             handleExecutionFailure(failure);
@@ -121,53 +127,82 @@ final class OneShotExecution {
                 ? ioTasks.submit(
                         executor, () -> CapturedOutput.capture(resources.stderr().stream(), ioPlan.boundedCapture()))
                 : null;
-        stdinWriter =
-                startStdinWriter(resources.stdin(), ioPlan.stdinOperation(), executor, ioTasks, recordCloseFailure);
+        stdinWriter = startStdinWriter(resources.stdin(), ioPlan.stdinOperation(), executor, ioTasks);
     }
 
-    private OneShotTermination.Outcome awaitTerminalOutcome() {
-        OneShotTermination termination = new OneShotTermination(process, plan.timeout(), liveDescendants);
+    private OneShotSupervision.Signal awaitSupervisionSignal() {
+        OneShotSupervision supervision = new OneShotSupervision(process, deadline, liveDescendants);
         if (stdinWriter != null) {
-            stdinWriter.onFailure(termination.stdinFailureHandler());
+            stdinWriter.onFailure(supervision.stdinFailureHandler());
+        }
+        if (stdoutCapture != null) {
+            stdoutCapture.onFailure(supervision.outputFailureHandler());
+        }
+        if (stderrCapture != null) {
+            stderrCapture.onFailure(supervision.outputFailureHandler());
         }
         try {
-            return termination.await();
+            return supervision.await();
         } catch (InterruptedException interruption) {
             restoreInterrupt = true;
             throw interruptedFailure(process, plan, liveDescendants, diagnostics, interruption);
         }
     }
 
-    private ProcessCompletion settleProcess(OneShotTermination.Outcome outcome) {
-        if (outcome instanceof OneShotTermination.StdinFailure stdinFailure) {
+    private ProcessCompletion settleProcess(OneShotSupervision.Signal signal) {
+        if (signal instanceof OneShotSupervision.StdinFailure stdinFailure) {
             throwStdinFailure(stdinFailure.failure());
         }
-        boolean timedOut = outcome instanceof OneShotTermination.TimedOut;
-        OptionalInt exitCode;
-        if (timedOut) {
-            diagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
-            diagnostics.emit(DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "timeout"));
-            resources.stdin().closeAsync("procwright-process-stdin-close-", recordCloseFailure);
-            exitCode = stopTimedOutWithoutStdinClose(process, liveDescendants.sealForCleanup(), plan.shutdownPolicy());
-        } else {
-            exitCode = OptionalInt.of(process.exitValue());
+        if (signal instanceof OneShotSupervision.OutputFailure outputFailure) {
+            throw outputFailure(outputFailure.failure());
         }
+        if (signal instanceof OneShotSupervision.TimedOut) {
+            return settleTimeout(OptionalInt.empty());
+        }
+        OptionalInt exitCode = OptionalInt.of(process.exitValue());
         if (stdinWriter != null) {
             stdinWriter.cancel(true);
         }
-        return new ProcessCompletion(exitCode, timedOut);
+        return new ProcessCompletion(exitCode, false);
     }
 
     private void captureOutput(ProcessCompletion completion) {
-        CapturedOutput stdout = stdoutCapture == null
-                ? CapturedOutput.empty()
-                : awaitCapture(stdoutCapture, completion.timedOut(), completion.exitCode());
-        CapturedOutput stderr = stderrCapture == null
-                ? CapturedOutput.empty()
-                : awaitCapture(stderrCapture, completion.timedOut(), completion.exitCode());
+        CapturedOutput stdout = CapturedOutput.empty();
+        CapturedOutput stderr = CapturedOutput.empty();
+        boolean stdoutSettled = stdoutCapture == null;
+        boolean stderrSettled = stderrCapture == null;
+        try {
+            if (!stdoutSettled) {
+                stdout = awaitCaptureUntilDeadline(stdoutCapture, completion.timedOut());
+                stdoutSettled = true;
+            }
+            if (!stderrSettled) {
+                stderr = awaitCaptureUntilDeadline(stderrCapture, completion.timedOut());
+                stderrSettled = true;
+            }
+        } catch (TimeoutException timeout) {
+            completion = completion.timedOut() ? completion : settleTimeout(completion.exitCode());
+            if (!stdoutSettled) {
+                stdout = awaitCaptureAfterShutdown(stdoutCapture);
+            }
+            if (!stderrSettled) {
+                stderr = awaitCaptureAfterShutdown(stderrCapture);
+            }
+        }
         emitTruncation("stdout", stdout);
         emitTruncation("stderr", stderr);
         pendingCapture = new PendingCapture(completion.exitCode(), stdout, stderr, completion.timedOut());
+    }
+
+    private ProcessCompletion settleTimeout(OptionalInt knownExitCode) {
+        diagnostics.emit(DiagnosticEventType.TIMEOUT_REACHED);
+        diagnostics.emit(DiagnosticEventType.SHUTDOWN_REQUESTED, DiagnosticEmitter.attributes("reason", "timeout"));
+        resources.stdin().close();
+        OptionalInt stoppedExit = stopTimedOutProcess(process, liveDescendants.sealForCleanup(), plan.shutdownPolicy());
+        if (stdinWriter != null) {
+            stdinWriter.cancel(true);
+        }
+        return new ProcessCompletion(knownExitCode.isPresent() ? knownExitCode : stoppedExit, true);
     }
 
     private void emitTruncation(String source, CapturedOutput output) {
@@ -189,17 +224,13 @@ final class OneShotExecution {
                 DiagnosticEventType.SHUTDOWN_REQUESTED,
                 DiagnosticEmitter.attributes("reason", "failure"),
                 failure);
-        primaryFailure =
-                forceStopAfterFailureWithoutStreamClose(process, liveDescendants.sealForCleanup(), primaryFailure);
+        primaryFailure = forceStopAfterFailureWithoutStreamClose(
+                process, liveDescendants.sealForCleanup(), dependencies.cleanupTimeout(), primaryFailure);
     }
 
     private void cleanup() {
         try {
-            try {
-                resources.closeAllAsync(recordCloseFailure);
-            } catch (RuntimeException | Error closeDispatchFailure) {
-                primaryFailure = combineFailures(primaryFailure, closeDispatchFailure);
-            }
+            resources.closeAll();
             if (executor != null) {
                 executor.shutdownNow();
                 CommandExecutionException cleanupFailure =
@@ -208,9 +239,6 @@ final class OneShotExecution {
                     primaryFailure = combineFailures(primaryFailure, cleanupFailure);
                 }
             }
-            Throwable streamCloseFailure = resources.awaitClose(dependencies.cleanupTimeout());
-            primaryFailure = combineFailures(primaryFailure, asynchronousCloseFailures.failure());
-            primaryFailure = combineFailures(primaryFailure, streamCloseFailure);
         } finally {
             ioTasks.close();
             restoreInterrupt |= Thread.interrupted();
@@ -253,52 +281,36 @@ final class OneShotExecution {
     }
 
     private static OneShotIoTaskOwner.OwnedFuture<Void> startStdinWriter(
-            ProcessStreamResource<OutputStream> output,
+            OwnedStream<OutputStream> output,
             OneShotIoPlan.StdinOperation stdin,
             ExecutorService executor,
-            OneShotIoTaskOwner.Reservation ioTasks,
-            Consumer<? super Throwable> closeFailureHandler) {
+            OneShotIoTaskOwner.Reservation ioTasks) {
         return switch (stdin.action()) {
             case CLOSE -> {
-                output.closeAsync("procwright-process-stdin-close-", closeFailureHandler);
+                output.close();
                 yield null;
             }
             case REDIRECT -> null;
             case WRITE ->
                 ioTasks.submit(executor, () -> {
-                    writeStdin(output, stdin, closeFailureHandler);
+                    writeStdin(output, stdin);
                     return null;
                 });
         };
     }
 
-    private static void writeStdin(
-            ProcessStreamResource<OutputStream> output,
-            OneShotIoPlan.StdinOperation stdin,
-            Consumer<? super Throwable> closeFailureHandler) {
-        Throwable primaryFailure = null;
+    private static void writeStdin(OwnedStream<OutputStream> output, OneShotIoPlan.StdinOperation stdin) {
         try {
             output.stream().write(stdin.writeInput().copyBytes());
         } catch (java.io.IOException exception) {
-            primaryFailure = new CommandExecutionException(
+            throw new CommandExecutionException(
                     CommandExecutionException.Reason.RUNTIME_FAILURE, "Could not write command stdin", exception);
-            throw (CommandExecutionException) primaryFailure;
-        } catch (RuntimeException | Error failure) {
-            primaryFailure = failure;
-            throw failure;
         } finally {
-            try {
-                output.closeAsync("procwright-process-stdin-close-", closeFailureHandler);
-            } catch (RuntimeException | Error closeDispatchFailure) {
-                if (primaryFailure != null) {
-                    rethrow(combineFailures(primaryFailure, closeDispatchFailure));
-                }
-                throw closeDispatchFailure;
-            }
+            output.close();
         }
     }
 
-    private static OptionalInt stopTimedOutWithoutStdinClose(
+    private static OptionalInt stopTimedOutProcess(
             Process process, KnownDescendants knownDescendants, ShutdownPolicy shutdownPolicy) {
         return ProcessLifecycle.stop(process, knownDescendants, shutdownPolicy);
     }
@@ -324,37 +336,52 @@ final class OneShotExecution {
         return executionFailure(outcome);
     }
 
-    private static CapturedOutput awaitCapture(
-            Future<CapturedOutput> output, boolean terminalShutdown, OptionalInt exitCode) {
+    private CapturedOutput awaitCaptureUntilDeadline(Future<CapturedOutput> output, boolean terminalShutdown)
+            throws TimeoutException {
         try {
-            return output.get(DurationSupport.saturatedMillis(OUTPUT_DRAIN_TIMEOUT), TimeUnit.MILLISECONDS);
+            return deadline.await(output);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CommandExecutionException("Interrupted while capturing command output", exception);
+        } catch (TimeoutException exception) {
+            throw exception;
+        } catch (ExecutionException exception) {
+            return captureOutcome(exception, terminalShutdown);
+        }
+    }
+
+    private CapturedOutput awaitCaptureAfterShutdown(Future<CapturedOutput> output) {
+        try {
+            return output.get(DurationSupport.saturatedMillis(dependencies.cleanupTimeout()), TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new CommandExecutionException("Interrupted while capturing command output", exception);
         } catch (TimeoutException exception) {
             output.cancel(true);
-            throw new CommandExecutionException(drainTimeoutMessage(terminalShutdown, exitCode), exception);
+            throw new CommandExecutionException("Timed out while draining command output after shutdown", exception);
         } catch (ExecutionException exception) {
-            if (exception.getCause() instanceof Error error) {
-                throw error;
-            }
-            if (terminalShutdown) {
-                CapturedOutput shutdownOutput = shutdownOutput(exception.getCause());
-                if (shutdownOutput != null) {
-                    return shutdownOutput;
-                }
-            }
-            throw new CommandExecutionException("Could not capture command output", exception.getCause());
+            return captureOutcome(exception, true);
         }
     }
 
-    private static String drainTimeoutMessage(boolean terminalShutdown, OptionalInt exitCode) {
-        if (terminalShutdown || exitCode.isEmpty()) {
-            return "Timed out while draining command output";
+    private static CapturedOutput captureOutcome(ExecutionException exception, boolean terminalShutdown) {
+        if (exception.getCause() instanceof Error error) {
+            throw error;
         }
-        return "Timed out while draining command output: the process exited (code " + exitCode.getAsInt()
-                + ") but its output pipe is still open - a descendant process that inherited stdout or stderr"
-                + " may be holding it";
+        if (terminalShutdown) {
+            CapturedOutput shutdownOutput = shutdownOutput(exception.getCause());
+            if (shutdownOutput != null) {
+                return shutdownOutput;
+            }
+        }
+        throw outputFailure(exception.getCause());
+    }
+
+    private static RuntimeException outputFailure(Throwable failure) {
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return new CommandExecutionException("Could not capture command output", failure);
     }
 
     private static void throwStdinFailure(Throwable failure) {
@@ -383,9 +410,9 @@ final class OneShotExecution {
     }
 
     private static Throwable forceStopAfterFailureWithoutStreamClose(
-            Process process, KnownDescendants knownDescendants, Throwable primaryFailure) {
+            Process process, KnownDescendants knownDescendants, Duration cleanupTimeout, Throwable primaryFailure) {
         try {
-            ProcessLifecycle.forceStop(process, knownDescendants, OUTPUT_DRAIN_TIMEOUT);
+            ProcessLifecycle.forceStop(process, knownDescendants, cleanupTimeout);
             return primaryFailure;
         } catch (RuntimeException | Error cleanupFailure) {
             return combineFailures(primaryFailure, cleanupFailure);
@@ -467,27 +494,4 @@ final class OneShotExecution {
 
     private record PendingCapture(
             OptionalInt exitCode, CapturedOutput stdout, CapturedOutput stderr, boolean timedOut) {}
-
-    private static final class FailureCollector {
-
-        private java.util.ArrayList<Throwable> failures;
-
-        private synchronized void record(Throwable candidate) {
-            if (failures == null) {
-                failures = new java.util.ArrayList<>(2);
-            }
-            failures.add(Objects.requireNonNull(candidate, "candidate"));
-        }
-
-        private Throwable failure() {
-            List<Throwable> snapshot;
-            synchronized (this) {
-                if (failures == null) {
-                    return null;
-                }
-                snapshot = List.copyOf(failures);
-            }
-            return FailureAggregation.combine(snapshot, "Multiple asynchronous process stream closes failed");
-        }
-    }
 }
