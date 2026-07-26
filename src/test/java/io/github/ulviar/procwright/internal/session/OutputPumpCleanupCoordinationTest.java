@@ -13,6 +13,7 @@ import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixture
 import static io.github.ulviar.procwright.internal.session.OutputPumpTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
@@ -22,6 +23,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -169,15 +171,18 @@ final class OutputPumpCleanupCoordinationTest {
     }
 
     @Test
-    void latePrimaryInstalledAfterProcessExitOwnsFuturePhysicalCloseFailures() throws Exception {
+    void pumpFailureSelectedAfterCloseStartsOwnsBothCloseFailures() throws Exception {
         AssertionError stdoutCloseFailure = new AssertionError("stdout close failed");
         AssertionError stderrCloseFailure = new AssertionError("stderr close failed");
-        AssertionError latePrimary = new AssertionError("late terminal primary");
+        AssertionError fallback = new AssertionError("fallback process outcome");
+        AssertionError pumpFailure = new AssertionError("pump failure selected after close started");
         GatedThrowingCloseInputStream stdout = new GatedThrowingCloseInputStream(stdoutCloseFailure);
         GatedThrowingCloseInputStream stderr = new GatedThrowingCloseInputStream(stderrCloseFailure);
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultSession rawSession = session(process, new BoundedCloseDispatcher(2, 2));
-        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "late-primary");
+        List<ReportedFailure> reports = new CopyOnWriteArrayList<>();
+        BoundedCloseDispatcher closeDispatcher = reportingCloseDispatcher(reports);
+        DefaultSession rawSession = session(process, closeDispatcher);
+        OutputPumpCoordinator coordinator = new OutputPumpCoordinator(rawSession, "late-pump-failure");
         CountDownLatch outputCleanupCompleted = new CountDownLatch(1);
         coordinator.publishAfterOutputCleanup(outputCleanupCompleted::countDown);
         CountDownLatch pumpsFinished = new CountDownLatch(2);
@@ -201,25 +206,34 @@ final class OutputPumpCleanupCoordinationTest {
                 assertFalse(pumpThread.isAlive());
             }
 
+            retainFallbackFrom("late-pump-fallback-source", coordinator, fallback, reports);
             coordinator.closeSession();
             assertTrue(stdout.awaitCloseStarted());
             assertTrue(stderr.awaitCloseStarted());
             assertTrue(rawSession.terminationPublished());
             assertFalse(rawSession.onExit().isDone());
 
-            coordinator.closeSessionPreserving(latePrimary);
+            coordinator.closeSessionPreserving(pumpFailure);
             stdout.releaseClose();
             stderr.releaseClose();
             assertTrue(stdout.awaitCloseCompleted());
             assertTrue(stderr.awaitCloseCompleted());
             assertTrue(outputCleanupCompleted.await(1, TimeUnit.SECONDS));
             rawSession.onExit().handle((result, failure) -> null).get(1, TimeUnit.SECONDS);
+            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
 
-            assertEquals(0, latePrimary.getSuppressed().length);
+            assertReportedOnceFromSource(reports, "late-pump-fallback-source", fallback);
+            assertReportedOnceFromSourcePrefix(
+                    reports, "procwright-late-pump-failure-stdout-close-", stdoutCloseFailure);
+            assertReportedOnceFromSourcePrefix(
+                    reports, "procwright-late-pump-failure-stderr-close-", stderrCloseFailure);
+            assertEquals(0, reportCount(reports, pumpFailure));
+            assertEquals(3, reports.size());
+            assertEquals(0, pumpFailure.getSuppressed().length);
         } finally {
             stdout.releaseClose();
             stderr.releaseClose();
-            coordinator.closeSessionPreserving(latePrimary);
+            coordinator.closeSessionPreserving(pumpFailure);
             rawSession.close();
         }
     }
@@ -368,4 +382,54 @@ final class OutputPumpCleanupCoordinationTest {
             rawSession.close();
         }
     }
+
+    private static BoundedCloseDispatcher reportingCloseDispatcher(List<ReportedFailure> reports) {
+        return new BoundedCloseDispatcher(2, 2, (name, task) -> {
+            Thread thread = new Thread(task, name);
+            thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler(
+                    (source, failure) -> reports.add(new ReportedFailure(source.getName(), failure)));
+            thread.start();
+        });
+    }
+
+    private static void retainFallbackFrom(
+            String sourceName,
+            OutputPumpCoordinator coordinator,
+            Throwable fallback,
+            List<ReportedFailure> reports)
+            throws InterruptedException {
+        Thread source = new Thread(() -> coordinator.retainFailure(fallback), sourceName);
+        source.setUncaughtExceptionHandler(
+                (reportedSource, failure) -> reports.add(new ReportedFailure(reportedSource.getName(), failure)));
+        source.start();
+        source.join(TimeUnit.SECONDS.toMillis(1));
+        assertFalse(source.isAlive(), "fallback registration must complete");
+    }
+
+    private static void assertReportedOnceFromSource(
+            List<ReportedFailure> reports, String sourceName, Throwable expectedFailure) {
+        List<ReportedFailure> matching = reports.stream()
+                .filter(report -> report.sourceName().equals(sourceName))
+                .filter(report -> report.failure() == expectedFailure)
+                .toList();
+        assertEquals(1, matching.size());
+        assertSame(expectedFailure, matching.get(0).failure());
+    }
+
+    private static void assertReportedOnceFromSourcePrefix(
+            List<ReportedFailure> reports, String sourceNamePrefix, Throwable expectedFailure) {
+        List<ReportedFailure> matching = reports.stream()
+                .filter(report -> report.sourceName().startsWith(sourceNamePrefix))
+                .filter(report -> report.failure() == expectedFailure)
+                .toList();
+        assertEquals(1, matching.size());
+        assertSame(expectedFailure, matching.get(0).failure());
+    }
+
+    private static long reportCount(List<ReportedFailure> reports, Throwable expectedFailure) {
+        return reports.stream().filter(report -> report.failure() == expectedFailure).count();
+    }
+
+    private record ReportedFailure(String sourceName, Throwable failure) {}
 }

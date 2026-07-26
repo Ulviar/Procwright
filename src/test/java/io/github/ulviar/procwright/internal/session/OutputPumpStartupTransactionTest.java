@@ -137,13 +137,15 @@ final class OutputPumpStartupTransactionTest {
 
     @Test
     void unreservedConstructionRollbackClosesAndSettlesBothOutputs() throws Exception {
-        for (boolean closeStarterFails : new boolean[] {false, true}) {
+        for (CloseDispatchAdmission admission : CloseDispatchAdmission.values()) {
             IllegalStateException startFailure = new IllegalStateException("output close starter failed");
-            BoundedCloseDispatcher dispatcher = closeStarterFails
-                    ? new BoundedCloseDispatcher(2, 2, (name, task) -> {
+            BoundedCloseDispatcher dispatcher = switch (admission) {
+                case ACCEPTED -> new BoundedCloseDispatcher(2, 2);
+                case REJECTED ->
+                    new BoundedCloseDispatcher(2, 2, (name, task) -> {
                         throw startFailure;
-                    })
-                    : new BoundedCloseDispatcher(2, 2);
+                    });
+            };
             CloseTrackingInputStream stdout = new CloseTrackingInputStream();
             CloseTrackingInputStream stderr = new CloseTrackingInputStream();
             ControllableProcess process = new ControllableProcess(stdout, stderr);
@@ -397,6 +399,11 @@ final class OutputPumpStartupTransactionTest {
         LINE,
         PROTOCOL,
         STREAM
+    }
+
+    private enum CloseDispatchAdmission {
+        ACCEPTED,
+        REJECTED
     }
 
     private static final class StartThenThrowPumpStarter implements PumpStarter {
