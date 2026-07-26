@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -14,7 +16,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-final class LineSessionResponseDecoderIntegrationTest extends LineSessionIntegrationSupport {
+final class LineSessionResponseDecoderIntegrationTest {
 
     @Test
     void customDecoderCanReadMultipleLines() {

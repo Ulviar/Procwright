@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
-final class LineSessionCharsetPolicyIntegrationTest extends LineSessionIntegrationSupport {
+final class LineSessionCharsetPolicyIntegrationTest {
 
     @Test
     void strictCharsetPolicyReportsDecodeErrorAsTypedFailure() {

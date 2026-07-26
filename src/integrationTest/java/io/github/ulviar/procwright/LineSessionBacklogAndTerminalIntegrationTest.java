@@ -2,6 +2,9 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.openLineSession;
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.sleep;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,7 +18,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-final class LineSessionBacklogAndTerminalIntegrationTest extends LineSessionBacklogIntegrationSupport {
+final class LineSessionBacklogAndTerminalIntegrationTest {
 
     @Test
     void timeoutTranscriptIncludesPartialUnterminatedOutput() {
@@ -162,5 +165,24 @@ final class LineSessionBacklogAndTerminalIntegrationTest extends LineSessionBack
             assertEquals("response:stderr-burst", response.text());
             assertTrue(eventuallyTranscriptTruncated(session));
         }
+    }
+
+    private static boolean eventuallyTranscriptTruncated(LineSession session) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (session.transcript().truncated()) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return false;
+    }
+
+    private static Duration timeoutAfterFixtureStartup() {
+        return isWindows() ? Duration.ofSeconds(2) : Duration.ofSeconds(1);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }

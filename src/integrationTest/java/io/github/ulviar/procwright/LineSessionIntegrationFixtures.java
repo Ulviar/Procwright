@@ -8,7 +8,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.UnaryOperator;
 
-abstract class LineSessionIntegrationSupport {
+final class LineSessionIntegrationFixtures {
+
+    private LineSessionIntegrationFixtures() {}
 
     static LineSessionScenario.Draft fixtureScenario() {
         return Procwright.command(TestCliSupport.command()).lineSession();

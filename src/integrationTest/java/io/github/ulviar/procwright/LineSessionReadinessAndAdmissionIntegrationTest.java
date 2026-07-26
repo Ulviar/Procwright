@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.LineSessionIntegrationFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -16,7 +18,7 @@ import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-final class LineSessionReadinessAndAdmissionIntegrationTest extends LineSessionIntegrationSupport {
+final class LineSessionReadinessAndAdmissionIntegrationTest {
 
     @Test
     void requestSendsLineAndReadsDefaultResponse() {
