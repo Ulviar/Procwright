@@ -38,15 +38,15 @@ final class DefaultLineSessionRequestAdmissionTest {
 
     @Test
     void serializedWaiterTimeoutBeforeAdmissionLeavesLineSessionReusableAndWritesNothing() throws Exception {
-        assertRecoverableSerializedWaiterFailure(false);
+        assertRecoverableSerializedWaiterFailure(AdmissionFailure.TIMEOUT);
     }
 
     @Test
     void serializedWaiterInterruptionBeforeAdmissionLeavesLineSessionReusableAndRestoresInterrupt() throws Exception {
-        assertRecoverableSerializedWaiterFailure(true);
+        assertRecoverableSerializedWaiterFailure(AdmissionFailure.INTERRUPTION);
     }
 
-    private static void assertRecoverableSerializedWaiterFailure(boolean interrupt) throws Exception {
+    private static void assertRecoverableSerializedWaiterFailure(AdmissionFailure admissionFailure) throws Exception {
         ResponseInputStream stdout = new ResponseInputStream();
         ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         CountDownLatch firstResponseStarted = new CountDownLatch(1);
@@ -78,7 +78,7 @@ final class DefaultLineSessionRequestAdmissionTest {
             });
             assertTrue(lockWaiter.awaitContended(), "second request did not enter the serialization wait");
 
-            if (interrupt) {
+            if (admissionFailure == AdmissionFailure.INTERRUPTION) {
                 Objects.requireNonNull(waiterThread.get(), "waiterThread").interrupt();
             } else {
                 lockWaiter.expire();
@@ -87,16 +87,18 @@ final class DefaultLineSessionRequestAdmissionTest {
                     assertInstanceOf(LineSessionException.class, waiter.get(2, TimeUnit.SECONDS));
 
             assertEquals(
-                    interrupt ? LineSessionException.Reason.FAILURE : LineSessionException.Reason.TIMEOUT,
+                    admissionFailure == AdmissionFailure.INTERRUPTION
+                            ? LineSessionException.Reason.FAILURE
+                            : LineSessionException.Reason.TIMEOUT,
                     failure.reason());
-            if (interrupt) {
+            if (admissionFailure == AdmissionFailure.INTERRUPTION) {
                 assertEquals("Interrupted while waiting to start line request", failure.getMessage());
                 assertInstanceOf(InterruptedException.class, failure.getCause());
             } else {
                 assertEquals("Line request timed out", failure.getMessage());
                 assertNull(failure.getCause());
             }
-            assertEquals(interrupt, waiterInterruptRestored.get());
+            assertEquals(admissionFailure == AdmissionFailure.INTERRUPTION, waiterInterruptRestored.get());
             assertEquals("active\n", stdin.writtenText());
             assertFalse(lineSession.onExit().isDone());
 
@@ -117,28 +119,30 @@ final class DefaultLineSessionRequestAdmissionTest {
 
     @Test
     void fatalErrorSelectedBeforeSerializedWaiterInterruptionWinsByIdentityAndRestoresInterrupt() throws Exception {
-        assertSelectedTerminalWinsSerializedWaiterFailure(true, true);
+        assertSelectedTerminalWinsSerializedWaiterFailure(SelectedTerminal.FATAL_OUTPUT, AdmissionFailure.INTERRUPTION);
     }
 
     @Test
     void closedSelectedBeforeSerializedWaiterInterruptionWinsAndRestoresInterrupt() throws Exception {
-        assertSelectedTerminalWinsSerializedWaiterFailure(false, true);
+        assertSelectedTerminalWinsSerializedWaiterFailure(SelectedTerminal.CLOSED, AdmissionFailure.INTERRUPTION);
     }
 
     @Test
     void fatalErrorSelectedBeforeSerializedWaiterTimeoutWinsByIdentity() throws Exception {
-        assertSelectedTerminalWinsSerializedWaiterFailure(true, false);
+        assertSelectedTerminalWinsSerializedWaiterFailure(SelectedTerminal.FATAL_OUTPUT, AdmissionFailure.TIMEOUT);
     }
 
     @Test
     void closedSelectedBeforeSerializedWaiterTimeoutWins() throws Exception {
-        assertSelectedTerminalWinsSerializedWaiterFailure(false, false);
+        assertSelectedTerminalWinsSerializedWaiterFailure(SelectedTerminal.CLOSED, AdmissionFailure.TIMEOUT);
     }
 
-    private static void assertSelectedTerminalWinsSerializedWaiterFailure(boolean fatal, boolean interrupt)
-            throws Exception {
+    private static void assertSelectedTerminalWinsSerializedWaiterFailure(
+            SelectedTerminal selectedTerminal, AdmissionFailure admissionFailure) throws Exception {
         AssertionError fatalError = new AssertionError("fatal output failure selected while line request waits");
-        InputStream stdout = fatal ? new GatedErrorInputStream(fatalError) : new BlockingUntilClosedInputStream();
+        InputStream stdout = selectedTerminal == SelectedTerminal.FATAL_OUTPUT
+                ? new GatedErrorInputStream(fatalError)
+                : new BlockingUntilClosedInputStream();
         ByteArrayOutputStream stdin = new ByteArrayOutputStream();
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
         CountDownLatch responseStarted = new CountDownLatch(1);
@@ -165,7 +169,7 @@ final class DefaultLineSessionRequestAdmissionTest {
             });
             assertTrue(lockWaiter.awaitContended(), "second request did not enter the serialization wait");
 
-            if (fatal) {
+            if (selectedTerminal == SelectedTerminal.FATAL_OUTPUT) {
                 ((GatedErrorInputStream) stdout).releaseFailure();
                 lineSession.onExit().get(2, TimeUnit.SECONDS);
             } else {
@@ -173,26 +177,26 @@ final class DefaultLineSessionRequestAdmissionTest {
             }
             int fatalSuppressedBeforeWaiter = fatalError.getSuppressed().length;
 
-            if (interrupt) {
+            if (admissionFailure == AdmissionFailure.INTERRUPTION) {
                 Objects.requireNonNull(waiterThread.get(), "waiterThread").interrupt();
             } else {
                 lockWaiter.expire();
             }
             Throwable waiterFailure = waiter.get(2, TimeUnit.SECONDS);
 
-            if (fatal) {
+            if (selectedTerminal == SelectedTerminal.FATAL_OUTPUT) {
                 assertSame(fatalError, waiterFailure);
                 assertEquals(fatalSuppressedBeforeWaiter, fatalError.getSuppressed().length);
             } else {
                 LineSessionException closed = assertInstanceOf(LineSessionException.class, waiterFailure);
                 assertEquals(LineSessionException.Reason.CLOSED, closed.reason());
             }
-            assertEquals(interrupt, waiterInterruptRestored.get());
+            assertEquals(admissionFailure == AdmissionFailure.INTERRUPTION, waiterInterruptRestored.get());
             assertEquals("active\n", stdin.toString(StandardCharsets.UTF_8));
 
             releaseResponse.countDown();
             Throwable activeFailure = active.get(2, TimeUnit.SECONDS);
-            if (fatal) {
+            if (selectedTerminal == SelectedTerminal.FATAL_OUTPUT) {
                 assertSame(fatalError, activeFailure);
             } else {
                 assertEquals(
@@ -201,7 +205,7 @@ final class DefaultLineSessionRequestAdmissionTest {
                                 .reason());
             }
             Throwable followUp = captureFailure(() -> lineSession.request("follow-up"));
-            if (fatal) {
+            if (selectedTerminal == SelectedTerminal.FATAL_OUTPUT) {
                 assertSame(fatalError, followUp);
             } else {
                 assertEquals(
@@ -216,6 +220,16 @@ final class DefaultLineSessionRequestAdmissionTest {
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
+    }
+
+    private enum AdmissionFailure {
+        TIMEOUT,
+        INTERRUPTION
+    }
+
+    private enum SelectedTerminal {
+        FATAL_OUTPUT,
+        CLOSED
     }
 
     private static final class GatedErrorInputStream extends InputStream {

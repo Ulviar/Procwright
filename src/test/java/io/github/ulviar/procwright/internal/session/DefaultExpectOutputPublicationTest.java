@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.CloseTrackingInputStream;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.passthroughDecoder;
@@ -12,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.internal.Threading;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -32,9 +32,8 @@ final class DefaultExpectOutputPublicationTest {
     void closeWinningBeforeDecodedPublicationPreventsPublication() throws Exception {
         GatedPublicationCharset charset = new GatedPublicationCharset();
         TrackingPumpStarter pumpStarter = new TrackingPumpStarter();
-        ControllableProcess process = new ControllableProcess(
-                new CloseTrackingInputStream(new byte[] {'x'}),
-                InputStream.nullInputStream());
+        ControllableProcess process =
+                new ControllableProcess(new ByteArrayInputStream(new byte[] {'x'}), InputStream.nullInputStream());
         DefaultSession rawSession = session(process);
         DefaultExpect expect = new DefaultExpect(
                 rawSession, ExpectSettings.defaults().withCharset(charset), ZeroReadBackoff.exponential(), pumpStarter);

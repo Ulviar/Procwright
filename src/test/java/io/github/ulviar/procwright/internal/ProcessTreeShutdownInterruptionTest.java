@@ -381,11 +381,11 @@ final class ProcessTreeShutdownInterruptionTest {
             return alive.get();
         }
 
-        private int gracefulDestroyCalls() {
+        int gracefulDestroyCalls() {
             return gracefulDestroyCalls.get();
         }
 
-        private int forceDestroyCalls() {
+        int forceDestroyCalls() {
             return forceDestroyCalls.get();
         }
     }
