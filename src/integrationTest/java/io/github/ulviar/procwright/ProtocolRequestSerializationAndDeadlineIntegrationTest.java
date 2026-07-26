@@ -2,8 +2,6 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolConcurrencyIntegrationSupport.CoordinatedTwoLineAdapter;
-import static io.github.ulviar.procwright.ProtocolConcurrencyIntegrationSupport.SlowAfterReadAdapter;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.StdoutLineAdapter;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TwoLineTextAdapter;
@@ -18,11 +16,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.session.ProtocolAdapter;
+import io.github.ulviar.procwright.session.ProtocolReader;
 import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolSession;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class ProtocolConcurrencyAndDeadlineIntegrationTest {
+final class ProtocolRequestSerializationAndDeadlineIntegrationTest {
 
     @Test
     void protocolRequestTimeoutClosesProcessAndPreservesTerminalReason() throws Exception {
@@ -218,5 +218,59 @@ final class ProtocolConcurrencyAndDeadlineIntegrationTest {
         assertTrue(thread != null, task + " thread was not captured");
         thread.join(TimeUnit.SECONDS.toMillis(1));
         assertFalse(thread.isAlive(), task + " thread retained its bounded-runner permit");
+    }
+
+    private static final class CoordinatedTwoLineAdapter implements ProtocolAdapter<String, String> {
+
+        private final CountDownLatch firstResponseStarted;
+        private final List<String> writtenRequests = new ArrayList<>();
+
+        private CoordinatedTwoLineAdapter(CountDownLatch firstResponseStarted) {
+            this.firstResponseStarted = firstResponseStarted;
+        }
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writtenRequests.add(request);
+            writer.writeLine(request);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            ProtocolReader stdout = readers.stdout();
+            String first = stdout.readLine(32);
+            firstResponseStarted.countDown();
+            return first + "\n" + stdout.readLine(32);
+        }
+
+        private List<String> writtenRequests() {
+            return List.copyOf(writtenRequests);
+        }
+    }
+
+    private static final class SlowAfterReadAdapter implements ProtocolAdapter<String, String> {
+
+        private final CountDownLatch responseRead;
+        private final CountDownLatch release;
+
+        private SlowAfterReadAdapter(CountDownLatch responseRead, CountDownLatch release) {
+            this.responseRead = responseRead;
+            this.release = release;
+        }
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.writeLine(request);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            String response = readers.stdout().readLine(64);
+            responseRead.countDown();
+            awaitIgnoringInterrupts(release);
+            return response;
+        }
     }
 }

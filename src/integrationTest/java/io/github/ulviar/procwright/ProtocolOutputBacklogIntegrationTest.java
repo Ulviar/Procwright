@@ -2,8 +2,6 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.ProtocolOutputIntegrationSupport.StderrEchoAdapter;
-import static io.github.ulviar.procwright.ProtocolOutputIntegrationSupport.StderrLineAdapter;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.StdoutLineAdapter;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.awaitIgnoringInterrupts;
@@ -154,6 +152,39 @@ final class ProtocolOutputBacklogIntegrationTest {
                 fixtureService(), new StderrEchoAdapter(), call -> call.withArgs("controlled-line-repl")
                         .withOutputBacklogLimit(1024))) {
             assertEquals("ping", session.request("ping", Duration.ofSeconds(2)));
+        }
+    }
+
+    private static final class StderrLineAdapter implements ProtocolAdapter<String, String> {
+
+        private final int maxChars;
+
+        private StderrLineAdapter(int maxChars) {
+            this.maxChars = maxChars;
+        }
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return readers.stderr().readLine(maxChars);
+        }
+    }
+
+    private static final class StderrEchoAdapter implements ProtocolAdapter<String, String> {
+
+        @Override
+        public void writeRequest(String request, ProtocolWriter writer) {
+            writer.writeLine(":stderr " + request);
+            writer.flush();
+        }
+
+        @Override
+        public String readResponse(ProtocolReaders readers) {
+            return readers.stderr().readLine(64);
         }
     }
 }
