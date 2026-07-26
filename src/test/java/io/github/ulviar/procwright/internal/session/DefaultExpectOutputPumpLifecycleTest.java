@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.CloseTrackingInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-final class DefaultExpectOutputPumpLifecycleTest extends ExpectTestSupport {
+final class DefaultExpectOutputPumpLifecycleTest {
 
     @Test
     void closeStopsProcessBeforeBlockingOutputClosesAndDoesNotWaitForThem() throws Exception {
@@ -69,8 +73,7 @@ final class DefaultExpectOutputPumpLifecycleTest extends ExpectTestSupport {
     void zeroLengthPumpsBackOffAndCloseExactlyOnceForEitherStream() throws Exception {
         for (boolean zeroStdout : List.of(true, false)) {
             ZeroForeverInputStream zeroStream = new ZeroForeverInputStream();
-            ExpectOutputTestFixtures.CloseTrackingInputStream eofStream =
-                    new ExpectOutputTestFixtures.CloseTrackingInputStream(new byte[0]);
+            CloseTrackingInputStream eofStream = new CloseTrackingInputStream(new byte[0]);
             BlockingZeroReadBackoff backoff = new BlockingZeroReadBackoff();
             InputStream stdout = zeroStdout ? zeroStream : eofStream;
             InputStream stderr = zeroStdout ? eofStream : zeroStream;

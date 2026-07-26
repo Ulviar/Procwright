@@ -2,6 +2,11 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.CloseTrackingInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.passthroughDecoder;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,14 +26,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-final class DefaultExpectOutputPublicationTest extends ExpectTestSupport {
+final class DefaultExpectOutputPublicationTest {
 
     @Test
     void closeWinningBeforeDecodedPublicationPreventsPublication() throws Exception {
         GatedPublicationCharset charset = new GatedPublicationCharset();
         TrackingPumpStarter pumpStarter = new TrackingPumpStarter();
         ControllableProcess process = new ControllableProcess(
-                new ExpectOutputTestFixtures.CloseTrackingInputStream(new byte[] {'x'}),
+                new CloseTrackingInputStream(new byte[] {'x'}),
                 InputStream.nullInputStream());
         DefaultSession rawSession = session(process);
         DefaultExpect expect = new DefaultExpect(
@@ -64,7 +69,7 @@ final class DefaultExpectOutputPublicationTest extends ExpectTestSupport {
         @Override
         public CharsetDecoder newDecoder() {
             if (!Thread.currentThread().getName().contains("stdout")) {
-                return ExpectOutputTestFixtures.passthroughDecoder(this);
+                return passthroughDecoder(this);
             }
             return new CharsetDecoder(this, 1, 1) {
                 @Override

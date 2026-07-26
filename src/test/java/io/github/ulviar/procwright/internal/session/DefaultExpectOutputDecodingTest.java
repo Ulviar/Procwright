@@ -2,6 +2,13 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.CloseTrackingInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.FeedInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.passthroughDecoder;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -28,7 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
-final class DefaultExpectOutputDecodingTest extends ExpectTestSupport {
+final class DefaultExpectOutputDecodingTest {
 
     @Test
     void ansiStrippingIsIncrementalAndAppliedToMatchingAndTranscript() throws Exception {
@@ -61,8 +68,7 @@ final class DefaultExpectOutputDecodingTest extends ExpectTestSupport {
     void outputOnlyDecoderIsBoundedAndTerminatesExpectForEitherStream() throws Exception {
         for (String failingSource : List.of("stdout", "stderr")) {
             ThreadSelectedOutputOnlyCharset charset = new ThreadSelectedOutputOnlyCharset(failingSource);
-            ExpectOutputTestFixtures.CloseTrackingInputStream failing =
-                    new ExpectOutputTestFixtures.CloseTrackingInputStream(new byte[] {1});
+            CloseTrackingInputStream failing = new CloseTrackingInputStream(new byte[] {1});
             BlockingUntilClosedInputStream other = new BlockingUntilClosedInputStream();
             InputStream stdout = failingSource.equals("stdout") ? failing : other;
             InputStream stderr = failingSource.equals("stderr") ? failing : other;
@@ -111,7 +117,7 @@ final class DefaultExpectOutputDecodingTest extends ExpectTestSupport {
         @Override
         public CharsetDecoder newDecoder() {
             if (!Thread.currentThread().getName().contains(failingThreadFragment)) {
-                return ExpectOutputTestFixtures.passthroughDecoder(this);
+                return passthroughDecoder(this);
             }
             return new CharsetDecoder(this, 1, 1) {
                 @Override

@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.GatedEofInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -22,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class DefaultExpectOutputFailureArbitrationTest extends ExpectTestSupport {
+final class DefaultExpectOutputFailureArbitrationTest {
 
     @Test
     void laterFatalOutputFailureCannotDelayPumpOrSessionCleanup() throws Exception {

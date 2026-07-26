@@ -2,7 +2,13 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import io.github.ulviar.procwright.command.ShutdownPolicy;
+import io.github.ulviar.procwright.session.ExpectException;
+import io.github.ulviar.procwright.session.ExpectMatch;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -18,13 +24,19 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-abstract class ExpectTestSupport {
+final class ExpectTestFixtures {
+
+    private ExpectTestFixtures() {}
+
     static DefaultSession session(Process process) {
         return SessionTestFixtures.open(
                 process,
@@ -154,6 +166,95 @@ abstract class ExpectTestSupport {
         }
         if (interrupted) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    static ExpectException expectFailure(Future<ExpectMatch> future) throws Exception {
+        ExecutionException wrapper = assertThrows(ExecutionException.class, () -> future.get(2, TimeUnit.SECONDS));
+        return assertInstanceOf(ExpectException.class, wrapper.getCause());
+    }
+
+    static final class BlockingFirstRegexEvaluator implements ExpectRegexMatcher.Evaluator {
+
+        final AtomicInteger invocations = new AtomicInteger();
+        final CountDownLatch started = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final CountDownLatch stopped = new CountDownLatch(1);
+
+        @Override
+        public ExpectRegexMatcher.Evaluation find(Pattern pattern, String text, int searchStart) {
+            if (invocations.getAndIncrement() == 0) {
+                started.countDown();
+                try {
+                    awaitUninterruptibly(release);
+                } finally {
+                    stopped.countDown();
+                }
+            }
+            return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
+        }
+
+        boolean awaitStarted() throws InterruptedException {
+            return started.await(1, TimeUnit.SECONDS);
+        }
+
+        void release() {
+            release.countDown();
+        }
+
+        boolean awaitStopped() throws InterruptedException {
+            return stopped.await(1, TimeUnit.SECONDS);
+        }
+
+        void awaitInvocationStopped() throws InterruptedException {
+            assertTrue(stopped.await(1, TimeUnit.SECONDS), "controlled matcher invocation must terminate");
+        }
+    }
+
+    static final class CloseTrackingInputStream extends InputStream {
+
+        private final byte[] bytes;
+        private final AtomicInteger closes = new AtomicInteger();
+        private final CountDownLatch closed = new CountDownLatch(1);
+        private int index;
+
+        CloseTrackingInputStream(byte[] bytes) {
+            this.bytes = bytes.clone();
+        }
+
+        @Override
+        public int read() {
+            return index < bytes.length ? Byte.toUnsignedInt(bytes[index++]) : -1;
+        }
+
+        @Override
+        public int read(byte[] target, int offset, int length) {
+            Objects.checkFromIndexSize(offset, length, target.length);
+            if (length == 0) {
+                return 0;
+            }
+            int remaining = bytes.length - index;
+            if (remaining == 0) {
+                return -1;
+            }
+            int count = Math.min(length, remaining);
+            System.arraycopy(bytes, index, target, offset, count);
+            index += count;
+            return count;
+        }
+
+        @Override
+        public void close() {
+            closes.incrementAndGet();
+            closed.countDown();
+        }
+
+        int closeCalls() {
+            return closes.get();
+        }
+
+        boolean awaitClose() throws InterruptedException {
+            return closed.await(1, TimeUnit.SECONDS);
         }
     }
 

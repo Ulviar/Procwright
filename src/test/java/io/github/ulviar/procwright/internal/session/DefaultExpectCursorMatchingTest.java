@@ -2,7 +2,12 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static io.github.ulviar.procwright.internal.session.ExpectMatchingTestFixtures.expectFailure;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.FeedInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expectFailure;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -26,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
-final class DefaultExpectCursorMatchingTest extends ExpectTestSupport {
+final class DefaultExpectCursorMatchingTest {
 
     @Test
     void concurrentRegexConsumersDoNotCommitTheSameCursorRevision() throws Exception {

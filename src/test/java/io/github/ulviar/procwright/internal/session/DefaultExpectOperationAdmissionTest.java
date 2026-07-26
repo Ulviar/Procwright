@@ -2,6 +2,9 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.FeedInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -12,7 +15,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
-final class DefaultExpectOperationAdmissionTest extends ExpectTestSupport {
+final class DefaultExpectOperationAdmissionTest {
 
     @Test
     void rejectedArgumentsAndTimeoutsDoNotMutateTranscript() {

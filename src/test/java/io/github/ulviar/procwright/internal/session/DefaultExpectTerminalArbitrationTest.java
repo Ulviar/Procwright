@@ -2,7 +2,14 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static io.github.ulviar.procwright.internal.session.ExpectMatchingTestFixtures.expectFailure;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.BlockingFirstRegexEvaluator;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.FeedInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.GatedEofInputStream;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expectFailure;
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -12,7 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.ExpectSettings;
 import io.github.ulviar.procwright.internal.Threading;
-import io.github.ulviar.procwright.internal.session.ExpectMatchingTestFixtures.BlockingFirstRegexEvaluator;
 import io.github.ulviar.procwright.session.ExpectException;
 import io.github.ulviar.procwright.session.ExpectMatch;
 import java.io.InputStream;
@@ -30,7 +36,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
-final class DefaultExpectTerminalArbitrationTest extends ExpectTestSupport {
+final class DefaultExpectTerminalArbitrationTest {
 
     @Test
     void timeoutArbitrationPrefersClosedState() throws Exception {
