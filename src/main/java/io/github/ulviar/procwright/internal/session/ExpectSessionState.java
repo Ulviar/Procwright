@@ -24,7 +24,6 @@ final class ExpectSessionState {
     private final BiConsumer<Thread, Error> lateFatalFailureReporter;
     private final BoundedTaskRunner.CancellationSignal terminalCancellation =
             new BoundedTaskRunner.CancellationSignal();
-    private final BoundedTaskRunner.CancellationToken terminalCancellationToken = terminalCancellation.token();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean stopping = new AtomicBoolean();
     private final AtomicBoolean malformed = new AtomicBoolean();
@@ -60,10 +59,6 @@ final class ExpectSessionState {
 
     void markMalformed(boolean detected) {
         malformed.compareAndSet(false, detected);
-    }
-
-    BoundedTaskRunner.CancellationToken terminalCancellationToken() {
-        return terminalCancellationToken;
     }
 
     BoundedTaskRunner.CancellationSignal terminalCancellationSignal() {

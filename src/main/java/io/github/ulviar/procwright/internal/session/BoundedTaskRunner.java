@@ -65,25 +65,6 @@ public final class BoundedTaskRunner {
                 task);
     }
 
-    static <T> T run(
-            BoundedTaskLimiter limiter,
-            String threadPrefix,
-            long deadlineNanos,
-            CancellationToken cancellation,
-            Task<T> task)
-            throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
-        return execute(
-                limiter,
-                threadPrefix,
-                deadlineNanos,
-                Objects.requireNonNull(cancellation, "cancellation").owner,
-                NO_OP_ABANDONMENT,
-                BoundedTaskHandoff.untracked(),
-                DEFAULT_TASK_STARTER,
-                System::nanoTime,
-                task);
-    }
-
     static <T> T runTracked(
             BoundedTaskLimiter limiter,
             String threadPrefix,
@@ -110,26 +91,6 @@ public final class BoundedTaskRunner {
                 abandonmentHandler,
                 BoundedTaskHandoff.untracked(),
                 DEFAULT_TASK_STARTER,
-                System::nanoTime,
-                task);
-    }
-
-    static <T> T runWithStarter(
-            BoundedTaskLimiter limiter,
-            String threadPrefix,
-            long deadlineNanos,
-            CancellationSignal cancellation,
-            TaskStarter taskStarter,
-            Task<T> task)
-            throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
-        return execute(
-                limiter,
-                threadPrefix,
-                deadlineNanos,
-                Objects.requireNonNull(cancellation, "cancellation"),
-                NO_OP_ABANDONMENT,
-                BoundedTaskHandoff.untracked(),
-                taskStarter,
                 System::nanoTime,
                 task);
     }
@@ -228,10 +189,6 @@ public final class BoundedTaskRunner {
             return true;
         }
 
-        CancellationToken token() {
-            return new CancellationToken(this);
-        }
-
         @Override
         public BoundedTaskPermit acquire(BoundedTaskLimiter limiter, long deadlineNanos, LongSupplier nanoTime)
                 throws TimeoutException, InterruptedException, TaskCancelledException {
@@ -271,15 +228,6 @@ public final class BoundedTaskRunner {
             synchronized (monitor) {
                 return listeners.size();
             }
-        }
-    }
-
-    static final class CancellationToken {
-
-        private final CancellationSignal owner;
-
-        private CancellationToken(CancellationSignal owner) {
-            this.owner = owner;
         }
     }
 

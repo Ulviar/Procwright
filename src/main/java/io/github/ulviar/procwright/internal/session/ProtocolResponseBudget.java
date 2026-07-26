@@ -6,7 +6,7 @@ import io.github.ulviar.procwright.session.ProtocolSessionException;
 import java.util.Objects;
 
 /**
- * Owns global byte and character limits for one protocol response.
+ * Owns callback-confined byte and character limits for one protocol response.
  */
 final class ProtocolResponseBudget {
 
@@ -22,12 +22,12 @@ final class ProtocolResponseBudget {
         this.failures = Objects.requireNonNull(failures, "failures");
     }
 
-    synchronized void addBytes(int count) {
+    void addBytes(int count) {
         ensureBytesAvailable(count);
         bytes += count;
     }
 
-    synchronized void addChars(int count) {
+    void addChars(int count) {
         if (count < 0) {
             throw new IllegalArgumentException("count must not be negative");
         }
@@ -37,7 +37,7 @@ final class ProtocolResponseBudget {
         }
     }
 
-    synchronized void ensureBytesAvailable(int count) {
+    void ensureBytesAvailable(int count) {
         if (count < 0) {
             throw new IllegalArgumentException("count must not be negative");
         }
@@ -46,15 +46,15 @@ final class ProtocolResponseBudget {
         }
     }
 
-    synchronized int remainingChars() {
+    int remainingChars() {
         return chars >= maxChars ? 0 : (int) (maxChars - chars);
     }
 
-    synchronized int remainingBytes() {
+    int remainingBytes() {
         return bytes >= maxBytes ? 0 : (int) (maxBytes - bytes);
     }
 
-    synchronized void ensureCharacterBudgetOpen() {
+    void ensureCharacterBudgetOpen() {
         if (chars > maxChars) {
             throw tooLarge("Protocol response exceeds maxResponseChars");
         }

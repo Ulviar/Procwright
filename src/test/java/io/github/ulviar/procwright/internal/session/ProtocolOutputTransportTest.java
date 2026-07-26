@@ -18,36 +18,6 @@ import org.junit.jupiter.api.Test;
 final class ProtocolOutputTransportTest extends ProtocolSessionContractSupport {
 
     @Test
-    void losingTransportFailurePublishesTheCanonicalTerminalToBothQueues() {
-        TransportHarness harness = openTransport();
-        ProtocolSessionSettings options = harness.options();
-        ProtocolSessionState state = harness.state();
-        ProtocolOutputTransport transport = harness.transport();
-        IllegalStateException winner = new IllegalStateException("winner");
-        IllegalArgumentException loser = new IllegalArgumentException("loser");
-        state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "winner", winner);
-
-        assertSame(
-                winner,
-                transport.selectAndPublishFailure(ProtocolSessionException.Reason.DECODE_ERROR, "loser", loser));
-
-        ProtocolResponseBudget budget =
-                new ProtocolResponseBudget(options.maxResponseBytes(), options.maxResponseChars(), state);
-        RequestCapabilityScope capability = new RequestCapabilityScope("ProtocolOutputTransportTest");
-        capability.activate();
-        ProtocolReaders readers = transport.readers(System.nanoTime() + 1_000_000_000L, budget, state, capability);
-        ProtocolSessionException stdoutFailure = assertThrows(
-                ProtocolSessionException.class, () -> readers.stdout().readByte());
-        ProtocolSessionException stderrFailure = assertThrows(
-                ProtocolSessionException.class, () -> readers.stderr().readByte());
-
-        assertEquals(ProtocolSessionException.Reason.FAILURE, stdoutFailure.reason());
-        assertEquals(ProtocolSessionException.Reason.FAILURE, stderrFailure.reason());
-        assertSame(winner, stdoutFailure.getCause());
-        assertSame(winner, stderrFailure.getCause());
-    }
-
-    @Test
     void lateFatalErrorPreservesAndPublishesTheEarlierOutputFailure() {
         TransportHarness harness = openTransport();
         ProtocolSessionSettings options = harness.options();

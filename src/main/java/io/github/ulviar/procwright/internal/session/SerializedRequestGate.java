@@ -6,7 +6,13 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** Serializes session requests while preserving their absolute deadline. */
+/**
+ * Owns caller admission: at most one request may execute, and waiting consumes the request's
+ * absolute deadline.
+ *
+ * <p>Session state separately tracks the admitted request so asynchronous output failures can be
+ * attributed to it.
+ */
 final class SerializedRequestGate {
 
     private final ReentrantLock lock = new ReentrantLock();

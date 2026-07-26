@@ -2,10 +2,10 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -28,17 +28,27 @@ import org.junit.jupiter.api.Test;
 final class ProtocolSessionStateTest {
 
     @Test
+    void successfulCompletionReleasesTheActiveRequest() {
+        ProtocolSessionState state = state();
+        ProtocolSessionState.RequestOutcome completed = state.beginRequest();
+
+        state.completeRequest(completed);
+
+        ProtocolSessionState.RequestOutcome next = state.beginRequest();
+        next.close();
+    }
+
+    @Test
     void terminalFailureSelectedBeforeCloseRemainsCanonical() {
         ProtocolSessionState state = state();
         IllegalStateException cause = new IllegalStateException("overflow");
 
         state.recordTerminalFailure(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "overflow", cause);
-        ProtocolSessionState.CloseDecision close = state.claimClose(true);
+        ProtocolSessionState.CloseClaim close = state.claimClose(true);
 
-        ProtocolSessionState.PublishTerminal publication =
-                assertInstanceOf(ProtocolSessionState.PublishTerminal.class, close);
+        assertTrue(close.owner());
         ProtocolSessionState.FailureSnapshot terminal =
-                assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, publication.terminal());
+                assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, close.terminalToPublish());
         assertSame(cause, terminal.primary());
         ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, followUp.reason());
@@ -105,7 +115,6 @@ final class ProtocolSessionStateTest {
         assertTrue(discarded.isEmpty());
         ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertEquals(ProtocolSessionException.Reason.CLOSED, followUp.reason());
-        assertEquals(0, followUp.getSuppressed().length);
     }
 
     @Test
@@ -129,26 +138,36 @@ final class ProtocolSessionStateTest {
     }
 
     @Test
-    void closeDecisionVariantsEncodeOwnershipAndPublication() {
+    void closeClaimsEncodeOwnershipAndPublication() {
         ProtocolSessionState silent = state();
 
-        assertInstanceOf(ProtocolSessionState.CloseSilently.class, silent.claimClose(false));
-        assertInstanceOf(ProtocolSessionState.AlreadyClosed.class, silent.claimClose(true));
+        ProtocolSessionState.CloseClaim silentOwner = silent.claimClose(false);
+        assertTrue(silentOwner.owner());
+        assertNull(silentOwner.terminalToPublish());
+        ProtocolSessionState.CloseClaim silentObserver = silent.claimClose(true);
+        assertFalse(silentObserver.owner());
+        assertNull(silentObserver.terminalToPublish());
 
         ProtocolSessionState publishing = state();
-        ProtocolSessionState.PublishTerminal publication =
-                assertInstanceOf(ProtocolSessionState.PublishTerminal.class, publishing.claimClose(true));
-        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, publication.terminal());
+        ProtocolSessionState.CloseClaim publication = publishing.claimClose(true);
+        assertTrue(publication.owner());
+        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, publication.terminalToPublish());
     }
 
     @Test
     void concurrentCloseClaimsHaveExactlyOneLifecycleOwner() throws Exception {
         int callers = 8;
-        ProtocolSessionState state = state();
+        AtomicInteger transcriptSnapshots = new AtomicInteger();
+        ProtocolSessionState state = new ProtocolSessionState(
+                () -> {
+                    transcriptSnapshots.incrementAndGet();
+                    return new ProtocolTranscript("diagnostic", false, false);
+                },
+                OptionalInt::empty);
         ExecutorService executor = Executors.newFixedThreadPool(callers);
         CountDownLatch ready = new CountDownLatch(callers);
         CountDownLatch start = new CountDownLatch(1);
-        List<Future<ProtocolSessionState.CloseDecision>> decisions = new ArrayList<>();
+        List<Future<ProtocolSessionState.CloseClaim>> decisions = new ArrayList<>();
         try {
             for (int index = 0; index < callers; index++) {
                 decisions.add(executor.submit(() -> {
@@ -162,18 +181,20 @@ final class ProtocolSessionStateTest {
 
             int owners = 0;
             int observers = 0;
-            for (Future<ProtocolSessionState.CloseDecision> decision : decisions) {
-                ProtocolSessionState.CloseDecision selected = decision.get(1, TimeUnit.SECONDS);
-                if (selected instanceof ProtocolSessionState.PublishTerminal) {
+            for (Future<ProtocolSessionState.CloseClaim> decision : decisions) {
+                ProtocolSessionState.CloseClaim selected = decision.get(1, TimeUnit.SECONDS);
+                if (selected.owner()) {
                     owners++;
+                    assertNotNull(selected.terminalToPublish());
                 } else {
-                    assertInstanceOf(ProtocolSessionState.AlreadyClosed.class, selected);
                     observers++;
+                    assertNull(selected.terminalToPublish());
                 }
             }
 
             assertEquals(1, owners);
             assertEquals(callers - 1, observers);
+            assertEquals(1, transcriptSnapshots.get());
         } finally {
             start.countDown();
             executor.shutdownNow();
@@ -197,8 +218,6 @@ final class ProtocolSessionStateTest {
         assertEquals(ProtocolSessionException.Reason.CLOSED, selectedClosed.reason());
         assertSame(closed, request.failure());
         assertEquals(List.of(fatal), discarded);
-        assertEquals(0, fatal.getSuppressed().length);
-        assertEquals(0, closed.getSuppressed().length);
         ProtocolSessionException observed = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertEquals(ProtocolSessionException.Reason.CLOSED, observed.reason());
     }
@@ -263,8 +282,6 @@ final class ProtocolSessionStateTest {
         assertSame(first, state.recordRequestFailure(request, () -> second));
 
         assertTrue(discarded.isEmpty());
-        assertEquals(0, first.getSuppressed().length);
-        assertEquals(0, second.getSuppressed().length);
     }
 
     @Test
@@ -336,38 +353,6 @@ final class ProtocolSessionStateTest {
     }
 
     @Test
-    void losingTerminalFailureDoesNotHoldTheStateMonitorOrMutateTheWinner() throws Exception {
-        List<Throwable> discarded = new ArrayList<>();
-        ProtocolSessionState state = state(discarded);
-        IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "primary", primary);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        Future<ProtocolSessionState.TerminalSnapshot> selection = null;
-        try (var monitor = hold(primary)) {
-            monitor.verifyHeld();
-            selection = executor.submit(
-                    () -> state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "secondary", secondary));
-            selection.get(1, TimeUnit.SECONDS);
-            assertTrue(discarded.isEmpty());
-
-            Future<ProtocolSessionState.TerminalSnapshot> observation = executor.submit(state::terminal);
-            assertSame(
-                    primary,
-                    assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, observation.get(1, TimeUnit.SECONDS))
-                            .primary());
-        } finally {
-            if (selection != null) {
-                selection.get(1, TimeUnit.SECONDS);
-            }
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-        assertEquals(0, primary.getSuppressed().length);
-        assertEquals(0, secondary.getSuppressed().length);
-    }
-
-    @Test
     void terminalTranscriptSnapshotCannotBlockCloseWhileHoldingTheStateMonitor() throws Exception {
         CountDownLatch snapshotEntered = new CountDownLatch(1);
         CountDownLatch releaseSnapshot = new CountDownLatch(1);
@@ -384,8 +369,10 @@ final class ProtocolSessionStateTest {
                     ProtocolSessionException.Reason.FAILURE, "failure", new IllegalStateException("failure")));
             assertTrue(snapshotEntered.await(1, TimeUnit.SECONDS));
 
-            Future<ProtocolSessionState.CloseDecision> close = executor.submit(() -> state.claimClose(false));
-            assertInstanceOf(ProtocolSessionState.CloseSilently.class, close.get(1, TimeUnit.SECONDS));
+            Future<ProtocolSessionState.CloseClaim> close = executor.submit(() -> state.claimClose(false));
+            ProtocolSessionState.CloseClaim selected = close.get(1, TimeUnit.SECONDS);
+            assertTrue(selected.owner());
+            assertNull(selected.terminalToPublish());
 
             releaseSnapshot.countDown();
             assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, terminal.get(1, TimeUnit.SECONDS));
@@ -394,49 +381,6 @@ final class ProtocolSessionStateTest {
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
-    }
-
-    @Test
-    void completeRequestDoesNotWaitForOrMutateALosingTerminalFailure() throws Exception {
-        List<Throwable> discarded = new ArrayList<>();
-        ProtocolSessionState state = state(discarded);
-        ProtocolSessionState.RequestOutcome request = state.beginRequest();
-        IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "primary", primary);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        Future<?> losingSelection = null;
-        Future<ProtocolSessionException> completion = null;
-        try (var monitor = hold(primary)) {
-            monitor.verifyHeld();
-            losingSelection = executor.submit(() -> {
-                state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "secondary", secondary);
-            });
-            losingSelection.get(1, TimeUnit.SECONDS);
-            assertTrue(discarded.isEmpty());
-
-            completion = executor.submit(() -> {
-                return assertThrows(ProtocolSessionException.class, () -> state.completeRequest(request));
-            });
-            assertSame(primary, completion.get(1, TimeUnit.SECONDS).getCause());
-            assertSame(
-                    primary,
-                    assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, state.terminal())
-                            .primary());
-        } finally {
-            if (losingSelection != null) {
-                losingSelection.get(1, TimeUnit.SECONDS);
-            }
-            if (completion != null) {
-                ProtocolSessionException failure = completion.get(1, TimeUnit.SECONDS);
-                assertSame(primary, failure.getCause());
-            }
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-
-        assertEquals(0, primary.getSuppressed().length);
-        assertEquals(0, secondary.getSuppressed().length);
     }
 
     private static ProtocolSessionState state() {

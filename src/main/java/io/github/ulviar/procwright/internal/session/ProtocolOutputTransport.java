@@ -112,7 +112,7 @@ final class ProtocolOutputTransport {
         }
         ProtocolSessionState.TerminalSnapshot outcome = Objects.requireNonNull(selection.selected(), "outcome");
         publishTerminal(outcome);
-        failureHandler.closeTerminalPreserving(terminalPrimaryOr(outcome, error));
+        failureHandler.closeTerminalPreserving(outcome.primary());
     }
 
     private ProtocolOutputQueue queue(ProtocolOutputQueue.OverflowPolicy overflowPolicy, LongSupplier nanoTime) {
@@ -202,53 +202,53 @@ final class ProtocolOutputTransport {
     }
 
     private void failRuntime(RuntimeException failure) {
-        OutputFailure selection = selectAndPublishOutputFailure(
+        ProtocolSessionState.OutputSelection selection = selectAndPublishOutputFailure(
                 ProtocolSessionException.Reason.DECODE_ERROR, "Could not read protocol output", failure);
         if (!selection.rejectedAfterClose()) {
-            failureHandler.closeTerminalPreserving(selection.primary());
+            failureHandler.closeTerminalPreserving(
+                    Objects.requireNonNull(selection.selected(), "outcome").primary());
         }
     }
 
     private void failStdoutIo(IOException failure) {
         ProtocolSessionException.Reason reason = reasonFor(failure);
-        OutputFailure selection = selectAndPublishOutputFailure(reason, "Could not read protocol stdout", failure);
+        ProtocolSessionState.OutputSelection selection =
+                selectAndPublishOutputFailure(reason, "Could not read protocol stdout", failure);
         if (!selection.rejectedAfterClose()) {
-            failureHandler.closeTerminalPreserving(selection.primary());
+            failureHandler.closeTerminalPreserving(
+                    Objects.requireNonNull(selection.selected(), "outcome").primary());
         }
     }
 
-    private OutputFailure failOutputBacklogOverflow() {
+    private ProtocolSessionState.OutputSelection failOutputBacklogOverflow() {
         CommandExecutionException failure = new CommandExecutionException("Protocol stdout backlog overflow");
         return selectAndPublishOutputFailure(
                 ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "Protocol output backlog overflow", failure);
     }
 
-    private OutputFailure failTranscriptDecoding(ProtocolTranscriptBuffer.TranscriptDecodingException failure) {
+    private ProtocolSessionState.OutputSelection failTranscriptDecoding(
+            ProtocolTranscriptBuffer.TranscriptDecodingException failure) {
         return selectAndPublishOutputFailure(
                 ProtocolSessionException.Reason.DECODE_ERROR, "Could not decode protocol transcript", failure);
     }
 
-    Throwable selectAndPublishFailure(ProtocolSessionException.Reason reason, String message, Throwable failure) {
-        return selectAndPublishOutputFailure(reason, message, failure).primary();
-    }
-
-    private OutputFailure selectAndPublishOutputFailure(
+    private ProtocolSessionState.OutputSelection selectAndPublishOutputFailure(
             ProtocolSessionException.Reason reason, String message, Throwable failure) {
         ProtocolSessionState.OutputSelection selection = state.recordOutputFailure(
                 Objects.requireNonNull(reason, "reason"),
                 Objects.requireNonNull(message, "message"),
                 Objects.requireNonNull(failure, "failure"));
         ProtocolSessionState.TerminalSnapshot outcome = selection.selected();
-        Throwable primary = terminalPrimaryOr(outcome, failure);
         if (!selection.rejectedAfterClose()) {
             publishTerminal(Objects.requireNonNull(outcome, "outcome"));
         }
-        return new OutputFailure(primary, selection.rejectedAfterClose());
+        return selection;
     }
 
-    private void closeAfter(OutputFailure failure) {
-        if (!failure.rejectedAfterClose()) {
-            failureHandler.closeQuietly(failure.primary());
+    private void closeAfter(ProtocolSessionState.OutputSelection selection) {
+        if (!selection.rejectedAfterClose()) {
+            failureHandler.closeQuietly(
+                    Objects.requireNonNull(selection.selected(), "outcome").primary());
         }
     }
 
@@ -257,23 +257,6 @@ final class ProtocolOutputTransport {
             output.failAndClear(reason, failure);
         } catch (Throwable publicationFailure) {
             failureReporter.accept(publicationFailure);
-        }
-    }
-
-    private static Throwable terminalPrimaryOr(ProtocolSessionState.TerminalSnapshot outcome, Throwable fallback) {
-        if (outcome instanceof ProtocolSessionState.FailureSnapshot failure) {
-            return failure.primary();
-        }
-        if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
-            return fatal.error();
-        }
-        return fallback;
-    }
-
-    private record OutputFailure(Throwable primary, boolean rejectedAfterClose) {
-
-        private OutputFailure {
-            Objects.requireNonNull(primary, "primary");
         }
     }
 

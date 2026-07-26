@@ -472,7 +472,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
     }
 
     @Test
-    void textWindowKeepsGlobalCharacterBudgetAcrossSplitReads() {
+    void globalCharacterBudgetSpansMultipleTextReads() {
         ProtocolOutputQueue queue = new ProtocolOutputQueue(16, ProtocolOutputQueue.OverflowPolicy.STRICT);
         queue.offer("ab|cd|".getBytes(StandardCharsets.UTF_8));
         ProtocolResponseReader reader = reader(queue, 16, 5, Duration.ofSeconds(2));

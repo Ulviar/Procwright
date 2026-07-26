@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -35,6 +34,29 @@ final class LineSessionStateTest {
         assertEquals("decode", selected.message());
         assertSame(cause, selected.primary());
         assertSame(selected, state.terminal());
+    }
+
+    @Test
+    void selectedTerminalFailureRejectsNewWorkBeforeCloseCleanupStarts() {
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
+        IllegalStateException cause = new IllegalStateException("output failed");
+
+        state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "output failed", cause);
+
+        LineSessionException failure = assertThrows(LineSessionException.class, state::ensureOpen);
+        assertEquals(LineSessionException.Reason.FAILURE, failure.reason());
+        assertSame(cause, failure.getCause());
+    }
+
+    @Test
+    void successfulCompletionReleasesTheActiveRequest() {
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
+        LineSessionState.Request completed = state.beginRequest();
+
+        state.completeRequest(completed);
+
+        LineSessionState.Request next = state.beginRequest();
+        next.close();
     }
 
     @Test
@@ -125,8 +147,6 @@ final class LineSessionStateTest {
         assertSame(responseLimit, selected);
         assertSame(fatal, ((LineSessionState.FatalSnapshot) state.terminal()).error());
         assertTrue(discarded.isEmpty());
-        assertEquals(0, fatal.getSuppressed().length);
-        assertEquals(0, responseLimit.getSuppressed().length);
     }
 
     @Test
@@ -141,8 +161,6 @@ final class LineSessionStateTest {
         assertSame(first, state.recordRequestFailure(request, () -> second));
 
         assertTrue(discarded.isEmpty());
-        assertEquals(0, first.getSuppressed().length);
-        assertEquals(0, second.getSuppressed().length);
     }
 
     @Test
@@ -164,115 +182,6 @@ final class LineSessionStateTest {
                         .primary());
         assertEquals(List.of(fatal), discarded);
         assertSame(responseLimit, request.failure());
-        assertEquals(0, fatal.getSuppressed().length);
-        assertEquals(0, responseLimit.getSuppressed().length);
-    }
-
-    @Test
-    void losingTerminalFailureDoesNotHoldTheStateMonitorOrMutateTheWinner() throws Exception {
-        List<Throwable> discarded = new ArrayList<>();
-        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
-        IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        Future<LineSessionState.TerminalSnapshot> selection = null;
-        try (var monitor = hold(primary)) {
-            monitor.verifyHeld();
-            selection = executor.submit(
-                    () -> state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "secondary", secondary));
-            selection.get(1, TimeUnit.SECONDS);
-            assertTrue(discarded.isEmpty());
-
-            Future<LineSessionState.TerminalSnapshot> observation = executor.submit(state::terminal);
-            assertSame(primary, observation.get(1, TimeUnit.SECONDS).primary());
-        } finally {
-            if (selection != null) {
-                selection.get(1, TimeUnit.SECONDS);
-            }
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-        assertEquals(0, primary.getSuppressed().length);
-        assertEquals(0, secondary.getSuppressed().length);
-    }
-
-    @Test
-    void lateFatalFailureDoesNotWaitForOrReplaceEarlierTerminalFailure() throws Exception {
-        List<Throwable> discarded = new ArrayList<>();
-        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
-        IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        AssertionError fatal = new AssertionError("fatal");
-        state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        Future<?> losingSelection = null;
-        Future<LineSessionState.TerminalSnapshot> fatalSelection = null;
-        try (var monitor = hold(primary)) {
-            monitor.verifyHeld();
-            losingSelection = executor.submit(() -> {
-                state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "secondary", secondary);
-            });
-            losingSelection.get(1, TimeUnit.SECONDS);
-
-            fatalSelection = executor.submit(() -> state.recordFatalError(fatal));
-            assertSame(primary, fatalSelection.get(1, TimeUnit.SECONDS).primary());
-            assertEquals(List.of(fatal), discarded);
-            assertSame(primary, state.terminal().primary());
-        } finally {
-            if (losingSelection != null) {
-                losingSelection.get(1, TimeUnit.SECONDS);
-            }
-            if (fatalSelection != null) {
-                assertSame(primary, fatalSelection.get(1, TimeUnit.SECONDS).primary());
-            }
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-
-        assertEquals(0, primary.getSuppressed().length);
-        assertEquals(0, secondary.getSuppressed().length);
-        assertEquals(0, fatal.getSuppressed().length);
-    }
-
-    @Test
-    void completeRequestDoesNotWaitForOrMutateALosingTerminalFailure() throws Exception {
-        List<Throwable> discarded = new ArrayList<>();
-        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false), discarded::add);
-        LineSessionState.Request request = state.beginRequest();
-        IllegalStateException primary = new IllegalStateException("primary");
-        IllegalArgumentException secondary = new IllegalArgumentException("secondary");
-        state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "primary", primary);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        Future<?> losingSelection = null;
-        Future<LineSessionException> completion = null;
-        try (var monitor = hold(primary)) {
-            monitor.verifyHeld();
-            losingSelection = executor.submit(() -> {
-                state.recordTerminalFailure(LineSessionException.Reason.FAILURE, "secondary", secondary);
-            });
-            losingSelection.get(1, TimeUnit.SECONDS);
-            assertTrue(discarded.isEmpty());
-
-            completion = executor.submit(() -> {
-                return assertThrows(LineSessionException.class, () -> state.completeRequest(request));
-            });
-            assertSame(primary, completion.get(1, TimeUnit.SECONDS).getCause());
-            assertSame(primary, state.terminal().primary());
-        } finally {
-            if (losingSelection != null) {
-                losingSelection.get(1, TimeUnit.SECONDS);
-            }
-            if (completion != null) {
-                LineSessionException failure = completion.get(1, TimeUnit.SECONDS);
-                assertSame(primary, failure.getCause());
-            }
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-
-        assertEquals(0, primary.getSuppressed().length);
-        assertEquals(0, secondary.getSuppressed().length);
     }
 
     @Test

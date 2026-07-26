@@ -4,7 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import java.util.Objects;
 
-/** Owns capability, deadline, terminal precedence, and raw-byte access for one protocol reader. */
+/** Owns callback-confined capability, deadline, terminal precedence, and raw-byte access for one protocol reader. */
 final class ProtocolReadSource {
 
     private final ProtocolOutputQueue output;
@@ -64,14 +64,14 @@ final class ProtocolReadSource {
         capabilityScope.verifyAccess();
     }
 
-    synchronized ProtocolOutputEvent claimTerminal(ProtocolOutputEvent terminal) {
+    ProtocolOutputEvent claimTerminal(ProtocolOutputEvent terminal) {
         if (claimedTerminal == null && terminal != null) {
             claimedTerminal = output.refreshTerminal(terminal, deadlineNanos);
         }
         return claimedTerminal;
     }
 
-    synchronized ProtocolOutputEvent refreshClaimedTerminal() {
+    ProtocolOutputEvent refreshClaimedTerminal() {
         claimedTerminal =
                 output.refreshTerminal(Objects.requireNonNull(claimedTerminal, "claimedTerminal"), deadlineNanos);
         return claimedTerminal;
@@ -83,7 +83,7 @@ final class ProtocolReadSource {
         }
     }
 
-    private synchronized ProtocolOutputEvent claimInitialTerminal() {
+    private ProtocolOutputEvent claimInitialTerminal() {
         if (claimedTerminal != null) {
             return refreshClaimedTerminal();
         }

@@ -205,19 +205,18 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     }
 
     private void closeWithEvent(boolean publishClosed, Throwable primary) {
-        ProtocolSessionState.CloseDecision close = state.claimClose(publishClosed);
-        boolean lifecycleOwner = !(close instanceof ProtocolSessionState.AlreadyClosed);
-        if (lifecycleOwner) {
+        ProtocolSessionState.CloseClaim close = state.claimClose(publishClosed);
+        if (close.owner()) {
             callbackCancellation.cancel();
         }
         try {
-            if (close instanceof ProtocolSessionState.PublishTerminal publication) {
-                output.publishTerminal(publication.terminal());
+            if (close.terminalToPublish() != null) {
+                output.publishTerminal(close.terminalToPublish());
             }
         } finally {
             if (primary != null) {
                 outputPumps.closeSessionAfterFailure(primary);
-            } else if (lifecycleOwner) {
+            } else if (close.owner()) {
                 outputPumps.closeSession();
             }
         }
@@ -383,22 +382,12 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
 
     private void closeQuietly(Throwable candidate) {
         ProtocolSessionState.TerminalSnapshot outcome = state.terminal();
-        Throwable primary = terminalPrimaryOr(outcome, candidate);
+        Throwable primary = outcome == null ? candidate : outcome.primary();
         try {
             closeWithEvent(false, primary);
         } catch (RuntimeException ignored) {
             // The reader observes the original protocol failure.
         }
-    }
-
-    private static Throwable terminalPrimaryOr(ProtocolSessionState.TerminalSnapshot outcome, Throwable fallback) {
-        if (outcome instanceof ProtocolSessionState.FailureSnapshot failure) {
-            return failure.primary();
-        }
-        if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
-            return fatal.error();
-        }
-        return fallback;
     }
 
     record Dependencies(
