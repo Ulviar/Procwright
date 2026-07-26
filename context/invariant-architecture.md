@@ -266,8 +266,8 @@ scenario flags.
 ## Проверка
 
 Для каждого инварианта в [quality/invariant-proof-map.md](quality/invariant-proof-map.md) должны быть указаны владелец и
-proof. Public surface проверяется exact signature baseline и compilation внешних consumers. Stateful инварианты
-проверяются unit, integration и bounded stress tests; platform capability — отдельной CI matrix.
+proof. До первого выпуска public surface проверяется целевыми surface tests и compilation внешних consumers. Stateful
+инварианты проверяются unit, integration и bounded stress tests; platform capability — отдельной CI matrix.
 
 Архитектурное изменение принимается только после ответа на три вопроса:
 

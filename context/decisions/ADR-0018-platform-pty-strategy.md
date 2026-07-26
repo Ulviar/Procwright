@@ -1,4 +1,4 @@
-# ADR-0018: Platform и PTY strategy baseline 0.1.0
+# ADR-0018: Platform и PTY strategy первого релиза
 
 ## Статус
 
@@ -14,7 +14,7 @@ unsupported behavior, если terminal недоступен.
 
 ## Решение
 
-Baseline `0.1.0` не включает Windows ConPTY implementation.
+Планируемый первый релиз не включает Windows ConPTY implementation.
 
 Текущая стратегия:
 
@@ -23,15 +23,15 @@ Baseline `0.1.0` не включает Windows ConPTY implementation.
 - `TerminalPolicy.REQUIRED` не делает silent fallback в pipes;
 - текущий system PTY provider остается platform-dependent capability;
 - POSIX/PTY tests skip-аются через assumptions, если capability недоступна;
-- Windows ConPTY будет проектироваться как отдельный optional artifact или runtime-specific provider вне baseline
-  `0.1.0`.
+- Windows ConPTY будет проектироваться как отдельный optional artifact или runtime-specific provider вне первого
+  release scope.
 
 ## Почему не добавляем ConPTY сейчас
 
 - ConPTY требует отдельной native/platform integration strategy.
 - Нельзя ухудшать core dependency story ради одного transport backend.
 - API уже имеет правильную capability boundary; добавление provider не должно менять scenario model.
-- Baseline `0.1.0` должен стабилизировать contract, а не расширять platform runtime.
+- Первый release scope должен стабилизировать contract, а не расширять platform runtime.
 
 ## Последствия
 
@@ -43,5 +43,5 @@ Baseline `0.1.0` не включает Windows ConPTY implementation.
 
 Минусы:
 
-- Windows terminal-required workflows не считаются shipped capability в baseline `0.1.0`.
+- Windows terminal-required workflows не считаются shipped capability первого релиза.
 - Пользователь Windows получает explicit unsupported behavior для `TerminalPolicy.REQUIRED`, если provider недоступен.

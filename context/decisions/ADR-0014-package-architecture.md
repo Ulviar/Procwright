@@ -44,6 +44,6 @@ scenario-specific exception, но сами implementation types остаются
 ## Проверка
 
 - `PublicApiSurfaceTest` проверяет смысловые границы public packages и signatures.
-- `ApiCompatibilityCheck` проверяет точные signatures и JPMS exports.
 - `PackageBoundaryTest` проверяет production dependency directions.
+- External consumer fixtures компилируют поддерживаемые сценарии только через экспортируемые packages.
 - Javadoc gate исключает internal packages.

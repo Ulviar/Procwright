@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CommandSpec;
 import java.io.File;
-import java.lang.annotation.Annotation;
 import java.lang.module.ModuleDescriptor;
 import java.lang.module.ModuleFinder;
 import java.lang.reflect.AnnotatedArrayType;
@@ -32,6 +31,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.NullUnmarked;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
@@ -247,6 +247,9 @@ final class PublicNullnessContractTest {
     }
 
     private static int scanTypeContract(Class<?> type, Set<String> nullable, Set<String> unionNull) {
+        assertFalse(
+                type.isAnnotationPresent(NullUnmarked.class),
+                () -> type.getName() + " must not weaken the public contract with @NullUnmarked");
         int checked = scanTypeParameters(type.getTypeParameters(), type.getName(), nullable);
         AnnotatedType superclass = type.getAnnotatedSuperclass();
         if (superclass != null) {
@@ -255,11 +258,13 @@ final class PublicNullnessContractTest {
         checked += scanAll(type.getAnnotatedInterfaces(), type.getName() + " interface", nullable);
         for (Constructor<?> constructor : type.getDeclaredConstructors()) {
             if (isPublicOrProtected(constructor) && !constructor.isSynthetic()) {
+                assertNoNullUnmarked(constructor);
                 checked += scanExecutable(constructor, nullable, unionNull);
             }
         }
         for (Method method : type.getDeclaredMethods()) {
             if (isPublicOrProtected(method) && !method.isSynthetic() && !method.isBridge()) {
+                assertNoNullUnmarked(method);
                 checked += scanExecutable(method, nullable, unionNull);
                 if (method.getReturnType() != void.class) {
                     checked += scan(method.getAnnotatedReturnType(), key(method) + " return", nullable);
@@ -312,12 +317,6 @@ final class PublicNullnessContractTest {
 
     private static int scan(AnnotatedType type, String position, Set<String> nullable) {
         int checked = type.getType() instanceof Class<?> raw && raw.isPrimitive() ? 0 : 1;
-        for (Annotation annotation : type.getAnnotations()) {
-            String annotationName = annotation.annotationType().getName();
-            assertFalse(
-                    annotationName.equals("org.jspecify.annotations.NullnessUnspecified"),
-                    () -> position + " must not weaken the public contract with @NullnessUnspecified");
-        }
         if (type.isAnnotationPresent(Nullable.class)) {
             nullable.add(position);
         }
@@ -337,6 +336,12 @@ final class PublicNullnessContractTest {
             checked += scanAll(wildcard.getAnnotatedUpperBounds(), position + ".upperBound", nullable);
         }
         return checked;
+    }
+
+    private static void assertNoNullUnmarked(Executable executable) {
+        assertFalse(
+                executable.isAnnotationPresent(NullUnmarked.class),
+                () -> key(executable) + " must not weaken the public contract with @NullUnmarked");
     }
 
     private static int scanAll(AnnotatedType[] types, String position, Set<String> nullable) {

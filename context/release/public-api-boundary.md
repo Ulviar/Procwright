@@ -1,17 +1,18 @@
-# Public API baseline
+# Public API boundary
 
 ## Назначение
 
-Baseline фиксирует намеренную JVM-поверхность первого выпуска. Он защищается тремя независимыми механизмами:
+Документ фиксирует намеренную пользовательскую поверхность до первого выпуска. Это проектная граница, а не обещание
+совместимости с ещё не опубликованным artifact. Она защищается тремя независимыми механизмами:
 
 - surface tests проверяют сценарные точки входа, форму Draft API, public packages и отсутствие утечек недоступных типов;
-- exact signature checker проверяет JPMS exports и сравнивает methods, generic bounds и checked `throws` с файлами
-  `config/api-compatibility/0.1.0/`;
-- external consumer modules компилируют канонические Java, Kotlin и integrations scenarios.
+- JPMS descriptors экспортируют только утвержденные packages;
+- external consumer modules компилируют и выполняют канонические Java, Kotlin и integrations scenarios.
 
-Machine-readable core/integrations signatures, Kotlin JVM signatures и Kotlin ABI baseline синхронизированы с принятым
-Draft API. Это состояние source, а не зеленый same-commit release proof: перед выпуском exact signature, ABI и external
-consumer gates должны успешно пройти на том же clean commit.
+Kotlin ABI baseline остаётся машинной проверкой Kotlin DSL, потому что для него уже используется стандартный Gradle
+инструмент. До первого Java-релиза отдельный exact-signature baseline не нужен: осознанное API-решение должно менять
+surface tests, external consumers и public documentation в одном срезе. После первого выпуска binary compatibility
+сравнивается стандартным инструментом с опубликованным artifact.
 
 ## Core module
 
@@ -29,7 +30,7 @@ consumer gates должны успешно пройти на том же clean c
 
 Все экспортируемые Java packages core и integrations помечены `@NullMarked`. Допустимые отклонения ограничены
 точными `@Nullable` type-use positions и JSpecify `UNION_NULL` semantics для generated record `equals`; ослабление
-через `@NullnessUnspecified` в public contract запрещено. Kotlin artifact использует собственную Kotlin nullability
+через declaration-level `@NullUnmarked` в public contract запрещено. Kotlin artifact использует собственную Kotlin nullability
 metadata, а его strict consumers обязаны видеть JSpecify contract Java API. Publication/module boundary описана в
 [dependency-review.md](dependency-review.md#public-nullness-metadata), владельцы и proofs — в
 [invariant-proof-map.md](../quality/invariant-proof-map.md#api-и-normalization).
@@ -58,21 +59,20 @@ Session.expect() -> Expect.Draft -> open()
 - pooled configuration вложена в line/protocol scenario и не раскрывает lease;
 - line/protocol pool handles остаются разными сценариями, но возвращают общий `PooledSessionMetrics` и используют
   общий `PooledSessionException` для pool lifecycle; request-level exceptions остаются сценарными;
-- `maxSize` каждого pool принимает значения от 1 до 256, по умолчанию равен 1 и включает starting, idle, leased и
-  retiring slots; разные pools и direct sessions не делят process-global worker quota;
-- pool Draft задает bounded close timeout; pool handle предоставляет только synchronous `close()` и cancellation-isolated
-  `closeAsync()` одного terminal cleanup; outcome выбирается под pool monitor и публикуется после его освобождения;
 - public scenario configuration carriers вне Draft, root pool shortcuts и второй protocol builder dialect отсутствуют;
 - public handles sealed и принадлежат Procwright, а не являются SPI;
-- exact baseline фиксирует `PermittedSubclasses` этих handles: реализации остаются неэкспортируемыми, но изменение их
-  binary names меняет JVM-метаданные публичной sealed hierarchy;
+- release-locked `SessionContractShapeTest` проверяет sealed nature, non-SPI contract и точные
+  `PermittedSubclasses`;
 - `ProcwrightException` остается общим unchecked catch boundary, не заменяя scenario-specific structured exceptions.
+
+Поведенческие гарантии, defaults, limits и lifecycle принадлежат
+[scenario-contracts.md](../scenario-contracts.md), а не этому перечню API-формы.
 
 ## Optional integrations
 
 Модуль `io.github.ulviar.procwright.integrations` экспортирует только
 `io.github.ulviar.procwright.integration`. Его public helpers могут ссылаться на core/Jackson types, необходимые
-пользователю, но не добавляют process runtime. Exact signatures проверяются отдельным baseline и external JPMS
+пользователю, но не добавляют process runtime. Граница проверяется module descriptor, surface tests и external JPMS
 consumer.
 
 ## Optional Kotlin
@@ -87,17 +87,16 @@ consumer.
 - `protocolAdapterFactory { ... }` с отдельным adapter wrapper на factory call.
 
 Kotlin module не публикует mutable scenario scopes, terminal configuration lambdas, `openAwait()` или второй pool
-DSL. Его JVM signatures и Kotlin ABI baseline проверяются вместе с отдельным consumer fixture.
+DSL. Его Kotlin ABI baseline проверяется вместе с отдельным consumer fixture.
 
-## Изменение baseline
+## Изменение поверхности
 
-До первого выпуска approved surface меняется только вместе с:
+До первого выпуска утвержденная поверхность меняется только вместе с:
 
 - public surface tests;
-- exact core/integrations/Kotlin signatures и Kotlin ABI file;
+- Kotlin ABI file, если затронут Kotlin DSL;
 - executable external consumers;
 - public documentation/examples;
 - этим документом и релевантным ADR при изменении lifecycle/ownership.
 
-После публикации изменение подчиняется [compatibility-policy.md](compatibility-policy.md) и SemVer. Baseline нельзя
-перезаписывать только ради зеленого gate: diff должен соответствовать осознанному API-решению.
+После публикации изменение подчиняется [compatibility-policy.md](compatibility-policy.md) и SemVer.

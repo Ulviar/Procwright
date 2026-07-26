@@ -6,8 +6,8 @@
 
 ## Контекст
 
-Текущий baseline включает `run`, `interactive`, `lineSession`, `expect`, PTY, `listen`, diagnostics, Kotlin ergonomics,
-pooling, protocol integrations и bounded stress suite. Для публикации нужны релизные инварианты: ясная
+Планируемый scope первого релиза включает `run`, `interactive`, `lineSession`, `expect`, PTY, `listen`, diagnostics,
+Kotlin ergonomics, pooling, protocol integrations и bounded stress suite. Для публикации нужны релизные инварианты: ясная
 лицензия, политика версий, compatibility границы, кроссплатформенная CI-матрица и проверяемые Maven publications.
 
 ## Решение
@@ -29,6 +29,6 @@ pooling, protocol integrations и bounded stress suite. Для публикац�
 
 ## Последствия
 
-Релизные требования становятся проверяемой частью проекта. Документация описывает обязательства текущего baseline.
+Релизные требования становятся проверяемой частью проекта. Документация описывает scope планируемого первого релиза.
 Remote publishing/signing выбирается непосредственно перед первым release по актуальным требованиям registry;
 performance experiments не входят в publication-readiness gate.

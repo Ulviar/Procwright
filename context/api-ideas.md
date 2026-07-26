@@ -3,7 +3,7 @@
 Этот документ нужен только как фильтр новых API-решений. Текущую форму вызовов описывает
 [scenario-api.md](scenario-api.md), наблюдаемые гарантии — [scenario-contracts.md](scenario-contracts.md), владельцев
 инвариантов — [invariant-architecture.md](invariant-architecture.md), а утвержденную поверхность —
-[release/public-api-baseline.md](release/public-api-baseline.md).
+[release/public-api-boundary.md](release/public-api-boundary.md).
 
 ## Принципы
 

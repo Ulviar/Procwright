@@ -82,7 +82,7 @@ integration layer.
 `procwright-kotlin` не объявляет прямую JSpecify dependency и публикует собственную Kotlin nullability metadata.
 JSpecify отсутствует в Gradle `runtimeClasspath` всех трех public projects; эту границу проверяет
 `externalLibraryBoundaryCheck`. Сам контракт и его proofs зафиксированы в
-[public API baseline](public-api-baseline.md#public-nullness-contract) и
+[public API boundary](public-api-boundary.md#public-nullness-contract) и
 [карте доказательств](../quality/invariant-proof-map.md#api-и-normalization).
 
 ## Publication metadata

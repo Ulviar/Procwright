@@ -174,8 +174,6 @@ sourceSets {
         runtimeClasspath += compileClasspath
     }
 
-    val apiCompatibility by creating
-
 }
 
 configurations.named("integrationTestImplementation") {
@@ -195,7 +193,6 @@ configurations.named("stressTestRuntimeOnly") { extendsFrom(configurations.testR
 dependencies {
     "integrationTestImplementation"(project(":procwright-test-cli"))
     "stressTestImplementation"(project(":procwright-test-cli"))
-    "apiCompatibilityImplementation"("org.jspecify:jspecify:1.0.0")
 }
 
 tasks.named<Javadoc>("javadoc") {
@@ -328,7 +325,6 @@ val quickCheck =
         dependsOn(
             tasks.named("test"),
             publicApiConsumerCompilationCheck,
-            "apiCompatibilityCheck",
             ":procwright-kotlin:checkKotlinAbi",
         )
     }
@@ -366,113 +362,6 @@ val publicJavaJavadocCheck =
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(tasks.named("javadoc"), ":procwright-integrations:javadoc")
     }
-
-val apiCompatibilityBaselineVersion = "0.1.0"
-val apiCompatibilityBaselineDir =
-    layout.projectDirectory.dir("config/api-compatibility/$apiCompatibilityBaselineVersion")
-val apiCompatibilityMainClass = "io.github.ulviar.procwright.build.ApiCompatibilityCheck"
-
-fun apiCompatibilitySpec(
-    name: String,
-    baselineName: String,
-    roots: FileCollection,
-    classpath: FileCollection,
-    packages: List<String>,
-): String =
-    listOf(
-            name,
-            apiCompatibilityBaselineDir.file(baselineName).asFile.absolutePath,
-            roots.files.joinToString(File.pathSeparator) { it.absolutePath },
-            classpath.files.joinToString(File.pathSeparator) { it.absolutePath },
-            packages.joinToString(","),
-        )
-        .joinToString("|")
-
-fun apiCompatibilitySpecs(): List<String> {
-    val coreJar = files(tasks.named<Jar>("jar").map { it.archiveFile })
-    val integrationsProject = project(":procwright-integrations")
-    val integrationsJar = files(integrationsProject.tasks.named<Jar>("jar").map { it.archiveFile })
-    val kotlinProject = project(":procwright-kotlin")
-    val kotlinJar = files(kotlinProject.tasks.named<Jar>("jar").map { it.archiveFile })
-
-    return listOf(
-        apiCompatibilitySpec(
-            name = "procwright",
-            baselineName = "procwright.txt",
-            roots = coreJar,
-            classpath = coreJar + configurations.compileClasspath.get(),
-            packages =
-                listOf(
-                    "io.github.ulviar.procwright",
-                    "io.github.ulviar.procwright.command",
-                    "io.github.ulviar.procwright.diagnostics",
-                    "io.github.ulviar.procwright.session",
-                    "io.github.ulviar.procwright.terminal",
-                ),
-        ),
-        apiCompatibilitySpec(
-            name = "procwright-integrations",
-            baselineName = "procwright-integrations.txt",
-            roots = integrationsJar,
-            classpath =
-                integrationsJar +
-                    coreJar +
-                    integrationsProject.configurations.getByName("runtimeClasspath"),
-            packages = listOf("io.github.ulviar.procwright.integration"),
-        ),
-        apiCompatibilitySpec(
-            name = "procwright-kotlin",
-            baselineName = "procwright-kotlin.txt",
-            roots = kotlinJar,
-            classpath =
-                kotlinJar + coreJar + kotlinProject.configurations.getByName("runtimeClasspath"),
-            packages = listOf("io.github.ulviar.procwright.kotlin"),
-        ),
-    )
-}
-
-val apiCompatibilityCheck =
-    tasks.register<JavaExec>("apiCompatibilityCheck") {
-        description =
-            "Checks current public JVM signatures against the $apiCompatibilityBaselineVersion API baseline."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(
-            tasks.named(sourceSets["apiCompatibility"].classesTaskName),
-            tasks.named("jar"),
-            ":procwright-integrations:jar",
-            ":procwright-kotlin:jar",
-        )
-        classpath = sourceSets["apiCompatibility"].runtimeClasspath
-        mainClass.set(apiCompatibilityMainClass)
-        doFirst { setArgs(listOf("check") + apiCompatibilitySpecs()) }
-    }
-
-val writeApiCompatibilityBaseline =
-    tasks.register<JavaExec>("writeApiCompatibilityBaseline") {
-        description =
-            "Writes the $apiCompatibilityBaselineVersion public JVM API baseline from current artifacts."
-        group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(
-            tasks.named(sourceSets["apiCompatibility"].classesTaskName),
-            tasks.named("jar"),
-            ":procwright-integrations:jar",
-            ":procwright-kotlin:jar",
-        )
-        classpath = sourceSets["apiCompatibility"].runtimeClasspath
-        mainClass.set(apiCompatibilityMainClass)
-        outputs.dir(apiCompatibilityBaselineDir)
-        outputs.upToDateWhen { false }
-        doFirst {
-            if (procwrightJavaRelease != 17) {
-                throw GradleException(
-                    "API compatibility baselines must be written from Java 17 artifacts; pass --project-prop=procwright.javaRelease=17"
-                )
-            }
-            setArgs(listOf("write") + apiCompatibilitySpecs())
-        }
-    }
-
-tasks.check { dependsOn(apiCompatibilityCheck) }
 
 val docsRequirementsLockCheck =
     tasks.register("docsRequirementsLockCheck") {

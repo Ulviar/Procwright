@@ -6,7 +6,7 @@ Procwright имеет единый scenario-first Draft API, Java core, optional
 pools, PTY capability boundary, diagnostics, test CLI, bounded stress suite, external consumer fixtures и Maven
 publication metadata. Публичный artifact не считается доступным до первого выпуска.
 
-Scorecard фиксирует текущее состояние source и наличие proof-механизма. Синхронизация source, baselines, examples и
+Scorecard фиксирует текущее состояние source и наличие proof-механизма. Синхронизация source, Kotlin ABI, examples и
 документации не означает, что итоговые gates уже прошли вместе на одном commit.
 
 | Область | Состояние | Текущий контракт |
@@ -27,7 +27,7 @@ Scorecard фиксирует текущее состояние source и нал�
 | Integrations | Готово | JSON Lines, delimiter, Content-Length и typed Jackson adapters поверх `protocolSession`; Jackson только в optional module. |
 | Memory/concurrency | Готово на уровне contracts | Bounded capture/transcripts/queues/executors и stress proofs; абсолютные heap/throughput guarantees не даются. |
 | Public consumers | Синхронизировано | Java, Kotlin и integrations consumers используют текущий API; итоговый compilation proof требует запуска gate на release commit. |
-| API compatibility | Синхронизировано | Exact JVM signatures и Kotlin ABI baseline соответствуют принятому Draft API; совместимость доказывает только успешный gate на том же commit. |
+| API boundary | Синхронизировано | До первого выпуска Java surface защищают целевые tests, JPMS и external consumers; Kotlin DSL дополнительно имеет ABI baseline. После первой публикации нужен стандартный binary compatibility gate относительно выпущенного artifact. |
 | Documentation | Синхронизировано | Public docs, context owners, snippets и canonical examples описывают текущий API и pool lifecycle contract; итоговый strict docs proof еще должен пройти на release commit. |
 | Java/platform matrix | Проверяется CI | Java 17 target на Linux/macOS/Windows и JDK 17/21/25; source targets 21/25 отдельно на Linux. |
 | Publication | Proof-механизм готов, не выпущено | Три Maven publications и isolated normal/POM-only consumers проверяются без преждевременного выбора remote registry и signing. |

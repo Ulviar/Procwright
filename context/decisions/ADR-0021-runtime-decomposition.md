@@ -127,7 +127,7 @@ status. Итоговое решение о completion root и всего дер�
 
 ## Проверка
 
-- `ApiCompatibilityCheck` фиксирует `ProcwrightException` как часть exact public API baseline.
+- `PublicApiSurfaceTest` и external consumers фиксируют `ProcwrightException` как общий public error boundary.
 - `PackageBoundaryTest` допускает dependency на root package только как public error boundary.
 - `ProcwrightExceptionTest` и `IntegrationExceptionTest` проверяют общий exception contract.
 - `CommandSpecTest` и `LaunchPlanTest` проверяют единый launch snapshot и его материализацию.

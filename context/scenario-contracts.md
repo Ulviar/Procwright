@@ -214,7 +214,7 @@ JSON Lines, delimiter, Content-Length и typed Jackson adapters использу
 Изменение контракта требует одновременно:
 
 - behavior test на public API;
-- обновления exact public signature baseline;
+- обновления public boundary tests и [release/public-api-boundary.md](release/public-api-boundary.md), если меняется API;
 - компиляции всех внешних consumer fixtures;
 - обновления этого документа и [quality/invariant-proof-map.md](quality/invariant-proof-map.md);
 - отдельного ADR, если меняется ownership, lifecycle или package/module boundary.

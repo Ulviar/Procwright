@@ -14,7 +14,7 @@ release, поэтому способ загрузки в registry, signing и re
 - public artifacts собираются с Java 17 target;
 - CI публикует все три модуля в изолированный Maven Local repository и запускает внешние Java, Kotlin и integrations
   consumers через Gradle metadata и принудительный Maven POM-only resolution;
-- API signatures, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
+- Public package/scenario surface, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
 
 Агрегирующая локальная проверка:
 
@@ -39,3 +39,10 @@ POM-only consumers. Ни одна из этих проверок не доказ
 Не нужно заранее строить собственные Portal clients, provenance protocol, recovery workflow или signing framework.
 Если выбранная площадка предоставляет стандартный Gradle plugin или action, сначала используется он; custom tooling
 добавляется только для конкретного непокрытого инварианта.
+
+## После первого release
+
+До первого изменения public API после `0.1.0` нужно подключить описанный в
+[compatibility-policy.md](compatibility-policy.md#стабильность-публичного-api) `javaBinaryCompatibilityCheck` к
+опубликованным core/integrations coordinates и зафиксировать Kotlin ABI release baseline. Это обязательный bootstrap
+следующего цикла разработки, а не условие публикации версии, с которой ещё нечего сравнивать.

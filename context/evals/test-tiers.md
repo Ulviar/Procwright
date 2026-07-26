@@ -32,7 +32,6 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 - value objects и scenario Draft fail fast;
 - public API surface не получает случайные entry points;
-- `apiCompatibilityCheck` сравнивает public JVM signatures с baseline `0.1.0`;
 - `:procwright-kotlin:checkKotlinAbi` сравнивает Kotlin JVM ABI с tracked baseline;
 - unit tests проверяют production-owned `DiagnosticAttributeSchema` через построение diagnostics events и schema-safe
   failure attributes;
@@ -107,7 +106,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 
 Назначение:
 
-- запускает regression, API/ABI, strict Java/Kotlin documentation и public site checks;
+- запускает regression, public surface/Kotlin ABI, strict Java/Kotlin documentation и public site checks;
 - проверяет все три optional/public modules и внешние consumer examples через предыдущие tiers;
 - не выбирает remote registry, signing или credentials и не выдает local readiness за доказательство публикации;
 - CI отдельно публикует те же modules в изолированный Maven Local repository и запускает normal/POM-only consumers.

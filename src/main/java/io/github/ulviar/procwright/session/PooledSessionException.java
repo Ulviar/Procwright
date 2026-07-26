@@ -10,6 +10,7 @@ import org.jspecify.annotations.Nullable;
 @SuppressWarnings("serial")
 public final class PooledSessionException extends ProcwrightException {
 
+    /** Structured lifecycle reason exposed by {@link #reason()}. */
     private final Reason reason;
 
     /**
