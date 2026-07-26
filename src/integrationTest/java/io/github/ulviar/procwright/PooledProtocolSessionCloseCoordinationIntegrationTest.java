@@ -2,12 +2,15 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.PooledProtocolSessionIntegrationFixtures.poolDraft;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.awaitIgnoringInterrupts;
+import static io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.fixtureService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.PooledProtocolSessionIntegrationFixtures.CoordinatedResponseAdapter;
 import io.github.ulviar.procwright.ProtocolSessionIntegrationSupport.TextLineAdapter;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
 import io.github.ulviar.procwright.session.PooledSessionException;
@@ -20,7 +23,42 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-final class PooledProtocolSessionCloseAndDrainIntegrationTest {
+final class PooledProtocolSessionCloseCoordinationIntegrationTest {
+
+    @Test
+    void pooledProtocolCloseDistinguishesInterruptionFromDrainTimeout() throws Exception {
+        CoordinatedResponseAdapter adapter = new CoordinatedResponseAdapter();
+        PooledProtocolSession<String, String> pool =
+                poolDraft(fixtureService(), () -> adapter, "ignore-stdin", "--millis=5000")
+                        .withMaxSize(1)
+                        .open();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> request = executor.submit(() -> pool.request("hold", Duration.ofSeconds(2)));
+            assertTrue(adapter.awaitResponseEntered());
+            assertEquals(1, pool.metrics().leased());
+            CompletableFuture<Void> eventual = pool.closeAsync();
+
+            PooledSessionException interrupted;
+            try {
+                Thread.currentThread().interrupt();
+                interrupted = assertThrows(PooledSessionException.class, pool::close);
+                assertEquals(true, Thread.currentThread().isInterrupted());
+            } finally {
+                Thread.interrupted();
+            }
+
+            assertEquals(PooledSessionException.Reason.INTERRUPTED, interrupted.reason());
+            adapter.releaseResponse();
+            assertEquals("slept:hold", request.get(2, TimeUnit.SECONDS));
+            eventual.get(2, TimeUnit.SECONDS);
+        } finally {
+            adapter.releaseResponse();
+            executor.shutdownNow();
+            assertEquals(true, executor.awaitTermination(1, TimeUnit.SECONDS));
+            pool.close();
+        }
+    }
 
     @Test
     void closeTimeoutKeepsCleanupObservableAndAsyncViewsCancellationIsolated() throws Exception {
