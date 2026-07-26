@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitIgnoringInterrupt;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitRetired;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.poolDraft;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -23,11 +27,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-final class PooledLineSessionWorkerHooksIntegrationTest extends PooledLineSessionIntegrationSupport {
+final class PooledLineSessionWorkerHooksIntegrationTest {
+
+    private static final long EXTERNAL_WATCHDOG_SECONDS = 5;
 
     @Test
-    void resetFailureRetiresWorkerWithoutChangingCompletedRequestOutcome() {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+    void resetFailureRetiresWorkerWithoutChangingCompletedRequestOutcome() throws InterruptedException {
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withReset(worker -> {
                     throw new IllegalStateException("dirty worker");
@@ -46,9 +52,9 @@ final class PooledLineSessionWorkerHooksIntegrationTest extends PooledLineSessio
     }
 
     @Test
-    void resetErrorIsRethrownAfterRecordingCompletedRequestAndResetRetirement() {
+    void resetErrorIsRethrownAfterRecordingCompletedRequestAndResetRetirement() throws InterruptedException {
         AssertionError resetError = new AssertionError("reset invariant failed");
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withReset(worker -> {
                     throw resetError;
@@ -71,7 +77,7 @@ final class PooledLineSessionWorkerHooksIntegrationTest extends PooledLineSessio
         int permitsBefore = PoolTestAccess.availableWorkerHookPermits();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+            try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                     .withMaxSize(1)
                     .withHookTimeout(Duration.ofMillis(50))
                     .withReset(worker -> reset.run())
@@ -105,7 +111,7 @@ final class PooledLineSessionWorkerHooksIntegrationTest extends PooledLineSessio
         int permitsBefore = PoolTestAccess.availableWorkerHookPermits();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            try (PooledLineSession pool = pool(
+            try (PooledLineSession pool = poolDraft(
                             fixtureScenario().withRequestTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1)),
                             "controlled-line-repl")
                     .withMaxSize(1)
@@ -160,7 +166,7 @@ final class PooledLineSessionWorkerHooksIntegrationTest extends PooledLineSessio
     void resetHookRunsBeforeWorkerReturnsToPool() {
         AtomicInteger resetCalls = new AtomicInteger();
 
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withReset(worker -> {
                     resetCalls.incrementAndGet();
@@ -180,7 +186,7 @@ final class PooledLineSessionWorkerHooksIntegrationTest extends PooledLineSessio
     void unhealthyIdleWorkerIsRetiredAndReplaced() {
         AtomicInteger checks = new AtomicInteger();
 
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withWarmupSize(1)
                 .withHealthCheck(worker -> {

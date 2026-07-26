@@ -2,6 +2,11 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitIgnoringInterrupt;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitLeased;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitRetired;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.poolDraft;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -27,11 +32,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-final class PooledLineSessionRequestIntegrationTest extends PooledLineSessionIntegrationSupport {
+final class PooledLineSessionRequestIntegrationTest {
 
     @Test
     void callerValidationHappensBeforeWorkerAcquire() {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withWarmupSize(1)
                 .open()) {
@@ -115,7 +120,7 @@ final class PooledLineSessionRequestIntegrationTest extends PooledLineSessionInt
 
     @Test
     void acquireTimeoutIsDistinctWhenAllWorkersAreBusy() throws Exception {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withAcquireTimeout(Duration.ofMillis(100))
                 .open()) {
@@ -147,14 +152,14 @@ final class PooledLineSessionRequestIntegrationTest extends PooledLineSessionInt
     }
 
     @Test
-    void requestErrorIsRethrownAndRecordedAsFailedRequest() {
+    void requestErrorIsRethrownAndRecordedAsFailedRequest() throws InterruptedException {
         AssertionError decoderError = new AssertionError("decoder invariant failed");
         LineSessionScenario.Draft scenario = fixtureScenario().withResponseDecoder(reader -> {
             reader.readLine();
             throw decoderError;
         });
         try (PooledLineSession pool =
-                pool(scenario, "controlled-line-repl").withMaxSize(1).open()) {
+                poolDraft(scenario, "controlled-line-repl").withMaxSize(1).open()) {
             AssertionError thrown = assertThrows(AssertionError.class, () -> pool.request("hello"));
 
             assertSame(decoderError, thrown);

@@ -2,6 +2,8 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.poolDraft;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,7 +15,7 @@ import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
-final class PooledLineSessionWarmupIntegrationTest extends PooledLineSessionIntegrationSupport {
+final class PooledLineSessionWarmupIntegrationTest {
 
     @Test
     void warmupLaunchFailureIsPooledStartupFailure() {
@@ -28,7 +30,7 @@ final class PooledLineSessionWarmupIntegrationTest extends PooledLineSessionInte
 
     @Test
     void warmPoolReusesLineSessionWorkers() {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withWarmupSize(1)
                 .open()) {
@@ -47,7 +49,7 @@ final class PooledLineSessionWarmupIntegrationTest extends PooledLineSessionInte
 
     @Test
     void minIdleReplenishesRetiredLineWorkersInBackground() throws Exception {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withWarmupSize(1)
                 .withMinIdle(1)
@@ -65,8 +67,8 @@ final class PooledLineSessionWarmupIntegrationTest extends PooledLineSessionInte
     }
 
     @Test
-    void poolDraftSettingsAreAppliedAtOpen() {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+    void warmupSizeIsAppliedAtOpen() {
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(2)
                 .withWarmupSize(2)
                 .open()) {

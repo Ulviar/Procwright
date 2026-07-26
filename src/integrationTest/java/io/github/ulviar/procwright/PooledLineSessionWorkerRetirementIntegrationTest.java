@@ -2,6 +2,9 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitRetired;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.poolDraft;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -21,12 +24,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
-final class PooledLineSessionWorkerRetirementIntegrationTest extends PooledLineSessionIntegrationSupport {
+final class PooledLineSessionWorkerRetirementIntegrationTest {
 
     @Test
-    void maxRequestsPerWorkerRetiresWorkersAfterUseLimit() {
+    void maxRequestsPerWorkerRetiresWorkersAfterUseLimit() throws InterruptedException {
         AtomicInteger resetCalls = new AtomicInteger();
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withMaxRequestsPerWorker(1)
                 .withReset(worker -> resetCalls.incrementAndGet())
@@ -47,8 +50,8 @@ final class PooledLineSessionWorkerRetirementIntegrationTest extends PooledLineS
     }
 
     @Test
-    void maxWorkerAgeRetiresWorkerAfterUse() {
-        try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+    void maxWorkerAgeRetiresWorkerAfterUse() throws InterruptedException {
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withMaxWorkerAge(Duration.ofNanos(1))
                 .open()) {
@@ -67,8 +70,9 @@ final class PooledLineSessionWorkerRetirementIntegrationTest extends PooledLineS
 
     @Test
     void requestTimeoutRetiresWorkerBeforeNextRequest() {
-        try (PooledLineSession pool =
-                pool(fixtureScenario(), "controlled-line-repl").withMaxSize(1).open()) {
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
+                .withMaxSize(1)
+                .open()) {
             String firstPid = pool.request("pid").text();
 
             LineSessionException timeout = assertThrows(
@@ -86,9 +90,9 @@ final class PooledLineSessionWorkerRetirementIntegrationTest extends PooledLineS
     }
 
     @Test
-    void requestFailureRetiresWorkerBeforeNextRequest() {
+    void requestFailureRetiresWorkerBeforeNextRequest() throws InterruptedException {
         try (PooledLineSession pool =
-                pool(fixtureScenario(), "exit-after-read").withMaxSize(1).open()) {
+                poolDraft(fixtureScenario(), "exit-after-read").withMaxSize(1).open()) {
             LineSessionException eof =
                     assertThrows(LineSessionException.class, () -> pool.request("hello", Duration.ofSeconds(1)));
             LineSessionException nextFailure =
@@ -145,8 +149,8 @@ final class PooledLineSessionWorkerRetirementIntegrationTest extends PooledLineS
     }
 
     @Test
-    void exitedProcessUsesProcessExitedRetirementReason() {
-        try (PooledLineSession pool = pool(fixtureScenario(), "exit-after-read", "--stdout=ok")
+    void exitedProcessUsesProcessExitedRetirementReason() throws InterruptedException {
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "exit-after-read", "--stdout=ok")
                 .withMaxSize(1)
                 .withWarmupSize(1)
                 .withReset(worker -> worker.onExit().join())
@@ -161,15 +165,10 @@ final class PooledLineSessionWorkerRetirementIntegrationTest extends PooledLineS
     }
 
     private static boolean awaitRetireReason(
-            PooledLineSession pool, PooledWorkerRetireReason reason, long expectedCount) {
-        try {
-            return PoolTestAccess.awaitLineMetrics(
-                    pool,
-                    metrics -> metrics.retireReasons().getOrDefault(reason, 0L) == expectedCount,
-                    Duration.ofSeconds(2));
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
+            PooledLineSession pool, PooledWorkerRetireReason reason, long expectedCount) throws InterruptedException {
+        return PoolTestAccess.awaitLineMetrics(
+                pool,
+                metrics -> metrics.retireReasons().getOrDefault(reason, 0L) == expectedCount,
+                Duration.ofSeconds(2));
     }
 }

@@ -2,25 +2,19 @@
 
 package io.github.ulviar.procwright;
 
-import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.internal.session.PoolTestAccess;
 import io.github.ulviar.procwright.session.PooledLineSession;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 
-abstract class PooledLineSessionIntegrationSupport {
-
-    static final long EXTERNAL_WATCHDOG_SECONDS = 5;
+final class PooledLineSessionIntegrationFixtures {
+    private PooledLineSessionIntegrationFixtures() {}
 
     static LineSessionScenario.Draft fixtureScenario() {
-        return Procwright.command(fixtureCommand()).lineSession();
+        return Procwright.command(TestCliSupport.command()).lineSession();
     }
 
-    static CommandSpec fixtureCommand() {
-        return TestCliSupport.command();
-    }
-
-    static LineSessionScenario.PoolDraft pool(LineSessionScenario.Draft scenario, String... workerArguments) {
+    static LineSessionScenario.PoolDraft poolDraft(LineSessionScenario.Draft scenario, String... workerArguments) {
         return scenario.withArgs(workerArguments).pooled();
     }
 
@@ -29,14 +23,9 @@ abstract class PooledLineSessionIntegrationSupport {
                 pool, metrics -> metrics.leased() == expectedLeased, Duration.ofSeconds(2));
     }
 
-    static boolean awaitRetired(PooledLineSession pool, long expectedRetired) {
-        try {
-            return PoolTestAccess.awaitLineMetrics(
-                    pool, metrics -> metrics.retired() == expectedRetired, Duration.ofSeconds(2));
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
+    static boolean awaitRetired(PooledLineSession pool, long expectedRetired) throws InterruptedException {
+        return PoolTestAccess.awaitLineMetrics(
+                pool, metrics -> metrics.retired() == expectedRetired, Duration.ofSeconds(2));
     }
 
     static void awaitIgnoringInterrupt(CountDownLatch latch) {

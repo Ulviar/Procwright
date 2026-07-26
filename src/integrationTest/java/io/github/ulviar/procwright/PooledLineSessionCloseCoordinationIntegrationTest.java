@@ -2,6 +2,9 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitIgnoringInterrupt;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.poolDraft;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,13 +27,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class PooledLineSessionCloseCoordinationIntegrationTest extends PooledLineSessionIntegrationSupport {
+final class PooledLineSessionCloseCoordinationIntegrationTest {
+
+    private static final long EXTERNAL_WATCHDOG_SECONDS = 5;
 
     @Test
     void closeTimeoutKeepsCleanupObservableAndAsyncViewsCancellationIsolated() throws Exception {
         CountDownLatch resetEntered = new CountDownLatch(1);
         CountDownLatch releaseReset = new CountDownLatch(1);
-        PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
                 .withWarmupSize(1)
                 .withCloseTimeout(Duration.ofMillis(40))
@@ -73,7 +78,7 @@ final class PooledLineSessionCloseCoordinationIntegrationTest extends PooledLine
     void interruptedCloseRestoresFlagAndCleanupStillCompletes() throws Exception {
         CountDownLatch resetEntered = new CountDownLatch(1);
         CountDownLatch releaseReset = new CountDownLatch(1);
-        PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withWarmupSize(1)
                 .withCloseTimeout(Duration.ofSeconds(1))
                 .withReset(worker -> {
@@ -110,10 +115,11 @@ final class PooledLineSessionCloseCoordinationIntegrationTest extends PooledLine
 
     @Test
     void concurrentCloseAndCloseAsyncShareOneTerminalCleanup() throws Exception {
+        int concurrentCloserCount = 3;
         CountDownLatch resetEntered = new CountDownLatch(1);
         CountDownLatch releaseReset = new CountDownLatch(1);
-        CountDownLatch terminalCallsStarted = new CountDownLatch(3);
-        PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        CountDownLatch terminalCallsStarted = new CountDownLatch(concurrentCloserCount);
+        PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withWarmupSize(1)
                 .withCloseTimeout(Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS + 1))
                 .withReset(worker -> {
@@ -121,12 +127,12 @@ final class PooledLineSessionCloseCoordinationIntegrationTest extends PooledLine
                     awaitIgnoringInterrupt(releaseReset);
                 })
                 .open();
-        ExecutorService executor = Executors.newFixedThreadPool(4);
+        ExecutorService executor = Executors.newFixedThreadPool(concurrentCloserCount + 1);
         try {
             Future<LineResponse> request = executor.submit(() -> pool.request("hello"));
             assertTrue(resetEntered.await(1, TimeUnit.SECONDS));
             List<Future<?>> closers = new ArrayList<>();
-            for (int index = 0; index < 3; index++) {
+            for (int index = 0; index < concurrentCloserCount; index++) {
                 Runnable closePool = () -> {
                     CompletableFuture<Void> view = pool.closeAsync();
                     terminalCallsStarted.countDown();
@@ -162,7 +168,7 @@ final class PooledLineSessionCloseCoordinationIntegrationTest extends PooledLine
     void closeFromResetCallbackIsBoundedAndEventuallyDrains() throws Exception {
         AtomicReference<PooledLineSession> poolReference = new AtomicReference<>();
         AtomicReference<PooledSessionException> closeFailure = new AtomicReference<>();
-        PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withWarmupSize(1)
                 .withCloseTimeout(Duration.ofMillis(40))
                 .withReset(worker -> closeFailure.set(assertThrows(

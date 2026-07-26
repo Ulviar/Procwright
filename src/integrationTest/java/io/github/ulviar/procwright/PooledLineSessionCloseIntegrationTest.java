@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright;
 
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitIgnoringInterrupt;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitLeased;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.fixtureScenario;
+import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.poolDraft;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -21,12 +25,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class PooledLineSessionCloseIntegrationTest extends PooledLineSessionIntegrationSupport {
+final class PooledLineSessionCloseIntegrationTest {
 
     @Test
     void closeDrainsLeasedWorkersAndRejectsNewRequests() throws Exception {
-        PooledLineSession pool =
-                pool(fixtureScenario(), "controlled-line-repl").withMaxSize(1).open();
+        PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
+                .withMaxSize(1)
+                .open();
         try {
             ExecutorService executor = Executors.newCachedThreadPool();
             try {
@@ -53,7 +58,7 @@ final class PooledLineSessionCloseIntegrationTest extends PooledLineSessionInteg
 
     @Test
     void closePreservesLeasedMetricsWhileRetiringIdleWorkers() throws Exception {
-        PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+        PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(2)
                 .withWarmupSize(2)
                 .open();
@@ -85,8 +90,9 @@ final class PooledLineSessionCloseIntegrationTest extends PooledLineSessionInteg
 
     @Test
     void repeatedCloseOfAlreadyDrainedPoolSucceeds() throws Exception {
-        PooledLineSession pool =
-                pool(fixtureScenario(), "controlled-line-repl").withMaxSize(1).open();
+        PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
+                .withMaxSize(1)
+                .open();
 
         pool.close();
         pool.close();
@@ -105,7 +111,7 @@ final class PooledLineSessionCloseIntegrationTest extends PooledLineSessionInteg
         IllegalStateException primary = new IllegalStateException("body failed");
         try {
             IllegalStateException observed = assertThrows(IllegalStateException.class, () -> {
-                try (PooledLineSession pool = pool(fixtureScenario(), "controlled-line-repl")
+                try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                         .withWarmupSize(1)
                         .withCloseTimeout(Duration.ofMillis(40))
                         .withReset(worker -> {
