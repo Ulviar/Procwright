@@ -4,7 +4,6 @@ package io.github.ulviar.procwright.internal;
 
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,29 +44,6 @@ abstract class ProcessKernelProcessFixtureSupport extends ProcessKernelTestSuppo
 
         final int closeCalls() {
             return closeCalls.get();
-        }
-    }
-
-    static final class NonCooperativeOutputStream extends TrackingOutputStream {
-
-        final CountDownLatch entered = new CountDownLatch(1);
-        final CountDownLatch release = new CountDownLatch(1);
-
-        @Override
-        public void write(byte[] bytes, int offset, int length) {
-            entered.countDown();
-            boolean restoreInterrupt = false;
-            while (true) {
-                try {
-                    release.await();
-                    break;
-                } catch (InterruptedException interruption) {
-                    restoreInterrupt = true;
-                }
-            }
-            if (restoreInterrupt) {
-                Thread.currentThread().interrupt();
-            }
         }
     }
 
@@ -124,9 +100,6 @@ abstract class ProcessKernelProcessFixtureSupport extends ProcessKernelTestSuppo
 
         @Override
         public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
-            if (stdin instanceof NonCooperativeOutputStream nonCooperative) {
-                nonCooperative.entered.await(timeout, unit);
-            }
             return !alive.get();
         }
 

@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -66,8 +67,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
     void exhaustedOneShotTaskCapacityRejectsBeforeStartingAnotherProcessAndRecoversAfterActualExit() throws Exception {
         OneShotIoTaskOwner owner = new OneShotIoTaskOwner(1);
         NonCooperativeOutputStream firstStdin = new NonCooperativeOutputStream();
-        TerminalProcess first =
-                new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), firstStdin, true);
+        TerminalProcess first = new NonCooperativeStdinProcess(new TrackingInputStream(), firstStdin);
         AtomicInteger starts = new AtomicInteger();
         ProcessKernel kernel = kernel(
                 ignored -> {},
@@ -134,8 +134,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
     @Test
     void executorTerminationFailureBecomesPrimaryBeforeSuccessDiagnostics() throws Exception {
         NonCooperativeOutputStream stdin = new NonCooperativeOutputStream();
-        TerminalProcess process =
-                new TerminalProcess(new TrackingInputStream(), new TrackingInputStream(), stdin, true);
+        TerminalProcess process = new NonCooperativeStdinProcess(new TrackingInputStream(), stdin);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         ProcessKernel kernel = kernel(
                 ignored -> {}, (launchPlan, stdio) -> process, new BoundedCloseDispatcher(3, 3), Duration.ofMillis(50));
@@ -160,8 +159,7 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
     void executorTerminationFailureAppearsOnceInAggregateWithExistingFatalPrimary() throws Exception {
         AssertionError readFailure = new AssertionError("stdout failed while stdin writer remained active");
         NonCooperativeOutputStream stdin = new NonCooperativeOutputStream();
-        TerminalProcess process =
-                new TerminalProcess(new ReadErrorInputStream(readFailure), new TrackingInputStream(), stdin, true);
+        TerminalProcess process = new NonCooperativeStdinProcess(new ReadErrorInputStream(readFailure), stdin);
         List<DiagnosticEvent> events = new CopyOnWriteArrayList<>();
         ProcessKernel kernel = kernel(
                 ignored -> {}, (launchPlan, stdio) -> process, new BoundedCloseDispatcher(3, 3), Duration.ofMillis(50));
@@ -225,6 +223,45 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelTaskAdmi
             stdout.release.countDown();
             execution.interrupt();
             execution.join(TimeUnit.SECONDS.toMillis(2));
+        }
+    }
+
+    private static final class NonCooperativeOutputStream extends TrackingOutputStream {
+
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) {
+            entered.countDown();
+            boolean restoreInterrupt = false;
+            while (true) {
+                try {
+                    release.await();
+                    break;
+                } catch (InterruptedException interruption) {
+                    restoreInterrupt = true;
+                }
+            }
+            if (restoreInterrupt) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private static final class NonCooperativeStdinProcess extends TerminalProcess {
+
+        private final NonCooperativeOutputStream nonCooperativeStdin;
+
+        NonCooperativeStdinProcess(TrackingInputStream stdout, NonCooperativeOutputStream stdin) {
+            super(stdout, new TrackingInputStream(), stdin, true);
+            nonCooperativeStdin = stdin;
+        }
+
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            nonCooperativeStdin.entered.await(timeout, unit);
+            return !isAlive();
         }
     }
 }
