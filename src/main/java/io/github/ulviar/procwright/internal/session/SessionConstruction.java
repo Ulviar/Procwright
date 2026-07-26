@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.ProcessLifecycle;
 import java.time.Duration;
@@ -17,8 +16,6 @@ final class SessionConstruction {
     private final Process process;
     private final Gate gate = new Gate();
     private SessionResources resources;
-    private BoundedLifecyclePublisher.Reservation exitReservation;
-    private BoundedLifecyclePublisher.Permit exitPublication;
     private boolean committed;
 
     private SessionConstruction(Process process) {
@@ -45,14 +42,6 @@ final class SessionConstruction {
         this.resources = resources;
     }
 
-    void own(BoundedLifecyclePublisher.Reservation reservation) {
-        exitReservation = reservation;
-    }
-
-    void own(BoundedLifecyclePublisher.Permit publication) {
-        exitPublication = publication;
-    }
-
     void commit() {
         committed = true;
         gate.commit();
@@ -63,12 +52,6 @@ final class SessionConstruction {
             return primaryFailure;
         }
         Throwable failure = combine(primaryFailure, attempt(gate::abort));
-        if (exitPublication != null) {
-            failure = combine(failure, attempt(exitPublication::release));
-        }
-        if (exitReservation != null) {
-            failure = combine(failure, attempt(exitReservation::release));
-        }
         failure = stopProcessPreserving(process, failure);
         if (resources != null) {
             failure = combine(failure, resources.rollbackConstruction());

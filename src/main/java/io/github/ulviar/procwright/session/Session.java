@@ -105,10 +105,9 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
      * is unavailable. Output helpers report non-selected close diagnostics separately, and other late asynchronous
      * failures do not rewrite a published outcome.
      *
-     * <p>The barrier does not wait for a physical stdin close blocked by a concurrent write. Caller-side completion or
-     * cancellation of the returned view cannot affect the lifecycle owner. Synchronous continuations run on bounded
-     * lifecycle-publication capacity only after cleanup has crossed the barrier, so hostile continuation code cannot pin
-     * a process watcher, output pump, or physical-close owner.
+     * <p>The barrier does not wait for a physical stdin close blocked by a concurrent write. Cancelling the returned
+     * view cannot cancel the session's terminal outcome. Synchronous continuations use the normal {@link
+     * CompletableFuture} execution rules and should therefore return promptly or select an asynchronous executor.
      *
      * @return process exit future
      */

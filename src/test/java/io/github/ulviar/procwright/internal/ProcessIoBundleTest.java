@@ -31,12 +31,11 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
     @Test
     void singleAndPairCloseLinearizeWithoutPartialClaimOrDuplicatePhysicalClose() throws Exception {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
-        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             for (int attempt = 0; attempt < 32; attempt++) {
                 TrackingProcess process = new TrackingProcess();
-                ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher, publisher);
+                ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
                 CountDownLatch start = new CountDownLatch(1);
                 Future<Throwable> single = executor.submit(() -> {
                     start.await();
@@ -58,7 +57,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
                 assertEquals(1, process.stdin.closeCalls.get());
                 assertEquals(1, process.stdout.closeCalls.get());
                 assertEquals(1, process.stderr.closeCalls.get());
-                assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
+                assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
             }
         } finally {
             executor.shutdownNow();
@@ -129,11 +128,10 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
 
     private static void assertInvalidPairLeavesResourcesUsable(InvalidPairArgument invalidArgument) throws Exception {
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
-        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(6);
         TrackingProcess process = new TrackingProcess();
         TrackingProcess foreignProcess = new TrackingProcess();
-        ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher, publisher);
-        ProcessIoResources foreign = ProcessIoResources.acquire(foreignProcess, dispatcher, publisher);
+        ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
+        ProcessIoResources foreign = ProcessIoResources.acquire(foreignProcess, dispatcher);
         try {
             assertThrows(
                     invalidArgument.expectedType(),
@@ -142,7 +140,6 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
             assertFalse(resources.stdout().closeStarted(), invalidArgument.toString());
             assertFalse(resources.stderr().closeStarted(), invalidArgument.toString());
             assertEquals(6, dispatcher.outstandingCount(), invalidArgument.toString());
-            assertEquals(6, publisher.ownerCount(), invalidArgument.toString());
 
             closeOutputPair(resources);
             resources.stdin().closeInline();
@@ -153,9 +150,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
             assertEquals(1, process.stdin.closeCalls.get(), invalidArgument.toString());
             assertEquals(1, process.stdout.closeCalls.get(), invalidArgument.toString());
             assertEquals(1, process.stderr.closeCalls.get(), invalidArgument.toString());
-            assertTrue(
-                    eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0),
-                    invalidArgument.toString());
+            assertTrue(eventually(() -> dispatcher.outstandingCount() == 0), invalidArgument.toString());
         } finally {
             captureFailure(() -> resources.closeAllAsync(ignored -> {}));
             captureFailure(() -> foreign.closeAllAsync(ignored -> {}));

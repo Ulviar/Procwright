@@ -56,50 +56,6 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
     }
 
     @Test
-    void publicationCapacityFailureReleasesCloseReservationAndStopsProcessBeforeStreams() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
-        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
-        BoundedLifecyclePublisher.Reservation occupied = publisher.reserve(1);
-        TrackingProcess process = new TrackingProcess();
-
-        assertThrows(
-                RejectedExecutionException.class, () -> ProcessIoResources.acquire(process, dispatcher, publisher));
-
-        assertFalse(process.isAlive());
-        assertEquals(0, process.stdinGets.get());
-        assertEquals(0, process.stdoutGets.get());
-        assertEquals(0, process.stderrGets.get());
-        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
-        occupied.release();
-        assertTrue(eventually(() -> publisher.ownerCount() == 0));
-    }
-
-    @Test
-    void publicationCapacityFailureReleasesCloseReservationBeforeProcessCleanupCompletes() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
-        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
-        BoundedLifecyclePublisher.Reservation occupied = publisher.reserve(1);
-        BlockingCleanupProcess process = new BlockingCleanupProcess();
-        ExecutorService acquisition = Executors.newSingleThreadExecutor();
-        try {
-            Future<Throwable> failure = acquisition.submit(
-                    () -> captureFailure(() -> ProcessIoResources.acquire(process, dispatcher, publisher)));
-
-            assertTrue(process.cleanupEntered.await(1, TimeUnit.SECONDS));
-            assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
-            assertFalse(failure.isDone());
-
-            process.releaseCleanup.countDown();
-            assertTrue(failure.get(1, TimeUnit.SECONDS) instanceof RejectedExecutionException);
-        } finally {
-            process.releaseCleanup.countDown();
-            occupied.release();
-            acquisition.shutdownNow();
-        }
-        assertTrue(eventually(() -> publisher.ownerCount() == 0));
-    }
-
-    @Test
     void everyPartialAcquisitionFailureRollsBackStableResourcesByIdentity() throws Exception {
         for (int failedOrdinal = 1; failedOrdinal <= 3; failedOrdinal++) {
             for (boolean fatal : new boolean[] {false, true}) {
@@ -108,14 +64,13 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
                         : new IllegalStateException("getter " + failedOrdinal);
                 TrackingProcess process = new TrackingProcess(failedOrdinal, expected);
                 BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
-                BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
 
-                Throwable actual = assertThrows(
-                        expected.getClass(), () -> ProcessIoResources.acquire(process, dispatcher, publisher));
+                Throwable actual =
+                        assertThrows(expected.getClass(), () -> ProcessIoResources.acquire(process, dispatcher));
 
                 assertSame(expected, actual);
                 assertFalse(process.isAlive());
-                assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
+                assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
                 assertEquals(failedOrdinal >= 2 ? 1 : 0, process.stdin.closeCalls.get());
                 assertEquals(failedOrdinal >= 3 ? 1 : 0, process.stdout.closeCalls.get());
                 assertEquals(0, process.stderr.closeCalls.get());
@@ -132,9 +87,8 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         AssertionError cleanupFailure = new AssertionError("process handle failed");
         TerminationFailureProcess process = new TerminationFailureProcess(acquisitionFailure, cleanupFailure);
         BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(3, 3);
-        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(3);
 
-        Throwable actual = captureFailure(() -> ProcessIoResources.acquire(process, dispatcher, publisher));
+        Throwable actual = captureFailure(() -> ProcessIoResources.acquire(process, dispatcher));
 
         assertTrue(actual instanceof Error);
         assertSame(acquisitionFailure, FailureAggregation.primary(actual));
@@ -144,7 +98,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         assertEquals(1, process.stdin.closeCalls.get());
         assertEquals(1, process.stdout.closeCalls.get());
         assertEquals(0, process.stderr.closeCalls.get());
-        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0 && publisher.ownerCount() == 0));
+        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
     }
 
     @Test
@@ -240,19 +194,6 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
         @Override
         public ProcessHandle toHandle() {
             throw cleanupFailure;
-        }
-    }
-
-    private static final class BlockingCleanupProcess extends TrackingProcess {
-
-        private final CountDownLatch cleanupEntered = new CountDownLatch(1);
-        private final CountDownLatch releaseCleanup = new CountDownLatch(1);
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            cleanupEntered.countDown();
-            awaitUninterruptibly(releaseCleanup);
-            return Stream.empty();
         }
     }
 

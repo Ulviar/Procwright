@@ -52,11 +52,11 @@ owner вынуждает при локальном изменении держа
 - `SessionExitBarrier` получает immutable source-failure snapshot из `SessionTermination` и один раз объединяет process
   и raw-output failures без изменения исходных `Throwable`; lone physical failure успешного raw process уходит в
   bounded reporter, а helper-owned failure остается у helper-а. Line/protocol `onExit()` используют этот же barrier:
-  зарегистрированный output helper уже не позволяет ему завершиться до pump и physical cleanup, поэтому второй future
-  и второй publication permit не нужны. Отдельный late-failure arbiter также не нужен.
+  зарегистрированный output helper уже не позволяет ему завершиться до pump и physical cleanup, поэтому отдельный
+  helper completion owner не нужен. Отдельный late-failure arbiter также не нужен.
 - `ProcessIoAcquisition` транзакционно приобретает стабильные ссылки на process streams и permits; при отказе сначала
   выполняет все обязательные rollback-операции, и только затем дополняет primary failure;
-- `ProcessStreamResource` владеет exact-once close одного stream, его permits и локальным close failure; общий для трех
+- `ProcessStreamResource` владеет exact-once close одного stream, его close permit и локальным close failure; общий для трех
   ресурсов lock отвечает только за атомарный single/pair claim;
 - `ProcessIoResources` группирует три ресурса и координирует bundle-level close и rollback;
 - `OutputPumpCoordinator` владеет однократным транзакционным запуском пары helper pumps, `OutputPumpCleanup` —
@@ -106,8 +106,7 @@ terminal outcome. Они не изменяют выбранную request failur
 ## Инварианты
 
 - watcher body не выполняется до успешного construction commit;
-- construction failure останавливает процесс, закрывает уже приобретенные stream resources и освобождает publication
-  permits;
+- construction failure останавливает процесс, закрывает уже приобретенные stream resources и освобождает close permits;
 - terminal outcome и public exit публикуются ровно один раз;
 - public exit не опережает физическое закрытие stdout/stderr или helper cleanup;
 - canonical terminal failure фиксируется до cleanup и доступен конкурентным failure paths; принявший его cleanup
@@ -157,7 +156,7 @@ terminal outcome. Они не изменяют выбранную request failur
 - `DefaultLineSession` не содержит реализацию bounded write или decoder callback;
 - `DefaultProtocolSession` не содержит pump loops, output queues или конкурирующие представления active request и
   terminal state;
-- line/protocol session handles не дублируют `SessionExitBarrier` собственными futures и publication permits;
+- line/protocol session handles не дублируют `SessionExitBarrier` собственными completion barriers;
 - `DefaultExpect` не содержит pump loop, terminal arbitration или bounded-task protocol;
 - `DefaultStreamSession` не содержит read/decode loop, callback-admission protocol, timeout thread lifecycle,
   собственное семейство terminal outcome типов или publication races;

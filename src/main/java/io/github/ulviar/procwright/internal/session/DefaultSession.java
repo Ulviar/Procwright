@@ -8,7 +8,6 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.Threading;
@@ -40,9 +39,6 @@ import java.util.function.Consumer;
  * handle.
  */
 public final class DefaultSession implements Session {
-
-    private static final BoundedLifecyclePublisher EXIT_PUBLICATIONS =
-            new BoundedLifecyclePublisher(BoundedCloseDispatcher.SHARED_CAPACITY);
 
     private final Process process;
     private final Charset charset;
@@ -88,8 +84,6 @@ public final class DefaultSession implements Session {
                 charset,
                 diagnostics,
                 closeDispatcher,
-                BoundedLifecyclePublisher.shared(),
-                EXIT_PUBLICATIONS,
                 beforeCommit,
                 watcherStarter);
     }
@@ -101,8 +95,6 @@ public final class DefaultSession implements Session {
             Charset charset,
             DiagnosticEmitter diagnostics,
             BoundedCloseDispatcher closeDispatcher,
-            BoundedLifecyclePublisher resourcePublisher,
-            BoundedLifecyclePublisher exitPublisher,
             Runnable beforeCommit,
             WatcherStarter watcherStarter) {
         this.process = Objects.requireNonNull(process, "process");
@@ -114,25 +106,15 @@ public final class DefaultSession implements Session {
             this.charset = Objects.requireNonNull(charset, "charset");
             this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
             Objects.requireNonNull(closeDispatcher, "closeDispatcher");
-            Objects.requireNonNull(resourcePublisher, "resourcePublisher");
-            Objects.requireNonNull(exitPublisher, "exitPublisher");
             this.termination = new SessionTermination(diagnostics);
             this.processCleanup = new SessionProcessCleanup(process, shutdownPolicy);
             this.lastActivityNanos = new AtomicLong(System.nanoTime());
 
             this.resources = SessionResources.acquire(
-                    process,
-                    closeDispatcher,
-                    resourcePublisher,
-                    this::markActivity,
-                    this::terminateAfterResourceCloseFailure);
+                    process, closeDispatcher, this::markActivity, this::terminateAfterResourceCloseFailure);
             construction.own(resources);
 
-            BoundedLifecyclePublisher.Reservation publicationReservation = exitPublisher.reserve(1);
-            construction.own(publicationReservation);
-            BoundedLifecyclePublisher.Permit exitPublication = publicationReservation.takePermit();
-            construction.own(exitPublication);
-            this.exitBarrier = new SessionExitBarrier(exitPublication);
+            this.exitBarrier = new SessionExitBarrier();
             observePublicExitCleanup();
 
             startExitWatcher(Objects.requireNonNull(watcherStarter, "watcherStarter"), gate);

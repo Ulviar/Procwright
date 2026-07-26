@@ -9,7 +9,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /** Acquires process streams and their permits as one rollback-safe transaction. */
@@ -22,19 +21,15 @@ final class ProcessIoAcquisition {
     static ProcessIoResources acquire(
             Process process,
             BoundedCloseDispatcher dispatcher,
-            BoundedLifecyclePublisher lifecyclePublisher,
-            Consumer<? super Throwable> inlineOutputCloseFailureHandler,
-            BiConsumer<BoundedFailureReporter.FailureTarget, Throwable> failureReporter) {
+            Consumer<? super Throwable> inlineOutputCloseFailureHandler) {
         Objects.requireNonNull(process, "process");
         Objects.requireNonNull(dispatcher, "dispatcher");
-        Objects.requireNonNull(lifecyclePublisher, "lifecyclePublisher");
         Objects.requireNonNull(inlineOutputCloseFailureHandler, "inlineOutputCloseFailureHandler");
-        Objects.requireNonNull(failureReporter, "failureReporter");
 
         List<Throwable> cleanupFailures;
         ConstructionLedger ledger;
         try {
-            cleanupFailures = new ArrayList<>(9);
+            cleanupFailures = new ArrayList<>(6);
             ledger = new ConstructionLedger();
         } catch (OutOfMemoryError allocationFailure) {
             stopProcessWithoutFailureDecoration(process);
@@ -42,41 +37,25 @@ final class ProcessIoAcquisition {
         }
         try {
             ledger.closeReservation = dispatcher.reserve(3);
-            ledger.publicationReservation = lifecyclePublisher.reserve(3);
             ledger.transferPermits();
             Object closeClaimLock = new Object();
 
             OutputStream stdinStream = process.getOutputStream();
             ledger.stdin.stream = stdinStream;
-            ProcessStreamResource<OutputStream> stdin = new ProcessStreamResource<>(
-                    stdinStream,
-                    ledger.stdin.closePermit,
-                    ledger.stdin.publicationPermit,
-                    closeClaimLock,
-                    ignored -> {},
-                    failureReporter);
+            ProcessStreamResource<OutputStream> stdin =
+                    new ProcessStreamResource<>(stdinStream, ledger.stdin.closePermit, closeClaimLock, ignored -> {});
             ledger.stdin.resource = stdin;
 
             InputStream stdoutStream = process.getInputStream();
             ledger.stdout.stream = stdoutStream;
             ProcessStreamResource<InputStream> stdout = new ProcessStreamResource<>(
-                    stdoutStream,
-                    ledger.stdout.closePermit,
-                    ledger.stdout.publicationPermit,
-                    closeClaimLock,
-                    inlineOutputCloseFailureHandler,
-                    failureReporter);
+                    stdoutStream, ledger.stdout.closePermit, closeClaimLock, inlineOutputCloseFailureHandler);
             ledger.stdout.resource = stdout;
 
             InputStream stderrStream = process.getErrorStream();
             ledger.stderr.stream = stderrStream;
             ProcessStreamResource<InputStream> stderr = new ProcessStreamResource<>(
-                    stderrStream,
-                    ledger.stderr.closePermit,
-                    ledger.stderr.publicationPermit,
-                    closeClaimLock,
-                    inlineOutputCloseFailureHandler,
-                    failureReporter);
+                    stderrStream, ledger.stderr.closePermit, closeClaimLock, inlineOutputCloseFailureHandler);
             ledger.stderr.resource = stderr;
 
             return new ProcessIoResources(stdin, stdout, stderr);
@@ -114,14 +93,6 @@ final class ProcessIoAcquisition {
         }
     }
 
-    private static void release(BoundedLifecyclePublisher.Reservation reservation, List<Throwable> failures) {
-        try {
-            reservation.release();
-        } catch (Throwable releaseFailure) {
-            failures.add(releaseFailure);
-        }
-    }
-
     private static void rethrow(Throwable failure) {
         if (failure instanceof RuntimeException runtimeFailure) {
             throw runtimeFailure;
@@ -135,28 +106,20 @@ final class ProcessIoAcquisition {
     private static final class ConstructionLedger {
 
         private BoundedCloseDispatcher.Reservation closeReservation;
-        private BoundedLifecyclePublisher.Reservation publicationReservation;
         private final ResourceSlot stdin = new ResourceSlot();
         private final ResourceSlot stdout = new ResourceSlot();
         private final ResourceSlot stderr = new ResourceSlot();
 
         private void transferPermits() {
             Objects.requireNonNull(closeReservation, "closeReservation");
-            Objects.requireNonNull(publicationReservation, "publicationReservation");
             stdin.closePermit = closeReservation.takePermit();
             stdout.closePermit = closeReservation.takePermit();
             stderr.closePermit = closeReservation.takePermit();
-            stdin.publicationPermit = publicationReservation.takePermit();
-            stdout.publicationPermit = publicationReservation.takePermit();
-            stderr.publicationPermit = publicationReservation.takePermit();
         }
 
         private void rollback(Process process, List<Throwable> failures) {
             if (closeReservation != null) {
                 release(closeReservation, failures);
-            }
-            if (publicationReservation != null) {
-                release(publicationReservation, failures);
             }
             stopProcess(process, failures);
             stdin.rollback(failures);
@@ -168,7 +131,6 @@ final class ProcessIoAcquisition {
     private static final class ResourceSlot {
 
         private BoundedCloseDispatcher.Permit closePermit;
-        private BoundedLifecyclePublisher.Permit publicationPermit;
         private Closeable stream;
         private ProcessStreamResource<? extends Closeable> resource;
 
@@ -181,13 +143,6 @@ final class ProcessIoAcquisition {
         }
 
         private void releaseUntransferredResource(List<Throwable> failures) {
-            if (publicationPermit != null) {
-                try {
-                    publicationPermit.release();
-                } catch (Throwable releaseFailure) {
-                    failures.add(releaseFailure);
-                }
-            }
             if (closePermit == null) {
                 return;
             }

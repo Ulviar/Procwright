@@ -13,7 +13,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -39,43 +38,18 @@ public final class ProcessIoResources {
     }
 
     public static ProcessIoResources acquire(Process process) {
-        return acquire(
-                process,
-                BoundedCloseDispatcher.shared(),
-                BoundedLifecyclePublisher.shared(),
-                IGNORE_INLINE_CLOSE_FAILURE);
+        return acquire(process, BoundedCloseDispatcher.shared(), IGNORE_INLINE_CLOSE_FAILURE);
     }
 
     public static ProcessIoResources acquire(Process process, BoundedCloseDispatcher dispatcher) {
-        return acquire(process, dispatcher, BoundedLifecyclePublisher.shared(), IGNORE_INLINE_CLOSE_FAILURE);
-    }
-
-    static ProcessIoResources acquire(
-            Process process, BoundedCloseDispatcher dispatcher, BoundedLifecyclePublisher lifecyclePublisher) {
-        return acquire(process, dispatcher, lifecyclePublisher, IGNORE_INLINE_CLOSE_FAILURE);
+        return acquire(process, dispatcher, IGNORE_INLINE_CLOSE_FAILURE);
     }
 
     public static ProcessIoResources acquire(
             Process process,
             BoundedCloseDispatcher dispatcher,
-            BoundedLifecyclePublisher lifecyclePublisher,
             Consumer<? super Throwable> inlineOutputCloseFailureHandler) {
-        return acquire(
-                process,
-                dispatcher,
-                lifecyclePublisher,
-                inlineOutputCloseFailureHandler,
-                (failureTarget, failure) -> BoundedFailureReporter.shared().report(failureTarget, failure));
-    }
-
-    static ProcessIoResources acquire(
-            Process process,
-            BoundedCloseDispatcher dispatcher,
-            BoundedLifecyclePublisher lifecyclePublisher,
-            Consumer<? super Throwable> inlineOutputCloseFailureHandler,
-            BiConsumer<BoundedFailureReporter.FailureTarget, Throwable> failureReporter) {
-        return ProcessIoAcquisition.acquire(
-                process, dispatcher, lifecyclePublisher, inlineOutputCloseFailureHandler, failureReporter);
+        return ProcessIoAcquisition.acquire(process, dispatcher, inlineOutputCloseFailureHandler);
     }
 
     public ProcessStreamResource<OutputStream> stdin() {

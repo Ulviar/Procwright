@@ -129,60 +129,6 @@ final class DefaultLineSessionExitBarrierTest {
         }
     }
 
-    @Test
-    void fallbackHelperTerminalContinuationCannotStrandAnotherLineSessionTerminal() throws Exception {
-        BoundedCloseDispatcher dispatcher = outputStartFailingDispatcher(6);
-        ControllableProcess firstProcess = new ControllableProcess(
-                OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        ControllableProcess secondProcess = new ControllableProcess(
-                OutputStream.nullOutputStream(), InputStream.nullInputStream(), InputStream.nullInputStream());
-        DefaultLineSession first =
-                new DefaultLineSession(openSession(firstProcess, dispatcher), LineSessionSettings.defaults());
-        DefaultLineSession second =
-                new DefaultLineSession(openSession(secondProcess, dispatcher), LineSessionSettings.defaults());
-        CompletableFuture<Void> escape = new CompletableFuture<>();
-        CompletableFuture<Void> secondTerminal = second.onExit().handle((ignored, failure) -> null);
-        CountDownLatch firstContinuationEntered = new CountDownLatch(1);
-        CompletableFuture<Void> firstContinuation = first.onExit().handle((ignored, failure) -> {
-            firstContinuationEntered.countDown();
-            CompletableFuture.anyOf(secondTerminal, escape).join();
-            return null;
-        });
-        try {
-            firstProcess.complete(0);
-            assertTrue(firstContinuationEntered.await(1, TimeUnit.SECONDS));
-
-            secondProcess.complete(0);
-
-            secondTerminal.get(1, TimeUnit.SECONDS);
-            firstContinuation.get(1, TimeUnit.SECONDS);
-            assertEquals(0, dispatcher.outstandingCount());
-        } finally {
-            escape.complete(null);
-            firstProcess.complete(143);
-            secondProcess.complete(143);
-            closeIgnoringTerminal(first);
-            closeIgnoringTerminal(second);
-        }
-    }
-
-    private static BoundedCloseDispatcher outputStartFailingDispatcher(int capacity) {
-        return new BoundedCloseDispatcher(2, capacity - 2, (name, task) -> {
-            if (name.contains("stdout-close") || name.contains("stderr-close")) {
-                throw new IllegalStateException("output close starter failed: " + name);
-            }
-            io.github.ulviar.procwright.internal.Threading.start(name, task);
-        });
-    }
-
-    private static void closeIgnoringTerminal(DefaultLineSession session) {
-        try {
-            session.close();
-        } catch (RuntimeException | Error ignored) {
-            // The fixture deliberately makes every helper output close report a terminal failure.
-        }
-    }
-
     private static final class FailingBlockingPhysicalCloseInputStream extends InputStream {
 
         final CountDownLatch closeEntered = new CountDownLatch(1);

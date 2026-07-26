@@ -5,7 +5,6 @@ package io.github.ulviar.procwright.internal.session;
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DurationSupport;
 import io.github.ulviar.procwright.internal.FailureAggregation;
@@ -49,7 +48,6 @@ public final class DefaultStreamSession implements StreamSession {
     private final LongSupplier nanoTime;
     private final long startedNanos;
     private final CompletableFuture<StreamExit> exit = new CompletableFuture<>();
-    private final BoundedLifecyclePublisher.Permit exitPublication;
     private final StreamSessionState state = new StreamSessionState(2);
     private final StreamTimeoutWatcher timeoutWatcher = new StreamTimeoutWatcher();
 
@@ -74,9 +72,6 @@ public final class DefaultStreamSession implements StreamSession {
         this.nanoTime = runtime.nanoTime();
         this.startedNanos = nanoTime.getAsLong();
         this.diagnostics = new BoundedTranscriptBuffer(plan.diagnosticLimit());
-        BoundedLifecyclePublisher.Reservation publicationReservation =
-                BoundedLifecyclePublisher.shared().reserve(1);
-        this.exitPublication = publicationReservation.takePermit();
         boolean pumpsCommitted = false;
         try {
             startPumps(runtime.pumpStarter());
@@ -85,7 +80,6 @@ public final class DefaultStreamSession implements StreamSession {
             startExitWatcher();
             session.closeStdin();
         } catch (RuntimeException | Error failure) {
-            exitPublication.release();
             abortStartup();
             if (pumpsCommitted) {
                 outputPumps.closeSessionPreserving(failure);
@@ -314,27 +308,26 @@ public final class DefaultStreamSession implements StreamSession {
         }
         StreamSessionState.SuccessfulCompletion successful = (StreamSessionState.SuccessfulCompletion) completion;
         stopTimeoutWatcherBeforePublication();
-        outputPumps.publishAfterOutputCleanup(
-                () -> session.afterPhysicalOutputCleanup(() -> exitPublication.publish(() -> {
-                    StreamExit terminal = new StreamExit(
-                            successful.exitCode(),
-                            successful.timedOut(),
-                            successful.closed(),
-                            streamTranscript(),
-                            DurationSupport.elapsed(startedNanos, nanoTime.getAsLong()));
-                    Throwable diagnosticFailure = emitCollecting(
-                            DiagnosticEventType.PROCESS_EXITED,
-                            exitAttributes(successful.exitCode(), successful.timedOut()),
-                            null);
-                    exit.complete(terminal);
-                    reportLate(diagnosticFailure);
-                })));
+        outputPumps.publishAfterOutputCleanup(() -> session.afterPhysicalOutputCleanup(() -> {
+            StreamExit terminal = new StreamExit(
+                    successful.exitCode(),
+                    successful.timedOut(),
+                    successful.closed(),
+                    streamTranscript(),
+                    DurationSupport.elapsed(startedNanos, nanoTime.getAsLong()));
+            Throwable diagnosticFailure = emitCollecting(
+                    DiagnosticEventType.PROCESS_EXITED,
+                    exitAttributes(successful.exitCode(), successful.timedOut()),
+                    null);
+            exit.complete(terminal);
+            reportLate(diagnosticFailure);
+        }));
     }
 
     private void publishFailure(Throwable primary) {
         stopTimeoutWatcherBeforePublication();
-        outputPumps.publishAfterOutputCleanup(() -> session.afterPhysicalOutputCleanup(
-                () -> exitPublication.publish(() -> exit.completeExceptionally(primary))));
+        outputPumps.publishAfterOutputCleanup(
+                () -> session.afterPhysicalOutputCleanup(() -> exit.completeExceptionally(primary)));
     }
 
     private boolean selectControlOutcome(StreamSessionState.Control candidate) {

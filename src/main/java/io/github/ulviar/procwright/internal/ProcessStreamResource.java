@@ -8,11 +8,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
- * Owns one stable process stream reference, its close permits, and its exact-once physical close.
+ * Owns one stable process stream reference, its close permit, and its exact-once physical close.
  *
  * @hidden
  */
@@ -20,26 +19,20 @@ public final class ProcessStreamResource<T extends Closeable> {
 
     private final T stream;
     private final BoundedCloseDispatcher.Permit closePermit;
-    private final BoundedLifecyclePublisher.Permit publicationPermit;
     private final Object closeClaimLock;
     private final Consumer<? super Throwable> inlineCloseFailureHandler;
-    private final BiConsumer<BoundedFailureReporter.FailureTarget, Throwable> failureReporter;
     private final AtomicBoolean closeClaimed = new AtomicBoolean();
     private final CompletableFuture<CloseOutcome> closeOutcome = new CompletableFuture<>();
 
     ProcessStreamResource(
             T stream,
             BoundedCloseDispatcher.Permit closePermit,
-            BoundedLifecyclePublisher.Permit publicationPermit,
             Object closeClaimLock,
-            Consumer<? super Throwable> inlineCloseFailureHandler,
-            BiConsumer<BoundedFailureReporter.FailureTarget, Throwable> failureReporter) {
+            Consumer<? super Throwable> inlineCloseFailureHandler) {
         this.stream = Objects.requireNonNull(stream, "process stream");
         this.closePermit = Objects.requireNonNull(closePermit, "closePermit");
-        this.publicationPermit = Objects.requireNonNull(publicationPermit, "publicationPermit");
         this.closeClaimLock = Objects.requireNonNull(closeClaimLock, "closeClaimLock");
         this.inlineCloseFailureHandler = Objects.requireNonNull(inlineCloseFailureHandler, "inlineCloseFailureHandler");
-        this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
     }
 
     public T stream() {
@@ -133,13 +126,6 @@ public final class ProcessStreamResource<T extends Closeable> {
                 failures.add(closeFailure);
             }
         }
-        try {
-            publicationPermit.release();
-        } catch (Throwable releaseFailure) {
-            if (retainFailures) {
-                failures.add(releaseFailure);
-            }
-        }
     }
 
     public static BoundedCloseDispatcher.DispatchOutcome closePairAsync(
@@ -214,17 +200,11 @@ public final class ProcessStreamResource<T extends Closeable> {
 
     private void settleOwnedClose(
             Throwable physicalFailure, Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
-        BoundedFailureReporter.FailureTarget failureTarget = captureFailureTarget();
-        publicationPermit.publish(() -> runWithFailureTarget(
-                failureTarget,
-                () -> publishOwnedClose(physicalFailure, failureHandler, completionHandler, failureTarget)));
+        publishOwnedClose(physicalFailure, failureHandler, completionHandler);
     }
 
     private void publishOwnedClose(
-            Throwable physicalFailure,
-            Consumer<? super Throwable> failureHandler,
-            Runnable completionHandler,
-            BoundedFailureReporter.FailureTarget failureTarget) {
+            Throwable physicalFailure, Consumer<? super Throwable> failureHandler, Runnable completionHandler) {
         Throwable callbackFailure = null;
         try {
             if (physicalFailure != null) {
@@ -242,61 +222,16 @@ public final class ProcessStreamResource<T extends Closeable> {
             completeClose(physicalFailure);
         }
         if (callbackFailure != null) {
-            reportCallbackFailure(failureTarget, callbackFailure);
-        }
-    }
-
-    private void reportCallbackFailure(BoundedFailureReporter.FailureTarget failureTarget, Throwable callbackFailure) {
-        if (failureTarget == null) {
             BoundedFailureReporter.reportBestEffort(callbackFailure);
-            return;
         }
-        try {
-            failureReporter.accept(failureTarget, callbackFailure);
-        } catch (RuntimeException | Error reporterFailure) {
-            rethrowCombined(callbackFailure, reporterFailure);
-        }
-    }
-
-    private static BoundedFailureReporter.FailureTarget captureFailureTarget() {
-        try {
-            return BoundedFailureReporter.captureFailureTarget();
-        } catch (RuntimeException | Error ignored) {
-            return null;
-        }
-    }
-
-    private static void runWithFailureTarget(BoundedFailureReporter.FailureTarget failureTarget, Runnable task) {
-        if (failureTarget == null) {
-            task.run();
-        } else {
-            BoundedFailureReporter.withFailureTarget(failureTarget, task);
-        }
-    }
-
-    private static void rethrowCombined(Throwable callbackFailure, Throwable reporterFailure) {
-        Throwable primary = callbackFailure instanceof RuntimeException || callbackFailure instanceof Error
-                ? callbackFailure
-                : reporterFailure;
-        Throwable combined = FailureAggregation.combineWithPrimary(
-                primary,
-                List.of(callbackFailure, reporterFailure),
-                "Process stream close callback and failure reporting both failed");
-        if (combined instanceof RuntimeException runtimeFailure) {
-            throw runtimeFailure;
-        }
-        if (combined instanceof Error error) {
-            throw error;
-        }
-        throw new IllegalStateException("Unexpected checked process stream reporting failure", combined);
     }
 
     private void settleClose(Throwable physicalFailure) {
-        publicationPermit.publish(() -> completeClose(physicalFailure));
+        completeClose(physicalFailure);
     }
 
     private void recordDispatchFailure(Throwable dispatchFailure) {
-        publicationPermit.publish(() -> completeClose(dispatchFailure));
+        completeClose(dispatchFailure);
     }
 
     private void completeClose(Throwable failure) {

@@ -88,7 +88,7 @@ Runtime получает только согласованный plan и не у
 - bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; запуск adaptive или
   session-affine execution owner-а задает `BoundedTaskRunner.TaskStarter`, lifecycle одного accepted вызова —
   `BoundedTaskExecution`;
-- транзакционное приобретение process streams и permits — `ProcessIoAcquisition`, exact-once physical close и
+- транзакционное приобретение process streams и close permits — `ProcessIoAcquisition`, exact-once physical close и
   локальная close failure одного stream — `ProcessStreamResource`, bundle-level close и rollback —
   `ProcessIoResources`;
 - stdin serialization и logical close, output ownership и session-level close callbacks — `SessionResources`, output
@@ -207,8 +207,9 @@ scenario flags.
 - diagnostics сохраняют порядок для одного destination, но отдают dispatcher после bounded batch и продолжают с
   конца общей FIFO-очереди, поэтому непрерывный producer не удерживает dispatcher slots бесконечно;
 - interrupt синхронного caller-а восстанавливает interrupt status и не обходит cleanup;
-- best-effort failure/completion notification выполняется только после mandatory physical close settlement; отказ
-  запуска notification owner-а не может остановить fallback close owner или удержать следующее принятое закрытие;
+- best-effort failure/completion notification выполняется только после mandatory physical close settlement;
+- terminal futures не резервируют отдельные publication threads; синхронные continuations следуют стандартному
+  контракту `CompletableFuture`;
 - coroutine cancellation закрывает/retire только session или worker с недостоверным protocol state; ожидание общего
   exit future не получает ownership над процессом.
 

@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport;
@@ -24,14 +23,9 @@ import org.junit.jupiter.api.Test;
 final class SessionConstructionTest {
 
     @Test
-    void rollbackReleasesPublicationOwnersStopsProcessAndAbortsWatchers() throws Exception {
+    void rollbackStopsProcessAndAbortsWatchers() throws Exception {
         TrackingProcess process = new TrackingProcess();
-        BoundedLifecyclePublisher publisher = new BoundedLifecyclePublisher(1);
-        BoundedLifecyclePublisher.Reservation reservation = publisher.reserve(1);
-        BoundedLifecyclePublisher.Permit permit = reservation.takePermit();
         SessionConstruction construction = SessionConstruction.begin(process);
-        construction.own(reservation);
-        construction.own(permit);
         AtomicBoolean watcherRan = new AtomicBoolean();
         Thread watcher = Threading.start(
                 "session-construction-test-", construction.gate().guard(() -> watcherRan.set(true)));
@@ -42,7 +36,6 @@ final class SessionConstructionTest {
         assertFalse(watcher.isAlive());
         assertFalse(watcherRan.get());
         assertFalse(process.isAlive());
-        assertEquals(0, publisher.ownerCount());
     }
 
     @Test
@@ -51,8 +44,7 @@ final class SessionConstructionTest {
         IllegalArgumentException cleanupFailure = new IllegalArgumentException("stdout close failed");
         TrackingProcess process = new CloseFailingProcess(cleanupFailure);
         SessionConstruction construction = SessionConstruction.begin(process);
-        construction.own(SessionResources.acquire(
-                process, new BoundedCloseDispatcher(3, 3), new BoundedLifecyclePublisher(3), () -> {}, ignored -> {}));
+        construction.own(SessionResources.acquire(process, new BoundedCloseDispatcher(3, 3), () -> {}, ignored -> {}));
         AtomicReference<Throwable> result = new AtomicReference<>();
         Thread rollback =
                 new Thread(() -> result.set(construction.rollback(primary)), "session-construction-monitor-regression");

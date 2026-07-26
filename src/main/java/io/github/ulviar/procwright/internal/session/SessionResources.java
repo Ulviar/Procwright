@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.internal.ProcessIoResources;
 import java.io.IOException;
@@ -35,20 +34,17 @@ final class SessionResources {
     static SessionResources acquire(
             Process process,
             BoundedCloseDispatcher closeDispatcher,
-            BoundedLifecyclePublisher resourcePublisher,
             Runnable activity,
             Consumer<CloseFailure> terminalCloseFailures) {
         Objects.requireNonNull(process, "process");
         Objects.requireNonNull(closeDispatcher, "closeDispatcher");
-        Objects.requireNonNull(resourcePublisher, "resourcePublisher");
         Objects.requireNonNull(activity, "activity");
         Objects.requireNonNull(terminalCloseFailures, "terminalCloseFailures");
         SessionOutputCleanup outputCleanup = new SessionOutputCleanup();
-        ProcessIoResources resources =
-                ProcessIoResources.acquire(process, closeDispatcher, resourcePublisher, failure -> {
-                    outputCleanup.inlineFailed(failure);
-                    terminalCloseFailures.accept(CloseFailure.inlineOutput(failure));
-                });
+        ProcessIoResources resources = ProcessIoResources.acquire(process, closeDispatcher, failure -> {
+            outputCleanup.inlineFailed(failure);
+            terminalCloseFailures.accept(CloseFailure.inlineOutput(failure));
+        });
         try {
             return new SessionResources(process, resources, outputCleanup, activity, terminalCloseFailures);
         } catch (RuntimeException | Error failure) {

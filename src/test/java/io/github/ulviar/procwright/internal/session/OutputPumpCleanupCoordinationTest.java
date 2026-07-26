@@ -22,7 +22,6 @@ import io.github.ulviar.procwright.internal.Threading;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -125,12 +124,6 @@ final class OutputPumpCleanupCoordinationTest {
         coordinator.publishAfterOutputCleanup(outputCleanupCompleted::countDown);
         CountDownLatch pumpEntered = new CountDownLatch(1);
         CountDownLatch releasePump = new CountDownLatch(1);
-        CountDownLatch hostileContinuationEntered = new CountDownLatch(1);
-        CountDownLatch releaseHostileContinuation = new CountDownLatch(1);
-        CompletableFuture<?> hostileContinuation = rawSession.onExit().thenRun(() -> {
-            hostileContinuationEntered.countDown();
-            awaitUninterruptibly(releaseHostileContinuation);
-        });
         try {
             coordinator.start(
                     PumpStarter.threading(),
@@ -153,17 +146,13 @@ final class OutputPumpCleanupCoordinationTest {
             assertFalse(rawSession.onExit().isDone());
 
             releasePump.countDown();
-            assertTrue(hostileContinuationEntered.await(1, TimeUnit.SECONDS));
+            awaitSettlement(rawSession.onExit());
             assertEquals(0, outputCleanupCompleted.getCount());
             assertTrue(rawSession.physicalOutputCleanup().isDone());
-            releaseHostileContinuation.countDown();
-            hostileContinuation.get(1, TimeUnit.SECONDS);
-            awaitSettlement(rawSession.onExit());
 
             assertEquals(0, pumpFailure.getSuppressed().length);
         } finally {
             releasePump.countDown();
-            releaseHostileContinuation.countDown();
             coordinator.closeSessionPreserving(pumpFailure);
             rawSession.close();
         }

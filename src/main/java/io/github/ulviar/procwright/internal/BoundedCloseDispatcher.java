@@ -23,7 +23,6 @@ public final class BoundedCloseDispatcher {
 
     public static final int SHARED_ACTIVE_CAPACITY = 32;
     public static final int SHARED_PENDING_CAPACITY = 128;
-    public static final int SHARED_CAPACITY = SHARED_ACTIVE_CAPACITY + SHARED_PENDING_CAPACITY;
 
     private static final BoundedCloseDispatcher SHARED =
             new BoundedCloseDispatcher(SHARED_ACTIVE_CAPACITY, SHARED_PENDING_CAPACITY);

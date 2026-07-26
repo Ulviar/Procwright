@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.BoundedLifecyclePublisher;
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import io.github.ulviar.procwright.session.SessionExit;
 import java.util.ArrayList;
@@ -15,16 +14,13 @@ import java.util.concurrent.CompletableFuture;
 final class SessionExitBarrier {
 
     private final Object lock = new Object();
-    private final BoundedLifecyclePublisher.Permit publication;
     private final CompletableFuture<SessionExit> exit = new CompletableFuture<>();
     private ProcessCompletion process = ProcessPending.INSTANCE;
     private OutputCompletion output = OutputPending.INSTANCE;
     private int helpers;
     private boolean publicationClaimed;
 
-    SessionExitBarrier(BoundedLifecyclePublisher.Permit publication) {
-        this.publication = Objects.requireNonNull(publication, "publication");
-    }
+    SessionExitBarrier() {}
 
     void observe(
             CompletableFuture<SessionTermination.Outcome> processTerminal,
@@ -119,7 +115,7 @@ final class SessionExitBarrier {
             return;
         }
         PublicationAction action = publicationAction(ready);
-        publication.publish(() -> action.complete(exit));
+        action.complete(exit);
     }
 
     private static PublicationAction publicationAction(PublicationInputs ready) {
