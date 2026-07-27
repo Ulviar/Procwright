@@ -85,6 +85,22 @@ cleanup, а блокирующий physical close не переписывает 
 
 **Proof:** `OneShotSupervisionTest`, `RunTimeoutCleanupIntegrationTest`.
 
+### One-shot execution isolation
+
+**Инвариант:** stdin/output tasks одного execution не блокируют запуск независимого execution через глобальную квоту.
+
+**Владелец:** `OneShotExecution`.
+
+**Proof:** `ProcessKernelIoFailureAndInputTest`.
+
+### One-shot task failure
+
+**Инвариант:** фактическая I/O failure остаётся наблюдаемой после отмены task `Future`.
+
+**Владелец:** `OneShotTask`.
+
+**Proof:** `OneShotTaskTest`.
+
 ### Process launch
 
 **Инвариант:** согласованные argv, environment, working directory и redirects применяются один раз; launch failure

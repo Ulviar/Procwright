@@ -10,7 +10,7 @@ import java.nio.file.Files;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Resolves one-shot redirects, stdin work, and the exact I/O task count before process launch. */
+/** Resolves one-shot redirects and stdin/output work before process launch. */
 final class OneShotIoPlan {
 
     private final StdioConfig stdio;
@@ -63,10 +63,8 @@ final class OneShotIoPlan {
         return stdinOperation;
     }
 
-    int taskCount() {
-        int count = capturesStdout() ? 1 : 0;
-        count += capturesStderr ? 1 : 0;
-        return stdinOperation.action() == StdinAction.WRITE ? count + 1 : count;
+    boolean requiresTaskExecutor() {
+        return capturesStdout() || capturesStderr || stdinOperation.action() == StdinAction.WRITE;
     }
 
     private static StdinResolution resolveStdin(Optional<CommandInput> input) {

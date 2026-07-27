@@ -28,39 +28,21 @@ abstract class ProcessKernelTestSupport {
     }
 
     static ProcessKernel kernel(Consumer<Process> postStartHook, ProcessKernel.ProcessStarter processStarter) {
-        return kernel(
-                postStartHook, processStarter, Duration.ofSeconds(5), OneShotIoTaskOwner.shared(), System::nanoTime);
+        return kernel(postStartHook, processStarter, Duration.ofSeconds(5), System::nanoTime);
     }
 
     static ProcessKernel kernel(
             Consumer<Process> postStartHook, ProcessKernel.ProcessStarter processStarter, Duration cleanupTimeout) {
-        return kernel(postStartHook, processStarter, cleanupTimeout, OneShotIoTaskOwner.shared(), System::nanoTime);
+        return kernel(postStartHook, processStarter, cleanupTimeout, System::nanoTime);
     }
 
     static ProcessKernel kernel(
             Consumer<Process> postStartHook,
             ProcessKernel.ProcessStarter processStarter,
             Duration cleanupTimeout,
-            LongSupplier nanoTime) {
-        return kernel(postStartHook, processStarter, cleanupTimeout, OneShotIoTaskOwner.shared(), nanoTime);
-    }
-
-    static ProcessKernel kernel(
-            Consumer<Process> postStartHook,
-            ProcessKernel.ProcessStarter processStarter,
-            Duration cleanupTimeout,
-            OneShotIoTaskOwner ioTaskOwner) {
-        return kernel(postStartHook, processStarter, cleanupTimeout, ioTaskOwner, System::nanoTime);
-    }
-
-    static ProcessKernel kernel(
-            Consumer<Process> postStartHook,
-            ProcessKernel.ProcessStarter processStarter,
-            Duration cleanupTimeout,
-            OneShotIoTaskOwner ioTaskOwner,
             LongSupplier nanoTime) {
         return new ProcessKernel(
-                new ProcessKernel.Dependencies(postStartHook, processStarter, cleanupTimeout, ioTaskOwner, nanoTime));
+                new ProcessKernel.Dependencies(postStartHook, processStarter, cleanupTimeout, nanoTime));
     }
 
     static int terminalCount(List<DiagnosticEvent> events, DiagnosticEventType type) {

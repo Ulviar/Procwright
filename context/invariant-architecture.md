@@ -67,8 +67,8 @@ Settings не являются public compatibility surface. Они перено
 доказать одним setter-ом.
 
 Runtime получает только согласованный plan и не угадывает, какие defaults или overrides имел в виду пользователь.
-Для one-shot run `OneShotIoPlan` до launch один раз преобразует этот plan в OS redirects, stdin action и точное
-множество I/O tasks.
+Для one-shot run `OneShotIoPlan` до launch один раз преобразует этот plan в OS redirects, stdin action и признак
+необходимости I/O task executor.
 
 ### Stateful runtime
 
@@ -77,6 +77,8 @@ Runtime получает только согласованный plan и не у
 - первый сигнал для прекращения one-shot process wait — `OneShotSupervision`; итоговый outcome после capture и cleanup
   принадлежит `OneShotExecution`;
 - единый absolute deadline ожидания процесса и output capture — `OneShotDeadline`;
+- stdin/output tasks принадлежат одному execution и не используют глобальную квоту; фактическая I/O failure после
+  отмены `Future` остаётся доступна supervision через `OneShotTask`;
 - декодирование завершенных one-shot captures и success/typed decode-failure `CommandResult` snapshot —
   `OneShotResultAssembler`;
 - session construction transaction — `SessionConstruction`;

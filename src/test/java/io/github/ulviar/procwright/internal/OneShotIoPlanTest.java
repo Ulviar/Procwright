@@ -24,7 +24,7 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
     Path temporaryDirectory;
 
     @Test
-    void boundedSeparateCaptureWithMemoryInputNeedsThreePipeTasks() {
+    void boundedSeparateCaptureWithMemoryInputNeedsTaskExecutor() {
         CommandInput input = CommandInput.utf8("input");
         OneShotIoPlan ioPlan = resolve(CapturePolicy.bounded(16), Optional.of(input), OutputMode.SEPARATE);
 
@@ -35,17 +35,17 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
         assertTrue(ioPlan.capturesStderr());
         assertEquals(OneShotIoPlan.StdinAction.WRITE, ioPlan.stdinOperation().action());
         assertEquals(input, ioPlan.stdinOperation().writeInput());
-        assertEquals(3, ioPlan.taskCount());
+        assertTrue(ioPlan.requiresTaskExecutor());
     }
 
     @Test
-    void boundedMergedCaptureWithClosedInputNeedsOnlyTheMergedOutputTask() {
+    void boundedMergedCaptureWithClosedInputNeedsTaskExecutor() {
         OneShotIoPlan ioPlan = resolve(CapturePolicy.bounded(16), Optional.empty(), OutputMode.MERGED);
 
         assertTrue(ioPlan.capturesStdout());
         assertFalse(ioPlan.capturesStderr());
         assertEquals(OneShotIoPlan.StdinAction.CLOSE, ioPlan.stdinOperation().action());
-        assertEquals(1, ioPlan.taskCount());
+        assertTrue(ioPlan.requiresTaskExecutor());
     }
 
     @Test
@@ -56,7 +56,7 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
         assertEquals(ProcessBuilder.Redirect.DISCARD, ioPlan.stdio().stderr());
         assertFalse(ioPlan.capturesStdout());
         assertFalse(ioPlan.capturesStderr());
-        assertEquals(0, ioPlan.taskCount());
+        assertFalse(ioPlan.requiresTaskExecutor());
     }
 
     @Test
@@ -75,7 +75,7 @@ final class OneShotIoPlanTest extends ProcessKernelTestSupport {
         assertEquals(ProcessBuilder.Redirect.Type.WRITE, ioPlan.stdio().stderr().type());
         assertEquals(stderr.toFile(), ioPlan.stdio().stderr().file());
         assertEquals(OneShotIoPlan.StdinAction.REDIRECT, ioPlan.stdinOperation().action());
-        assertEquals(0, ioPlan.taskCount());
+        assertFalse(ioPlan.requiresTaskExecutor());
     }
 
     @Test

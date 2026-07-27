@@ -28,13 +28,12 @@ final class OneShotExecution {
     private final LiveDescendantSnapshot liveDescendants = new LiveDescendantSnapshot();
 
     private OneShotIoPlan ioPlan;
-    private OneShotIoTaskOwner.Reservation ioTasks;
     private Process process;
     private OwnedStreams resources;
     private ExecutorService executor;
-    private OneShotIoTaskOwner.OwnedFuture<CapturedOutput> stdoutCapture;
-    private OneShotIoTaskOwner.OwnedFuture<CapturedOutput> stderrCapture;
-    private OneShotIoTaskOwner.OwnedFuture<Void> stdinWriter;
+    private OneShotTask<CapturedOutput> stdoutCapture;
+    private OneShotTask<CapturedOutput> stderrCapture;
+    private OneShotTask<Void> stdinWriter;
     private PendingCapture pendingCapture;
     private Throwable primaryFailure;
     private boolean restoreInterrupt;
@@ -59,7 +58,6 @@ final class OneShotExecution {
     private void prepareIo() {
         try {
             ioPlan = OneShotIoPlan.resolve(plan);
-            ioTasks = dependencies.ioTaskOwner().reserve(ioPlan.taskCount());
         } catch (RuntimeException | Error failure) {
             diagnostics.emitProcessFailure(failure);
             throw failure;
@@ -70,7 +68,6 @@ final class OneShotExecution {
         try {
             process = dependencies.processStarter().start(plan.launchPlan(), ioPlan.stdio());
         } catch (RuntimeException | Error failure) {
-            ioTasks.close();
             diagnostics.emitProcessFailure(failure);
             throw failure;
         }
@@ -86,7 +83,6 @@ final class OneShotExecution {
             } catch (RuntimeException | Error cleanupFailure) {
                 outcome = combineFailures(outcome, cleanupFailure);
             }
-            ioTasks.close();
             diagnostics.emitProcessFailure(FailureAggregation.primary(outcome));
             if (outcome instanceof Error error) {
                 throw error;
@@ -116,18 +112,18 @@ final class OneShotExecution {
         dependencies.postStartHook().accept(process);
         diagnostics.emit(
                 DiagnosticEventType.PROCESS_STARTED, DiagnosticEmitter.attributes("pid", Long.toString(process.pid())));
-        if (ioPlan.taskCount() > 0) {
+        if (ioPlan.requiresTaskExecutor()) {
             executor = Threading.newTaskExecutor("procwright-output-pump-");
         }
         stdoutCapture = ioPlan.capturesStdout()
-                ? ioTasks.submit(
+                ? OneShotTask.submit(
                         executor, () -> CapturedOutput.capture(resources.stdout().stream(), ioPlan.boundedCapture()))
                 : null;
         stderrCapture = ioPlan.capturesStderr()
-                ? ioTasks.submit(
+                ? OneShotTask.submit(
                         executor, () -> CapturedOutput.capture(resources.stderr().stream(), ioPlan.boundedCapture()))
                 : null;
-        stdinWriter = startStdinWriter(resources.stdin(), ioPlan.stdinOperation(), executor, ioTasks);
+        stdinWriter = startStdinWriter(resources.stdin(), ioPlan.stdinOperation(), executor);
     }
 
     private OneShotSupervision.Signal awaitSupervisionSignal() {
@@ -240,7 +236,6 @@ final class OneShotExecution {
                 }
             }
         } finally {
-            ioTasks.close();
             restoreInterrupt |= Thread.interrupted();
             if (restoreInterrupt) {
                 Thread.currentThread().interrupt();
@@ -280,11 +275,8 @@ final class OneShotExecution {
         return result;
     }
 
-    private static OneShotIoTaskOwner.OwnedFuture<Void> startStdinWriter(
-            OwnedStream<OutputStream> output,
-            OneShotIoPlan.StdinOperation stdin,
-            ExecutorService executor,
-            OneShotIoTaskOwner.Reservation ioTasks) {
+    private static OneShotTask<Void> startStdinWriter(
+            OwnedStream<OutputStream> output, OneShotIoPlan.StdinOperation stdin, ExecutorService executor) {
         return switch (stdin.action()) {
             case CLOSE -> {
                 output.close();
@@ -292,7 +284,7 @@ final class OneShotExecution {
             }
             case REDIRECT -> null;
             case WRITE ->
-                ioTasks.submit(executor, () -> {
+                OneShotTask.submit(executor, () -> {
                     writeStdin(output, stdin);
                     return null;
                 });

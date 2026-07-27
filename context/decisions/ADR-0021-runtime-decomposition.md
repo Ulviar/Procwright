@@ -21,7 +21,7 @@
 `ProcessKernel` является stateless service и хранит только зависимости one-shot runtime. Один вызов передается новому
 `OneShotExecution`, который владеет всеми mutable ресурсами и фазами ровно одного запуска: подготовкой I/O, launch,
 ожиданием terminal outcome, cleanup и сборкой результата. Immutable `OneShotIoPlan` переводит согласованный
-`ExecutionPlan` в redirects, stdin action и точное число I/O tasks до launch. `OneShotSupervision` выбирает первый
+`ExecutionPlan` в redirects, stdin action и необходимость I/O task executor до launch. `OneShotSupervision` выбирает первый
 сигнал, прекращающий ожидание process: exit, timeout, stdin failure или ранний output capture failure.
 `OneShotExecution` остаётся владельцем итогового outcome, потому что output capture после natural exit ещё может
 завершиться failure. После cleanup `OneShotResultAssembler` декодирует завершенные captures и строит success либо typed

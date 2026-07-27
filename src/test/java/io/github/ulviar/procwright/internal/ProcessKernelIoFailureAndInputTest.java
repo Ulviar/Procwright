@@ -17,6 +17,7 @@ import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -28,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
-final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessFixtureSupport {
+final class ProcessKernelIoFailureAndInputTest extends ProcessKernelProcessFixtureSupport {
 
     @Test
     void earlyStdinFailureWinsBeforeLongDeadlineAndStopsTheLiveProcess() throws Exception {
@@ -65,22 +66,24 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
     }
 
     @Test
-    void exhaustedOneShotTaskCapacityRejectsBeforeStartingAnotherProcessAndRecoversAfterActualExit() throws Exception {
-        OneShotIoTaskOwner owner = new OneShotIoTaskOwner(1);
-        NonCooperativeOutputStream firstStdin = new NonCooperativeOutputStream();
-        TerminalProcess first = new NonCooperativeStdinProcess(new TrackingInputStream(), firstStdin);
+    void stalledOneShotIoDoesNotBlockIndependentExecution() {
+        int stalledExecutionCount = 97;
+        List<NonCooperativeOutputStream> stalledInputs = new ArrayList<>(stalledExecutionCount);
+        for (int index = 0; index < stalledExecutionCount; index++) {
+            stalledInputs.add(new NonCooperativeOutputStream());
+        }
         AtomicInteger starts = new AtomicInteger();
         ProcessKernel kernel = kernel(
                 ignored -> {},
                 (launchPlan, stdio) -> {
-                    if (starts.incrementAndGet() == 1) {
-                        return first;
+                    int index = starts.getAndIncrement();
+                    if (index < stalledExecutionCount) {
+                        return new NonCooperativeStdinProcess(new TrackingInputStream(), stalledInputs.get(index));
                     }
                     return new TerminalProcess(
                             new TrackingInputStream(), new TrackingInputStream(), new TrackingOutputStream());
                 },
-                Duration.ofMillis(50),
-                owner);
+                Duration.ofMillis(5));
         ExecutionPlan plan = executionPlan(
                 CapturePolicy.discard(),
                 DiagnosticsSettings.disabled(),
@@ -88,21 +91,18 @@ final class ProcessKernelTaskAdmissionAndInputTest extends ProcessKernelProcessF
                 OutputMode.SEPARATE,
                 Duration.ofMillis(10));
         try {
-            assertThrows(CommandExecutionException.class, () -> kernel.run(plan));
-            assertEquals(0, owner.availablePermits());
+            for (NonCooperativeOutputStream input : stalledInputs) {
+                CommandExecutionException failure =
+                        assertThrows(CommandExecutionException.class, () -> kernel.run(plan));
+                assertTrue(failure.getMessage().contains("stopping command lifecycle tasks"));
+                assertEquals(0, input.entered.getCount());
+                assertEquals(1, input.release.getCount());
+            }
 
-            CommandExecutionException exhausted = assertThrows(CommandExecutionException.class, () -> kernel.run(plan));
-
-            assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, exhausted.reason());
-            assertTrue(exhausted.getMessage().contains("bounded I/O task capacity"));
-            assertEquals(1, starts.get(), "capacity rejection must precede process launch");
-
-            firstStdin.release.countDown();
-            assertTrue(eventually(() -> owner.availablePermits() == 1));
             kernel.run(plan);
-            assertEquals(2, starts.get());
+            assertEquals(stalledExecutionCount + 1, starts.get());
         } finally {
-            firstStdin.release.countDown();
+            stalledInputs.forEach(input -> input.release.countDown());
         }
     }
 

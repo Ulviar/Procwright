@@ -17,8 +17,7 @@ public final class ProcessKernel {
     private final Dependencies dependencies;
 
     private ProcessKernel(Consumer<Process> postStartHook) {
-        this(new Dependencies(
-                postStartHook, ProcessLauncher::start, CLEANUP_TIMEOUT, OneShotIoTaskOwner.shared(), System::nanoTime));
+        this(new Dependencies(postStartHook, ProcessLauncher::start, CLEANUP_TIMEOUT, System::nanoTime));
     }
 
     ProcessKernel(Dependencies dependencies) {
@@ -42,14 +41,12 @@ public final class ProcessKernel {
             Consumer<Process> postStartHook,
             ProcessStarter processStarter,
             Duration cleanupTimeout,
-            OneShotIoTaskOwner ioTaskOwner,
             LongSupplier nanoTime) {
 
         Dependencies {
             Objects.requireNonNull(postStartHook, "postStartHook");
             Objects.requireNonNull(processStarter, "processStarter");
             Objects.requireNonNull(cleanupTimeout, "cleanupTimeout");
-            Objects.requireNonNull(ioTaskOwner, "ioTaskOwner");
             Objects.requireNonNull(nanoTime, "nanoTime");
             if (cleanupTimeout.isNegative() || cleanupTimeout.isZero()) {
                 throw new IllegalArgumentException("cleanupTimeout must be positive");
