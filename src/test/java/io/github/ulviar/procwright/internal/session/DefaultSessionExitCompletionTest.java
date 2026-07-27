@@ -10,8 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
-import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.BoundedFailureReporterTestSupport;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import io.github.ulviar.procwright.session.SessionExit;
@@ -74,84 +72,6 @@ final class DefaultSessionExitCompletionTest {
             releaseStopAction.countDown();
             stopper.join(TimeUnit.SECONDS.toMillis(1));
             session.close();
-        }
-    }
-
-    @Test
-    void failingInternalObserverDoesNotDelayOtherObserversOrTerminalCompletion() throws Exception {
-        ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
-        DefaultSession session = SessionTestFixtures.open(
-                process,
-                Duration.ZERO,
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8,
-                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
-        CountDownLatch laterObserverCalled = new CountDownLatch(1);
-        session.observeExit((result, failure) -> laterObserverCalled.countDown());
-        session.observeExit((result, failure) -> {
-            throw new AssertionError("observer failed");
-        });
-        Thread closer = new Thread(session::close, "failing-internal-observer-close");
-        closer.setDaemon(true);
-        try {
-            closer.start();
-
-            assertTrue(laterObserverCalled.await(1, TimeUnit.SECONDS));
-            session.onExit().get(1, TimeUnit.SECONDS);
-            closer.join(TimeUnit.SECONDS.toMillis(1));
-            assertFalse(closer.isAlive(), "failure reporting delayed terminal completion");
-        } finally {
-            closer.join(TimeUnit.SECONDS.toMillis(1));
-            session.close();
-        }
-    }
-
-    @Test
-    void saturatedFailureReportingCannotDelayTerminalCleanup() throws Exception {
-        BoundedFailureReporter reporter = BoundedFailureReporter.shared();
-        assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
-        CountDownLatch activeReports = new CountDownLatch(BoundedFailureReporter.SHARED_WORKER_CAPACITY);
-        CountDownLatch releaseReports = new CountDownLatch(1);
-        for (int index = 0; index < BoundedFailureReporter.SHARED_WORKER_CAPACITY; index++) {
-            assertTrue(reporter.execute(Thread.currentThread(), () -> {
-                activeReports.countDown();
-                awaitIgnoringInterrupts(releaseReports);
-            }));
-        }
-        assertTrue(activeReports.await(1, TimeUnit.SECONDS));
-        for (int index = 0; index < BoundedFailureReporter.SHARED_QUEUE_CAPACITY; index++) {
-            assertTrue(reporter.execute(Thread.currentThread(), () -> {}));
-        }
-        assertFalse(
-                reporter.execute(Thread.currentThread(), () -> {}),
-                "the reporter must be saturated before terminal completion");
-
-        ControllableProcess process = new ControllableProcess(OutputStream.nullOutputStream());
-        DefaultSession session = SessionTestFixtures.open(
-                process,
-                Duration.ZERO,
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
-                StandardCharsets.UTF_8,
-                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
-        CountDownLatch laterObserverCalled = new CountDownLatch(1);
-        session.observeExit((result, failure) -> laterObserverCalled.countDown());
-        session.observeExit((result, failure) -> {
-            throw new AssertionError("observer failed while reporter was saturated");
-        });
-        Thread closer = new Thread(session::close, "saturated-failure-reporting-close");
-        closer.setDaemon(true);
-        try {
-            closer.start();
-            assertTrue(laterObserverCalled.await(1, TimeUnit.SECONDS));
-            closer.join(TimeUnit.SECONDS.toMillis(1));
-
-            assertFalse(closer.isAlive(), "saturated best-effort reporting pinned terminal cleanup");
-            session.onExit().get(1, TimeUnit.SECONDS);
-        } finally {
-            releaseReports.countDown();
-            closer.join(TimeUnit.SECONDS.toMillis(1));
-            session.close();
-            assertTrue(BoundedFailureReporterTestSupport.awaitSharedSettlement(Duration.ofSeconds(1)));
         }
     }
 

@@ -149,7 +149,8 @@ final class DefaultSessionDescendantCleanupFailureTest {
         try {
             assertTrue(ownerEntered.await(1, TimeUnit.SECONDS));
 
-            assertFalse(session.terminateAfterHelperFailure(new IllegalStateException("late helper failure")));
+            assertFalse(
+                    session.terminateAfterHelperFailure(new IllegalStateException("late helper failure"), () -> {}));
             assertTimeoutPreemptively(Duration.ofSeconds(1), session::close);
             assertEquals(0, process.rootDestroyCalls());
         } finally {

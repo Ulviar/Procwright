@@ -92,11 +92,7 @@ final class OutputPumpCleanup {
     }
 
     void closeSession() {
-        closeSession(false);
-    }
-
-    boolean closeSession(boolean timedOut) {
-        return closeSession(timedOut, () -> {});
+        closeSession(false, () -> {});
     }
 
     boolean closeSession(boolean timedOut, Runnable afterClaim) {

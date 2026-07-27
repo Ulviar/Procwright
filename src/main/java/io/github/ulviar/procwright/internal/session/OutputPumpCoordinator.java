@@ -77,10 +77,6 @@ final class OutputPumpCoordinator {
         cleanup.closeSession();
     }
 
-    boolean closeSession(boolean timedOut) {
-        return cleanup.closeSession(timedOut);
-    }
-
     boolean closeSession(boolean timedOut, Runnable afterClaim) {
         return cleanup.closeSession(timedOut, afterClaim);
     }

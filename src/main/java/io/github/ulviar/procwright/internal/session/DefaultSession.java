@@ -299,11 +299,6 @@ public final class DefaultSession implements Session {
         return terminal.publicExit();
     }
 
-    void observeExit(BiConsumer<? super SessionExit, ? super Throwable> observer) {
-        Objects.requireNonNull(observer, "observer");
-        terminal.publicExit().whenComplete((result, failure) -> notifyObserver(observer, result, failure));
-    }
-
     void observeTermination(BiConsumer<? super SessionExit, ? super Throwable> observer) {
         Objects.requireNonNull(observer, "observer");
         terminal.observeProcess((result, failure) -> notifyObserver(observer, result, failure));
@@ -428,10 +423,6 @@ public final class DefaultSession implements Session {
                 "watcher starter returned null");
     }
 
-    boolean closeFromHelper(boolean timedOut) {
-        return closeFromHelper(timedOut, () -> {});
-    }
-
     boolean closeFromHelper(boolean timedOut, Runnable afterClaim) {
         return stop(timedOut, timedOut ? "timeout" : "close", afterClaim);
     }
@@ -540,10 +531,6 @@ public final class DefaultSession implements Session {
 
     Charset charset() {
         return charset;
-    }
-
-    boolean terminateAfterHelperFailure(Throwable failure) {
-        return terminateAfterHelperFailure(failure, () -> {});
     }
 
     boolean terminateAfterHelperFailure(Throwable failure, Runnable afterClaim) {
