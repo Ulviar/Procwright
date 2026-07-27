@@ -18,6 +18,8 @@ newer.
   --no-daemon
 ```
 
+Gradle Kotlin DSL:
+
 <!-- procwright-docs: build-configuration -->
 ```kotlin
 repositories {
@@ -29,6 +31,8 @@ dependencies {
     implementation("io.github.ulviar:procwright:0.1.0")
 }
 ```
+
+For Maven or Gradle Groovy, use the [installation snippets](docs/release/installation.md).
 
 ## Run a command
 

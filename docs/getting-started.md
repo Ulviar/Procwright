@@ -9,7 +9,7 @@ Procwright requires Java 17 or newer. Until the planned `0.1.0` release is publi
   --no-daemon
 ```
 
-Add Maven Local and the core dependency:
+Add Maven Local and the core dependency with Gradle Kotlin DSL:
 
 <!-- procwright-docs: build-configuration -->
 ```kotlin
@@ -22,6 +22,8 @@ dependencies {
     implementation("io.github.ulviar:procwright:0.1.0")
 }
 ```
+
+For Maven or Gradle Groovy, use the [installation snippets](release/installation.md).
 
 ## Run one command
 
