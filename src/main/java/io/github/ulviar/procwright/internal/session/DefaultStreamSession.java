@@ -93,10 +93,6 @@ public final class DefaultStreamSession implements StreamSession {
         return streamTranscript();
     }
 
-    CompletableFuture<Void> timeoutWatcherStopped() {
-        return timeoutWatcher.stopped();
-    }
-
     /**
      * Stops the underlying process through the configured shutdown policy. Calling this method more than once has no
      * effect.
@@ -202,7 +198,7 @@ public final class DefaultStreamSession implements StreamSession {
 
     private void publish(SessionTerminal.PublicOutcome outcome) {
         beginStopping();
-        stopTimeoutWatcherBeforePublication();
+        stopTimeoutWatcher();
         Throwable failure = streamFailure(outcome.failure());
         if (failure != null) {
             exit.completeExceptionally(failure);
@@ -230,10 +226,6 @@ public final class DefaultStreamSession implements StreamSession {
 
     private void stopTimeoutWatcher() {
         timeoutWatcher.stop();
-    }
-
-    private void stopTimeoutWatcherBeforePublication() {
-        timeoutWatcher.stopAndAwait();
     }
 
     private void abortStartup() {

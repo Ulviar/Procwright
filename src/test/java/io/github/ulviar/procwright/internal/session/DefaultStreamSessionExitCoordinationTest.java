@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 final class DefaultStreamSessionExitCoordinationTest extends DefaultStreamSessionTestSupport {
 
     @Test
-    void streamTimeoutWatcherStopsAfterEarlyProcessExit() throws Exception {
+    void earlyProcessExitDoesNotWaitForStreamTimeout() throws Exception {
         ControllableProcess process = new ControllableProcess(
                 new ByteArrayInputStream("done\n".getBytes(StandardCharsets.UTF_8)), InputStream.nullInputStream());
 
@@ -27,7 +27,6 @@ final class DefaultStreamSessionExitCoordinationTest extends DefaultStreamSessio
             StreamExit exit = session.onExit().get(2, TimeUnit.SECONDS);
 
             assertEquals(0, exit.exitCode().orElseThrow());
-            session.timeoutWatcherStopped().get(2, TimeUnit.SECONDS);
         }
     }
 
