@@ -13,7 +13,6 @@ plugins {
 }
 
 val procwrightJavaRelease = rootProject.extra["procwrightJavaRelease"] as Int
-val procwrightJavaVersion = rootProject.extra["procwrightJavaVersion"] as JavaVersion
 val kotlinModuleName = "io.github.ulviar.procwright.kotlin"
 val kotlinNullnessCompiler by configurations.creating
 
@@ -27,8 +26,6 @@ dependencies {
 }
 
 java {
-    sourceCompatibility = procwrightJavaVersion
-    targetCompatibility = procwrightJavaVersion
     modularity.inferModulePath.set(true)
     withSourcesJar()
 }
@@ -66,24 +63,6 @@ publishing {
             pom {
                 name.set("Procwright Kotlin")
                 description.set("Optional Kotlin ergonomics for Procwright scenario workflows.")
-                url.set("https://github.com/Ulviar/Procwright")
-                licenses {
-                    license {
-                        name.set("Apache License, Version 2.0")
-                        url.set("https://www.apache.org/licenses/LICENSE-2.0")
-                    }
-                }
-                scm {
-                    connection.set("scm:git:https://github.com/Ulviar/Procwright.git")
-                    developerConnection.set("scm:git:https://github.com/Ulviar/Procwright.git")
-                    url.set("https://github.com/Ulviar/Procwright")
-                }
-                developers {
-                    developer {
-                        id.set("Ulviar")
-                        name.set("Ulviar")
-                    }
-                }
             }
         }
     }
@@ -156,8 +135,6 @@ tasks.register<JavaExec>("kotlinJSpecifyStrictnessCheck") {
         }
     }
 }
-
-tasks.withType<Test>().configureEach { useJUnitPlatform() }
 
 tasks.check { dependsOn(kotlinJavadocJar) }
 

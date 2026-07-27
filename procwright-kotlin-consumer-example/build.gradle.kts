@@ -4,7 +4,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins { id("org.jetbrains.kotlin.jvm") }
 
 val procwrightJavaRelease = rootProject.extra["procwrightJavaRelease"] as Int
-val procwrightJavaVersion = rootProject.extra["procwrightJavaVersion"] as JavaVersion
 
 dependencies {
     val consumerVersion = providers.gradleProperty("procwright.consumerVersion").orNull
@@ -15,16 +14,7 @@ dependencies {
     }
 }
 
-java {
-    sourceCompatibility = procwrightJavaVersion
-    targetCompatibility = procwrightJavaVersion
-    modularity.inferModulePath.set(true)
-}
-
-tasks.withType<JavaCompile>().configureEach {
-    options.encoding = "UTF-8"
-    options.release.set(procwrightJavaRelease)
-}
+java { modularity.inferModulePath.set(true) }
 
 kotlin {
     sourceSets.named("main") {
