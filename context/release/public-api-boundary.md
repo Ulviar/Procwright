@@ -33,7 +33,7 @@ surface tests, external consumers и public documentation в одном срез
 через declaration-level `@NullUnmarked` в public contract запрещено. Kotlin artifact использует собственную Kotlin nullability
 metadata, а его strict consumers обязаны видеть JSpecify contract Java API. Publication/module boundary описана в
 [dependency-review.md](dependency-review.md#public-nullness-metadata), владельцы и proofs — в
-[invariant-proof-map.md](../quality/invariant-proof-map.md#api-и-normalization).
+[invariant-proof-map.md](../quality/invariant-proof-map.md).
 
 Каноническая форма:
 

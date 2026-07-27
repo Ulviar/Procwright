@@ -83,7 +83,7 @@ integration layer.
 JSpecify отсутствует в Gradle `runtimeClasspath` всех трех public projects; эту границу проверяет
 `externalLibraryBoundaryCheck`. Сам контракт и его proofs зафиксированы в
 [public API boundary](public-api-boundary.md#public-nullness-contract) и
-[карте доказательств](../quality/invariant-proof-map.md#api-и-normalization).
+[карте доказательств](../quality/invariant-proof-map.md).
 
 ## Publication metadata
 

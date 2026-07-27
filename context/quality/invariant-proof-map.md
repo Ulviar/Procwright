@@ -2,119 +2,583 @@
 
 ## Назначение
 
-Карта связывает устойчивый инвариант с единственным владельцем и наблюдаемым proof. Внутренний класс можно менять,
-если новый владелец сохраняет тот же контракт и проверки. Test доказывает правило, но не становится его владельцем.
+Карта помогает быстро найти устойчивый инвариант, его главного владельца и исполняемое доказательство. Она не повторяет
+все race conditions и имена test methods: эти детали принадлежат коду и тестам. Если правило нельзя кратко выразить и
+связать с владельцем, архитектура требует дополнительной декомпозиции.
 
-## API и normalization
+## API и конфигурация
 
-| Инвариант | Владелец | Доказательство |
-| --- | --- | --- |
-| Пользователь выбирает сценарий после `Procwright.command(...)`; параллельного options-first dialect нет. | `CommandService`, scenario `Draft`/`PoolDraft`. | `CommandServiceTest`, `PublicApiSurfaceTest`. |
-| Scenario Draft immutable, persistent и reusable; процесс создается только terminal method. | Реализации `RunScenario.Draft`, `InteractiveScenario.Draft`, `LineSessionScenario.Draft`, `ProtocolSessionScenario.Draft`, `StreamScenario.Draft`. | `ScenarioDraftLazinessIntegrationTest`, `ScenarioDraftPersistenceIntegrationTest`, `ScenarioDraftReuseIntegrationTest`, consumer compilation gate. |
-| Переданные пользователем argv копируются до сохранения в Draft и не меняются вслед за исходным array/collection. | `CommandSpec`. | `CommandSpecTest`, `ScenarioDraftPersistenceIntegrationTest`. |
-| Expect выбирается через `interactive().expect()` до launch; Draft persistent/reusable, concurrent `open()` создают независимые процессы, raw output API отсутствует. | `InteractiveScenario.Entry`, `ExpectScenario.Draft`, `SessionOutputMode`. | `PublicApiSurfaceTest`, `ExpectDraftOwnershipIntegrationTest`, `ExpectIntegrationTest`. |
-| Worker settings фиксируются до `pooled()`, pool settings не зависят от порядка `with*`. | `LineSessionScenario.PoolDraft`, `ProtocolSessionScenario.PoolDraft`, `WorkerPoolSettings`. | `PolicyValueTest`, `ScenarioPoolDraftSemanticsIntegrationTest`, pooled integration tests. |
-| Runtime получает валидированный immutable plan. | Internal settings, `ExecutionPlan`, `SessionExecutionPlan`, `StreamExecutionPlan`, `ScenarioRuntime`. | settings/policy tests и integration tests всех сценариев. |
-| Direct argv — default, shell mode явный, environment inheritance выбирается policy. Общая launch-конфигурация существует в одном snapshot и материализуется один раз. | `CommandSpec`, `LaunchPlan`, `EnvironmentPolicy`, `SystemShell`. | `CommandSpecTest`, `LaunchPlanTest`, `ScenarioDraftPersistenceIntegrationTest`, `RunLaunchConfigurationIntegrationTest`. |
-| Public package/scenario boundary не раскрывает internal/external types и не меняется без решения. До первого выпуска каждый допустимый новый method не заморожен exact-signature gate. | JPMS descriptors, package boundary checks и проверка direct/resolved runtime dependencies публичных модулей. | `PublicApiSurfaceTest`, `PackageBoundaryTest`, `externalLibraryBoundaryCheck` и external consumer compilation. |
-| Экспортируемые Java packages core/integrations имеют `@NullMarked`; допустимые `@Nullable`/`UNION_NULL` positions и `requires static transitive org.jspecify` входят в public contract. | Public `package-info.java`, explicit type-use annotations, JPMS descriptors и `compileOnlyApi` publication configuration. | [`PublicNullnessContractTest`](../../src/test/java/io/github/ulviar/procwright/PublicNullnessContractTest.java), [`IntegrationNullnessMetadataTest`](../../procwright-integrations/src/test/java/io/github/ulviar/procwright/integration/IntegrationNullnessMetadataTest.java) и `kotlinJSpecifyStrictnessCheck`. |
+### Сценарная грамматика
 
-## Process, I/O и lifecycle
+**Инвариант:** после `Procwright.command(...)` пользователь выбирает один сценарий; параллельного options-first API нет.
 
-| Инвариант | Владелец | Доказательство |
-| --- | --- | --- |
-| One-shot capture bounded, сообщает truncation и сохраняет raw bytes в success и typed decode-failure results. | `CapturePolicy`, `CapturedOutput`, `OneShotTextDecoder`, `OneShotResultAssembler`, `CommandResult`. | `CapturedOutputTest`, `OneShotResultAssemblerTest`, `CommandResultTest`, `RunCaptureIntegrationTest.largeStdoutIsBoundedAndMarkedAsTruncated`, `RunCaptureIntegrationTest.largeStderrIsBoundedIndependentlyFromStdout`, `RunCaptureIntegrationTest.capturedOutputBytesAreAvailableForBinaryWorkflows`, `RunCharsetPolicyIntegrationTest.replacementDecodingPreservesExactCapturedBytes`, `RunDecoderFailureIntegrationTest`. |
-| One-shot run получает отдельного владельца mutable lifecycle. `OneShotSupervision` выбирает первый сигнал, прекращающий process wait; `OneShotExecution` выбирает итоговый outcome после capture и cleanup. Один absolute deadline ограничивает process wait и оба output captures, поэтому natural root exit не маскирует просроченный drain, а уже завершённый capture не становится timeout из-за позднего возобновления caller thread. Stable process streams имеют exact-once logical close, а блокирующий physical close не задерживает готовый result. | `OneShotExecution`, `OneShotSupervision`, `OneShotDeadline`, `OwnedStreams`, `OwnedStream`. | `OneShotSupervisionTest`, `OneShotDeadlineTest`, `OwnedStreamsTest`, `ProcessKernelTaskAdmissionAndInputTest.earlyStdinFailureWinsBeforeLongDeadlineAndStopsTheLiveProcess`, `ProcessKernelTaskAdmissionAndInputTest.earlyStdoutIoFailureBeatsTheRunDeadlineAndStopsTheLiveProcess`, `ProcessKernelStreamOwnershipAndCleanupTest.blockingPhysicalCloseDoesNotDelayReadyCommandResult`, `RunTimeoutCleanupIntegrationTest.timeoutIsEnforcedWhileWritingInput`, `RunPipeCleanupIntegrationTest.inheritedOutputPipeCountsAgainstTheRunDeadlineAndItsHolderIsKilled`, `RunInterruptionCleanupIntegrationTest.callerInterruptDuringRunIsTypedFailureAndRestoresInterruptStatus`. |
-| Pipe launch применяет согласованный argv, environment, working directory и redirects один раз; launch failure сохраняет typed reason и redacted summary. | `ProcessLauncher`. | `ProcessLauncherTest`, `RunLaunchConfigurationIntegrationTest`, `RunInputIntegrationTest.stdinFromMissingFileFailsWithTypedLaunchFailure`. |
-| Ordinary и guarded liveness не считают недоступное наблюдение доказательством выхода; provider timeout отличен от исчерпания lifecycle deadline. | `ProcessLiveness`, `LivenessObservationBudget`. | `ProcessLivenessTest`, `GuardedProcessExitWaiterTest`, `ProcessTreeShutdownProviderDeadlineTest`. |
-| Natural-exit wait выполняется на caller thread, соблюдает bounded/unbounded deadline и не вызывает provider `waitFor`. | `ProcessExitWaiter`. | `ProcessExitWaiterTest`, `GuardedProcessExitWaiterTest`. |
-| Наблюдавшиеся живые или недоступные descendants сохраняются как bounded immutable identity map и переживают reparenting. Watcher merge сохраняет handles, truncation и только provider `UNAVAILABLE`; локальный `CALLER_DEADLINE` не становится свойством будущего cleanup, а `INTERRUPTED` возвращается lifecycle owner до pruning. Ошибка pruning консервативно публикует bounded union; если scan также несёт fatal, interruption остаётся primary. Cleanup handoff ждёт активный refresh и атомарно запечатывает snapshot от будущих публикаций. Независимые fatal scan/pruning failures агрегируются после handoff без изменения исходных `Throwable`. | `LiveDescendantSnapshot`, `KnownDescendants`. | `LiveDescendantSnapshotTest.cleanupSnapshotWaitsForAnActiveRefreshHandoff`, `LiveDescendantSnapshotTest.failureAggregationDoesNotDelayRefreshOrCleanupHandoff`, `LiveDescendantSnapshotTest.refreshCannotPublishAfterCleanupHandoff`, `LiveDescendantSnapshotTest.completeRefreshDoesNotEraseEarlierUnavailableObservation`, `LiveDescendantSnapshotTest.observationDeadlineDoesNotPoisonLaterCleanup`, `LiveDescendantSnapshotTest.interruptedRefreshIsNonStickyAndPreservesCallerInterrupt`, `LiveDescendantSnapshotTest.pruningInterruptionRemainsPrimaryWhenScanAlsoCarriesFatalFailure`, `LiveDescendantSnapshotTest.pruningFailureStillPublishesTheNewlyScannedPrefix`, `KnownDescendantsTest`, `ProcessExitWaiterTest.descendantSnapshotAccumulatesHandlesAcrossPolls`, `ProcessExitWaiterTest.descendantSnapshotPrunesExitedHandles`, `ProcessExitWaiterTest.interruptedDescendantScanWinsOverAnExpiredWaitDeadline`. |
-| Scanner различает `COMPLETE`, `LIMIT_REACHED` и `INCOMPLETE`, а provider-operation owner — caller deadline, interruption и unavailable state. Scanner дедуплицирует по `pid + startInstant`, сохраняет guarded owner и traversal prefix. Одиночный fatal scan сохраняет identity исходного `Error`; несколько traversal/stream-close failures образуют detached aggregate, выбирают единственный `Error` primary, сохраняют порядок sources и не изменяют их. Abandoned carrier публикует embedded Error через bounded late-failure channel. | `ProcessProviderOperationOwner`, `ProcessTreeScanner`. | `ProcessProviderOperationOwnerTest.abandonedCompletedCarrierReportsItsEmbeddedFailure`, `ProcessProviderOperationOwnerTest.bestEffortResultDistinguishesDeadlineFromUnavailableProviderState`, `ProcessProviderOperationOwnerTest.bestEffortResultDistinguishesCallerInterruption`, `ProcessTreeShutdownProviderDeadlineTest.providerOperationCannotOutliveForceStopDeadlineAndRetainsCapacityUntilReturn`, `ProcessTreeScannerTraversalTest.descendantScanIsIncrementalCountBoundedAndClosesItsStream`, `ProcessTreeScannerTraversalTest.exactDescendantLimitIsCompleteWithoutReadingPastTheStream`, `ProcessTreeScannerOutcomeClassificationTest.interruptedScanIsNotReportedAsProviderUnavailability`, `ProcessTreeScannerTraversalTest.ordinaryEnumerationFailureDegradesToRootOnlyButFatalErrorRetainsIdentity`, `ProcessTreeScannerTraversalTest.traversalAndStreamCloseFailuresProduceADetachedAggregateWithoutMutatingEitherSource`, `ProcessTreeScannerTraversalTest.fatalStreamCloseBecomesPrimaryWithoutReorderingOrMutatingTraversalSources`. |
-| Timeout/close/failure останавливает process tree; graceful и forceful phases сохраняют общий bounded tree state. Успех требует доказанного выхода root и известных descendants; positive wait требует stabilization до дедлайна, zero-wait ничего не ожидает. Один post-signal deadline ограничивает completion observation и exit-code snapshot; force-only cleanup использует единый operation deadline. Фактически начатый incomplete scan и overflow остаются sticky: следующий scan не может доказать отсутствие уже reparented процесса. Fatal traversal прекращает graph walk, но обнаруженный prefix получает cleanup-сигналы до rethrow. `UNKNOWN` и `UNOBSERVABLE` не доказывают выход; reparenting до первого наблюдения остаётся вне гарантий `ProcessHandle`. | `ShutdownPolicy`, `KnownDescendants`, `ProcessTreeShutdown`, `ShutdownTreeState`, `ShutdownFailureLedger`. | `ProcessTreeShutdownProviderDeadlineTest.guardedExitCodeUsesThePostSignalWaitDeadline`, `ProcessTreeShutdownProviderDeadlineTest.guardedExitCodeUsesThePostForceSignalWaitDeadline`, `ProcessTreeShutdownProviderDeadlineTest.guardedDescendantLivenessTimeoutAtLifecycleDeadlineRemainsLiveAndIsForceStopped`, `ProcessTreeScannerTraversalTest.embeddedFatalChildPrefixStopsBeforeTheNextRoot`, `ProcessTreeScannerTraversalTest.fatalChildrenInvocationPreservesEarlierRootPrefixAndStopsTraversal`, `ProcessTreeScannerTraversalTest.fatalRootIndexingStopsBeforeChildTraversal`, `ProcessLifecycleDiscoveryFailureTest.fatalDiscoveryStillCleansTheObservedPrefixBeforeRethrowing`, `ProcessLifecycleDiscoveryFailureTest.fatalKnownRootTraversalStillCleansChildrenFromEarlierRoots`, `ProcessLifecycleCompletionProofTest.initialScanDeadlineCannotProveAnAlreadyExitedRootTree`, `ProcessLifecycleDynamicDescendantShutdownTest.forcefulPhaseCannotEraseAGracefulDynamicDiscoveryGapAfterReparenting`, `ProcessLifecycleCompletionProofTest.unobservableKnownDescendantIsSignalledButCannotProveGracefulCleanup`, `ProcessLifecycleCompletionProofTest.unobservableKnownDescendantIsSignalledButCannotProveForcefulCleanup`, `ShutdownTreeStateTest.fatalDiscoveryRetainsItsObservedPrefixForCleanup`, `ShutdownTreeStateTest.incompleteDiscoveryRemainsStickyAfterLaterCompleteRefresh`, `ShutdownTreeStateTest.unavailableWatcherSnapshotRecordsFailureAndCannotProveCompletion`. |
-| Root и descendants получают сигналы в определенном порядке; accepted JDK fallback calls используют общую bounded capacity, а при её исчерпании новый disposable thread не создаётся. | `ProcessShutdownSignals`, `BoundedDestroyDispatcher`, `LateTaskFailureReporter`. | `ProcessShutdownSignalsTest`, `ProcessLifecycleDynamicDescendantShutdownTest`, `ProcessTreeShutdownFailureContinuationTest`, `ProcessTreeShutdownInterruptionTest`, `BoundedDestroyDispatcherTest`. |
-| Обязательные process-tree cleanup phases выполняются независимо; первое явное interruption выбирает primary, а остальные source identities сохраняются в плоском stable aggregate без изменения исходных failures. Interrupt status очищается только на время обязательного cleanup. | `ShutdownFailureLedger` и process-tree lifecycle owners. | `ShutdownFailureLedgerTest`, `ProcessTreeShutdownFailureContinuationTest`, `ProcessTreeShutdownInterruptionTest`, `ProcessKernelFailureDiagnosticsTest`, `ProcessKernelStreamOwnershipAndCleanupTest`, `DefaultSessionDescendantCleanupFailureTest`, `DefaultSessionExitWatcherFailureTest`. |
-| Не выбранные secondary failures не изменяют исходные `Throwable`: обязательный владелец хранит их как detached aggregate, а необязательный контекст отправляет через общий bounded best-effort reporter. Reporting infrastructure не заменяет выбранный lifecycle outcome. | `FailureAggregation`, `BoundedFailureReporter`, `WorkerStartup` и scenario state owners. | `FailureAggregationTest`, `BoundedFailureReporterTest`, `WorkerStartupTest.failureTargetCaptureCannotReplaceFactoryFailureOrPreventSettlement`, `DiagnosticEmitterTest.processFailureEmissionReportsConstructionFailureWithoutMutatingThePrimary`, `StreamRuntimeStartupTest.cleanupFailureIsReportedWithoutMutatingTheConstructionFailure`. |
-| Line/protocol state и output transport не изменяют первый canonical failure проигравшими событиями. Явное close атомарно отклоняет поздние output failures и отправляет их в bounded best-effort report. State owner маршрутизирует проигравшие terminal и request failures после освобождения своего monitor; protocol exit-code supplier также не вызывается под state monitor. Transport доставляет уже выбранный terminal outcome без повторной арбитрации. | `LineSessionState`, `ProtocolSessionState`, `LineOutputTransport`, `ProtocolOutputTransport`. | `LineSessionStateTest.outputFailureAfterCloseIsOnlyReported`, `LineSessionStateTest.fatalOutputFailureAfterCloseIsOnlyReported`, `LineSessionStateTest.lateFatalFailureDoesNotReplaceSelectedRequestFailure`, `LineOutputTransportTest.publishingSelectedTerminalDoesNotInspectItsFailureGraph`, `LineOutputTransportTest.backlogOverflowReleasesTheEventQueueBeforeRoutingTheLosingFailure`, `ProtocolSessionStateTest.outputFailuresAfterCloseAreOnlyReported`, `ProtocolSessionStateTest.timeoutSelectedBeforeFatalFailureRemainsTerminal`, `ProtocolSessionStateTest.exitCodeSupplierIsNeverCalledUnderStateMonitor`, `ProtocolSessionOutputFailureTest.latePumpErrorAfterCloseDoesNotChangeTheClosedOutcome`. |
-| Один `SessionTerminal` хранит process settlement как fallback и первый non-exit primary outcome до выбора public outcome; public exit строится после logical settlement выбранного output mode. Primary failure всегда выигрывает. Поздний request callback и potentially blocking physical stream close не задерживают и не переписывают выбранный result. Public future views cancellation-isolated. | `SessionTerminal`, `OutputPumpCleanup`, `BoundedCloseDispatcher`. | `SessionTerminalTest.naturalProcessSettlementRemainsFallbackUntilPublicPublication`, остальные `SessionTerminalTest`, `LineSessionDecoderLifecycleFailureIntegrationTest.decoderFlushRuntimeFailureClosesLineSession`, `ProtocolSessionOutputFailureTest.stderrOverflowRemainsRequestLocalAfterProcessAndOutputHaveSettled`, `ProtocolOutputBacklogIntegrationTest.stderrOverflowMarkerSurvivesProcessExitUntilItsFirstRead`, `ProtocolSessionEofProcessExitAndCleanupTest.publicExitDoesNotWaitForPhysicalOutputCleanup`, `ProtocolRequestAdmissionAndDeadlineIntegrationTest.nonCooperativeProtocolDecoderCannotBlockCallerPastRequestDeadline`, `LineSessionSerializationAndDeadlinesIntegrationTest.nonCooperativeDecoderCannotBlockCallerPastRequestDeadline`. |
-| Pool выбирает первый обязательный terminal outcome и публикует immutable snapshot после освобождения monitor. Startup failure не ждёт physical stream close; worker retirement ждёт process outcome и logical session settlement, после чего освобождает capacity. Request-level exception остается line/protocol-specific. | `PoolTermination`, `WorkerPoolState`, `WorkerPoolController`, `PooledSessionFailures`, `WorkerCloseSupport`, `DefaultPooledLineSession`, `DefaultPooledProtocolSession`. | `WorkerPoolStateTest.acceptedFailuresPublishAsAStableSnapshotWithoutTouchingTheirMonitors`, `WorkerPoolControllerCloseIsolationTest.typedAggregateExposureDoesNotWaitForOrMutateTheSourceFailure`, `PooledSessionFailuresTest`, `PooledWorkerWarmupFailureCleanupTest.failedLineWarmupReturnsStartupFailureWhilePhysicalCleanupRemainsOwned`, `PooledWorkerWarmupFailureCleanupTest.failedProtocolWarmupReturnsStartupFailureWhilePhysicalCleanupRemainsOwned`, `PooledWorkerRetirementCoordinationTest.linePoolRetiresWorkerWithoutWaitingForPhysicalOutputClose`, `PooledWorkerRetirementCoordinationTest.linePoolDoesNotPublishRetirementBeforeDelayedTerminalObservation`, `PooledWorkerRetirementCoordinationTest.protocolPoolDoesNotPublishRetirementBeforeDelayedTerminalObservation`. |
-| Partial raw/helper-session construction не пропускает watcher до commit и передаёт potentially blocking physical stream close bounded dispatcher. Live resources не резервируют close capacity. `SessionOutputOwnership` один владеет переходом helper output `PLANNED -> CLAIMED -> READY`; отсутствие claim, другой mode или незапущенные pumps откатывают весь process. | `SessionConstruction`, `SessionOutputOwnership`, `OutputPumpCoordinator`, `ProcessIoAcquisition`, `ProcessStreamResource`, `ProcessIoResources`. | `DefaultSessionConstructionTest`, `DefaultSessionConstructionTest.constructionRollbackReturnsWhilePhysicalOutputCloseIsBlocked`, `DefaultSessionConstructionTest.saturatedCloseCapacityDoesNotRejectSessionConstruction`, `SessionConstructionTest`, `SessionOutputOwnershipStateTest`, `ProcessIoAcquisitionTest.closeCapacityDoesNotLimitLiveProcessResources`, `ProcessIoAcquisitionTest.everyPartialAcquisitionFailureRollsBackStableResourcesByIdentity`. |
-| Paired output close валидирует оба запроса до claim любого resource и атомарно конкурирует с single close; один immutable `CloseOutcome` отражает physical close. | `ProcessIoResources`, `ProcessStreamResource`. | `ProcessIoBundleTest.invalidPairArgumentsDoNotClaimResourcesOrConsumeCloseCapacity`, `ProcessIoBundleTest.singleAndPairCloseLinearizeWithoutPartialClaimOrDuplicatePhysicalClose`, `ProcessStreamResourceTest`. |
-| Raw stdin close не блокируется на concurrent writer и использует bounded capacity. Немедленный admission/start failure возвращается вызывающему коду и закрывает session; failure уже принятой asynchronous операции выбирает terminal outcome только пока public outcome не выбран, а после этого report-ится best effort. Terminal cleanup остаётся best effort и не создаёт fallback thread. После natural exit caller-owned raw output остаётся открыт до явного закрытия stream или `Session`. | [`SessionResources`](../../src/main/java/io/github/ulviar/procwright/internal/session/SessionResources.java), [`ProcessStreamResource`](../../src/main/java/io/github/ulviar/procwright/internal/ProcessStreamResource.java), [`BoundedCloseDispatcher`](../../src/main/java/io/github/ulviar/procwright/internal/BoundedCloseDispatcher.java). | `DefaultSessionStdinCloseContentionTest.closeStdinDoesNotWaitForRawCloseContendedByAnActiveWrite`, `DefaultSessionStdinCloseTerminalRaceTest.asynchronousStdinFailureWinsConcurrentCloseWithoutPublishingCloseSuccess`, `DefaultSessionStdinCloseTerminalRaceTest.blockedStdinCloseFailureAfterNaturalExitDoesNotChangeTheTerminalOutcome`, `DefaultSessionExitCompletionTest.naturalExitLeavesUnreadRawOutputAvailableToTheCaller`, `ProcessStreamResourceTest.requiredCloseReportsAnImmediateStarterFailureAndSettlesOwnership`, `BoundedCloseDispatcherTest.requiredDispatchReportsAnImmediateStarterFailureToTheCaller`. |
-| Process-tree cleanup выполняется не более одного раза для конкурирующих stop/failure paths; exit-code snapshot сохраняет natural и explicit stop. PTY rollback использует тот же bounded `ProcessLifecycle`, а потенциально блокирующие stream access/close передаёт общему bounded close-owner и не выполняет на timed caller. | `SessionProcessCleanup`; для PTY rollback — `ProcessCleanup` и тонкий `PtyProcessCleanup`. | `SessionProcessCleanupTest`, `DefaultSessionDescendantCleanupFailureTest`, `DefaultSessionExitWatcherFailureTest`, `ProcessCleanupTest`, `PtyLaunchAdmissionTest`. |
-| Output mode выбирается до process launch. Non-raw handle и pumps создаются внутри helper construction transaction; один `SessionOutputOwnership` проверяет тот же mode и состояние `READY` до открытия exit-watcher gate, поэтому lifecycle не может закрыть output раньше выбранного consumer. Raw transaction всегда возвращает raw `Session`, helper transaction не может вернуть raw handle, а один mode settlement позволяет `SessionTerminal` выбрать public exit. | `SessionOutputMode`, `SessionRuntime`, `SessionResources`, `SessionOutputOwnership`, `OutputPumpCoordinator`, `OutputPumpCleanup`. | `SessionRuntimeTest.concreteHelperFactoryInstallsOutputPumpsBeforeTheExitWatcherCanRun`, `DefaultSessionConstructionTest.helperTransactionRollsBackWhenTheFactoryDoesNotClaimOutput`, `DefaultSessionConstructionTest.helperTransactionRollsBackAClaimForTheWrongMode`, `SessionOutputOwnershipStateTest`, `OutputPumpStartupTransactionTest.lineHelperRollsBackBothOwnedStreamsWhenItsSecondPumpCannotStart`, `OutputPumpCleanupCoordinationTest`, `DefaultLineSessionExitContractTest`, `ExpectDraftOwnershipIntegrationTest`. |
-| Readiness проходит после launch, но до возврата выбранного scenario handle или перевода worker в idle. | `ReadinessSupport`, `ScenarioRuntime`, scenario `ReadinessSettings`. | `ExpectDraftOwnershipIntegrationTest.readinessRunsThroughTheSelectedExpectHandle`, `LineSessionReadinessAndAdmissionIntegrationTest.readinessProbeRunsBeforeLineSessionIsReturned`, `LineSessionReadinessAndAdmissionIntegrationTest.readinessFailureClosesLineSessionBeforeReturn`, `ProtocolSessionReadinessIntegrationTest.readinessProbeRunsBeforeProtocolSessionIsReturned`, `PooledProtocolSessionWarmupIntegrationTest.pooledProtocolWarmupReadinessFailureIsStartupFailure`. |
-| Потенциально некооперативные readiness, worker и request callbacks используют bounded admission и task-scoped execution; принятая abandoned operation удерживает permit до фактического возврата. Streaming listener является исключением: синхронный serialized вызов выполняется прямо на output pump и создаёт backpressure без отдельной process-wide callback partition. | `BoundedTaskLimits`, `BoundedTaskLimiter`, `BoundedTaskRunner`, `StreamListenerDispatcher`. | `BoundedTaskRunnerTest`, `ReadinessSupportTest`, `WorkerHookSupportTest`, `DefaultLineSessionWriteAdmissionTest`, `StreamListenerDispatcherTest`, `DefaultStreamSessionListenerIsolationTest`. |
-| Provider boundary принимает не более 32 operations; каждый accepted invocation получает fresh disposable non-inheriting daemon owner и удерживает permit до фактического возврата, включая abandonment. | `ProcessTreeScanner`, `ProcessProviderOperationOwner`, `ProcessProviderOperationCancellation`, `ProcessProviderOperationSettlement`. | `ProcessProviderOperationOwnerTest.sharedSizedOwnerRunsThirtyTwoOperationsAndRejectsTheThirtyThirdWithoutQueueing`, `ProcessProviderOperationOwnerTest.disposableProviderWorkersDoNotCarryThreadLocalOrStandardThreadState`, `ProcessProviderOperationOwnerTest.productionProviderOwnerIsDaemonAndDoesNotInheritCallerThreadLocals`, `ProcessTreeScannerOperationOwnershipTest.timedOutHostileScanRetainsItsOnlyPermitUntilTheOperationActuallyReturns`, `ProcessTreeScannerOperationOwnershipTest.everyProviderProcessOperationIsDeadlineBoundedAndRetainsCapacityUntilActualReturn`, `ProcessTreeScannerOperationOwnershipTest.everyProviderHandleOperationUsesTheSameBoundedOwnerUntilActualReturn`, `ProcessTransportPtyGuardTest.successfulCustomPtyProviderProcessIsGuardedBeforeRuntimePublication`, `ProcessTransportPtyGuardTest.customPtyProviderProcessCannotCarryThreadLocalStateIntoALaterOperation`. |
-| Caller interruption без выбранного one-shot supervision signal распространяется в `OneShotExecution` и запускает cleanup; concurrent выбранный signal сохраняется, а interrupt status восстанавливается. | `OneShotExecution`, `OneShotSupervision`, line/protocol request runtime. | `OneShotSupervisionTest`, `ProcessKernelTaskAdmissionAndInputTest.interruptionWhileAwaitingCapturedOutputIsRestoredBeforeRunReturns`, `RunInterruptionCleanupIntegrationTest`, `LineSessionSerializationAndDeadlinesIntegrationTest.callerInterruptDuringRequestIsTypedFailureAndRestoresInterruptStatus`. |
-| `Duration.ZERO` отключает поддерживающий это timeout; отрицательное значение отклоняется до запуска. | `DurationSupport`, соответствующие internal settings и lifecycle wait. | `DurationSupportTest`, settings tests, `RunTimeoutIntegrationTest.zeroTimeoutDisablesRunTimeoutAndAwaitsCompletion`, `RunTimeoutIntegrationTest.negativeTimeoutIsRejectedBeforeLaunch`. |
-| One-shot stdin/capture policy преобразуется в одно согласованное множество OS redirects и точное число I/O tasks до запуска; file/discard capture не создает output pumps. | `CapturePolicy`, `ExecutionPlan`, `OneShotIoPlan`. | `OneShotIoPlanTest`, policy tests, `RunCaptureIntegrationTest.fileCaptureWritesLargeOutputWithEmptyResultStreams`, `RunCaptureIntegrationTest.discardCaptureDropsOutputWithoutFailing`, `RunCaptureIntegrationTest.mergedSingleFileCaptureReceivesBothStreams`, `RunInputIntegrationTest`. |
-| PTY transport получает immutable resolved request, выбирается только terminal policy и не раскрывает system wrapper за provider SPI. | [`PtyRequest`](../../src/main/java/io/github/ulviar/procwright/terminal/PtyRequest.java), [`ProcessTransport`](../../src/main/java/io/github/ulviar/procwright/internal/ProcessTransport.java), [`SystemPtyProvider`](../../src/main/java/io/github/ulviar/procwright/terminal/SystemPtyProvider.java). | [`PtyRequestTest`](../../src/test/java/io/github/ulviar/procwright/terminal/PtyRequestTest.java), [`SystemPtyProviderTest`](../../src/test/java/io/github/ulviar/procwright/terminal/SystemPtyProviderTest.java), [`PtyTransportPolicyIntegrationTest`](../../src/integrationTest/java/io/github/ulviar/procwright/PtyTransportPolicyIntegrationTest.java), [`SystemPtyLaunchBoundaryIntegrationTest`](../../src/integrationTest/java/io/github/ulviar/procwright/SystemPtyLaunchBoundaryIntegrationTest.java), [`SystemPtyBehaviorIntegrationTest`](../../src/integrationTest/java/io/github/ulviar/procwright/SystemPtyBehaviorIntegrationTest.java). |
+**Владелец:** `CommandService`.
+
+**Proof:** `PublicApiSurfaceTest`, `ConsumerScenariosTest`.
+
+### Draft semantics
+
+**Инвариант:** Draft immutable, persistent и reusable.
+
+**Владелец:** конкретная реализация выбранного scenario Draft.
+
+**Proof:** `ScenarioDraftPersistenceIntegrationTest`, `ScenarioDraftReuseIntegrationTest`.
+
+### Command snapshot
+
+**Инвариант:** executable, argv, environment, working directory и shell mode образуют immutable snapshot; mutable argv
+копируется до сохранения.
+
+**Владелец:** `CommandSpec`.
+
+**Proof:** `CommandSpecTest`, `RunLaunchConfigurationIntegrationTest`.
+
+### Interactive branch
+
+**Инвариант:** raw session и Expect выбираются до конфигурации scenario-specific readiness и до launch.
+
+**Владелец:** `InteractiveScenario.Entry`.
+
+**Proof:** `PublicApiSurfaceTest`, `ExpectDraftOwnershipIntegrationTest`.
+
+### Pool branch
+
+**Инвариант:** `pooled()` сохраняет immutable snapshot уже настроенного worker.
+
+**Владелец:** pool-draft records в `LineSessionDrafts` и `ProtocolSessionDrafts`.
+
+**Proof:** `ScenarioPoolDraftSemanticsIntegrationTest`, `ConsumerScenariosTest`.
+
+### Public boundary
+
+**Инвариант:** публичные signatures и JPMS exports не раскрывают internal или случайные external types.
+
+**Владелец:** module descriptors и public package structure.
+
+**Proof:** `PublicApiSurfaceTest`, `PackageBoundaryTest`.
+
+### Nullness
+
+**Инвариант:** экспортируемые Java packages имеют `@NullMarked`; nullable positions и static-transitive JSpecify
+metadata являются частью публичного контракта.
+
+**Владелец:** public `package-info.java`, type-use annotations и module descriptors.
+
+**Proof:** `PublicNullnessContractTest`, `IntegrationNullnessMetadataTest`.
+
+## Process lifecycle
+
+### One-shot capture
+
+**Инвариант:** capture ограничен, отдельно сообщает truncation и сохраняет raw bytes при успешном и ошибочном decoding.
+
+**Владелец:** `OneShotResultAssembler`.
+
+**Proof:** `OneShotResultAssemblerTest`, `RunCaptureIntegrationTest`.
+
+### One-shot completion
+
+**Инвариант:** один absolute deadline покрывает stdin, process wait и output drain; первый supervision signal запускает
+cleanup, а блокирующий physical close не переписывает и не задерживает готовый result.
+
+**Владелец:** `OneShotExecution`.
+
+**Proof:** `OneShotSupervisionTest`, `RunTimeoutCleanupIntegrationTest`.
+
+### Process launch
+
+**Инвариант:** согласованные argv, environment, working directory и redirects применяются один раз; launch failure
+сохраняет typed reason и redacted command summary.
+
+**Владелец:** `ProcessLauncher`.
+
+**Proof:** `ProcessLauncherTest`, `RunLaunchConfigurationIntegrationTest`.
+
+### Process liveness
+
+**Инвариант:** `UNKNOWN` и `UNOBSERVABLE` не считаются доказательством выхода процесса.
+
+**Владелец:** `ProcessLiveness`.
+
+**Proof:** `ProcessLivenessTest`, `GuardedProcessExitWaiterTest`.
+
+### Natural exit wait
+
+**Инвариант:** natural wait выполняется на caller thread, соблюдает lifecycle deadline и не передаёт управление
+произвольному provider `waitFor`.
+
+**Владелец:** `ProcessExitWaiter`.
+
+**Proof:** `ProcessExitWaiterTest`, `GuardedProcessExitWaiterTest`.
+
+### Descendant knowledge
+
+**Инвариант:** наблюдавшиеся descendants сохраняются как bounded identity snapshot; incomplete или unavailable
+наблюдение остаётся недостаточным для доказательства полного cleanup.
+
+**Владелец:** `KnownDescendants`.
+
+**Proof:** `KnownDescendantsTest`, `LiveDescendantSnapshotTest`.
+
+### Process-tree scan
+
+**Инвариант:** scan bounded, дедуплицирован по process identity и различает complete, limit-reached, deadline,
+interruption и provider failure; найденный prefix не теряется.
+
+**Владелец:** `ProcessTreeScanner`.
+
+**Proof:** `ProcessTreeScannerTraversalTest`, `ProcessTreeScannerOperationOwnershipTest`.
+
+### Process-tree shutdown
+
+**Инвариант:** graceful и forceful phases используют общее консервативное состояние; успех требует доказанного выхода
+root и известных descendants, а fatal traversal не лишает cleanup уже найденный prefix.
+
+**Владелец:** `ProcessTreeShutdown`.
+
+**Proof:** `ShutdownTreeStateTest`, `ProcessLifecycleCompletionProofTest`.
+
+### Destroy fallback capacity
+
+**Инвариант:** fallback-вызовы потенциально блокирующих `Process.destroy*` используют общую bounded capacity; при её
+исчерпании новый disposable thread не создаётся.
+
+**Владелец:** `BoundedDestroyDispatcher`.
+
+**Proof:** `BoundedDestroyDispatcherTest`, `ProcessTreeShutdownFailureContinuationTest`.
+
+### Failure ownership
+
+**Инвариант:** первое обязательное failure или interruption остаётся primary; secondary failures не изменяют исходные
+`Throwable` и не заменяют выбранный lifecycle outcome.
+
+**Владелец:** `FailureAggregation`.
+
+**Proof:** `FailureAggregationTest`, `ShutdownFailureLedgerTest`.
+
+### Session construction
+
+**Инвариант:** partial session construction не публикует watcher до commit; любой rollback закрывает все уже полученные
+ресурсы, а live resources не резервируют bounded close capacity.
+
+**Владелец:** `SessionConstruction`.
+
+**Proof:** `SessionConstructionTest`, `DefaultSessionConstructionTest`.
+
+### Output ownership
+
+**Инвариант:** raw, line, protocol, Expect и stream output modes выбираются до launch и получают ровно одного consumer;
+helper pumps должны быть готовы до открытия exit-watcher gate.
+
+**Владелец:** `SessionOutputOwnership`.
+
+**Proof:** `SessionOutputOwnershipStateTest`, `SessionRuntimeTest`.
+
+### Process I/O ownership
+
+**Инвариант:** logical close exact-once; paired output close атомарен относительно single close; raw output после
+natural exit остаётся доступен до явного закрытия владельцем.
+
+**Владелец:** `ProcessStreamResource` и `ProcessIoResources`.
+
+**Proof:** `ProcessStreamResourceTest`, `ProcessIoBundleTest`.
+
+### Public stdin close
+
+**Инвариант:** `Session.closeStdin()` атомарно закрывает public write capability ровно один раз и не ждёт concurrent
+writer; после logical close новые write и flush отклоняются.
+
+**Владелец:** `SessionResources`.
+
+**Proof:** `DefaultSessionStdinCloseContentionTest`, `DefaultSessionStdinCloseFailurePropagationTest`.
+
+### Session failure settlement
+
+**Инвариант:** failure физического close или helper path входит в общий terminal lifecycle; проигравший terminal claim
+не меняет опубликованный outcome, но всё равно выполняет idempotent cleanup и reporting.
+
+**Владелец:** `DefaultSession`.
+
+**Proof:** `DefaultSessionStdinCloseTerminalRaceTest`, `DefaultSessionDescendantCleanupFailureTest`.
+
+### Session cleanup
+
+**Инвариант:** конкурирующие session stop/failure paths запускают process-tree cleanup не более одного раза и
+публикуют один exit-code snapshot.
+
+**Владелец:** `SessionProcessCleanup`.
+
+**Proof:** `SessionProcessCleanupTest`, `DefaultSessionDescendantCleanupFailureTest`.
+
+### Readiness
+
+**Инвариант:** readiness выполняется после launch, но до возврата handle или помещения worker в idle; failure закрывает
+созданный процесс.
+
+**Владелец:** `ReadinessSupport`.
+
+**Proof:** `ReadinessSupportTest`, `PooledProtocolSessionWarmupIntegrationTest`.
+
+### Bounded callbacks
+
+**Инвариант:** потенциально некооперативные readiness, request и hook callbacks имеют bounded admission; abandoned
+callback удерживает capacity до фактического возврата.
+
+**Владелец:** `BoundedTaskRunner`.
+
+**Proof:** `BoundedTaskRunnerTest`, `DefaultLineSessionWriteAdmissionTest`.
+
+### Provider operations
+
+**Инвариант:** process-provider operations имеют общую ограниченную capacity, deadline и disposable daemon owner;
+timeout не освобождает capacity до фактического завершения операции.
+
+**Владелец:** `ProcessProviderOperationOwner`.
+
+**Proof:** `ProcessProviderOperationOwnerTest`, `ProcessTreeScannerOperationOwnershipTest`.
+
+### Timeout policy
+
+**Инвариант:** `Duration.ZERO` отключает только поддерживающий это timeout; отрицательное значение отклоняется до
+launch.
+
+**Владелец:** `DurationSupport`.
+
+**Proof:** `DurationSupportTest`, `RunTimeoutIntegrationTest`.
+
+### Charset policy
+
+**Инвариант:** strict decoding сообщает malformed input, replacement decoding разрешается только явной policy, а raw
+bytes остаются доступны там, где сценарий их возвращает.
+
+**Владелец:** `CharsetPolicy`.
+
+**Proof:** `CharsetPolicyTest`, `RunCharsetPolicyIntegrationTest`.
+
+### PTY boundary
+
+**Инвариант:** terminal policy выбирается явно; provider получает immutable `PtyRequest`, а system wrapper не
+раскрывается через SPI.
+
+**Владелец:** `ProcessTransport`.
+
+**Proof:** `PtyRequestTest`, `SystemPtyLaunchBoundaryIntegrationTest`.
 
 ## Session protocols
 
-| Инвариант | Владелец | Доказательство |
-| --- | --- | --- |
-| Line request admission сериализован; ожидающий request не пишет в stdin и не захватывает response state. Выбранный terminal outcome имеет приоритет над timeout или interruption ожидания, а interrupt status восстанавливается. | `SerializedRequestGate`, `DefaultLineSession`, `LineSessionState`. | `DefaultLineSessionRequestAdmissionTest`, `LineSessionSerializationAndDeadlinesIntegrationTest`. |
-| Validation, encoding и bounded write входят в deadline одного request. Только отказ до admission физического writer task является retry-safe; после запуска task capacity удерживается до settlement. | `LineRequestWriter`, `BoundedTaskHandoff`, `BoundedTaskExecution`. | `DefaultLineSessionWriteAdmissionTest`, `BoundedTaskRunnerTest`, `LineSessionSerializationAndDeadlinesIntegrationTest`. |
-| Доставленный write failure сохраняет identity и terminal precedence; decoder выполняется в том же request deadline. Interruption имеет приоритет над output event, поставленным до повторного захвата queue monitor. | `DefaultLineSession`, `LineRequestWriter`, `LineResponseDecoder`, `LineOutputTransport`. | `DefaultLineSessionWriterFailureTest`, `DefaultLineSessionDecoderCallbackTest`, `LineOutputTransportTest.interruptionWinsAnEventQueuedBeforeTheWaiterReacquiresTheEventLock`, `LineSessionSerializationAndDeadlinesIntegrationTest`. |
-| Active line request, close и terminal/fatal arbitration имеют одного владельца. Request scope освобождает active request ровно один раз; close запечатывает observable outcome от поздних output failures. Transcript snapshot не выполняется под state monitor. | `LineSessionState`. | `LineSessionStateTest.completeRequestDoesNotWaitForOrMutateALosingTerminalFailure`, `LineSessionStateTest.outputFailureAfterCloseIsOnlyReported`, `LineSessionStateTest.fatalOutputFailureAfterCloseIsOnlyReported`, `LineSessionStateTest.terminalTranscriptSnapshotCannotBlockCloseWhileHoldingTheStateMonitor`, `DefaultLineSessionFatalOutputFailureTest`, `DefaultLineSessionExitContractTest`, `LineSessionBacklogAndTerminalIntegrationTest`. |
-| Line backlog ограничен числом lines и chars; unfinished line имеет отдельный limit и корректную LF/CRLF семантику. | `LineOutputTransport`. | `DefaultLineSessionOutputDecodingTest`, `DefaultLineSessionFatalOutputFailureTest.lateFatalStderrDecoderFailureDoesNotReplaceAnEarlierResponseLimit`, `PolicyValueTest`, `LineSessionBacklogAndTerminalIntegrationTest`. |
-| Incremental line/protocol decoder не допускает rewind, overflow без progress, частичную публикацию ошибочного результата и unbounded pending state. Charset decoder state не владеет line framing: ограниченный decoded-line suffix принадлежит thread-confined `DecodedLineBuffer`. | `IncrementalTextDecoder`, `ProtocolTextDecoderState`, `DecodedLineBuffer`. | `IncrementalTextDecoderOutputProgressTest`, `IncrementalTextDecoderFailureAtomicityTest`, `DecodedLineBufferTest`, `LineSessionDecoderSafetyIntegrationTest`, `LineSessionDecoderLifecycleFailureIntegrationTest`, `ProtocolResponseDecodingFailureIntegrationTest`, `ProtocolTranscriptDecodingFailureIntegrationTest`. |
-| Line decoder callback не может проглотить failure reader-а; вторичный callback failure не заменяет исходную typed failure, а конкурентный output decode failure может победить ещё не опубликованный response. | `DefaultLineSession`, `LineSessionState`, `LineResponseDecoder`. | `LineSessionDecoderFailurePrecedenceIntegrationTest`. |
-| Protocol adapter задаёт request framing, а runtime применяет byte/char limits и единую charset encoding operation до записи. Partial write или попытка adapter-а проглотить limit failure завершают session. | `ProtocolRequestWriter`, `ProtocolWriter`, request policy. | `ProtocolSessionCallbackCapabilityAndFramingTest`, `ProtocolRequestFramingAndLimitsIntegrationTest`. |
-| Response framing принадлежит adapter-у; capability и terminal precedence принадлежат read source, complete/continuous text и stream-scoped decoder state — text reader. Complete text field получает отдельный decoder, но общий request budget. | `ProtocolReadSource`, `ProtocolResponseReader`, `ProtocolTextReader.StreamState`, `ProtocolTextFieldDecoder`, `ProtocolResponseBudget`. | `ProtocolTextFieldDecoderTest`, `ProtocolResponseReaderExactTextTest`, `ProtocolResponseReaderContinuousTextTest`, `ProtocolResponseFramingAndLimitsIntegrationTest`. |
-| Protocol request serialization, ожидание admission, writer/decoder callback и response входят в один request deadline. Timeout закрывает process и остаётся terminal reason; non-cooperative callback не удерживает caller после deadline. | `SerializedRequestGate`, `DefaultProtocolSession`, `BoundedTaskExecution`. | `ProtocolSessionRequestAdmissionAndSerializationTest`, `ProtocolRequestAdmissionAndDeadlineIntegrationTest`. |
-| Active protocol request, close и terminal/fatal arbitration имеют одного владельца. Request scope освобождает active request ровно один раз; close запечатывает observable outcome от поздних output failures. Transcript/exit snapshot не выполняется под state monitor; последующее исключение, созданное вне monitor, может получить более свежий exit code непосредственно у `SessionProcessCleanup`. | `ProtocolSessionState`. | `ProtocolSessionStateTest.staleRequestCannotCompleteOrEndTheActiveRequest`, `ProtocolSessionStateTest.outputFailuresAfterCloseAreOnlyReported`, `ProtocolSessionStateTest.terminalTranscriptSnapshotCannotBlockCloseWhileHoldingTheStateMonitor`, `ProtocolSessionStateTest.exitCodeSupplierIsNeverCalledUnderStateMonitor`, `ProtocolSessionStateTest.terminalFailureIncludesProcessExitObservedAfterFailureSelection`, `ProtocolSessionRequestCallbackFailureTest`, `ProtocolSessionDecoderFailureTest`, `ProtocolSessionOutputFailureTest`, `ProtocolSessionEofProcessExitAndCleanupTest`. |
-| Callback I/O capability не переживает свой request phase и не используется с другого thread. | `RequestCapabilityScope`, line/protocol readers и protocol writer. | `RequestCapabilityScopeTest`, escaped reader/writer unit tests. |
-| После abandonment поздний callback outcome не меняет выбранный timeout/cancellation, но callback или asynchronous starter rejection удерживает admission до физического settlement. | `BoundedTaskExecution`, `BoundedTaskRunner`, session-specific abandonment handlers. | `BoundedTaskRunnerTest.nonCooperativeTimedOutTaskRetainsCapacityUntilItActuallyStops`, `DefaultLineSessionDecoderCallbackTest.abandonedDecoderFailureDoesNotChangeTimeoutAndReleasesProtocolCapacity`, `ProtocolSessionRequestAdmissionAndSerializationTest.abandonedProtocolFailureDoesNotChangeTimeoutAndReleasesCallbackCapacity`. |
-| Отказ запуска physical close или best-effort notification освобождает bounded dispatcher capacity и не задерживает terminal outcome; unbounded fallback thread не создаётся. | `BoundedCloseDispatcher`; `CloseNotificationPublisher` является его injected notification port. | `BoundedCloseDispatcherTest.starterFailureSettlesTheCloseAndReleasesCapacity`, `BoundedCloseDispatcherTest.callbackFailureDoesNotBlockLaterCloseWork`. |
-| Response byte/char budget глобален для всего request, включая несколько adapter reads. | `ProtocolResponseBudget`. | `ProtocolResponseReaderExactTextTest.readTextExactlyAccumulatesTheGlobalCharacterBudgetAcrossCalls`, `ProtocolResponseReaderExactTextTest.readTextExactlySharesTheGlobalCharacterBudgetWithContinuousTextReads`, `ProtocolResponseFramingAndLimitsIntegrationTest.textCharacterLimitAppliesAcrossMultipleTextReads`, `ProtocolResponseFramingAndLimitsIntegrationTest.protocolAdapterCannotRetryPastCumulativeByteBudget`. |
-| Каждый direct session и pool worker получает отдельный adapter до запуска процесса; concurrent terminals могут вызывать thread-safe factory одновременно. | Protocol Draft и `ScenarioRuntime.createProtocolAdapter`. | `ProtocolAdapterFactoryTest`, `ProtocolAdapterFactoryIntegrationTest.concurrentDirectOpensCanOverlapAdapterFactoryCalls`, `ProtocolAdapterFactoryIntegrationTest.concurrentPoolDraftOpensCanOverlapAdapterFactoryCalls`, `ProtocolAdapterFactoryIntegrationTest.pooledProtocolCreatesOneAdapterPerWorker`, `ScenarioDraftReuseIntegrationTest.protocolDraftSupportsSequentialAndConcurrentTerminalCallsWithFreshAdapters`. |
-| Непрочитанный хвост chunk сохраняется между request-scoped readers и правильно учитывается в backlog. | `ProtocolOutputQueue`. | `ProtocolOutputQueueTest`, `ProtocolResponseReaderByteReadTest`, `ProtocolResponseReaderDecoderStateTest`. |
-| Первый terminal session failure сохраняет stable reason для последующих requests. | Terminal-failure state line/protocol runtime. | `ProtocolRequestAdmissionAndDeadlineIntegrationTest.protocolRequestTimeoutClosesProcessAndPreservesTerminalReason`, `ProtocolOutputBacklogIntegrationTest.requestAfterStdoutBacklogOverflowReportsOverflowReason`, `ProtocolTerminalOutcomeIntegrationTest.requestAgainstExitedProcessReportsProcessExited`, `LineSessionSerializationAndDeadlinesIntegrationTest.timeoutAfterRequestWriteClosesSessionAndPreservesTypedFailure`, `LineSessionBacklogAndTerminalIntegrationTest.requestAfterStdoutBacklogOverflowReportsOverflowReason`, `LineSessionBacklogAndTerminalIntegrationTest.requestAgainstExitedProcessReportsProcessExited`. |
-| Expect validation и matcher admission bounded; invalid или post-close operation не меняет stdin, transcript и cursor. Literal/regex match commit использует одну revision и возвращает живой output slice. | `ExpectSettings`, `DefaultExpect`, `ExpectRegexMatcher`, `ExpectSessionState`, `ExpectMatch`. | `ExpectMatchTest`, `DefaultExpectMatcherAdmissionTest`, `DefaultExpectCursorMatchingTest`, `DefaultExpectOperationAdmissionTest`, `ExpectRegexMatcherTest`, `ExpectIntegrationTest`. |
-| Expect output декодируется и публикуется incrementally; terminal claim запрещает позднюю публикацию. Pump lifecycle останавливает process до блокирующего physical close, восстанавливает interrupt и применяет backoff к zero-length reads. | `ExpectTranscriptValues`, `ExpectOutputTransport`, `OutputPumpCoordinator`, `ExpectSessionState`. | `DefaultExpectOutputPublicationTest`, `DefaultExpectOutputDecodingTest`, `DefaultExpectOutputPumpLifecycleTest`, `ExpectSessionStateTest`. |
-| Expect first-terminal-wins отличает close, EOF, timeout, input, output и regex failure. Output/input failure и EOF, наблюдённый matcher-ом до normal output drain, используют общий helper shutdown; EOF, материализованный matcher-ом после normal drain, не переписывает process result. Проигравший поздний output `Error` передается bounded best-effort reporter после запуска cleanup; canonical failure не передается повторно, а reporting не задерживает pump/resource/helper completion. Failure routing не обходит пользовательский `Throwable` под state monitor или на обязательном pump path. | `ExpectSessionState`, `ExpectOutputTransport`, `DefaultExpect`. | `DefaultExpectTerminalArbitrationTest.timeoutArbitrationPrefersEofToTimeout`, `DefaultExpectOperationAdmissionTest.inputWriteFailureClosesProcessAndOwnsLaterOperationsAndExit`, `DefaultExpectOutputFailureArbitrationTest`, `ExpectSessionStateTest`, `ExpectIntegrationTest.eofBeforeExpectedOutputIsDistinct`. |
-| Streaming применяет backpressure, не хранит весь output и различает listener/read/process failures. Read/decode loop, synchronous serialized listener dispatch и timeout lifecycle имеют отдельных владельцев; остановка timeout watcher завершается только после возврата expiration callback. Canonical outcome выбирает underlying `SessionTerminal`; streaming-слой прекращает listener admission и преобразует готовый outcome в `StreamExit`. Natural exit ждёт logical mode settlement, а explicit close/timeout допускает logical abandonment некооперативного callback. Физическое завершение pump threads не является вторым publication gate. Первая truncation публикуется самим synchronized transcript buffer без дублирующего atomic flag. | `StreamSettings`, `SessionTerminal`, `OutputPumpCleanup`, `DefaultStreamSession`, `StreamOutputReader`, `StreamListenerDispatcher`, `StreamTimeoutWatcher`, `BoundedTranscriptBuffer`, `StreamRuntime`, `StreamException.Reason`. | `SessionTerminalTest`, `StreamTimeoutWatcherTest.stopAndAwaitWaitsUntilExpirationCallbackReturns`, `StreamListenerDispatcherTest`, `BoundedTranscriptBufferTest.concurrentAppendsReportExactlyOneFirstTruncation`, `DefaultStreamSessionExitCoordinationTest`, `DefaultStreamSessionTerminalClaimTest`, `DefaultStreamSessionListenerIsolationTest`, `StreamScenarioIntegrationTest`, `StreamRuntimeStartupTest`, `StreamRuntimeOutputPumpTest`, `StreamRuntimeTerminalLifecycleTest`, stress tests. |
+### Shared terminal outcome
+
+**Инвариант:** process settlement является fallback, первое non-exit failure имеет приоритет, а public exit ждёт
+logical settlement выбранного output mode, но не блокирующий physical close.
+
+**Владелец:** `SessionTerminal`.
+
+**Proof:** `SessionTerminalTest`, `DefaultLineSessionExitContractTest`.
+
+### Line request transaction
+
+**Инвариант:** line requests сериализованы; validation, request-size check, encoding, write и decode разделяют один
+deadline, а ожидающий request не пишет в stdin и не захватывает response state.
+
+**Владелец:** `DefaultLineSession`.
+
+**Proof:** `DefaultLineSessionRequestAdmissionTest`, `LineSessionSerializationAndDeadlinesIntegrationTest`.
+
+### Line write handoff
+
+**Инвариант:** request failure retry-safe только до доказанного handoff в stdin writer; после handoff timeout,
+interruption или write failure становятся terminal из-за неопределённости доставки.
+
+**Владелец:** `LineRequestWriter`.
+
+**Proof:** `DefaultLineSessionWriteAdmissionTest`, `DefaultLineSessionWriterFailureTest`.
+
+### Line terminal state
+
+**Инвариант:** active request, close и terminal failure имеют одного арбитра; позднее failure не меняет уже выбранный
+outcome, typed reason сохраняется для последующих requests, а transcript не строится под state monitor.
+
+**Владелец:** `LineSessionState`.
+
+**Proof:** `LineSessionStateTest`, `LineSessionBacklogAndTerminalIntegrationTest`.
+
+### Line backlog
+
+**Инвариант:** line backlog ограничен lines/chars и unfinished-line limit и корректно обрабатывает LF/CRLF.
+
+**Владелец:** `LineOutputTransport`.
+
+**Proof:** `LineOutputTransportTest`, `LineSessionBacklogAndTerminalIntegrationTest`.
+
+### Incremental text decoding
+
+**Инвариант:** text decoding не допускает rewind, unbounded pending state или частичную публикацию результата после
+malformed input.
+
+**Владелец:** `IncrementalTextDecoder`.
+
+**Proof:** `IncrementalTextDecoderFailureAtomicityTest`, `LineSessionDecoderSafetyIntegrationTest`.
+
+### Protocol request transaction
+
+**Инвариант:** serialization, adapter write, response decode и ожидание admission входят в один request deadline;
+partial write, timeout или проглоченное adapter-ом I/O failure закрывают session.
+
+**Владелец:** `DefaultProtocolSession`.
+
+**Proof:** `ProtocolSessionRequestAdmissionAndSerializationTest`,
+`ProtocolRequestAdmissionAndDeadlineIntegrationTest`.
+
+### Protocol request framing
+
+**Инвариант:** adapter определяет request framing, а runtime применяет request byte/char limits и не позволяет
+adapter-у проглотить partial-write или limit failure.
+
+**Владелец:** `ProtocolRequestWriter`.
+
+**Proof:** `ProtocolSessionCallbackCapabilityAndFramingTest`, `ProtocolRequestFramingAndLimitsIntegrationTest`.
+
+### Protocol response budget
+
+**Инвариант:** response byte/char limits глобальны для всего request и всех последовательных adapter reads.
+
+**Владелец:** `ProtocolResponseBudget`.
+
+**Proof:** `ProtocolResponseReaderExactTextTest`, `ProtocolResponseFramingAndLimitsIntegrationTest`.
+
+### Protocol terminal state
+
+**Инвариант:** active request, close и terminal failure имеют одного арбитра; typed reason сохраняется для последующих
+requests, а snapshots и exit-code lookup не выполняются под state monitor.
+
+**Владелец:** `ProtocolSessionState`.
+
+**Proof:** `ProtocolSessionStateTest`, `ProtocolTerminalOutcomeIntegrationTest`.
+
+### Request capabilities
+
+**Инвариант:** callback reader/writer живёт только в своей request phase и thread; abandonment не позволяет позднему
+callback заменить timeout или cancellation.
+
+**Владелец:** `RequestCapabilityScope`.
+
+**Proof:** `RequestCapabilityScopeTest`, `ProtocolSessionCallbackCapabilityAndFramingTest`.
+
+### Protocol adapter isolation
+
+**Инвариант:** каждый direct session и pool worker получает отдельный adapter до process launch; factory может
+вызываться конкурентно.
+
+**Владелец:** `ScenarioRuntime.createProtocolAdapter`.
+
+**Proof:** `ProtocolAdapterFactoryIntegrationTest`, `ScenarioDraftReuseIntegrationTest`.
+
+### Expect retention
+
+**Инвариант:** retained transcript и searchable match window имеют независимые bounds; cursor остаётся корректным при
+удалении старого prefix.
+
+**Владелец:** `ExpectSessionState`.
+
+**Proof:** `ExpectIntegrationTest`, `DefaultExpectCursorMatchingTest`.
+
+### Expect regex isolation
+
+**Инвариант:** regex evaluation использует bounded admission и deadline; abandoned matcher не может заменить выбранный
+terminal outcome.
+
+**Владелец:** `ExpectRegexMatcher`.
+
+**Proof:** `ExpectRegexMatcherTest`, `DefaultExpectMatcherAdmissionTest`.
+
+### Expect
+
+**Инвариант:** matching не меняет stdin/transcript/cursor после invalid или terminal operation; output публикуется
+incrementally, а close, EOF, timeout и I/O failures разрешаются first-terminal-wins.
+
+**Владелец:** `ExpectSessionState`.
+
+**Proof:** `ExpectSessionStateTest`, `ExpectIntegrationTest`.
+
+### Streaming
+
+**Инвариант:** stream не удерживает весь output, применяет синхронный serialized backpressure и публикует один outcome;
+natural exit ждёт logical drain, explicit close/timeout может abandon некооперативный listener.
+
+**Владелец:** `DefaultStreamSession`.
+
+**Proof:** `DefaultStreamSessionTerminalClaimTest`, `StreamRuntimeTerminalLifecycleTest`.
 
 ## Pool
 
-| Инвариант | Владелец | Доказательство |
-| --- | --- | --- |
-| Pool использует существующий line/protocol runtime и не раскрывает lease. | Nested `PoolDraft`, `DefaultPooledLineSession`, `DefaultPooledProtocolSession`. | `PublicApiSurfaceTest`, `ScenarioPoolDraftSemanticsIntegrationTest`, `PooledLineSessionRequestIntegrationTest`, `PooledProtocolSessionRequestIntegrationTest.pooledProtocolSessionReusesTypedWorkersWithoutExposingLease`. |
-| Worker принадлежит ровно одному registered state; `maxSize` учитывает starting/idle/leased/retiring; partition, metrics, termination и связанные с partition поля сериализуются одним monitor. Один identity map является источником state, FIFO idle queue — только индексом. Обязательные retirement/publication actions выбираются state-транзакцией и выполняются после monitor. | `WorkerPoolState`, `PoolPartition`, `PoolMetrics`, `PoolTermination`. | `WorkerPoolStateTest`, `PoolTerminationTest`, `PoolPartitionTest`, `PoolMetricsTest`, controller lifecycle tests, contention stress tests. |
-| Startup и hooks имеют bounded admission. `PoolWorker` является startup slot и создаёт retirement только одновременно с принятием session; отдельной reservation, prepared lease и retirement без session нет. `WorkerStartup` выбирает один terminal winner и отменяет permit wait; успешный state claim предшествует factory. Timeout/interruption удерживает запущенный slot до late completion, а close отделяет любой `STARTING`; late worker закрывается вне logical partition. Lease создаётся только в `STARTING -> LEASED`. Exact-once retirement устойчив к конкурентному и реентрантному доступу. | `WorkerPoolConstruction`, `WorkerPoolState`, `PoolWorker`, `WorkerStartup`, `WorkerStartupCoordinator`, `WorkerRetirement`, `WorkerRetirementCoordinator`, `PoolReplenisher`, `PoolLifecycleDispatcher`, `WorkerCloseSupport`. | `WorkerStartupTest`, `WorkerStartupCoordinatorTest`, `WorkerPoolStateTest`, `WorkerRetirementTest.concurrentOutcomeAccessInitiatesCloseOnce`, `WorkerRetirementTest.reentrantOutcomeAccessCannotInitiateCloseTwice`, `WorkerRetirementCoordinatorTest`, controller startup/construction/replenishment tests, dispatcher admission saturation tests. |
-| `maxSize` ограничивает starting, idle, leased и retiring slots одного pool; допустимый диапазон — от 1 до 256, значение по умолчанию — 1. Независимые pools и direct sessions не делят process-global worker quota. Warmup и `minIdle` заполняют только принадлежащую pool capacity. | `WorkerPoolSettings`, `WorkerPoolState`, `PoolPartition`, `PoolReplenisher`. | `PolicyValueTest.workerPoolSettingsRejectInvalidScalarPoliciesAndDeferCrossFieldChecks`, `PoolPartitionTest.membershipIsTheOnlyWorkerStateAcrossTheFullLifecycle`, `PoolPartitionTest.idleWorkerCanRetireAndKeepsCapacityUntilRetirementCompletes`, `WorkerPoolControllerCapacityTest.warmupFillsConfiguredPoolWithoutExceedingMaxSize`, `WorkerPoolControllerCapacityTest.independentPoolsCanCollectivelyOwnMoreThanThePerPoolMaximum`, `PooledLineSessionWarmupIntegrationTest.warmPoolReusesLineSessionWorkers`, `PooledLineSessionWarmupIntegrationTest.minIdleReplenishesRetiredLineWorkersInBackground`, `PooledLineSessionWarmupIntegrationTest.warmupSizeIsAppliedAtOpen`, `PooledProtocolSessionWarmupIntegrationTest.configuredWarmupReplenishesRetiredWorkerWithinMaxSize`. |
-| Worker переиспользуется до явной причины retirement; request limit, age, timeout, request failure, decoder failure и process exit дают различимые reasons, cleanup завершается до наблюдаемого retirement, а положительный `minIdle` асинхронно устанавливает и восстанавливает idle floor. Один `PoolReplenisher` хранит не более одной scheduled attempt pool независимо от частоты failures, диагностирует ordinary failure и повторяет его с backoff, не занимая worker thread во время задержки. `PoolScheduledAttempt` отменяет pending turn при close, включая cancel-before-attachment race. | `PooledRequestRunner`, `WorkerRetirement`, `WorkerPoolState`, `PoolReplenisher`, `PoolScheduledAttempt`, `PoolReplenishmentScheduler`. | `PoolScheduledAttemptTest`, `PoolReplenishmentSchedulerTest.cancelledTurnDoesNotRunAfterSaturatedOwnersAreReleased`, `PoolReplenisherTest.retryBackoffResetsAfterSuccess`, `PoolReplenisherTest.retryAttemptYieldsToAnotherPoolAlreadyWaiting`, `PoolReplenisherTest.stopRemovesThePendingAttempt`, `WorkerPoolControllerReplenishmentTest.replenishmentRetriesFailedStartupWithoutExternalActivity`, `WorkerPoolControllerReplenishmentTest.closeStopsReplenishmentDuringRetryBackoff`, `PooledLineSessionWorkerRetirementIntegrationTest.maxRequestsPerWorkerRetiresWorkersAfterUseLimit`, `PooledLineSessionWorkerRetirementIntegrationTest.maxWorkerAgeRetiresWorkerAfterUse`, `PooledLineSessionWorkerRetirementIntegrationTest.requestTimeoutRetiresWorkerBeforeNextRequest`, `PooledLineSessionWorkerRetirementIntegrationTest.requestFailureRetiresWorkerBeforeNextRequest`, `PooledLineSessionWorkerRetirementIntegrationTest.retiredWorkerCleansDescendantBeforeReportingCloseCompletion`, `PooledLineSessionWorkerRetirementIntegrationTest.exitedProcessUsesProcessExitedRetirementReason`, `PooledProtocolSessionWorkerRetirementIntegrationTest`. |
-| Line/protocol pool handles разделяют общий lifecycle snapshot и failure taxonomy, не смешивая request-level errors. `PoolTermination` владеет construction, closing, первым terminal failure, единственным drain claim и cancellation-isolated views. Publication выбирается под state monitor и выполняется после него. Дополнительные failures диагностируются отдельно без контракта на точный exception graph. | `PooledSessionMetrics`, `PooledSessionException`, `WorkerPoolState`, `PoolTermination`. | `PooledSessionMetricsTest`, `PooledSessionExceptionTest`, `PoolTerminationTest`, `WorkerPoolStateTest.closingPoolPublishesTerminationAfterItsLastRetirementCompletes`, controller close/retirement tests. |
-| Acquire и request timeout различимы; preparation, request outcome и exact-once release/retirement принадлежат одному orchestration owner. Acquire либо получает idle lease, либо регистрирует `PoolWorker` как `STARTING`; lease создаётся только после успешного startup. Retries используют один absolute deadline; сырой `PoolWorker` не достигает request runner и public pooled wrappers. | `PooledRequestRunner`, `WorkerPoolState.Lease`, `WorkerPoolController`, `WorkerStartupCoordinator`, pooled exception reasons. | `WorkerPoolStateTest.fullWorkerLifecycleKeepsPartitionMetricsAndLeaseOwnershipConsistent`, `WorkerPoolControllerAcquisitionTest`, `PooledLineSessionRequestIntegrationTest`, `PooledProtocolSessionRequestIntegrationTest.pooledProtocolAcquireTimeoutIsDistinctFromRequestTimeout`. |
-| Reset/health hooks bounded; `Error` не теряется, request count изменяется под pool monitor, response accounting и retire reason остаются корректными. | `PooledRequestRunner`, `WorkerHookSupport`, `WorkerPoolState`, `WorkerPoolController`. | `WorkerPoolStateTest`, `PooledLineSessionWorkerHooksIntegrationTest`, `PooledProtocolSessionWorkerHooksIntegrationTest`, controller metrics tests. |
-| Pool `close()` bounded синхронно drain-ит logical workers; timeout/interruption/failure typed, terminal outcome публикуется один раз, а `closeAsync()` cancellation-isolated. Все `STARTING` отделяются немедленно; поздний worker физически закрывается вне logical partition и не удерживает terminal future. Неудачный late close диагностируется, но не переписывает завершённый terminal outcome. | `PoolTermination`, `PoolCloseSupport`, `WorkerPoolState`, `WorkerPoolController`, pooled wrappers. | `PoolTerminationTest`, `WorkerPoolControllerCloseIsolationTest`, `WorkerPoolControllerRetirementTest`, `WorkerPoolControllerStartupRaceTest`, pooled line/protocol close integration, Java/Kotlin consumer compile. |
-| Metrics являются согласованным snapshot: current counts приходят только из partition, накопительные durations, failures и retire reasons — из `PoolMetrics`. Late worker не создаёт второй current state; после physical retirement его `created` и `retired` учитываются атомарно. Snapshot не требует callback или predicate под pool monitor. | `WorkerPoolState`, `PoolMetrics`, `RequestObservation`, `PoolPartition`. | `PoolMetricsTest`, `WorkerPoolControllerMetricsTest`, `WorkerPoolControllerStartupRaceTest`, pooled metrics integration tests. |
+### Runtime reuse
+
+**Инвариант:** pool повторно использует существующий line/protocol runtime и не создаёт второй process engine или
+public lease API.
+
+**Владелец:** `DefaultPooledLineSession` и `DefaultPooledProtocolSession`.
+
+**Proof:** `PublicApiSurfaceTest`, `PooledProtocolSessionRequestIntegrationTest`.
+
+### Worker partition
+
+**Инвариант:** worker принадлежит ровно одному состоянию `STARTING`, `IDLE`, `LEASED` или `RETIRING`; idle queue
+является индексом, а не вторым источником состояния.
+
+**Владелец:** `PoolPartition`.
+
+**Proof:** `PoolPartitionTest`, `WorkerPoolStateTest`.
+
+### Pool size policy
+
+**Инвариант:** pool size, warmup и idle-floor values валидируются совместно до открытия pool.
+
+**Владелец:** `WorkerPoolSettings`.
+
+**Proof:** `PolicyValueTest`, `WorkerPoolPolicyTest`.
+
+### Runtime capacity
+
+**Инвариант:** `maxSize` учитывает workers во всех состояниях одного pool и не создаёт process-global quota; warmup и
+`minIdle` используют только capacity своего pool.
+
+**Владелец:** `WorkerPoolState`.
+
+**Proof:** `WorkerPoolStateTest`, `WorkerPoolControllerCapacityTest`.
+
+### Worker startup
+
+**Инвариант:** startup имеет bounded admission и один terminal winner; timeout/close отделяет logical slot, а late
+worker закрывается вне partition.
+
+**Владелец:** `WorkerStartupCoordinator`.
+
+**Proof:** `WorkerStartupCoordinatorTest`, `WorkerPoolControllerStartupRaceTest`.
+
+### Worker retirement
+
+**Инвариант:** retirement создаётся только для принятой session, запускает close ровно один раз и освобождает capacity
+только после logical settlement.
+
+**Владелец:** `WorkerRetirementCoordinator`.
+
+**Proof:** `WorkerRetirementCoordinatorTest`, `PooledWorkerRetirementCoordinationTest`.
+
+### Replenishment
+
+**Инвариант:** положительный `minIdle` поддерживается одной pending attempt с bounded backoff; close отменяет
+незавершённую работу пополнения.
+
+**Владелец:** `PoolReplenisher`.
+
+**Proof:** `PoolReplenisherTest`, `WorkerPoolControllerReplenishmentTest`.
+
+### Pooled request
+
+**Инвариант:** acquire и request timeout различимы; request orchestration ровно один раз release-ит или retire-ит
+worker и не раскрывает его наружу.
+
+**Владелец:** `PooledRequestRunner`.
+
+**Proof:** `WorkerPoolControllerAcquisitionTest`, `PooledProtocolSessionRequestIntegrationTest`.
+
+### Worker hooks
+
+**Инвариант:** reset и health hooks bounded, не перекрываются с request на одном worker и сохраняют `Error`, metrics и
+retirement reason.
+
+**Владелец:** `WorkerHookSupport`.
+
+**Proof:** `WorkerHookSupportTest`, `PooledProtocolSessionWorkerHooksIntegrationTest`.
+
+### Pool terminal decision
+
+**Инвариант:** construction разрешается ровно один раз; terminal future получает не более одного drain publication
+только после начала close и выхода всех logical workers, причём публикация выполняется вне pool monitor.
+
+**Владелец:** `PoolTermination`.
+
+**Proof:** `PoolTerminationTest`, `WorkerPoolStateTest`.
+
+### Public pool close
+
+**Инвариант:** synchronous `close()` имеет deadline и typed timeout/interruption/failure mapping; `closeAsync()`
+изолирует consumer cancellation.
+
+**Владелец:** `PoolCloseSupport`.
+
+**Proof:** `PoolCloseSupportTest`, `WorkerPoolControllerCloseIsolationTest`.
+
+### Pool failure routing
+
+**Инвариант:** construction, close и late worker failures либо участвуют в ещё не выбранном terminal outcome, либо
+превращаются в `FailureReport`; уже выбранный drain outcome не меняется.
+
+**Владелец:** `PoolTermination`.
+
+**Proof:** `PoolTerminationTest`, `WorkerPoolStateTest`.
+
+### Pool failure publication
+
+**Инвариант:** каждый `FailureReport` передаётся пользовательскому reporter либо bounded fallback reporter; failure
+самого reporting path не заменяет terminal outcome.
+
+**Владелец:** `PoolFailurePublisher`.
+
+**Proof:** `WorkerPoolControllerConstructionTest`, `WorkerPoolControllerRetirementTest`.
+
+### Pool failure dispatch
+
+**Инвариант:** retirement и pool failure reporting используют отдельные bounded queues без unbounded thread creation;
+saturation policy каждого пути задана явно.
+
+**Владелец:** `PoolLifecycleDispatcher`.
+
+**Proof:** `PoolLifecycleDispatcherTest`, `BoundedFailureReporterTest`.
+
+### Pool metrics
+
+**Инвариант:** current counts происходят только из partition, cumulative durations/failures/reasons — из metrics
+ledger; snapshot не вызывает пользовательский callback под pool monitor.
+
+**Владелец:** `PoolMetrics`.
+
+**Proof:** `PoolMetricsTest`, `WorkerPoolControllerMetricsTest`.
 
 ## Diagnostics и optional modules
 
-| Инвариант | Владелец | Доказательство |
-| --- | --- | --- |
-| Diagnostics best-effort, bounded, schema-valid и не меняет outcome; это включает process start/close и stream truncation. Bounded delivery turn освобождает dispatcher для другой принятой работы без обещания между destination порядка или fairness. | `DiagnosticEmitter`, `BoundedIsolatedTaskDispatcher`, `DiagnosticAttributeSchema`, scenario `DiagnosticsSettings`. | `DiagnosticEmitterTest`, `SessionRuntimeTest.processStartedDiagnosticFailureDoesNotAbortCustomPtySession`, `SessionRuntimeTest.shutdownDiagnosticFailureDoesNotAlterExplicitClose`, `DefaultStreamSessionTerminalClaimTest.truncationDiagnosticFailureDoesNotAlterStreamingOutcome`, diagnostic integration tests. |
-| Events одного lifecycle упорядочены для каждого recipient и связаны `runId`, включая переход между delivery batches. | Serial delivery внутри `DiagnosticEmitter`. | `DiagnosticEmitterTest`, diagnostics lifecycle tests. |
-| Kotlin не меняет Java Draft semantics и не добавляет dependency в core. | `:procwright-kotlin`, Draft extension functions. | Kotlin public surface, persistence и dependency boundary tests. |
-| Coroutine cancellation соблюдает ownership direct session, pooled worker, exit waiter и Flow collector; active direct request после handoff завершает shared session exit exceptionally. | Coroutine extensions и `StreamScenario.Draft.openFlow()`. | `CoroutineExtensionsTest.cancelling direct request await closes line and protocol sessions`, Kotlin cancellation/Flow tests. |
-| Kotlin protocol factory создает отдельный adapter wrapper на factory call. | `protocolAdapterFactory`, `ProtocolAdapterFactoryDsl`. | Kotlin factory isolation tests. |
-| Integrations используют core runtime и не добавляют внешнюю process library или MCP SDK. | `:procwright-integrations`, JPMS/build boundary. | module descriptor, external boundary и integration tests. |
-| Protocol adapters отклоняют malformed JSON, invalid UTF-8, invalid headers и oversized frames до domain mapping. | `ProtocolAdapters`, `ContentLengthHeaders`, Jackson. | `ProtocolAdaptersTest` и external consumer examples. |
-| Canonical Java/Kotlin/integration examples компилируются как внешние consumers в Gradle metadata и POM-only режимах. | Consumer fixture modules и publication metadata. | `publicApiConsumerCompilationCheck`, isolated publication smoke. |
+### Diagnostics
+
+**Инвариант:** diagnostics bounded, schema-valid, best-effort и не меняет outcome; события одного lifecycle
+упорядочены для каждого recipient и связаны `runId`.
+
+**Владелец:** `DiagnosticEmitter`.
+
+**Proof:** `DiagnosticEmitterTest`, `DiagnosticsIntegrationTest`.
+
+### Kotlin
+
+**Инвариант:** Kotlin API сохраняет Java Draft semantics, а coroutine cancellation соблюдает ownership direct
+sessions, pooled requests и stream collectors.
+
+**Владелец:** `:procwright-kotlin`.
+
+**Proof:** `PublicKotlinApiSurfaceTest`, `CoroutineExtensionsTest`.
+
+### Integrations
+
+**Инвариант:** adapters используют core runtime, не добавляют process engine и отклоняют malformed JSON, UTF-8,
+headers и oversized frames до domain mapping.
+
+**Владелец:** `:procwright-integrations`.
+
+**Proof:** `ProtocolAdaptersTest`, `externalLibraryBoundaryCheck`.
 
 ## Release proofs
 
-- `quickCheck` — unit, API/package boundaries и compilation всех public consumers.
-- `scenarioCheck` — integration behavior канонических сценариев.
-- `regressionCheck` — bounded stress и регрессии lifecycle/concurrency.
-- `publicDocsCheck` и strict Java/Kotlin API docs gates.
-- `publicationStructureCheck` проверяет classifiers и обязательные POM metadata всех трех modules.
-- `publicationReadinessCheck` агрегирует product/API/docs readiness на Java 17 target.
-- CI проверяет Java 17 artifact на Linux/macOS/Windows и JDK 17/21/25; source targets 21/25 — на Linux.
-- Isolated publication consumers в Gradle metadata и Maven POM-only режимах.
+Состав быстрых, сценарных, stress и memory gates принадлежит
+[test tiers](../evals/test-tiers.md). Publication, documentation, platform matrix и isolated-consumer proofs
+принадлежат [publication readiness](../release/publication-readiness.md).
 
-Новый behavior должен расширить существующую строку или добавить новую. Если невозможно назвать единственного
-владельца и proof, изменение не готово.
+Новый behavior должен расширять существующий элемент или добавлять новый. Точный race и method-level proof остаются в
+тесте; карта хранит только правило, которое должно пережить внутренний refactoring.
