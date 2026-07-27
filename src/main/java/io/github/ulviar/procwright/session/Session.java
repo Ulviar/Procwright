@@ -96,7 +96,10 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
     CompletableFuture<SessionExit> onExit();
 
     /**
-     * Stops the process through the configured shutdown policy. Calling this method more than once has no effect.
+     * Requests process shutdown through the configured policy.
+     *
+     * <p>If another terminal action already owns shutdown, this method returns without joining its cleanup; use
+     * {@link #onExit()} to await the logical terminal outcome. Calling this method more than once has no effect.
      * Potentially blocking physical stream closes run asynchronously.
      */
     @Override

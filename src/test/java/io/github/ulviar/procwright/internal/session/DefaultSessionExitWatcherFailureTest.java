@@ -13,7 +13,9 @@ import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEvent;
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
+import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
+import io.github.ulviar.procwright.internal.DiagnosticEmitterTestSupport;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -26,6 +28,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
@@ -102,6 +105,46 @@ final class DefaultSessionExitWatcherFailureTest {
         assertSame(process.failure(), exitFailure.getCause());
         assertTrue(eventually(() -> process.stdoutClosed() && process.stderrClosed()));
         assertEquals(0, process.failure().getSuppressed().length);
+    }
+
+    @Test
+    void losingWatcherFailureDoesNotRunThePrimaryOwnersCleanup() throws Exception {
+        WatcherFailureProcess process = new WatcherFailureProcess();
+        CountDownLatch ownerEntered = new CountDownLatch(1);
+        CountDownLatch releaseOwner = new CountDownLatch(1);
+        AtomicReference<Runnable> exitWatcher = new AtomicReference<>();
+        DiagnosticEmitter diagnostics = DiagnosticEmitterTestSupport.blockOnceOn(
+                DiagnosticsSettings.disabled().withListener(ignored -> {}),
+                "session-test",
+                DiagnosticEventType.SHUTDOWN_REQUESTED,
+                ownerEntered,
+                releaseOwner);
+        DefaultSession session = DefaultSession.openTransactionally(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                diagnostics,
+                () -> {},
+                BoundedCloseDispatcher.shared(),
+                (name, task) -> {
+                    exitWatcher.set(task);
+                    return new Thread(task, name + "captured");
+                });
+        Thread owner = new Thread(session::close, "session-close-owner");
+        owner.start();
+        try {
+            assertTrue(ownerEntered.await(1, TimeUnit.SECONDS));
+
+            exitWatcher.get().run();
+
+            assertEquals(0, process.forceDestroyCalls());
+        } finally {
+            releaseOwner.countDown();
+            owner.join(1_000);
+            session.close();
+        }
+        assertTrue(!owner.isAlive());
     }
 
     private static boolean eventually(java.util.function.BooleanSupplier condition) throws InterruptedException {

@@ -210,12 +210,14 @@ writer; после logical close новые write и flush отклоняютс�
 
 ### Session failure settlement
 
-**Инвариант:** failure физического close или helper path входит в общий terminal lifecycle; проигравший terminal claim
-не меняет опубликованный outcome, но всё равно выполняет idempotent cleanup и reporting.
+**Инвариант:** failure физического close или helper path входит в общий terminal lifecycle; первый primary claim владеет
+process cleanup, а проигравший close не меняет outcome и не присоединяется к cleanup owner. Close после natural exit без
+primary owner отдельно claims единственный post-outcome cleanup caller-owned raw resources и известных descendants.
 
 **Владелец:** `DefaultSession`.
 
-**Proof:** `DefaultSessionStdinCloseTerminalRaceTest`, `DefaultSessionDescendantCleanupFailureTest`.
+**Proof:** `DefaultSessionStdinCloseTerminalRaceTest`, `DefaultSessionDescendantCleanupFailureTest`,
+`SessionRawOutputOwnershipContractTest`.
 
 ### Session cleanup
 

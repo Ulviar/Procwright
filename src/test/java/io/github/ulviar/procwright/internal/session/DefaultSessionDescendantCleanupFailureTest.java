@@ -119,7 +119,7 @@ final class DefaultSessionDescendantCleanupFailureTest {
     }
 
     @Test
-    void concurrentCloseCannotHideTheSharedProcessCleanupFailure() throws Exception {
+    void losingPathsDoNotRepeatThePrimaryOwnersCleanup() throws Exception {
         AssertionError cleanupFailure = new AssertionError("descendant cleanup failed");
         FailingDescendantProcess process = new FailingDescendantProcess(cleanupFailure);
         CountDownLatch ownerEntered = new CountDownLatch(1);
@@ -149,9 +149,9 @@ final class DefaultSessionDescendantCleanupFailureTest {
         try {
             assertTrue(ownerEntered.await(1, TimeUnit.SECONDS));
 
-            AssertionError losingFailure = assertThrows(AssertionError.class, session::close);
-
-            assertSame(cleanupFailure, losingFailure);
+            assertFalse(session.terminateAfterHelperFailure(new IllegalStateException("late helper failure")));
+            assertTimeoutPreemptively(Duration.ofSeconds(1), session::close);
+            assertEquals(0, process.rootDestroyCalls());
         } finally {
             releaseOwner.countDown();
             owner.join(1_000);

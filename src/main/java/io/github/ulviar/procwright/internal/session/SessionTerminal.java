@@ -74,6 +74,12 @@ final class SessionTerminal {
         return publicCompletion.isDone();
     }
 
+    boolean primaryClaimSelected() {
+        synchronized (lock) {
+            return selectedProcessClaim != null;
+        }
+    }
+
     CompletableFuture<SessionExit> publicExit() {
         CompletableFuture<SessionExit> view = new CompletableFuture<>();
         observePublic(outcome -> {

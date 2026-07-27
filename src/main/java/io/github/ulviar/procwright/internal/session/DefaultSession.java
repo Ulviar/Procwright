@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -45,6 +46,7 @@ public final class DefaultSession implements Session {
     private final SessionTerminal terminal;
     private final SessionProcessCleanup processCleanup;
     private final SessionConstruction.Gate constructionGate;
+    private final AtomicBoolean postOutcomeCleanupClaimed = new AtomicBoolean();
     private final AtomicLong lastActivityNanos;
 
     static DefaultSession openTransactionally(
@@ -329,7 +331,10 @@ public final class DefaultSession implements Session {
     }
 
     /**
-     * Stops the process through the configured shutdown policy. Calling this method more than once has no effect.
+     * Requests process shutdown through the configured policy.
+     *
+     * <p>If another terminal action already owns shutdown, this method returns without joining its cleanup; use
+     * {@link #onExit()} to await the logical terminal outcome. Calling this method more than once has no effect.
      */
     @Override
     public void close() {
@@ -384,6 +389,9 @@ public final class DefaultSession implements Session {
         try {
             if (claim == null) {
                 reportBestEffort(failure);
+                if (!claimPostOutcomeCleanup()) {
+                    return;
+                }
             }
             retainOrReport(claim, processCleanup.forceAfterFailure());
             resources.close();
@@ -440,6 +448,9 @@ public final class DefaultSession implements Session {
 
         try {
             if (claim == null) {
+                if (!claimPostOutcomeCleanup()) {
+                    return false;
+                }
                 resources.closeStdinForCleanup();
                 processCleanup.stop();
                 resources.close();
@@ -549,6 +560,12 @@ public final class DefaultSession implements Session {
         boolean restoreInterrupt = Thread.interrupted();
         SessionTerminal.ProcessClaim claim = terminal.claimFailure(failure);
         try {
+            if (claim == null) {
+                reportBestEffort(failure);
+                if (!claimPostOutcomeCleanup()) {
+                    return false;
+                }
+            }
             if (claim != null) {
                 try {
                     afterClaim.run();
@@ -560,9 +577,6 @@ public final class DefaultSession implements Session {
                 retainOrReport(null, processCleanup.forceAfterFailure());
             }
             resources.close();
-            if (claim == null) {
-                reportBestEffort(failure);
-            }
         } finally {
             if (claim != null) {
                 claim.fail();
@@ -572,6 +586,10 @@ public final class DefaultSession implements Session {
             }
         }
         return claim != null;
+    }
+
+    private boolean claimPostOutcomeCleanup() {
+        return !terminal.primaryClaimSelected() && postOutcomeCleanupClaimed.compareAndSet(false, true);
     }
 
     private static void retainOrReport(SessionTerminal.ProcessClaim claim, Throwable failure) {

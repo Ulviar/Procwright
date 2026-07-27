@@ -161,7 +161,9 @@ helper.
 `SessionTerminal` сразу и стабильно фиксирует только первый non-exit primary claim. Natural process exit хранится как
 fallback, поэтому malformed output или timeout обязательного drain не маскируются более ранним exit observation.
 Settlement управляет только моментом публикации. `SessionTerminal` не знает framing, decoding, listener или process-tree
-алгоритмы.
+алгоритмы. Выбранный primary owner единолично выполняет bounded process cleanup; проигравший close не повторяет и не
+ожидает его работу. После natural exit без primary owner первый late close/failure отдельно claims post-outcome cleanup
+caller-owned raw resources и известных живых descendants; остальные late paths не повторяют и не ожидают эту работу.
 
 Process outcome означает natural exit либо завершённую bounded termination attempt. Construction failure публикуется
 только после rollback и не возвращает session handle. `ModeSettlement` включает нормальный transport drain либо logical

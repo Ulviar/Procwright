@@ -130,6 +130,81 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
     }
 
     @Test
+    void closeAfterNaturalExitCleansAnObservedLiveDescendant() throws Exception {
+        ControlledFailingCloseOutputStream stdin =
+                new ControlledFailingCloseOutputStream(new IOException("late close failure"));
+        CloseFailureProcess process = new CloseFailureProcess(stdin);
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+        try {
+            assertTrue(process.awaitDescendantObservation());
+            process.completeNaturally(0);
+            assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+            assertTrue(stdin.awaitCloseStarted(Duration.ofSeconds(1)));
+
+            session.close();
+
+            assertFalse(process.descendant().isAlive());
+            assertEquals(1, process.descendant().gracefulDestroyCalls());
+        } finally {
+            stdin.releaseClose();
+            session.close();
+        }
+    }
+
+    @Test
+    void concurrentCloseAfterNaturalExitHasOneCleanupOwner() throws Exception {
+        ControlledFailingCloseOutputStream stdin =
+                new ControlledFailingCloseOutputStream(new IOException("late close failure"));
+        CountDownLatch cleanupStarted = new CountDownLatch(1);
+        CountDownLatch releaseCleanup = new CountDownLatch(1);
+        CloseFailureProcess process = new CloseFailureProcess(stdin, () -> {
+            cleanupStarted.countDown();
+            awaitIgnoringInterrupts(releaseCleanup);
+        });
+        DefaultSession session = SessionTestFixtures.open(
+                process,
+                Duration.ZERO,
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ZERO),
+                StandardCharsets.UTF_8,
+                DiagnosticEmitter.of(DiagnosticsSettings.disabled(), "session-test", CommandEcho.empty()));
+        CountDownLatch secondCloseReturned = new CountDownLatch(1);
+        Thread firstCloser = new Thread(session::close, "post-natural-cleanup-owner");
+        Thread secondCloser = new Thread(
+                () -> {
+                    session.close();
+                    secondCloseReturned.countDown();
+                },
+                "post-natural-cleanup-loser");
+        firstCloser.setDaemon(true);
+        secondCloser.setDaemon(true);
+        try {
+            assertTrue(process.awaitDescendantObservation());
+            process.completeNaturally(0);
+            assertEquals(0, session.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+            assertTrue(stdin.awaitCloseStarted(Duration.ofSeconds(1)));
+            firstCloser.start();
+            assertTrue(cleanupStarted.await(1, TimeUnit.SECONDS));
+
+            secondCloser.start();
+
+            assertTrue(secondCloseReturned.await(1, TimeUnit.SECONDS));
+        } finally {
+            releaseCleanup.countDown();
+            stdin.releaseClose();
+            firstCloser.join(1_000);
+            secondCloser.join(1_000);
+            session.close();
+        }
+        assertFalse(firstCloser.isAlive());
+        assertFalse(secondCloser.isAlive());
+    }
+
+    @Test
     void asynchronousStdinFailureWinsConcurrentCloseWithoutPublishingCloseSuccess() throws Exception {
         IOException closeFailure = new IOException("concurrent stdin close failed");
         ControlledFailingCloseOutputStream stdin = new ControlledFailingCloseOutputStream(closeFailure);
@@ -152,11 +227,15 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
                 StandardCharsets.UTF_8,
                 diagnostics);
         AtomicReference<Throwable> closeFailureObserved = new AtomicReference<>();
+        AtomicBoolean closeInterruptPreserved = new AtomicBoolean();
         Thread closer = new Thread(() -> {
+            Thread.currentThread().interrupt();
             try {
                 session.close();
             } catch (Throwable failure) {
                 closeFailureObserved.set(failure);
+            } finally {
+                closeInterruptPreserved.set(Thread.currentThread().isInterrupted());
             }
         });
         closer.setDaemon(true);
@@ -168,13 +247,12 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
             assertTrue(process.awaitDestroyStarted());
             closer.start();
             closer.join(1_000);
-            assertTrue(closer.isAlive(), "losing close must still wait for its idempotent cleanup");
+            assertFalse(closer.isAlive(), "losing close must not join the primary owner's cleanup");
             assertNull(closeFailureObserved.get());
+            assertTrue(closeInterruptPreserved.get());
             assertFalse(session.onExit().isDone(), "terminal failure must not publish before cleanup completes");
 
             process.releaseDestroy();
-            closer.join(1_000);
-            assertFalse(closer.isAlive());
             ExecutionException exitFailure = assertThrows(
                     ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
             assertSame(closeFailure, exitFailure.getCause());

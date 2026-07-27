@@ -43,6 +43,21 @@ final class SessionTerminalTest {
     }
 
     @Test
+    void primaryClaimSelectionIsMonotonicAndDistinctFromNaturalExit() {
+        SessionTerminal claimed = terminal(SessionOutputMode.RAW);
+        assertFalse(claimed.primaryClaimSelected());
+
+        SessionTerminal.ProcessClaim claim = claimed.claimClose(false);
+        assertTrue(claimed.primaryClaimSelected());
+        claim.succeed(new SessionExit(OptionalInt.of(0), false));
+        assertTrue(claimed.primaryClaimSelected());
+
+        SessionTerminal natural = terminal(SessionOutputMode.RAW);
+        natural.completeNaturalExit(new SessionExit(OptionalInt.of(0), false));
+        assertFalse(natural.primaryClaimSelected());
+    }
+
+    @Test
     void helperModePublishesOnlyAfterBothFactsAreKnownInEitherOrder() throws Exception {
         SessionExit expected = new SessionExit(OptionalInt.of(3), false);
         SessionTerminal processFirst = terminal(SessionOutputMode.LINE);

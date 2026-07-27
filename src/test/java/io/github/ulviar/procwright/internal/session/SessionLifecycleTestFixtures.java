@@ -134,13 +134,17 @@ final class SessionLifecycleTestFixtures {
         private final CountDownLatch descendantObserved = new CountDownLatch(1);
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
         private final AtomicBoolean alive = new AtomicBoolean(true);
-        private final TrackingProcessHandle root =
-                new TrackingProcessHandle(Long.MAX_VALUE - 3, alive, () -> exit.complete(143));
-        private final TrackingProcessHandle descendant =
-                new TrackingProcessHandle(Long.MAX_VALUE - 2, new AtomicBoolean(true), () -> {});
+        private final TrackingProcessHandle root;
+        private final TrackingProcessHandle descendant;
 
         CloseFailureProcess(ControlledFailingCloseOutputStream stdin) {
+            this(stdin, () -> {});
+        }
+
+        CloseFailureProcess(ControlledFailingCloseOutputStream stdin, Runnable beforeDescendantStop) {
             this.stdin = stdin;
+            root = new TrackingProcessHandle(Long.MAX_VALUE - 3, alive, () -> exit.complete(143));
+            descendant = new TrackingProcessHandle(Long.MAX_VALUE - 2, new AtomicBoolean(true), beforeDescendantStop);
         }
 
         boolean awaitDescendantObservation() throws InterruptedException {

@@ -57,6 +57,8 @@ Caller выбирает timeout, capture budget, charset policy, input, output m
 Гарантии:
 
 - `close()` идемпотентен;
+- concurrent/repeated `close()` не присоединяется к cleanup уже выбранного terminal owner; `onExit()` является
+  completion barrier логического outcome;
 - `closeStdin()` и session cleanup используют bounded close capacity и не ждут бесконечно заблокированный stream;
 - `onExit()` завершается после process outcome и logical settlement выбранного output mode; potentially blocking
   physical stream close выполняется независимо;

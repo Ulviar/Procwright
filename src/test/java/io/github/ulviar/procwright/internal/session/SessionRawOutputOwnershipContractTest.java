@@ -38,6 +38,20 @@ final class SessionRawOutputOwnershipContractTest extends SessionOutputOwnership
     }
 
     @Test
+    void sessionCloseAfterNaturalExitClosesCallerOwnedRawOutput() throws Exception {
+        CloseCountingInputStream stdout = new CloseCountingInputStream();
+        StubProcess process = new StubProcess(stdout);
+        DefaultSession session = defaultSessionWith(process);
+
+        process.completeExit(0);
+        session.onExit().get(2, TimeUnit.SECONDS);
+        session.close();
+
+        assertTrue(stdout.awaitClose());
+        assertEquals(1, stdout.closeCalls());
+    }
+
+    @Test
     void rawAndLifecycleClosePhysicalOutputDelegateExactlyOnce() throws Exception {
         CloseCountingInputStream stdout = new CloseCountingInputStream();
         StubProcess process = new StubProcess(stdout);
