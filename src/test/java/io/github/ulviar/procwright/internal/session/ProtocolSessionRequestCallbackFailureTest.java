@@ -216,9 +216,9 @@ final class ProtocolSessionRequestCallbackFailureTest extends ProtocolSessionCon
         public <T> T run(
                 String threadPrefix,
                 long deadlineNanos,
-                BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
-                BoundedTaskRunner.Task<T> task)
+                TimedTaskRunner.CancellationSignal cancellation,
+                TimedTaskRunner.AbandonmentHandler abandonmentHandler,
+                TimedTaskRunner.Task<T> task)
                 throws TimeoutException, InterruptedException, ExecutionException {
             try {
                 return task.run();

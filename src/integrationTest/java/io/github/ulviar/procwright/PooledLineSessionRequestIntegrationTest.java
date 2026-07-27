@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright;
 
-import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitIgnoringInterrupt;
 import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitLeased;
 import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.awaitRetired;
 import static io.github.ulviar.procwright.PooledLineSessionIntegrationFixtures.fixtureScenario;
@@ -28,7 +27,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -85,40 +83,6 @@ final class PooledLineSessionRequestIntegrationTest {
     }
 
     @Test
-    void pooledRequestEncodingIsBoundedBeforeWorkerAcquire() throws Exception {
-        BlockingUtf8Charset charset = new BlockingUtf8Charset();
-        LineSessionScenario.Draft scenario = fixtureScenario().withCharset(charset);
-
-        try (PooledLineSession pool = scenario.withArgs("controlled-line-repl")
-                .pooled()
-                .withMaxSize(1)
-                .open()) {
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            try {
-                Future<Throwable> request =
-                        executor.submit(() -> captureFailure(() -> pool.request("first", Duration.ofMillis(50))));
-                assertTrue(charset.awaitEncoderStarted());
-
-                Throwable failure = request.get(500, TimeUnit.MILLISECONDS);
-
-                assertTrue(failure instanceof LineSessionException);
-                assertEquals(LineSessionException.Reason.TIMEOUT, ((LineSessionException) failure).reason());
-                assertEquals(0, pool.metrics().created());
-                assertEquals(1, pool.metrics().failedRequests());
-            } finally {
-                charset.releaseEncoder();
-                executor.shutdownNow();
-                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            }
-
-            assertEquals(
-                    "response:second",
-                    pool.request("second", Duration.ofSeconds(1)).text());
-            assertEquals(1, pool.metrics().created());
-        }
-    }
-
-    @Test
     void acquireTimeoutIsDistinctWhenAllWorkersAreBusy() throws Exception {
         try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)
@@ -171,15 +135,6 @@ final class PooledLineSessionRequestIntegrationTest {
         }
     }
 
-    private static Throwable captureFailure(Runnable operation) {
-        try {
-            operation.run();
-            return null;
-        } catch (Throwable failure) {
-            return failure;
-        }
-    }
-
     private static final class CountingUtf8Charset extends Charset {
 
         private final AtomicInteger encoderCreations = new AtomicInteger();
@@ -206,44 +161,6 @@ final class PooledLineSessionRequestIntegrationTest {
 
         private int encoderCreations() {
             return encoderCreations.get();
-        }
-    }
-
-    private static final class BlockingUtf8Charset extends Charset {
-
-        private final AtomicBoolean blockNextEncoder = new AtomicBoolean(true);
-        private final CountDownLatch encoderStarted = new CountDownLatch(1);
-        private final CountDownLatch releaseEncoder = new CountDownLatch(1);
-
-        private BlockingUtf8Charset() {
-            super("X-Procwright-Pooled-Line-Blocking-UTF-8", new String[0]);
-        }
-
-        @Override
-        public boolean contains(Charset charset) {
-            return StandardCharsets.UTF_8.contains(charset);
-        }
-
-        @Override
-        public CharsetDecoder newDecoder() {
-            return StandardCharsets.UTF_8.newDecoder();
-        }
-
-        @Override
-        public CharsetEncoder newEncoder() {
-            if (blockNextEncoder.compareAndSet(true, false)) {
-                encoderStarted.countDown();
-                awaitIgnoringInterrupt(releaseEncoder);
-            }
-            return StandardCharsets.UTF_8.newEncoder();
-        }
-
-        private boolean awaitEncoderStarted() throws InterruptedException {
-            return encoderStarted.await(1, TimeUnit.SECONDS);
-        }
-
-        private void releaseEncoder() {
-            releaseEncoder.countDown();
         }
     }
 }

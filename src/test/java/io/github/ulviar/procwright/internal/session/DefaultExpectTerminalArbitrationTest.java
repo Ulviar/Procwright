@@ -7,7 +7,6 @@ import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.Co
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.FeedInputStream;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.GatedEofInputStream;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.awaitUninterruptibly;
-import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.expectFailure;
 import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.openExpect;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,9 +40,8 @@ final class DefaultExpectTerminalArbitrationTest {
     @Test
     void timeoutArbitrationPrefersClosedState() throws Exception {
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         ControllableProcess process = new ControllableProcess(new FeedInputStream(), new FeedInputStream());
-        DefaultExpect expect = expect(process, limiter, evaluator, ExpectSettings.defaults(), PumpStarter.threading());
+        DefaultExpect expect = expect(process, evaluator, ExpectSettings.defaults(), PumpStarter.threading());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ExpectMatch> match =
@@ -56,7 +54,6 @@ final class DefaultExpectTerminalArbitrationTest {
             assertEquals(ExpectException.Reason.CLOSED, failure.reason());
             assertNull(failure.getCause());
             assertFalse(process.isAlive());
-            assertEquals(0, limiter.availablePermits());
         } finally {
             evaluator.release();
             expect.close();
@@ -69,12 +66,11 @@ final class DefaultExpectTerminalArbitrationTest {
     @Test
     void timeoutArbitrationPreservesOutputFailureAndItsExactCause() throws Exception {
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         IllegalStateException outputFailure = new IllegalStateException("output failed");
         GatedFailureInputStream stdout = new GatedFailureInputStream(outputFailure);
         FeedInputStream stderr = new FeedInputStream();
         ControllableProcess process = new ControllableProcess(stdout, stderr);
-        DefaultExpect expect = expect(process, limiter, evaluator, ExpectSettings.defaults(), PumpStarter.threading());
+        DefaultExpect expect = expect(process, evaluator, ExpectSettings.defaults(), PumpStarter.threading());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ExpectMatch> match =
@@ -88,7 +84,6 @@ final class DefaultExpectTerminalArbitrationTest {
             assertEquals(ExpectException.Reason.FAILURE, failure.reason());
             assertSame(outputFailure, failure.getCause());
             assertFalse(process.isAlive());
-            assertEquals(0, limiter.availablePermits());
         } finally {
             evaluator.release();
             expect.close();
@@ -101,11 +96,10 @@ final class DefaultExpectTerminalArbitrationTest {
     @Test
     void timeoutArbitrationPrefersEofToTimeout() throws Exception {
         BlockingFirstRegexEvaluator evaluator = new BlockingFirstRegexEvaluator();
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         GatedEofInputStream stdout = new GatedEofInputStream();
         PumpCompletionTracker pumpStarter = new PumpCompletionTracker();
         ControllableProcess process = new ControllableProcess(stdout, new FeedInputStream());
-        DefaultExpect expect = expect(process, limiter, evaluator, ExpectSettings.defaults(), pumpStarter);
+        DefaultExpect expect = expect(process, evaluator, ExpectSettings.defaults(), pumpStarter);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ExpectMatch> match =
@@ -122,7 +116,6 @@ final class DefaultExpectTerminalArbitrationTest {
             assertFalse(process.isAlive());
             assertEquals(
                     143, expect.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
-            assertEquals(0, limiter.availablePermits());
         } finally {
             stdout.finish();
             evaluator.release();
@@ -139,7 +132,6 @@ final class DefaultExpectTerminalArbitrationTest {
         AssertionError evaluatorError = new AssertionError("late regex evaluator failure");
         GatedFailureInputStream stdout = new GatedFailureInputStream(outputFailure);
         BlockingErrorRegexEvaluator evaluator = new BlockingErrorRegexEvaluator(evaluatorError);
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         AtomicInteger lateReports = new AtomicInteger();
         AtomicInteger uncaughtReports = new AtomicInteger();
         Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
@@ -152,7 +144,6 @@ final class DefaultExpectTerminalArbitrationTest {
                         ExpectSettings.defaults(),
                         ZeroReadBackoff.exponential(),
                         PumpStarter.threading(),
-                        limiter,
                         evaluator,
                         (thread, error) -> lateReports.incrementAndGet()));
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -166,11 +157,9 @@ final class DefaultExpectTerminalArbitrationTest {
 
             assertEquals(ExpectException.Reason.FAILURE, failure.reason());
             assertSame(outputFailure, failure.getCause());
-            assertEquals(0, limiter.availablePermits(), "the cancelled evaluator must retain its permit");
 
             evaluator.release();
             evaluator.awaitInvocationStopped();
-            assertTrue(eventually(() -> limiter.availablePermits() == 1));
             assertEquals(0, outputFailure.getSuppressed().length);
             assertEquals(0, lateReports.get());
             assertEquals(0, uncaughtReports.get());
@@ -196,7 +185,6 @@ final class DefaultExpectTerminalArbitrationTest {
                         ExpectSettings.defaults(),
                         ZeroReadBackoff.exponential(),
                         PumpStarter.threading(),
-                        new BoundedTaskLimiter(1),
                         evaluator,
                         (thread, error) -> reports.incrementAndGet()));
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -226,7 +214,6 @@ final class DefaultExpectTerminalArbitrationTest {
         PumpCompletionTracker pumps = new PumpCompletionTracker();
         DefaultExpect expect = expect(
                 new ControllableProcess(stdout, new FeedInputStream()),
-                new BoundedTaskLimiter(1),
                 ExpectRegexMatcher::evaluate,
                 ExpectSettings.defaults(),
                 pumps);
@@ -277,7 +264,6 @@ final class DefaultExpectTerminalArbitrationTest {
                         ExpectSettings.defaults(),
                         ZeroReadBackoff.exponential(),
                         PumpStarter.threading(),
-                        new BoundedTaskLimiter(1),
                         (pattern, text, searchStart) -> {
                             reference.get().close();
                             return new ExpectRegexMatcher.Evaluation(0, 0, "", List.of());
@@ -300,7 +286,6 @@ final class DefaultExpectTerminalArbitrationTest {
                         ExpectSettings.defaults(),
                         ZeroReadBackoff.exponential(),
                         PumpStarter.threading(),
-                        new BoundedTaskLimiter(1),
                         (pattern, text, searchStart) -> {
                             throw evaluatorError;
                         }));
@@ -317,14 +302,12 @@ final class DefaultExpectTerminalArbitrationTest {
 
     private static DefaultExpect expect(
             ControllableProcess process,
-            BoundedTaskLimiter limiter,
             ExpectRegexMatcher.Evaluator evaluator,
             ExpectSettings settings,
             PumpStarter pumpStarter) {
         return openExpect(
                 process,
-                session -> new DefaultExpect(
-                        session, settings, ZeroReadBackoff.exponential(), pumpStarter, limiter, evaluator));
+                session -> new DefaultExpect(session, settings, ZeroReadBackoff.exponential(), pumpStarter, evaluator));
     }
 
     static final class BlockingErrorRegexEvaluator implements ExpectRegexMatcher.Evaluator {

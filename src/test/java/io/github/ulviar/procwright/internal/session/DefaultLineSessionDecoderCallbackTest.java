@@ -7,7 +7,6 @@ import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtur
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ResponseInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
-import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.eventually;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.strictSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -53,7 +52,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 final class DefaultLineSessionDecoderCallbackTest {
 
     @Test
-    void abandonedDecoderFailureDoesNotChangeTimeoutAndReleasesProtocolCapacity() throws Exception {
+    void abandonedDecoderFailureDoesNotChangeTimeout() throws Exception {
         for (Throwable lateFailure : List.of(
                 new IllegalStateException("late line decoder runtime failure"),
                 new AssertionError("late line decoder error"))) {
@@ -62,7 +61,6 @@ final class DefaultLineSessionDecoderCallbackTest {
     }
 
     private static void assertAbandonedDecoderFailureIsIsolated(Throwable lateFailure) throws Exception {
-        int initialCapacity = BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits();
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
         ResponseInputStream stdout = new ResponseInputStream();
@@ -86,10 +84,8 @@ final class DefaultLineSessionDecoderCallbackTest {
             LineSessionException timeout =
                     assertInstanceOf(LineSessionException.class, request.get(2, TimeUnit.SECONDS));
             assertEquals(LineSessionException.Reason.TIMEOUT, timeout.reason());
-            assertEquals(initialCapacity - 1, BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits());
 
             releaseDecoder.countDown();
-            assertTrue(eventually(() -> BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
             LineSessionException persisted = assertThrows(
                     LineSessionException.class, () -> lineSession.request("after-timeout", Duration.ofSeconds(1)));
             assertEquals(LineSessionException.Reason.TIMEOUT, persisted.reason());
@@ -99,7 +95,6 @@ final class DefaultLineSessionDecoderCallbackTest {
             caller.shutdownNow();
             assertTrue(caller.awaitTermination(1, TimeUnit.SECONDS));
         }
-        assertTrue(eventually(() -> BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() == initialCapacity));
     }
 
     private enum CallbackExit {
@@ -313,7 +308,7 @@ final class DefaultLineSessionDecoderCallbackTest {
                     },
                     typed.reason());
             if (abandonment == Abandonment.SESSION_CLOSE) {
-                assertInstanceOf(BoundedTaskRunner.TaskCancelledException.class, typed.getCause());
+                assertInstanceOf(TimedTaskRunner.TaskCancelledException.class, typed.getCause());
             }
             assertEquals(abandonment == Abandonment.CALLER_INTERRUPT, callerInterruptRestored.get());
         } finally {

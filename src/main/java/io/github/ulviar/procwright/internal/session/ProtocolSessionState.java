@@ -290,7 +290,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     }
 
     ProtocolSessionException selectCallbackCancellation(
-            RequestOutcome request, BoundedTaskRunner.TaskCancelledException cancellation) {
+            RequestOutcome request, TimedTaskRunner.TaskCancelledException cancellation) {
         return recordRequestFailure(request, () -> closed(cancellation));
     }
 
@@ -299,7 +299,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
             recordRequestTimeout(request);
         } else if (cause instanceof InterruptedException interruption) {
             recordRequestInterruption(request, interruptionMessage, interruption);
-        } else if (cause instanceof BoundedTaskRunner.TaskCancelledException cancellation) {
+        } else if (cause instanceof TimedTaskRunner.TaskCancelledException cancellation) {
             selectCallbackCancellation(request, cancellation);
         } else {
             throw new IllegalArgumentException("Unsupported callback abandonment", cause);

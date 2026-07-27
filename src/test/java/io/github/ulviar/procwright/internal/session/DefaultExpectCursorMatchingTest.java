@@ -35,12 +35,10 @@ import org.junit.jupiter.api.Test;
 final class DefaultExpectCursorMatchingTest {
 
     @Test
-    void concurrentRegexConsumersDoNotCommitTheSameCursorRevision() throws Exception {
+    void concurrentRegexConsumersAreSerializedAcrossCursorUpdates() throws Exception {
         FeedInputStream stdout = new FeedInputStream();
         stdout.offer("TOKEN|TOKEN");
         ControllableProcess process = new ControllableProcess(stdout, new FeedInputStream());
-        CountDownLatch firstEvaluations = new CountDownLatch(2);
-        CountDownLatch release = new CountDownLatch(1);
         AtomicInteger evaluations = new AtomicInteger();
         DefaultExpect expect = openExpect(
                 process,
@@ -49,13 +47,8 @@ final class DefaultExpectCursorMatchingTest {
                         ExpectSettings.defaults(),
                         ZeroReadBackoff.exponential(),
                         PumpStarter.threading(),
-                        new BoundedTaskLimiter(2),
                         (pattern, text, searchStart) -> {
-                            int invocation = evaluations.incrementAndGet();
-                            if (invocation <= 2) {
-                                firstEvaluations.countDown();
-                                awaitUninterruptibly(release);
-                            }
+                            evaluations.incrementAndGet();
                             return ExpectRegexMatcher.evaluate(pattern, text, searchStart);
                         }));
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -65,18 +58,15 @@ final class DefaultExpectCursorMatchingTest {
                     executor.submit(() -> expect.expectRegexMatch(Pattern.compile("TOKEN"), Duration.ofSeconds(1)));
             Future<ExpectMatch> second =
                     executor.submit(() -> expect.expectRegexMatch(Pattern.compile("TOKEN"), Duration.ofSeconds(1)));
-            assertTrue(firstEvaluations.await(1, TimeUnit.SECONDS));
 
-            release.countDown();
             ExpectMatch firstMatch = first.get(1, TimeUnit.SECONDS);
             ExpectMatch secondMatch = second.get(1, TimeUnit.SECONDS);
 
             assertEquals("TOKEN", firstMatch.matched());
             assertEquals("TOKEN", secondMatch.matched());
             assertEquals(Set.of("", "|"), Set.of(firstMatch.before(), secondMatch.before()));
-            assertEquals(3, evaluations.get(), "the losing snapshot must be evaluated again from the new cursor");
+            assertEquals(2, evaluations.get());
         } finally {
-            release.countDown();
             expect.close();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
@@ -98,7 +88,6 @@ final class DefaultExpectCursorMatchingTest {
                         ExpectSettings.defaults().withTranscriptLimit(256).withMatchBufferLimit(24),
                         ZeroReadBackoff.exponential(),
                         PumpStarter.threading(),
-                        new BoundedTaskLimiter(1),
                         (pattern, text, searchStart) -> {
                             matching.countDown();
                             awaitUninterruptibly(release);

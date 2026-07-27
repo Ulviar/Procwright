@@ -23,7 +23,7 @@ final class LineResponseDecoder {
     private final LineSessionState state;
     private final LineOutputTransport output;
     private final OutputPumpCoordinator outputPumps;
-    private final BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
+    private final TimedTaskRunner.CancellationSignal cancellation = new TimedTaskRunner.CancellationSignal();
 
     LineResponseDecoder(
             LineSessionSettings options,
@@ -40,8 +40,7 @@ final class LineResponseDecoder {
         RequestCapabilityScope capability = new RequestCapabilityScope("ResponseDecoder.Reader");
         ResponseReader reader = new ResponseReader(deadlineNanos, request, capability);
         try {
-            return BoundedTaskRunner.runWithAbandonment(
-                    BoundedTaskLimits.PROTOCOL_CALLBACKS,
+            return TimedTaskRunner.runCancellable(
                     "procwright-line-decoder-",
                     deadlineNanos,
                     cancellation,
@@ -59,7 +58,7 @@ final class LineResponseDecoder {
                     });
         } catch (TimeoutException exception) {
             throw state.selectCallbackFailure(request, state::timeout);
-        } catch (BoundedTaskRunner.TaskCancelledException exception) {
+        } catch (TimedTaskRunner.TaskCancelledException exception) {
             throw state.selectCallbackFailure(request, () -> state.closed(exception));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -94,7 +93,7 @@ final class LineResponseDecoder {
     private void selectAbandonment(LineSessionState.Request request, Throwable cause) {
         if (cause instanceof TimeoutException) {
             state.recordRequestTimeout(request);
-        } else if (cause instanceof BoundedTaskRunner.TaskCancelledException cancellationFailure) {
+        } else if (cause instanceof TimedTaskRunner.TaskCancelledException cancellationFailure) {
             state.recordRequestFailure(request, () -> state.closed(cancellationFailure));
         } else if (cause instanceof InterruptedException interruption) {
             state.recordRequestFailure(

@@ -74,7 +74,6 @@ final class PooledLineSessionWorkerHooksIntegrationTest {
     @Test
     void resetHookTimeoutRetiresWorkerWithoutChangingCompletedRequestOutcome() throws Exception {
         NonCooperativeTask reset = new NonCooperativeTask();
-        int permitsBefore = PoolTestAccess.availableWorkerHookPermits();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
@@ -92,7 +91,6 @@ final class PooledLineSessionWorkerHooksIntegrationTest {
                 assertTrue(awaitRetired(pool, 1));
                 assertEquals(1, pool.metrics().retireReasons().get(PooledWorkerRetireReason.RESET_FAILED));
                 reset.releaseAndJoin();
-                assertEquals(permitsBefore, PoolTestAccess.availableWorkerHookPermits());
                 assertEquals("response:second", pool.request("second").text());
                 assertEquals(2, pool.metrics().created());
             }
@@ -101,14 +99,12 @@ final class PooledLineSessionWorkerHooksIntegrationTest {
             reset.join();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            assertEquals(permitsBefore, PoolTestAccess.availableWorkerHookPermits());
         }
     }
 
     @Test
     void healthHookTimeoutIsBoundedAndRetiresWorker() throws Exception {
         NonCooperativeTask health = new NonCooperativeTask();
-        int permitsBefore = PoolTestAccess.availableWorkerHookPermits();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             try (PooledLineSession pool = poolDraft(
@@ -141,7 +137,6 @@ final class PooledLineSessionWorkerHooksIntegrationTest {
                                 && metrics.retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED) == 1,
                         Duration.ofSeconds(EXTERNAL_WATCHDOG_SECONDS)));
                 health.releaseAndJoin();
-                assertEquals(permitsBefore, PoolTestAccess.availableWorkerHookPermits());
                 Future<LineResponse> replacement = executor.submit(() -> pool.request("second"));
                 assertEquals(
                         "response:second",
@@ -158,7 +153,6 @@ final class PooledLineSessionWorkerHooksIntegrationTest {
             health.join();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            assertEquals(permitsBefore, PoolTestAccess.availableWorkerHookPermits());
         }
     }
 
@@ -238,7 +232,7 @@ final class PooledLineSessionWorkerHooksIntegrationTest {
             Thread callback = thread;
             if (callback != null) {
                 callback.join(TimeUnit.SECONDS.toMillis(1));
-                assertFalse(callback.isAlive(), "lifecycle callback retained its bounded-runner permit");
+                assertFalse(callback.isAlive(), "lifecycle callback did not finish");
             }
         }
     }

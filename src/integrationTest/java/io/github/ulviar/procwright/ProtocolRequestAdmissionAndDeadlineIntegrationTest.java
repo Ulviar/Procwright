@@ -221,7 +221,7 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
     private static void assertTaskStopped(Thread thread, String task) throws InterruptedException {
         assertTrue(thread != null, task + " thread was not captured");
         thread.join(TimeUnit.SECONDS.toMillis(1));
-        assertFalse(thread.isAlive(), task + " thread retained its bounded-runner permit");
+        assertFalse(thread.isAlive(), task + " callback did not finish");
     }
 
     private static void assertExitFailedWith(ProtocolSession<?, ?> session, ProtocolSessionException requestFailure) {

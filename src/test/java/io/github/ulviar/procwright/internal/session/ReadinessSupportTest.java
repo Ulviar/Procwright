@@ -155,7 +155,7 @@ final class ReadinessSupportTest {
 
             assertEquals(CommandExecutionException.Reason.READINESS_TIMEOUT, failure.reason());
             assertEquals(1, closes.get());
-            assertEquals(1, probeExited.getCount(), "timed-out probe must still own its runner permit");
+            assertEquals(1, probeExited.getCount(), "timed-out probe may still be running");
         } finally {
             releaseProbe.countDown();
             assertTrue(probeExited.await(1, TimeUnit.SECONDS));
@@ -208,7 +208,7 @@ final class ReadinessSupportTest {
             assertTrue(failure.getCause() instanceof InterruptedException);
             assertTrue(interruptRestored.get());
             assertEquals(1, closes.get());
-            assertEquals(1, probeExited.getCount(), "interrupted caller must not release a running probe permit");
+            assertEquals(1, probeExited.getCount(), "interrupted probe may still be running");
         } finally {
             releaseProbe.countDown();
             assertTrue(probeExited.await(1, TimeUnit.SECONDS));

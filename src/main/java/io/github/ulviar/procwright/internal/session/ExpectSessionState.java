@@ -22,8 +22,7 @@ final class ExpectSessionState {
     private final BoundedTranscriptBuffer transcript;
     private final BoundedMatchBuffer output;
     private final BiConsumer<Thread, Error> lateFatalFailureReporter;
-    private final BoundedTaskRunner.CancellationSignal terminalCancellation =
-            new BoundedTaskRunner.CancellationSignal();
+    private final TimedTaskRunner.CancellationSignal terminalCancellation = new TimedTaskRunner.CancellationSignal();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean stopping = new AtomicBoolean();
     private final AtomicBoolean malformed = new AtomicBoolean();
@@ -61,7 +60,7 @@ final class ExpectSessionState {
         malformed.compareAndSet(false, detected);
     }
 
-    BoundedTaskRunner.CancellationSignal terminalCancellationSignal() {
+    TimedTaskRunner.CancellationSignal terminalCancellationSignal() {
         return terminalCancellation;
     }
 

@@ -4,8 +4,6 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import java.util.Objects;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -53,30 +51,16 @@ final class LineRequestEncoder {
             long deadlineNanos) {
         Objects.requireNonNull(timeout, "timeout");
         Objects.requireNonNull(interrupted, "interrupted");
-        try {
-            return BoundedTaskRunner.run(
-                    BoundedTaskLimits.TEXT_ENCODINGS,
-                    "procwright-line-encoder-",
-                    deadlineNanos,
-                    () -> encode(line, options, tooLarge, () -> ensureBeforeDeadline(deadlineNanos, timeout)));
-        } catch (TimeoutException exception) {
-            throw timeout.get();
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw interrupted.apply(exception);
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            if (cause instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            throw new IllegalStateException("Unexpected checked request-encoding failure", cause);
-        }
+        return encode(line, options, tooLarge, () -> ensureCanContinue(deadlineNanos, timeout, interrupted));
     }
 
-    private static void ensureBeforeDeadline(long deadlineNanos, Supplier<? extends RuntimeException> timeout) {
+    private static void ensureCanContinue(
+            long deadlineNanos,
+            Supplier<? extends RuntimeException> timeout,
+            Function<InterruptedException, ? extends RuntimeException> interrupted) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw interrupted.apply(new InterruptedException("Interrupted while encoding line request"));
+        }
         if (deadlineNanos - System.nanoTime() <= 0) {
             throw timeout.get();
         }

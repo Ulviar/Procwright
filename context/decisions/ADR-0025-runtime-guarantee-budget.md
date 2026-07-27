@@ -131,8 +131,9 @@ Runtime строится вокруг небольшого числа владе
   может обнаружить descendant, созданный shutdown hook, но не обещает доказать отсутствие мгновенно переподчинённого
   процесса;
 - `ProcessIoResources` и `ProcessStreamResource` обеспечивают stable stream identity и exact-once logical close;
-- `BoundedTaskRunner` ограничивает одну пользовательскую или потенциально блокирующую операцию с честным per-handle
-  containment;
+- `TimedTaskRunner` ограничивает время ожидания одной пользовательской или потенциально блокирующей операции;
+  cancellable session owner делает handle terminal через abandonment handler до прерывания callback, а остальные
+  owners обрабатывают timeout/interruption до допуска следующей операции;
 - `SerializedRequestGate` сериализует line/protocol requests; сценарные state owners сохраняют различия retryability и
   failure attribution;
 - `WorkerPoolState` является одним consistency domain pool и выполняет внешние действия вне monitor.

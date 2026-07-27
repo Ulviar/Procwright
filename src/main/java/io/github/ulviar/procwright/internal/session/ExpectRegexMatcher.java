@@ -20,30 +20,43 @@ import java.util.regex.Pattern;
 final class ExpectRegexMatcher {
 
     private final ExpectSessionState state;
-    private final BoundedTaskLimiter limiter;
     private final Evaluator evaluator;
     private final Consumer<? super Throwable> terminalShutdown;
+    private final SerializedRequestGate gate;
+
+    ExpectRegexMatcher(ExpectSessionState state, Evaluator evaluator, Consumer<? super Throwable> terminalShutdown) {
+        this(state, evaluator, terminalShutdown, new SerializedRequestGate());
+    }
 
     ExpectRegexMatcher(
             ExpectSessionState state,
-            BoundedTaskLimiter limiter,
             Evaluator evaluator,
-            Consumer<? super Throwable> terminalShutdown) {
+            Consumer<? super Throwable> terminalShutdown,
+            SerializedRequestGate gate) {
         this.state = Objects.requireNonNull(state, "state");
-        this.limiter = Objects.requireNonNull(limiter, "limiter");
         this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
         this.terminalShutdown = Objects.requireNonNull(terminalShutdown, "terminalShutdown");
+        this.gate = Objects.requireNonNull(gate, "gate");
     }
 
     ExpectMatch match(Pattern pattern, long deadlineNanos, String timeoutMessage, String transcriptAction) {
+        acquire(deadlineNanos, timeoutMessage);
+        try {
+            return matchWhileLocked(pattern, deadlineNanos, timeoutMessage, transcriptAction);
+        } finally {
+            gate.release();
+        }
+    }
+
+    private ExpectMatch matchWhileLocked(
+            Pattern pattern, long deadlineNanos, String timeoutMessage, String transcriptAction) {
         state.beginOperation(timeoutMessage, transcriptAction);
         AtomicReference<Thread> evaluatorThread = new AtomicReference<>();
         AtomicReference<ExpectException> abandoned = new AtomicReference<>();
         while (true) {
             Attempt attempt;
             try {
-                attempt = BoundedTaskRunner.runWithAbandonment(
-                        limiter,
+                attempt = TimedTaskRunner.runCancellable(
                         "procwright-expect-regex-",
                         deadlineNanos,
                         state.terminalCancellationSignal(),
@@ -72,7 +85,7 @@ final class ExpectRegexMatcher {
                 }
                 state.throwIfTerminal(timeoutMessage);
                 throw state.failure("Interrupted while matching expected output", exception);
-            } catch (BoundedTaskRunner.TaskCancelledException exception) {
+            } catch (TimedTaskRunner.TaskCancelledException exception) {
                 throw state.terminalFailureRequired(timeoutMessage);
             } catch (ExecutionException exception) {
                 throw state.arbitrateRegexFailure(
@@ -86,6 +99,18 @@ final class ExpectRegexMatcher {
             if (match != null) {
                 return match;
             }
+        }
+    }
+
+    private void acquire(long deadlineNanos, String timeoutMessage) {
+        try {
+            if (!gate.acquireUntil(deadlineNanos)) {
+                throw state.terminalFailureOrTimeout(timeoutMessage);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            state.throwIfTerminal(timeoutMessage);
+            throw state.failure("Interrupted while waiting to match expected output", exception);
         }
     }
 

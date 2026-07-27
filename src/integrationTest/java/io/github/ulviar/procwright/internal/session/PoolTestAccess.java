@@ -19,10 +19,6 @@ public final class PoolTestAccess {
 
     private PoolTestAccess() {}
 
-    public static int availableWorkerHookPermits() {
-        return BoundedTaskLimits.WORKER_HOOKS.availablePermits();
-    }
-
     public static boolean awaitLineMetrics(
             PooledLineSession pool, Predicate<PooledSessionMetrics> condition, Duration timeout)
             throws InterruptedException {

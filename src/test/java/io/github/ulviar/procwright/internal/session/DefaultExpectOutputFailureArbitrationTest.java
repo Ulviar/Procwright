@@ -47,7 +47,6 @@ final class DefaultExpectOutputFailureArbitrationTest {
                         ExpectSettings.defaults(),
                         ZeroReadBackoff.exponential(),
                         PumpStarter.threading(),
-                        new BoundedTaskLimiter(1),
                         ExpectRegexMatcher::evaluate,
                         (thread, error) -> {
                             reports.incrementAndGet();

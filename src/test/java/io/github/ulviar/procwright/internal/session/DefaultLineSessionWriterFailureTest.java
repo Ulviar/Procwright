@@ -4,6 +4,8 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.BlockingUntilClosedInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ReplyingOutputStream;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ResponseInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -14,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.LineSessionSettings;
+import io.github.ulviar.procwright.session.LineResponse;
 import io.github.ulviar.procwright.session.LineSessionException;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -36,33 +39,48 @@ import org.junit.jupiter.api.Test;
 final class DefaultLineSessionWriterFailureTest {
 
     @Test
-    void callerInterruptAfterControlledPartialWriteClosesSessionAndPreservesTypedFailure() throws Exception {
-        BoundedTaskLimiter limiter = BoundedTaskLimits.BLOCKING_WRITES;
-        int baselineCapacity = limiter.availablePermits();
-        assertEquals(32, baselineCapacity, "another test leaked a production line-write permit");
-        BlockingAfterFirstByteOutputStream stdin = new BlockingAfterFirstByteOutputStream();
-        BlockingUntilClosedInputStream stdout = new BlockingUntilClosedInputStream();
+    void preStartFailureLeavesSessionReusable() throws Exception {
+        IllegalStateException startFailure = new IllegalStateException("writer unavailable");
+        AtomicBoolean failNextStart = new AtomicBoolean(true);
+        ResponseInputStream stdout = new ResponseInputStream();
+        ReplyingOutputStream stdin = new ReplyingOutputStream(stdout);
         ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
-        CountDownLatch writerWrapperCompleted = new CountDownLatch(1);
-        BoundedTaskTestSupport.TaskThreadFactory threadFactory = (threadPrefix, task) -> {
-            Thread thread = new Thread(
-                    () -> {
-                        try {
-                            task.run();
-                        } finally {
-                            writerWrapperCompleted.countDown();
-                        }
-                    },
-                    threadPrefix + "controlled");
-            thread.setDaemon(true);
-            return thread;
-        };
         DefaultLineSession lineSession = openLineSession(
                 process,
                 LineSessionSettings.defaults(),
-                LineSessionTestDependencies.withTaskRunner(
-                        (writeLimiter, threadPrefix, deadlineNanos, handoff, task) -> BoundedTaskTestSupport.runTracked(
-                                writeLimiter, threadPrefix, deadlineNanos, handoff, threadFactory, task)));
+                LineSessionTestDependencies.withTaskRunner((threadPrefix, deadlineNanos, start, task) -> {
+                    if (failNextStart.compareAndSet(true, false)) {
+                        throw new ExecutionException(startFailure);
+                    }
+                    TimedTaskRunner.runTracked(threadPrefix, deadlineNanos, start, task);
+                }));
+        try {
+            LineSessionException failure = assertThrows(
+                    LineSessionException.class,
+                    () -> lineSession.requestEncoded(
+                            "first\n".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1)));
+
+            assertEquals(LineSessionException.Reason.FAILURE, failure.reason());
+            assertSame(startFailure, failure.getCause());
+            assertEquals(0, stdin.writeCalls());
+            assertFalse(lineSession.onExit().isDone());
+
+            LineResponse response =
+                    lineSession.requestEncoded("second\n".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(1));
+            assertEquals("ok", response.text());
+            assertEquals("second\n", stdin.writtenText());
+        } finally {
+            lineSession.close();
+            stdout.close();
+        }
+    }
+
+    @Test
+    void callerInterruptAfterControlledPartialWriteClosesSessionAndPreservesTypedFailure() throws Exception {
+        BlockingAfterFirstByteOutputStream stdin = new BlockingAfterFirstByteOutputStream();
+        BlockingUntilClosedInputStream stdout = new BlockingUntilClosedInputStream();
+        ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
+        DefaultLineSession lineSession = openLineSession(process, LineSessionSettings.defaults());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicReference<Thread> requestCaller = new AtomicReference<>();
         try {
@@ -82,13 +100,6 @@ final class DefaultLineSessionWriterFailureTest {
             assertArrayEquals(new byte[] {'r'}, stdin.writtenBytes());
             assertTrue(stdin.awaitWriterStopped());
             assertTrue(stdin.wasInterrupted());
-            assertTrue(
-                    writerWrapperCompleted.await(5, TimeUnit.SECONDS),
-                    "writer wrapper did not complete after the delegate returned");
-            assertEquals(
-                    baselineCapacity,
-                    limiter.availablePermits(),
-                    "partial-write interrupt did not return the write permit after full wrapper completion");
             ExecutionException exitFailure = assertThrows(
                     ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
             assertSame(interrupted, exitFailure.getCause());
@@ -111,7 +122,6 @@ final class DefaultLineSessionWriterFailureTest {
                 assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
             }
         }
-        assertEquals(baselineCapacity, limiter.availablePermits());
     }
 
     @Test
@@ -146,7 +156,6 @@ final class DefaultLineSessionWriterFailureTest {
 
     @Test
     void delegateIoFailureIsBrokenPipeAndRemainsTheTerminalReason() throws Exception {
-        int baselineWriteCapacity = BoundedTaskLimits.BLOCKING_WRITES.availablePermits();
         IOException writeFailure = new IOException("pipe write failed");
         PrefixThenThrowingOutputStream stdin = new PrefixThenThrowingOutputStream(writeFailure);
         ControllableProcess process =
@@ -164,7 +173,6 @@ final class DefaultLineSessionWriterFailureTest {
                     ExecutionException.class, () -> lineSession.onExit().get(1, TimeUnit.SECONDS));
             assertSame(failure, exitFailure.getCause());
             assertFalse(process.isAlive());
-            assertEquals(baselineWriteCapacity, BoundedTaskLimits.BLOCKING_WRITES.availablePermits());
 
             LineSessionException followUp = assertThrows(
                     LineSessionException.class,
@@ -174,7 +182,6 @@ final class DefaultLineSessionWriterFailureTest {
             assertSame(writeFailure, followUp.getCause().getCause());
             assertEquals(1, stdin.writeCalls());
         }
-        assertEquals(baselineWriteCapacity, BoundedTaskLimits.BLOCKING_WRITES.availablePermits());
     }
 
     @Test

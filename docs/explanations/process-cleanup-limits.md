@@ -27,10 +27,15 @@ JDK process-tree observations are not atomic. A child that is created and fully 
 be seen and can survive cleanup. Detached descendants and processes that deliberately leave the parent tree can
 therefore require caller-side containment.
 
-User callbacks used for readiness, line or protocol encoding/decoding, pool health/reset, and diagnostics run behind
-bounded library-managed execution capacity. A deadline can release the calling workflow, but Java cannot forcibly
-terminate arbitrary callback code that ignores interruption. Such work may keep running on a daemon thread until it
-returns; the affected handle or worker becomes unusable instead of starting more callbacks.
+User callbacks used for readiness, line or protocol response decoding, protocol request writing, and pool health/reset
+run on a task thread. A deadline can release the calling workflow, but Java cannot forcibly terminate
+callback code that ignores interruption. Such work may keep running on a daemon thread until it returns; the affected
+handle or worker becomes unusable instead of starting more callbacks. Independent handles do not share a callback
+admission quota.
+
+Line-request encoding is synchronous and checks interruption and the request deadline between encoding steps. A custom
+`Charset` implementation that does not return from a JDK method can still block its caller; Procwright does not add a
+second execution subsystem solely to contain contract-violating charset implementations.
 
 An explicit `Session.closeStdin()` is a requested operation, not terminal cleanup. Procwright first prevents later writes,
 then requires the bounded dispatcher to admit and start the physical close. Successful handoff returns without waiting

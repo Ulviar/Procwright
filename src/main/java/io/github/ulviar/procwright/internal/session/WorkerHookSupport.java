@@ -30,7 +30,7 @@ final class WorkerHookSupport {
 
         long deadlineNanos = DurationSupport.deadlineFromNow(timeout);
         try {
-            return BoundedTaskRunner.run(BoundedTaskLimits.WORKER_HOOKS, threadPrefix, deadlineNanos, hook::get);
+            return TimedTaskRunner.run(threadPrefix, deadlineNanos, hook::get);
         } catch (TimeoutException exception) {
             throw timedOut.get();
         } catch (InterruptedException exception) {

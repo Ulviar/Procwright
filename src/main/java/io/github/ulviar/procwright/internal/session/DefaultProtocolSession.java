@@ -42,8 +42,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     private final ProtocolCallbackRunner callbackRunner;
     private final SerializedRequestGate requestGate;
     private final ProtocolSessionState state;
-    private final BoundedTaskRunner.CancellationSignal callbackCancellation =
-            new BoundedTaskRunner.CancellationSignal();
+    private final TimedTaskRunner.CancellationSignal callbackCancellation = new TimedTaskRunner.CancellationSignal();
 
     public DefaultProtocolSession(
             DefaultSession session, ProtocolAdapter<I, O> adapter, ProtocolSessionSettings options) {
@@ -253,7 +252,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                     });
         } catch (TimeoutException exception) {
             throw state.recordRequestTimeout(requestOutcome);
-        } catch (BoundedTaskRunner.TaskCancelledException exception) {
+        } catch (TimedTaskRunner.TaskCancelledException exception) {
             throw recordCallbackCancellation(requestOutcome, exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -293,7 +292,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                     });
         } catch (TimeoutException exception) {
             throw state.recordRequestTimeout(requestOutcome);
-        } catch (BoundedTaskRunner.TaskCancelledException exception) {
+        } catch (TimedTaskRunner.TaskCancelledException exception) {
             throw recordCallbackCancellation(requestOutcome, exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -348,7 +347,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     }
 
     private ProtocolSessionException recordCallbackCancellation(
-            ProtocolSessionState.RequestOutcome requestOutcome, BoundedTaskRunner.TaskCancelledException cancellation) {
+            ProtocolSessionState.RequestOutcome requestOutcome, TimedTaskRunner.TaskCancelledException cancellation) {
         ProtocolSessionException failure = state.selectCallbackCancellation(requestOutcome, cancellation);
         if (!state.isClosed()) {
             closePreserving(failure);
@@ -410,7 +409,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                     ZeroReadBackoff.exponential(),
                     PumpStarter.threading(),
                     System::nanoTime,
-                    ProtocolCallbackRunner.bounded(),
+                    TimedTaskRunner::runCancellable,
                     SerializedRequestGate.Waiter.timed());
         }
     }
@@ -420,36 +419,10 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
         <T> T run(
                 String threadPrefix,
                 long deadlineNanos,
-                BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
-                BoundedTaskRunner.Task<T> task)
+                TimedTaskRunner.CancellationSignal cancellation,
+                TimedTaskRunner.AbandonmentHandler abandonmentHandler,
+                TimedTaskRunner.Task<T> task)
                 throws TimeoutException, InterruptedException, ExecutionException,
-                        BoundedTaskRunner.TaskCancelledException;
-
-        static ProtocolCallbackRunner bounded() {
-            return BoundedProtocolCallbackRunner.INSTANCE;
-        }
-    }
-
-    private enum BoundedProtocolCallbackRunner implements ProtocolCallbackRunner {
-        INSTANCE;
-
-        @Override
-        public <T> T run(
-                String threadPrefix,
-                long deadlineNanos,
-                BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
-                BoundedTaskRunner.Task<T> task)
-                throws TimeoutException, InterruptedException, ExecutionException,
-                        BoundedTaskRunner.TaskCancelledException {
-            return BoundedTaskRunner.runWithAbandonment(
-                    BoundedTaskLimits.PROTOCOL_CALLBACKS,
-                    threadPrefix,
-                    deadlineNanos,
-                    cancellation,
-                    abandonmentHandler,
-                    task);
-        }
+                        TimedTaskRunner.TaskCancelledException;
     }
 }

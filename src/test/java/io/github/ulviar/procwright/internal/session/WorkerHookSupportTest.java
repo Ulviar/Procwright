@@ -28,10 +28,10 @@ final class WorkerHookSupportTest {
     }
 
     @Test
-    void nonCooperativeHookReturnsAtDeadlineAndRetainsCapacityUntilCompletion() throws InterruptedException {
+    void nonCooperativeHookReturnsAtDeadlineAndMayFinishLater() throws InterruptedException {
         CountDownLatch hookStarted = new CountDownLatch(1);
         CountDownLatch releaseHook = new CountDownLatch(1);
-        int permitsBefore = BoundedTaskLimits.WORKER_HOOKS.availablePermits();
+        CountDownLatch hookFinished = new CountDownLatch(1);
         long started = System.nanoTime();
         try {
             IllegalStateException exception = assertThrows(
@@ -41,8 +41,12 @@ final class WorkerHookSupportTest {
                             Duration.ofMillis(50),
                             () -> {
                                 hookStarted.countDown();
-                                awaitIgnoringInterrupt(releaseHook);
-                                return "late";
+                                try {
+                                    awaitIgnoringInterrupt(releaseHook);
+                                    return "late";
+                                } finally {
+                                    hookFinished.countDown();
+                                }
                             },
                             () -> new IllegalStateException("timeout"),
                             caught -> new IllegalStateException("interrupted", caught),
@@ -52,11 +56,10 @@ final class WorkerHookSupportTest {
             assertEquals("timeout", exception.getMessage());
             assertEquals(0, hookStarted.getCount());
             assertTrue(elapsed.compareTo(Duration.ofMillis(400)) < 0, () -> "hook timeout took " + elapsed);
-            assertEquals(permitsBefore - 1, BoundedTaskLimits.WORKER_HOOKS.availablePermits());
         } finally {
             releaseHook.countDown();
         }
-        assertTrue(eventuallyTrue(() -> BoundedTaskLimits.WORKER_HOOKS.availablePermits() == permitsBefore));
+        assertTrue(hookFinished.await(1, java.util.concurrent.TimeUnit.SECONDS));
     }
 
     @Test
@@ -142,17 +145,6 @@ final class WorkerHookSupportTest {
         assertTrue(bounded.compareTo(Duration.ZERO) > 0);
         assertTrue(bounded.compareTo(hookTimeout) <= 0);
         assertTrue(bounded.compareTo(remaining) <= 0);
-    }
-
-    private static boolean eventuallyTrue(java.util.function.BooleanSupplier condition) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        while (System.nanoTime() < deadline) {
-            if (condition.getAsBoolean()) {
-                return true;
-            }
-            Thread.sleep(10);
-        }
-        return false;
     }
 
     private static void awaitIgnoringInterrupt(CountDownLatch latch) {

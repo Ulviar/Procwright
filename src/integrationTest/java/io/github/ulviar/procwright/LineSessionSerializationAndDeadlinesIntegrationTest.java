@@ -161,39 +161,6 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
     }
 
     @Test
-    void nonCooperativeRequestEncodingCannotBlockCallerPastDeadline() throws Exception {
-        BlockingUtf8Charset charset = new BlockingUtf8Charset();
-        LineSessionScenario.Draft service = fixtureScenario().withCharset(charset);
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            long started = System.nanoTime();
-            try {
-                Future<Throwable> request =
-                        executor.submit(() -> captureFailure(() -> session.request("first", Duration.ofMillis(50))));
-                assertTrue(charset.awaitEncoderStarted());
-
-                Throwable failure = request.get(500, TimeUnit.MILLISECONDS);
-                Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
-
-                assertTrue(failure instanceof LineSessionException);
-                assertEquals(LineSessionException.Reason.TIMEOUT, ((LineSessionException) failure).reason());
-                assertTrue(elapsed.compareTo(Duration.ofMillis(400)) < 0, () -> "encoding timeout took " + elapsed);
-            } finally {
-                charset.releaseEncoder();
-                assertTrue(charset.awaitEncoderFinished());
-                assertTrue(charset.awaitEncoderTaskStopped());
-                executor.shutdownNow();
-                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            }
-            assertFalse(session.onExit().isDone());
-            assertEquals(
-                    "response:second",
-                    session.request("second", Duration.ofSeconds(1)).text());
-        }
-    }
-
-    @Test
     void invalidRequestTimeoutIsRejectedBeforeEncoding() {
         CountingUtf8Charset charset = new CountingUtf8Charset(Duration.ZERO);
         LineSessionScenario.Draft service = fixtureScenario().withCharset(charset);
@@ -289,7 +256,7 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
     private static void assertTaskStopped(Thread thread, String task) throws InterruptedException {
         assertTrue(thread != null, task + " thread was not captured");
         thread.join(TimeUnit.SECONDS.toMillis(1));
-        assertFalse(thread.isAlive(), task + " thread retained its bounded-runner permit");
+        assertFalse(thread.isAlive(), task + " callback did not finish");
     }
 
     private static final class CountingUtf8Charset extends Charset {
@@ -324,64 +291,6 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
 
         private int encoderCreations() {
             return encoderCreations.get();
-        }
-    }
-
-    private static final class BlockingUtf8Charset extends Charset {
-
-        private final AtomicBoolean blockNextEncoder = new AtomicBoolean(true);
-        private final CountDownLatch encoderStarted = new CountDownLatch(1);
-        private final CountDownLatch releaseEncoder = new CountDownLatch(1);
-        private final CountDownLatch encoderFinished = new CountDownLatch(1);
-        private volatile Thread encoderThread;
-
-        private BlockingUtf8Charset() {
-            super("X-Procwright-Line-Blocking-UTF-8", new String[0]);
-        }
-
-        @Override
-        public boolean contains(Charset charset) {
-            return StandardCharsets.UTF_8.contains(charset);
-        }
-
-        @Override
-        public CharsetDecoder newDecoder() {
-            return StandardCharsets.UTF_8.newDecoder();
-        }
-
-        @Override
-        public CharsetEncoder newEncoder() {
-            if (blockNextEncoder.compareAndSet(true, false)) {
-                encoderThread = Thread.currentThread();
-                encoderStarted.countDown();
-                try {
-                    awaitIgnoringInterrupts(releaseEncoder);
-                } finally {
-                    encoderFinished.countDown();
-                }
-            }
-            return StandardCharsets.UTF_8.newEncoder();
-        }
-
-        private boolean awaitEncoderStarted() throws InterruptedException {
-            return encoderStarted.await(1, TimeUnit.SECONDS);
-        }
-
-        private void releaseEncoder() {
-            releaseEncoder.countDown();
-        }
-
-        private boolean awaitEncoderFinished() throws InterruptedException {
-            return encoderFinished.await(1, TimeUnit.SECONDS);
-        }
-
-        private boolean awaitEncoderTaskStopped() throws InterruptedException {
-            Thread task = encoderThread;
-            if (task == null) {
-                return false;
-            }
-            task.join(TimeUnit.SECONDS.toMillis(1));
-            return !task.isAlive();
         }
     }
 }

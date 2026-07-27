@@ -219,14 +219,14 @@ writer; после logical close новые write и flush отклоняютс�
 
 **Proof:** `ReadinessSupportTest`, `PooledProtocolSessionWarmupIntegrationTest`.
 
-### Bounded callbacks
+### Timed callbacks
 
-**Инвариант:** потенциально некооперативные readiness, request и hook callbacks имеют bounded admission; abandoned
-callback удерживает capacity до фактического возврата.
+**Инвариант:** один task атомарно переходит из `PENDING` в `RUNNING` или `ABANDONED`. Timeout или cancellation,
+выигравшие до `RUNNING`, не допускают входа в callback; после abandonment caller не ждёт поздний outcome.
 
-**Владелец:** `BoundedTaskRunner`.
+**Владелец:** `TimedTaskRunner`.
 
-**Proof:** `BoundedTaskRunnerTest`, `DefaultLineSessionWriteAdmissionTest`.
+**Proof:** `TimedTaskRunnerTest`.
 
 ### Provider operations
 
@@ -291,7 +291,7 @@ interruption или write failure становятся terminal из-за нео
 
 **Владелец:** `LineRequestWriter`.
 
-**Proof:** `DefaultLineSessionWriteAdmissionTest`, `DefaultLineSessionWriterFailureTest`.
+**Proof:** `TimedTaskRunnerTest`, `DefaultLineSessionWriterFailureTest`.
 
 ### Line terminal state
 
@@ -384,8 +384,8 @@ callback заменить timeout или cancellation.
 
 ### Expect regex isolation
 
-**Инвариант:** regex evaluation использует bounded admission и deadline; abandoned matcher не может заменить выбранный
-terminal outcome.
+**Инвариант:** regex evaluation использует deadline и локальную сериализацию handle; abandoned matcher не может
+заменить выбранный terminal outcome или допустить следующий callback на том же handle.
 
 **Владелец:** `ExpectRegexMatcher`.
 

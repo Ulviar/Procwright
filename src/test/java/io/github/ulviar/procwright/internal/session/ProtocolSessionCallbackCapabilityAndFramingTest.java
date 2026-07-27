@@ -467,7 +467,7 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
                     },
                     requestFailure.reason());
             if (abandonment == Abandonment.SESSION_CLOSE) {
-                assertInstanceOf(BoundedTaskRunner.TaskCancelledException.class, requestFailure.getCause());
+                assertInstanceOf(TimedTaskRunner.TaskCancelledException.class, requestFailure.getCause());
             }
             assertEquals(abandonment == Abandonment.CALLER_INTERRUPT, callerInterruptRestored.get());
         } finally {

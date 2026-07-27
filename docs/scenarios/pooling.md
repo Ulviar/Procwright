@@ -138,7 +138,7 @@ asynchronously when the pool opens, then restores the floor after workers are ac
 
 Acquisition and worker request processing have separate deadlines. Worker startup and health selection consume the
 acquire budget; a health callback is capped by the lesser of the remaining acquire budget and the hook timeout. Request
-encoding and response decoding consume the request budget. For a line pool, bounded line encoding starts before acquire,
+encoding and response decoding consume the request budget. For a line pool, line encoding starts before acquire,
 but the acquire wait is not charged to the remaining request budget. A reset after a successful response uses the
 separate hook timeout. Observed caller latency may therefore compose request preparation/request, acquire, and reset
 phases rather than stopping at one overall deadline.

@@ -40,13 +40,7 @@ public final class DefaultExpect implements Expect {
 
     DefaultExpect(
             DefaultSession session, ExpectSettings options, ZeroReadBackoff zeroReadBackoff, PumpStarter pumpStarter) {
-        this(
-                session,
-                options,
-                zeroReadBackoff,
-                pumpStarter,
-                BoundedTaskLimits.REGEX_MATCHES,
-                ExpectRegexMatcher::evaluate);
+        this(session, options, zeroReadBackoff, pumpStarter, ExpectRegexMatcher::evaluate);
     }
 
     DefaultExpect(
@@ -54,9 +48,8 @@ public final class DefaultExpect implements Expect {
             ExpectSettings options,
             ZeroReadBackoff zeroReadBackoff,
             PumpStarter pumpStarter,
-            BoundedTaskLimiter regexLimiter,
             ExpectRegexMatcher.Evaluator regexEvaluator) {
-        this(session, options, zeroReadBackoff, pumpStarter, regexLimiter, regexEvaluator, Threading::reportUncaught);
+        this(session, options, zeroReadBackoff, pumpStarter, regexEvaluator, Threading::reportUncaught);
     }
 
     DefaultExpect(
@@ -64,7 +57,6 @@ public final class DefaultExpect implements Expect {
             ExpectSettings options,
             ZeroReadBackoff zeroReadBackoff,
             PumpStarter pumpStarter,
-            BoundedTaskLimiter regexLimiter,
             ExpectRegexMatcher.Evaluator regexEvaluator,
             BiConsumer<Thread, Error> lateFatalFailureReporter) {
         this.session = Objects.requireNonNull(session, "session");
@@ -75,7 +67,7 @@ public final class DefaultExpect implements Expect {
                 Objects.requireNonNull(lateFatalFailureReporter, "lateFatalFailureReporter"));
         output = new ExpectOutputTransport(
                 session, options, Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff"), state);
-        regexMatcher = new ExpectRegexMatcher(state, regexLimiter, regexEvaluator, output::closeSessionAfterFailure);
+        regexMatcher = new ExpectRegexMatcher(state, regexEvaluator, output::closeSessionAfterFailure);
         output.start(Objects.requireNonNull(pumpStarter, "pumpStarter"));
     }
 

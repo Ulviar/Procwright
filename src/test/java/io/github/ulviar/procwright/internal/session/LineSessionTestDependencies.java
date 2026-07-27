@@ -58,13 +58,9 @@ final class LineSessionTestDependencies {
     }
 
     private static void runWriteTask(
-            BoundedTaskLimiter limiter,
-            String threadPrefix,
-            long deadlineNanos,
-            BoundedTaskHandoff handoff,
-            BoundedTaskRunner.Task<Void> task)
+            String threadPrefix, long deadlineNanos, TaskStart start, TimedTaskRunner.Task<Void> task)
             throws java.util.concurrent.TimeoutException, InterruptedException,
                     java.util.concurrent.ExecutionException {
-        BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task);
+        TimedTaskRunner.runTracked(threadPrefix, deadlineNanos, start, task);
     }
 }

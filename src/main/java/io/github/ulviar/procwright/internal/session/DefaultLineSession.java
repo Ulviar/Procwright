@@ -369,8 +369,7 @@ public final class DefaultLineSession implements LineSession {
             return new Dependencies(
                     ZeroReadBackoff.exponential(),
                     PumpStarter.threading(),
-                    (limiter, threadPrefix, deadlineNanos, handoff, task) ->
-                            BoundedTaskRunner.runTracked(limiter, threadPrefix, deadlineNanos, handoff, task),
+                    TimedTaskRunner::runTracked,
                     System::nanoTime,
                     SerializedRequestGate.Waiter.timed());
         }

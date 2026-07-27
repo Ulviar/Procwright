@@ -87,9 +87,9 @@ Runtime получает только согласованный plan и не у
   `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessTreeShutdown`, bounded tree state —
   `ShutdownTreeState`, signals и JDK fallback — `ProcessShutdownSignals`, failure/interruption policy —
   `ShutdownFailureLedger`; facade — `ProcessLifecycle`, exact-once session cleanup — `SessionProcessCleanup`;
-- bounded callback admission — `BoundedTaskLimits`, `BoundedTaskLimiter` и `BoundedTaskPermit`; запуск adaptive или
-  session-affine execution owner-а задает `BoundedTaskRunner.TaskStarter`, lifecycle одного accepted вызова —
-  `BoundedTaskExecution`;
+- wall-clock containment потенциально блокирующего callback — `TimedTaskRunner`; сериализация и запрет повторного
+  callback после abandonment принадлежат конкретному scenario owner (`SerializedRequestGate`, session state или
+  worker lifecycle), поэтому независимые handles не делят глобальную admission capacity;
 - стабильные one-shot process streams — `OwnedStreams`, exact-once logical close одного stream — `OwnedStream`;
   physical close выполняется best effort и не входит в `CommandResult` publication;
 - транзакционное приобретение session streams — `ProcessIoAcquisition`, exact-once claim и outcome best-effort close
@@ -189,13 +189,12 @@ scenario flags.
 - `LineSession` и `ProtocolSession` допускают только один request/response cycle одновременно;
 - output mode выбирается до launch; raw streams и runtime pump нельзя получить из одного scenario handle;
 - runtime pump получает exclusive ownership stdout/stderr выбранного helper scenario;
-- readiness probes и worker hooks выполняются через независимые bounded admission domains; это внутренняя защита от
-  неограниченной служебной работы, а не квота на процессы или pools. Зависший callback удерживает разрешение только
-  своей категории до фактического возврата;
-- readiness, worker hooks, protocol callbacks, custom charset encoding, blocking stdin writes и regex evaluation
-  используют task-scoped adaptive owner: Java 24+ дает каждому invocation non-inheriting virtual thread, Java 17–23 —
-  fresh non-inheriting daemon platform thread; callback thread не переходит другому invocation, а раннее monitor pinning
-  virtual threads не уменьшает фактическую bounded capacity;
+- readiness, worker hooks, protocol callbacks, blocking stdin writes и regex evaluation выполняются на fresh
+  non-inheriting daemon thread; deadline ограничивает ожидание caller. Cancellable session callback выбирает terminal
+  state до interrupt через abandonment handler; остальные owners обрабатывают timeout/interruption до допуска следующей
+  операции. Глобальной admission capacity между независимыми handles нет;
+- line request encoding выполняется синхронно с проверками deadline и interruption между шагами. Procwright не
+  изолирует реализацию `Charset`, которая сама не возвращает управление из JDK method;
 - stream listener вызывается синхронно на output pump; вызовы stdout/stderr сериализуются локально для одной session,
   создают естественный backpressure и не используют отдельный поток или process-wide квоту;
 - process provider boundary принимает не более 32 operations одновременно; каждый accepted invocation выполняется на
@@ -203,16 +202,12 @@ scenario flags.
   abandoned call после timeout или interruption;
 - provider owners не переиспользуются, поэтому arbitrary `ThreadLocal` и mutable thread state не переносятся между
   operations;
-- admission ограничивает выполняющиеся и abandoned operations; callback queues не растут без границы;
-- nullable комбинации execution owners не входят в bounded-task state machine: каждый accepted вызов заранее получает
-  ровно одного task-scoped adaptive или session-affine owner-а, явную cancellation policy и явный tracked/untracked
-  handoff;
-- после abandonment поздний результат или failure callback не меняет уже выбранный timeout/cancellation outcome и не
-  публикуется отдельно; callback по-прежнему удерживает admission до фактического возврата;
+- один callback task не имеет внутренней очереди: новый fresh thread либо начинает callback до deadline, либо
+  cancellation/timeout переводит его из `PENDING` в `ABANDONED` до входа в пользовательский код;
+- после abandonment поздний результат или failure уже начатого callback не меняет выбранный timeout/cancellation
+  outcome и не публикуется отдельно;
 - request callback не удерживает public process `onExit()` после settlement output transport; его поздний failure
   остаётся исходом синхронного request и не переписывает готовый process result;
-- асинхронный отказ injected `TaskStarter` до abandonment возвращается как execution failure; после abandonment это
-  поздний execution outcome, который только завершает permit settlement и не заменяет выбранный outcome;
 - diagnostics сохраняют порядок для одного destination и отдают dispatcher после bounded batch; между разными
   destination порядок и fairness не являются контрактом;
 - interrupt синхронного caller-а восстанавливает interrupt status и не обходит cleanup;

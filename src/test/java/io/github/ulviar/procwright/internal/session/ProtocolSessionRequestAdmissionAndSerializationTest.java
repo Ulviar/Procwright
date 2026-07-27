@@ -23,12 +23,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -37,7 +35,7 @@ import org.junit.jupiter.api.Test;
 final class ProtocolSessionRequestAdmissionAndSerializationTest extends ProtocolSessionContractSupport {
 
     @Test
-    void abandonedProtocolFailureDoesNotChangeTimeoutAndReleasesCallbackCapacity() throws Exception {
+    void abandonedProtocolFailureDoesNotChangeTimeout() throws Exception {
         for (Throwable lateFailure : List.of(
                 new IllegalStateException("late protocol runtime failure"),
                 new AssertionError("late protocol error"))) {
@@ -46,7 +44,6 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
     }
 
     private static void assertAbandonedProtocolFailureIsIsolated(Throwable lateFailure) throws Exception {
-        int initialCapacity = BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits();
         CountDownLatch decoderEntered = new CountDownLatch(1);
         CountDownLatch releaseDecoder = new CountDownLatch(1);
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
@@ -80,10 +77,8 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             ProtocolSessionException timeout =
                     assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
             assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
-            assertEquals(initialCapacity - 1, BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits());
 
             releaseDecoder.countDown();
-            assertTrue(eventuallyProtocolCapacity(initialCapacity));
             ProtocolSessionException persisted =
                     assertThrows(ProtocolSessionException.class, () -> protocol.request("after-timeout"));
             assertEquals(ProtocolSessionException.Reason.TIMEOUT, persisted.reason());
@@ -92,89 +87,6 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             protocol.close();
             caller.shutdownNow();
             assertTrue(caller.awaitTermination(1, TimeUnit.SECONDS));
-        }
-        assertTrue(eventuallyProtocolCapacity(initialCapacity));
-    }
-
-    private static boolean eventuallyProtocolCapacity(int expected) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        while (BoundedTaskLimits.PROTOCOL_CALLBACKS.availablePermits() != expected) {
-            if (deadline - System.nanoTime() <= 0) {
-                return false;
-            }
-            Thread.sleep(5);
-        }
-        return true;
-    }
-
-    @Test
-    void nonCooperativeCallbackRetainsSharedCapacityAndNextRequestFailsTypedWithoutStarting() throws Exception {
-        CountDownLatch firstCallbackStarted = new CountDownLatch(1);
-        SaturatingProtocolCallbackRunner callbackRunner = new SaturatingProtocolCallbackRunner(firstCallbackStarted);
-        CountDownLatch releaseFirstCallback = new CountDownLatch(1);
-        CountDownLatch firstCallbackStopped = new CountDownLatch(1);
-        AtomicInteger secondCallbackStarts = new AtomicInteger();
-        ProtocolAdapter<String, String> blockingAdapter = new ProtocolAdapter<>() {
-            @Override
-            public void writeRequest(String request, ProtocolWriter writer) {
-                if ("first".equals(request)) {
-                    firstCallbackStarted.countDown();
-                    try {
-                        awaitUninterruptibly(releaseFirstCallback);
-                    } finally {
-                        firstCallbackStopped.countDown();
-                    }
-                } else {
-                    secondCallbackStarts.incrementAndGet();
-                }
-            }
-
-            @Override
-            public String readResponse(ProtocolReaders readers) {
-                return "unused";
-            }
-        };
-        DefaultProtocolSession<String, String> first = protocolWithCallbackRunner(blockingAdapter, callbackRunner);
-        DefaultProtocolSession<String, String> second = protocolWithCallbackRunner(blockingAdapter, callbackRunner);
-        try {
-            ProtocolSessionException firstTimeout =
-                    assertThrows(ProtocolSessionException.class, () -> first.request("first"));
-            assertEquals(ProtocolSessionException.Reason.TIMEOUT, firstTimeout.reason());
-            assertTrue(firstCallbackStarted.await(1, TimeUnit.SECONDS));
-            assertEquals(0, callbackRunner.availablePermits());
-
-            ProtocolSessionException secondTimeout =
-                    assertThrows(ProtocolSessionException.class, () -> second.request("second"));
-            assertEquals(ProtocolSessionException.Reason.TIMEOUT, secondTimeout.reason());
-            assertEquals(0, secondCallbackStarts.get(), "capacity rejection must not start a fallback callback thread");
-            assertEquals(0, callbackRunner.availablePermits());
-
-            releaseFirstCallback.countDown();
-            assertTrue(firstCallbackStopped.await(1, TimeUnit.SECONDS));
-
-            ProtocolAdapter<String, String> successfulAdapter = new ProtocolAdapter<>() {
-                @Override
-                public void writeRequest(String request, ProtocolWriter writer) {
-                    writer.flush();
-                }
-
-                @Override
-                public String readResponse(ProtocolReaders readers) {
-                    return "recovered";
-                }
-            };
-            try (DefaultProtocolSession<String, String> recovered =
-                    protocolWithCallbackRunner(successfulAdapter, callbackRunner)) {
-                assertEquals("recovered", recovered.request("third"));
-            }
-            assertEquals(1, callbackRunner.availablePermits());
-        } finally {
-            releaseFirstCallback.countDown();
-            try {
-                first.close();
-            } finally {
-                second.close();
-            }
         }
     }
 
@@ -452,7 +364,7 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
                     assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
 
             assertEquals(ProtocolSessionException.Reason.CLOSED, closed.reason());
-            assertInstanceOf(BoundedTaskRunner.TaskCancelledException.class, closed.getCause());
+            assertInstanceOf(TimedTaskRunner.TaskCancelledException.class, closed.getCause());
             assertTrue(callbackInterrupted.await(1, TimeUnit.SECONDS));
             assertEquals(0, closed.getSuppressed().length);
             assertEquals(0, callbackFailure.getSuppressed().length);
@@ -465,15 +377,6 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
-    }
-
-    private static <I, O> DefaultProtocolSession<I, O> protocolWithCallbackRunner(
-            ProtocolAdapter<I, O> adapter, DefaultProtocolSession.ProtocolCallbackRunner callbackRunner) {
-        return protocolSession(
-                new ControllableProcess(),
-                adapter,
-                ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ofDays(1)),
-                ProtocolSessionTestDependencies.withCallbackRunner(callbackRunner));
     }
 
     private static final class ControlledRequestLockWaiter implements SerializedRequestGate.Waiter {
@@ -498,72 +401,6 @@ final class ProtocolSessionRequestAdmissionAndSerializationTest extends Protocol
 
         private void expire() {
             expired.countDown();
-        }
-    }
-
-    private static final class SaturatingProtocolCallbackRunner
-            implements DefaultProtocolSession.ProtocolCallbackRunner {
-
-        private final BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
-        private final AtomicInteger invocations = new AtomicInteger();
-        private final CountDownLatch firstCallbackStarted;
-
-        private SaturatingProtocolCallbackRunner(CountDownLatch firstCallbackStarted) {
-            this.firstCallbackStarted = Objects.requireNonNull(firstCallbackStarted, "firstCallbackStarted");
-        }
-
-        @Override
-        public <T> T run(
-                String threadPrefix,
-                long deadlineNanos,
-                BoundedTaskRunner.CancellationSignal cancellation,
-                BoundedTaskRunner.TaskAbandonmentHandler abandonmentHandler,
-                BoundedTaskRunner.Task<T> task)
-                throws TimeoutException, InterruptedException, ExecutionException {
-            int invocation = invocations.incrementAndGet();
-            java.util.function.LongSupplier nanoTime =
-                    switch (invocation) {
-                        case 1 -> new DeadlineAfterCallbackStartNanoTime(deadlineNanos, firstCallbackStarted);
-                        case 2 -> () -> deadlineNanos;
-                        default -> System::nanoTime;
-                    };
-            return BoundedTaskTestSupport.runTracked(
-                    limiter,
-                    threadPrefix,
-                    deadlineNanos,
-                    new BoundedTaskHandoff(),
-                    (prefix, callback) -> {
-                        Thread thread = new Thread(callback, prefix + "saturation-test");
-                        thread.setDaemon(true);
-                        return thread;
-                    },
-                    nanoTime,
-                    task);
-        }
-
-        private int availablePermits() {
-            return limiter.availablePermits();
-        }
-    }
-
-    private static final class DeadlineAfterCallbackStartNanoTime implements java.util.function.LongSupplier {
-
-        private final long deadlineNanos;
-        private final CountDownLatch callbackStarted;
-        private final AtomicInteger reads = new AtomicInteger();
-
-        private DeadlineAfterCallbackStartNanoTime(long deadlineNanos, CountDownLatch callbackStarted) {
-            this.deadlineNanos = deadlineNanos;
-            this.callbackStarted = callbackStarted;
-        }
-
-        @Override
-        public long getAsLong() {
-            if (reads.incrementAndGet() < 3) {
-                return 0L;
-            }
-            awaitUninterruptibly(callbackStarted);
-            return deadlineNanos;
         }
     }
 }

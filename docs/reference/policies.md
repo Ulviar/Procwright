@@ -22,7 +22,7 @@ branches with separate callback instances.
 | `ProtocolSessionScenario.PoolDraft.withHealthCheck`, `ProtocolSessionScenario.PoolDraft.withReset` | One protocol worker runs health, request, and reset work in order; different workers or pools can invoke the same hooks concurrently. |
 | `StreamScenario.Draft.onOutput`, `StreamScenario.Draft.withDiagnosticListener`, `StreamScenario.Draft.withDiagnosticTranscriptSink` | One stream session invokes its output listener synchronously and serializes stdout/stderr chunks. Concurrent opens can call the same listener from different sessions. |
 
-Readiness and pool hooks run on bounded callback executors while the open, acquire, or request operation waits for them.
+Readiness and pool hooks run on fresh task threads while the open, acquire, or request operation waits for them.
 A terminal policy can call a retained `PtyProvider` concurrently when terminal-enabled sessions or workers start in
 parallel.
 
@@ -66,8 +66,9 @@ The default pool close timeout is exactly 15 seconds: 5 seconds for a normal req
 plus 5-second kill grace for worker shutdown, and a 3-second reserve for scheduling and stream cleanup. A close timeout
 does not cancel a healthy in-flight request or internal cleanup.
 
-Timeouts do not make arbitrary user callbacks interruptible. Request, readiness, and worker callbacks use bounded
-admission, but Java cannot forcibly stop callback code that ignores interruption. A streaming listener runs
+Timeouts do not make arbitrary user callbacks interruptible. Request, readiness, and worker callbacks run on
+scenario-owned task threads, but Java cannot forcibly stop callback code that ignores interruption. The affected handle
+or worker becomes terminal, while independent handles remain isolated. A streaming listener runs
 synchronously on an output pump: it applies backpressure and may outlive explicit close or timeout, but Procwright does
 not queue additional listener calls behind it after stopping the stream.
 

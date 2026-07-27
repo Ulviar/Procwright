@@ -28,9 +28,9 @@ final class LineRequestWriter {
 
     void write(byte[] encodedLine, long deadlineNanos, LineSessionState.Request request)
             throws RetryablePreWriteFailure {
-        BoundedTaskHandoff handoff = new BoundedTaskHandoff();
+        TaskStart start = new TaskStart();
         try {
-            taskRunner.run(BoundedTaskLimits.BLOCKING_WRITES, "procwright-line-stdin-", deadlineNanos, handoff, () -> {
+            taskRunner.run("procwright-line-stdin-", deadlineNanos, start, () -> {
                 java.io.OutputStream stdin = session.stdin();
                 stdin.write(encodedLine);
                 stdin.flush();
@@ -44,7 +44,7 @@ final class LineRequestWriter {
                     () -> state.failure(
                             LineSessionException.Reason.FAILURE, "Could not write line-session stdin", exception));
         } catch (TimeoutException exception) {
-            if (handoff.retrySafe()) {
+            if (!start.started()) {
                 throw retryable(request, state.timeout());
             }
             throw state.recordRequestTimeout(request);
@@ -52,13 +52,13 @@ final class LineRequestWriter {
             Thread.currentThread().interrupt();
             LineSessionException interrupted = state.failure(
                     LineSessionException.Reason.FAILURE, "Interrupted while writing line-session stdin", exception);
-            if (handoff.retrySafe()) {
+            if (!start.started()) {
                 throw retryable(request, interrupted);
             }
             throw state.recordRequestFailure(request, () -> interrupted);
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause();
-            if (handoff.retrySafe()) {
+            if (!start.started()) {
                 throw retryable(
                         request,
                         state.failure(
@@ -110,12 +110,7 @@ final class LineRequestWriter {
     @FunctionalInterface
     interface TaskRunner {
 
-        void run(
-                BoundedTaskLimiter limiter,
-                String threadPrefix,
-                long deadlineNanos,
-                BoundedTaskHandoff handoff,
-                BoundedTaskRunner.Task<Void> task)
+        void run(String threadPrefix, long deadlineNanos, TaskStart start, TimedTaskRunner.Task<Void> task)
                 throws TimeoutException, InterruptedException, ExecutionException;
     }
 

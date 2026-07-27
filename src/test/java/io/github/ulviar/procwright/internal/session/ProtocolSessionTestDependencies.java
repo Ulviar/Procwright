@@ -11,7 +11,7 @@ final class ProtocolSessionTestDependencies {
                 backoff,
                 PumpStarter.threading(),
                 System::nanoTime,
-                DefaultProtocolSession.ProtocolCallbackRunner.bounded(),
+                TimedTaskRunner::runCancellable,
                 SerializedRequestGate.Waiter.timed());
     }
 
@@ -25,7 +25,7 @@ final class ProtocolSessionTestDependencies {
                 backoff,
                 pumpStarter,
                 System::nanoTime,
-                DefaultProtocolSession.ProtocolCallbackRunner.bounded(),
+                TimedTaskRunner::runCancellable,
                 SerializedRequestGate.Waiter.timed());
     }
 
@@ -44,7 +44,7 @@ final class ProtocolSessionTestDependencies {
                 ZeroReadBackoff.exponential(),
                 PumpStarter.threading(),
                 System::nanoTime,
-                DefaultProtocolSession.ProtocolCallbackRunner.bounded(),
+                TimedTaskRunner::runCancellable,
                 requestLockWaiter);
     }
 }

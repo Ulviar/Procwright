@@ -28,7 +28,7 @@ public final class ReadinessSupport {
 
         long deadlineNanos = DurationSupport.deadlineFromNow(timeout);
         try {
-            BoundedTaskRunner.run(BoundedTaskLimits.READINESS_PROBES, "procwright-readiness-", deadlineNanos, () -> {
+            TimedTaskRunner.run("procwright-readiness-", deadlineNanos, () -> {
                 readinessProbe.accept(target);
                 return null;
             });
