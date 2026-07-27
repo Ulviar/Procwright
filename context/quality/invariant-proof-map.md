@@ -444,16 +444,25 @@ public lease API.
 
 **Владелец:** `WorkerPoolState`.
 
-**Proof:** `WorkerPoolStateTest`, `WorkerPoolControllerCapacityTest`.
+**Proof:** `WorkerPoolControllerCapacityTest`, `WorkerStartupCoordinatorTest`.
+
+### Startup slot settlement
+
+**Инвариант:** timeout/interruption удерживает `STARTING` slot до late completion; close отделяет slot, а late result
+не возвращается в partition.
+
+**Владелец:** `WorkerPoolState`.
+
+**Proof:** `WorkerPoolStateTest`, `WorkerPoolControllerStartupRaceTest`.
 
 ### Worker startup
 
-**Инвариант:** startup имеет bounded admission и один terminal winner; timeout/close отделяет logical slot, а late
-worker закрывается вне partition.
+**Инвариант:** один `WorkerStartup` запускает не более одного factory callback, выбирает один terminal winner и
+передаёт проигравший late result ровно один раз.
 
-**Владелец:** `WorkerStartupCoordinator`.
+**Владелец:** `WorkerStartup`.
 
-**Proof:** `WorkerStartupCoordinatorTest`, `WorkerPoolControllerStartupRaceTest`.
+**Proof:** `WorkerStartupTest`, `WorkerPoolControllerStartupRaceTest`.
 
 ### Worker retirement
 

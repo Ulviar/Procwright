@@ -42,11 +42,12 @@ worker, отделённый от logical pool при close, не возвращ
 request count, startup duration и retire reason. Отдельной reservation и заранее подготовленного lease нет.
 
 `WorkerStartup` владеет одним terminal race между factory completion, timeout, interruption и close. Он также владеет
-factory thread, cancellable admission и одним outcome future, который атомарно содержит terminal decision и результат
-factory. Проигравший поздний factory result передаётся ровно один раз в late-completion callback.
+factory thread и одним outcome future, который атомарно содержит terminal decision и результат factory. Проигравший
+поздний factory result передаётся ровно один раз в late-completion callback. Число одновременных startups ограничивает
+`maxSize` конкретного pool; независимые pools не делят process-global startup admission.
 
-`WorkerStartupCoordinator` не содержит второго автомата. Он последовательно выполняет admission, атомарный launch claim
-через узкий state port, запуск, ожидание и отображение результата в typed pool failures.
+`WorkerStartupCoordinator` не содержит второго автомата. Он последовательно выполняет state preflight membership,
+close и deadline через узкий port, запуск, ожидание и отображение результата в typed pool failures.
 
 `WorkerPoolState.Lease` создаётся только в атомарном переходе `STARTING -> LEASED`. Lease не раскрывается public API и
 может быть освобождён или retire-нут ровно один раз.
@@ -65,7 +66,7 @@ drain claim и cancellation-isolated future views. Publication token выбир�
 
 - новые acquire и startup запрещаются;
 - все `STARTING` немедленно отделяются от partition и перестают быть logical drain gate;
-- permit wait и ожидающий startup caller получают cancellation;
+- ожидающий startup caller наблюдает terminal decision `CLOSED`;
 - поздний successful worker закрывается напрямую и никогда не становится idle или leased;
 - `IDLE` переходит в `RETIRING`;
 - уже выданный lease остаётся у caller и retire-ится при возврате;

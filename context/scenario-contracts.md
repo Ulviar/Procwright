@@ -166,8 +166,9 @@ Listener должен быстро завершаться; тяжелая обр
 - разные pools и direct sessions не делят process-global worker quota; приложение ограничивает суммарное число процессов
   количеством создаваемых pools/direct sessions и `maxSize` каждого pool;
 - незавершившийся retirement продолжает занимать slot своего pool до полного retirement outcome;
-- startup и hooks имеют bounded admission; retirement processing использует fixed owner set и bounded queue с
-  caller-runs backpressure при насыщении. Эти механизмы не являются пользовательской политикой числа процессов;
+- `maxSize` ограничивает одновременно starting workers одного pool; независимые pools не делят startup admission.
+  Ожидание hooks ограничено deadline; некооперативный callback может завершиться позднее, но worker после timeout не
+  переиспользуется. Retirement processing использует fixed owner set и bounded queue с caller-runs backpressure;
 - warmup failure закрывает уже созданных workers;
 - worker становится idle только после readiness;
 - acquire timeout и request timeout различаются;

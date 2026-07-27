@@ -135,19 +135,19 @@ final class WorkerPoolState<S> {
         }
     }
 
-    WorkerStartupCoordinator.StartupClaim claimStartup(PoolWorker<S> worker, long deadlineNanos) {
+    WorkerStartupCoordinator.StartupDecision preflightStartup(PoolWorker<S> worker, long deadlineNanos) {
         Objects.requireNonNull(worker, "worker");
         synchronized (monitor) {
             if (!partition.contains(worker) || termination.closing()) {
                 worker.startup().signalClosed();
-                return WorkerStartupCoordinator.StartupClaim.CLOSED;
+                return WorkerStartupCoordinator.StartupDecision.CLOSED;
             }
             partition.requireState(worker, PoolPartition.State.STARTING);
             if (deadlineNanos - System.nanoTime() <= 0) {
                 worker.startup().signalTimeout();
-                return WorkerStartupCoordinator.StartupClaim.TIMED_OUT;
+                return WorkerStartupCoordinator.StartupDecision.TIMED_OUT;
             }
-            return WorkerStartupCoordinator.StartupClaim.RUN;
+            return WorkerStartupCoordinator.StartupDecision.RUN;
         }
     }
 

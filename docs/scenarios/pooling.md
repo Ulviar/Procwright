@@ -113,9 +113,10 @@ retiring workers all occupy that pool's slots. Separate line pools, protocol poo
 share a worker quota. Bound the application's aggregate process count by limiting how many pools and direct sessions it
 creates and by choosing each pool's `maxSize`.
 
-Procwright bounds internal startup and hook admission. Retirement processing uses a fixed owner set and a bounded queue;
-when that queue is full, the caller performs the mandatory retirement step instead. These safeguards do not reserve
-worker capacity between pools.
+Each pool's `maxSize` bounds its concurrent worker startups; independent pools do not share startup admission. A hook
+timeout bounds how long the caller waits, not how long non-cooperative callback code can continue. A worker with a timed
+out hook is not reused. Retirement processing uses a fixed owner set and a bounded queue; when that queue is full, the
+caller performs the mandatory retirement step instead.
 
 `STARTUP_FAILED` reports a worker startup or synchronous warmup failure. `ACQUIRE_TIMEOUT` reports that a request could
 not obtain a worker from its own pool before the acquire deadline.

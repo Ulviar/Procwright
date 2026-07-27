@@ -14,14 +14,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-/** Owns one bounded worker-factory invocation and its terminal race. */
+/** Owns one worker-factory invocation and its terminal race against the caller's deadline and pool close. */
 final class WorkerStartup<S> {
 
     private final Supplier<S> factory;
     private final String threadPrefix;
     private final Consumer<LateCompletion<S>> lateCompletion;
     private final ThreadFactory threadFactory;
-    private final BoundedTaskRunner.CancellationSignal cancellation = new BoundedTaskRunner.CancellationSignal();
     private final AtomicBoolean startClaimed = new AtomicBoolean();
     private final CompletableFuture<Outcome<S>> outcome = new CompletableFuture<>();
 
@@ -43,34 +42,19 @@ final class WorkerStartup<S> {
         this.threadFactory = Objects.requireNonNull(threadFactory, "threadFactory");
     }
 
-    BoundedTaskPermit acquirePermit(BoundedTaskLimiter limiter, long deadlineNanos)
-            throws TimeoutException, InterruptedException, BoundedTaskRunner.TaskCancelledException {
-        return Objects.requireNonNull(limiter, "limiter").acquire(deadlineNanos, cancellation);
-    }
-
-    void start(BoundedTaskPermit permit) {
-        Objects.requireNonNull(permit, "permit");
+    void start() {
         if (!startClaimed.compareAndSet(false, true)) {
-            permit.close();
             throw new IllegalStateException("worker startup is already started");
         }
         if (outcome.isDone()) {
-            permit.close();
             return;
         }
-        try {
-            startedAtNanos = System.nanoTime();
-            Thread candidate = Objects.requireNonNull(
-                    threadFactory.unstarted(threadPrefix, () -> run(permit)), "threadFactory returned null");
-            thread = candidate;
-            if (!outcome.isDone()) {
-                candidate.start();
-            } else {
-                permit.close();
-            }
-        } catch (RuntimeException | Error failure) {
-            permit.close();
-            throw failure;
+        startedAtNanos = System.nanoTime();
+        Thread candidate =
+                Objects.requireNonNull(threadFactory.unstarted(threadPrefix, this::run), "threadFactory returned null");
+        thread = candidate;
+        if (!outcome.isDone()) {
+            candidate.start();
         }
     }
 
@@ -117,22 +101,18 @@ final class WorkerStartup<S> {
         return selected == null ? TerminalDecision.UNDECIDED : selected.decision();
     }
 
-    private void run(BoundedTaskPermit permit) {
+    private void run() {
         S session = null;
         Throwable failure = null;
         BoundedFailureReporter.FailureTarget failureTarget = null;
         Outcome<S> beforeFactory = outcome.getNow(null);
-        try {
-            if (beforeFactory == null) {
-                try {
-                    session = Objects.requireNonNull(factory.get(), "workerFactory returned null");
-                } catch (Throwable startupFailure) {
-                    failure = startupFailure;
-                    failureTarget = captureFailureTarget();
-                }
+        if (beforeFactory == null) {
+            try {
+                session = Objects.requireNonNull(factory.get(), "workerFactory returned null");
+            } catch (Throwable startupFailure) {
+                failure = startupFailure;
+                failureTarget = captureFailureTarget();
             }
-        } finally {
-            permit.close();
         }
         if (beforeFactory != null) {
             lateCompletion.accept(new LateCompletion<>(
@@ -172,7 +152,6 @@ final class WorkerStartup<S> {
         }
         Outcome<S> selected = Outcome.stopped(candidate);
         if (outcome.complete(selected)) {
-            cancellation.cancel();
             Thread running = thread;
             if (running != null) {
                 running.interrupt();

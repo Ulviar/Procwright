@@ -243,8 +243,9 @@ scenario flags.
   retiring slots этого pool;
 - разные pools и direct sessions не делят process-global worker quota; суммарное число процессов контролирует приложение
   количеством создаваемых ресурсов и `maxSize` каждого pool;
-- startup и hooks имеют bounded admission; retirement processing использует fixed owner set и bounded queue с
-  caller-runs backpressure при насыщении. Эти механизмы не являются пользовательской resource policy;
+- `maxSize` ограничивает одновременно starting workers одного pool; независимые pools не делят startup admission.
+  Ожидание hooks ограничено deadline; некооперативный callback может завершиться позднее, но worker после timeout не
+  переиспользуется. Retirement processing использует fixed owner set и bounded queue с caller-runs backpressure;
 - pool terminal outcome выбирается под monitor и публикуется после его освобождения без отдельной lifetime reservation;
 - acquire timeout и request timeout различаются;
 - failed request/timeout/decoder/process exit retire worker;

@@ -11,8 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -397,168 +395,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
     }
 
     @Test
-    void startupPermitTimeoutRestoresCapacityWithoutCallingFactory() throws Exception {
-        List<BoundedTaskPermit> occupied = new ArrayList<>();
-        int capacity = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
-        long permitDeadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        for (int index = 0; index < capacity; index++) {
-            occupied.add(BoundedTaskLimits.WORKER_STARTUPS.acquire(permitDeadline));
-        }
-        AtomicInteger factoryCalls = new AtomicInteger();
-        WorkerPoolController<TestWorker> pool = controller(
-                () -> {
-                    factoryCalls.incrementAndGet();
-                    return new TestWorker(1);
-                },
-                worker -> {},
-                settings(1, 0, 0, Duration.ofMillis(80), Integer.MAX_VALUE, Duration.ZERO));
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
-            ExecutionException observed =
-                    assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
-            assertEquals(FailureKind.ACQUIRE_TIMEOUT, ((PoolFailure) observed.getCause()).kind);
-            pool.closeAsync();
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
-            assertEquals(0, factoryCalls.get());
-            assertEquals(0, pool.metrics().failedStartups());
-            assertTrue(pool.metrics().retireReasons().isEmpty());
-            assertPartition(pool, 0, 0, 0, 0, 0);
-        } finally {
-            occupied.forEach(BoundedTaskPermit::close);
-            pool.closeAsync();
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            assertEquals(capacity, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
-        }
-    }
-
-    @Test
-    void closeCancelsStartupQueuedForExecutionPermitWithoutCallingFactory() throws Exception {
-        List<BoundedTaskPermit> occupied = new ArrayList<>();
-        int capacity = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
-        long permitDeadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        for (int index = 0; index < capacity; index++) {
-            occupied.add(BoundedTaskLimits.WORKER_STARTUPS.acquire(permitDeadline));
-        }
-        AtomicInteger factoryCalls = new AtomicInteger();
-        WorkerPoolController<TestWorker> pool = controller(
-                () -> {
-                    factoryCalls.incrementAndGet();
-                    return new TestWorker(1);
-                },
-                worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
-            assertTrue(awaitMetrics(pool, metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
-
-            pool.closeAsync();
-            assertPartition(pool, 0, 0, 0, 0, 0);
-
-            ExecutionException failure = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
-            assertEquals(FailureKind.CLOSED, ((PoolFailure) failure.getCause()).kind);
-            assertEquals(0, factoryCalls.get());
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
-        } finally {
-            occupied.forEach(BoundedTaskPermit::close);
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            pool.closeAsync();
-        }
-    }
-
-    @Test
-    void closeWinnerSurvivesInterruptionWhileStartupWaitsForExecutionPermit() throws Exception {
-        List<BoundedTaskPermit> occupied = new ArrayList<>();
-        int capacity = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
-        long permitDeadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        for (int index = 0; index < capacity; index++) {
-            occupied.add(BoundedTaskLimits.WORKER_STARTUPS.acquire(permitDeadline));
-        }
-        AtomicInteger factoryCalls = new AtomicInteger();
-        AtomicReference<Throwable> acquireFailure = new AtomicReference<>();
-        AtomicBoolean interrupted = new AtomicBoolean();
-        WorkerPoolController<TestWorker> pool = controller(
-                () -> {
-                    factoryCalls.incrementAndGet();
-                    return new TestWorker(1);
-                },
-                worker -> {},
-                settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO));
-        Thread acquire = new Thread(() -> {
-            try {
-                pool.acquire((worker, deadline) -> HEALTHY);
-            } catch (Throwable failure) {
-                acquireFailure.set(failure);
-            } finally {
-                interrupted.set(Thread.currentThread().isInterrupted());
-            }
-        });
-        try {
-            acquire.start();
-            assertTrue(awaitMetrics(pool, metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
-            assertTrue(awaitStackFrame(acquire, BoundedTaskLimiter.class.getName(), "acquire", Duration.ofSeconds(1)));
-
-            pool.closeAsync();
-            acquire.interrupt();
-            acquire.join(TimeUnit.SECONDS.toMillis(1));
-
-            assertFalse(acquire.isAlive());
-            assertEquals(FailureKind.CLOSED, ((PoolFailure) acquireFailure.get()).kind);
-            assertTrue(interrupted.get());
-            assertEquals(0, factoryCalls.get());
-            assertPartition(pool, 0, 0, 0, 0, 0);
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
-        } finally {
-            occupied.forEach(BoundedTaskPermit::close);
-            acquire.interrupt();
-            acquire.join(TimeUnit.SECONDS.toMillis(1));
-            pool.closeAsync();
-        }
-    }
-
-    @Test
-    void queuedStartupPermitTimeoutAfterCloseReturnsTypedClosedFailure() throws Exception {
-        List<BoundedTaskPermit> occupied = new ArrayList<>();
-        int capacity = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
-        long permitDeadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
-        for (int index = 0; index < capacity; index++) {
-            occupied.add(BoundedTaskLimits.WORKER_STARTUPS.acquire(permitDeadline));
-        }
-        AtomicInteger factoryCalls = new AtomicInteger();
-        WorkerPoolController<TestWorker> pool = controller(
-                () -> {
-                    factoryCalls.incrementAndGet();
-                    return new TestWorker(1);
-                },
-                worker -> {},
-                settings(1, 0, 0, Duration.ofMillis(60), Integer.MAX_VALUE, Duration.ZERO));
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
-            assertTrue(awaitMetrics(pool, metrics -> metrics.starting() == 1, Duration.ofSeconds(1)));
-            pool.closeAsync();
-
-            ExecutionException failure =
-                    assertThrows(ExecutionException.class, () -> acquire.get(500, TimeUnit.MILLISECONDS));
-
-            assertEquals(FailureKind.CLOSED, ((PoolFailure) failure.getCause()).kind);
-            assertEquals(0, factoryCalls.get());
-            pool.closeAsync().get(1, TimeUnit.SECONDS);
-        } finally {
-            occupied.forEach(BoundedTaskPermit::close);
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            pool.closeAsync();
-        }
-    }
-
-    @Test
     void warmupInterruptionPreservesInterruptionAndUsesTypedFailure() throws Exception {
-        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch allowStartupToFinish = new CountDownLatch(1);
         AtomicReference<Thread> startupThread = new AtomicReference<>();
@@ -606,13 +443,11 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             constructor.interrupt();
             constructor.join(1_000);
             joinThread(startupThread, "interrupted warmup startup");
-            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 
     @Test
     void lateStartupFailureReleasesSlotAfterAcquireTimeout() throws Exception {
-        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch releaseStartup = new CountDownLatch(1);
         AtomicReference<Thread> startupThread = new AtomicReference<>();
@@ -640,13 +475,11 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             releaseStartup.countDown();
             joinThread(startupThread, "late failed startup");
             pool.closeAsync();
-            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 
     @Test
-    void abandonedStartupReleasesExecutionPermitBeforeLateWorkerRetirementCompletes() throws Exception {
-        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
+    void abandonedStartupRetiresLateWorkerBeforePoolDrainCompletes() throws Exception {
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch releaseStartup = new CountDownLatch(1);
         CountDownLatch startupFinished = new CountDownLatch(1);
@@ -671,11 +504,9 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
         try {
             assertThrows(PoolFailure.class, () -> pool.acquire((worker, deadline) -> HEALTHY));
             assertTrue(startupEntered.await(1, TimeUnit.SECONDS));
-            assertEquals(permitsBefore - 1, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
 
             releaseStartup.countDown();
             assertTrue(retirementEntered.await(1, TimeUnit.SECONDS));
-            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
             assertPartition(pool, 1, 0, 0, 0, 1);
 
             releaseRetirement.countDown();
@@ -686,13 +517,11 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             releaseRetirement.countDown();
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
             pool.closeAsync();
-            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 
     @Test
-    void interruptedStartupUsesExactReasonAndRestoresExecutionCapacity() throws Exception {
-        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
+    void interruptedStartupUsesExactRetirementReason() throws Exception {
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch releaseStartup = new CountDownLatch(1);
         AtomicReference<Thread> startupThread = new AtomicReference<>();
@@ -733,13 +562,11 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             caller.join(1_000);
             joinThread(startupThread, "interrupted late startup");
             pool.closeAsync();
-            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
     }
 
     @Test
     void abandonedStartupReportsLateErrorExactlyOnce() throws Exception {
-        int permitsBefore = BoundedTaskLimits.WORKER_STARTUPS.availablePermits();
         CountDownLatch startupEntered = new CountDownLatch(1);
         CountDownLatch releaseStartup = new CountDownLatch(1);
         CountDownLatch startupFinished = new CountDownLatch(1);
@@ -776,27 +603,10 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
             assertSame(lateError, reported.get());
             pool.closeAsync().get(1, TimeUnit.SECONDS);
             assertEquals(0, pool.metrics().size());
-            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
             assertEquals(1, reports.get());
         } finally {
             releaseStartup.countDown();
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
-            assertEquals(permitsBefore, BoundedTaskLimits.WORKER_STARTUPS.availablePermits());
         }
-    }
-
-    private static boolean awaitStackFrame(Thread thread, String className, String methodName, Duration timeout)
-            throws InterruptedException {
-        long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        while (System.nanoTime() < deadlineNanos) {
-            for (StackTraceElement frame : thread.getStackTrace()) {
-                if (frame.getClassName().equals(className)
-                        && frame.getMethodName().equals(methodName)) {
-                    return true;
-                }
-            }
-            Thread.sleep(1);
-        }
-        return false;
     }
 }

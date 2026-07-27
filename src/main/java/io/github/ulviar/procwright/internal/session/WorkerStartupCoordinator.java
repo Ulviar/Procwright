@@ -7,7 +7,7 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
-/** Owns admission, launch, waiting, and failure mapping for one worker startup. */
+/** Owns pool-state preflight, launch, waiting, and failure mapping for one worker startup. */
 final class WorkerStartupCoordinator<S> {
 
     private final WorkerPoolController.FailureFactory failures;
@@ -24,68 +24,41 @@ final class WorkerStartupCoordinator<S> {
         Objects.requireNonNull(worker, "worker");
         PoolWorker.StartupPurpose purpose = worker.startupPurpose();
 
-        BoundedTaskPermit startupPermit = acquireStartupPermit(worker, deadlineNanos, purpose);
-        WorkerStartup<S> owner = launch(worker, startupPermit, deadlineNanos, purpose);
+        WorkerStartup<S> owner = launch(worker, deadlineNanos, purpose);
         return await(owner, worker, deadlineNanos, purpose);
     }
 
-    private BoundedTaskPermit acquireStartupPermit(
-            PoolWorker<S> worker, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
-        try {
-            return worker.startup().acquirePermit(BoundedTaskLimits.WORKER_STARTUPS, deadlineNanos);
-        } catch (BoundedTaskRunner.TaskCancelledException failure) {
-            throw discardFailure(worker, failures.closed("Pool is closed"));
-        } catch (TimeoutException failure) {
-            throw discardFailure(worker, preLaunchTimeout(worker, purpose, failure));
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            throw discardFailure(worker, preLaunchInterruption(worker, purpose, failure));
-        }
-    }
-
-    private WorkerStartup<S> launch(
-            PoolWorker<S> worker,
-            BoundedTaskPermit startupPermit,
-            long deadlineNanos,
-            PoolWorker.StartupPurpose purpose) {
-        boolean transferred = false;
+    private WorkerStartup<S> launch(PoolWorker<S> worker, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
         WorkerStartup<S> owner = worker.startup();
+        StartupDecision decision;
         try {
-            StartupClaim claim;
-            try {
-                claim = poolState.claimLaunch(worker, deadlineNanos);
-            } catch (RuntimeException | Error failure) {
-                discardAndRethrow(worker, failure);
-                throw new AssertionError("unreachable");
-            }
-            if (claim == StartupClaim.CLOSED) {
-                throw discardFailure(worker, failures.closed("Pool is closed"));
-            }
-            if (claim == StartupClaim.TIMED_OUT) {
-                throw discardFailure(
-                        worker,
-                        startupTimeout(purpose, new TimeoutException("worker startup deadline elapsed before launch")));
-            }
-            transferred = true;
-            try {
-                owner.start(startupPermit);
-            } catch (RuntimeException | Error failure) {
-                Throwable terminalFailure = failure;
-                try {
-                    poolState.discardStartingWorker(worker);
-                } catch (RuntimeException | Error cleanupFailure) {
-                    terminalFailure = FailureAggregation.combine(
-                            terminalFailure, cleanupFailure, "Worker startup launch and pool cleanup both failed");
-                }
-                rethrow(terminalFailure);
-                throw new AssertionError("unreachable");
-            }
-            return owner;
-        } finally {
-            if (!transferred) {
-                startupPermit.close();
-            }
+            decision = poolState.preflight(worker, deadlineNanos);
+        } catch (RuntimeException | Error failure) {
+            discardAndRethrow(worker, failure);
+            throw new AssertionError("unreachable");
         }
+        if (decision == StartupDecision.CLOSED) {
+            throw discardFailure(worker, failures.closed("Pool is closed"));
+        }
+        if (decision == StartupDecision.TIMED_OUT) {
+            throw discardFailure(
+                    worker,
+                    startupTimeout(purpose, new TimeoutException("worker startup deadline elapsed before launch")));
+        }
+        try {
+            owner.start();
+        } catch (RuntimeException | Error failure) {
+            Throwable terminalFailure = failure;
+            try {
+                poolState.discardStartingWorker(worker);
+            } catch (RuntimeException | Error cleanupFailure) {
+                terminalFailure = FailureAggregation.combine(
+                        terminalFailure, cleanupFailure, "Worker startup launch and pool cleanup both failed");
+            }
+            rethrow(terminalFailure);
+            throw new AssertionError("unreachable");
+        }
+        return owner;
     }
 
     private WorkerStartup.CreatedWorker<S> await(
@@ -127,31 +100,6 @@ final class WorkerStartupCoordinator<S> {
             }
             throw failures.startupFailed("Could not start " + workerLabel, cause);
         }
-    }
-
-    private RuntimeException preLaunchTimeout(
-            PoolWorker<S> worker, PoolWorker.StartupPurpose purpose, TimeoutException failure) {
-        WorkerStartup.TerminalDecision decision = worker.startup().signalTimeout();
-        if (decision == WorkerStartup.TerminalDecision.CLOSED) {
-            return failures.closed("Pool is closed");
-        }
-        if (decision != WorkerStartup.TerminalDecision.TIMED_OUT) {
-            return new IllegalStateException("queued worker timeout has incompatible terminal decision: " + decision);
-        }
-        return startupTimeout(purpose, failure);
-    }
-
-    private RuntimeException preLaunchInterruption(
-            PoolWorker<S> worker, PoolWorker.StartupPurpose purpose, InterruptedException failure) {
-        WorkerStartup.TerminalDecision decision = worker.startup().signalInterrupted();
-        return switch (decision) {
-            case CLOSED -> failures.closed("Pool is closed");
-            case TIMED_OUT ->
-                startupTimeout(purpose, new TimeoutException("worker startup deadline elapsed before launch"));
-            case INTERRUPTED -> failures.acquireInterrupted("Interrupted while starting " + workerLabel, failure);
-            case FACTORY_COMPLETED, UNDECIDED ->
-                new IllegalStateException("pre-launch interruption has incompatible terminal decision: " + decision);
-        };
     }
 
     private RuntimeException startupTimeout(PoolWorker.StartupPurpose purpose, TimeoutException cause) {
@@ -198,14 +146,14 @@ final class WorkerStartupCoordinator<S> {
 
     interface PoolState<S> {
 
-        StartupClaim claimLaunch(PoolWorker<S> worker, long deadlineNanos);
+        StartupDecision preflight(PoolWorker<S> worker, long deadlineNanos);
 
         boolean factoryFailed(PoolWorker<S> worker, Throwable failure);
 
         void discardStartingWorker(PoolWorker<S> worker);
     }
 
-    enum StartupClaim {
+    enum StartupDecision {
         RUN,
         CLOSED,
         TIMED_OUT

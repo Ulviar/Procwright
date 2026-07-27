@@ -10,7 +10,6 @@ final class BoundedTaskLimits {
     static final BoundedTaskLimiter PROTOCOL_CALLBACKS = new BoundedTaskLimiter(64);
     static final BoundedTaskLimiter TEXT_ENCODINGS = new BoundedTaskLimiter(32);
     static final BoundedTaskLimiter BLOCKING_WRITES = new BoundedTaskLimiter(32);
-    static final BoundedTaskLimiter WORKER_STARTUPS = new BoundedTaskLimiter(16);
     static final BoundedTaskLimiter REGEX_MATCHES = new BoundedTaskLimiter(8);
 
     private BoundedTaskLimits() {}

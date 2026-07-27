@@ -3,7 +3,6 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -27,7 +26,7 @@ final class WorkerStartupTest {
         AtomicReference<WorkerStartup.LateCompletion<String>> late = new AtomicReference<>();
         WorkerStartup<String> startup = new WorkerStartup<>(() -> "worker", "startup-test-", late::set);
 
-        startup.start(permit());
+        startup.start();
 
         assertEquals("worker", startup.await(deadline()).session());
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
@@ -47,7 +46,7 @@ final class WorkerStartupTest {
                 },
                 "startup-timeout-test-",
                 late::set);
-        startup.start(permit());
+        startup.start();
         assertTrue(factoryStarted.await(1, TimeUnit.SECONDS));
 
         assertThrows(TimeoutException.class, () -> startup.await(System.nanoTime()));
@@ -63,7 +62,7 @@ final class WorkerStartupTest {
     void closeSignalCannotReplaceAnEarlierFactorySignal() throws Exception {
         WorkerStartup<String> startup =
                 new WorkerStartup<>(() -> "worker", "startup-factory-winner-test-", ignored -> {});
-        startup.start(permit());
+        startup.start();
         awaitDecision(startup, WorkerStartup.TerminalDecision.FACTORY_COMPLETED);
 
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.signalClosed());
@@ -72,12 +71,11 @@ final class WorkerStartupTest {
     }
 
     @Test
-    void closeBeforeThreadStartPreventsFactoryExecutionAndReleasesPermit() throws Exception {
+    void closeBeforeThreadStartPreventsFactoryExecution() throws Exception {
         AtomicInteger factoryCalls = new AtomicInteger();
         CountDownLatch startEntered = new CountDownLatch(1);
         CountDownLatch releaseStart = new CountDownLatch(1);
         AtomicReference<Thread> workerThread = new AtomicReference<>();
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         WorkerStartup<String> startup = new WorkerStartup<>(
                 () -> {
                     factoryCalls.incrementAndGet();
@@ -97,9 +95,7 @@ final class WorkerStartupTest {
                     workerThread.set(thread);
                     return thread;
                 });
-        BoundedTaskPermit initialPermit = limiter.tryAcquire();
-        assertNotNull(initialPermit);
-        Thread launcher = new Thread(() -> startup.start(initialPermit));
+        Thread launcher = new Thread(startup::start);
         launcher.start();
         assertTrue(startEntered.await(1, TimeUnit.SECONDS));
 
@@ -109,9 +105,6 @@ final class WorkerStartupTest {
         workerThread.get().join(1_000);
 
         assertEquals(0, factoryCalls.get());
-        BoundedTaskPermit recoveredPermit = limiter.tryAcquire();
-        assertNotNull(recoveredPermit, "startup permit was not released");
-        recoveredPermit.close();
     }
 
     @Test
@@ -128,17 +121,11 @@ final class WorkerStartupTest {
                 },
                 "startup-once-test-",
                 ignored -> {});
-        BoundedTaskLimiter secondLimiter = new BoundedTaskLimiter(1);
-        startup.start(permit());
+        startup.start();
         assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
-        BoundedTaskPermit secondPermit = secondLimiter.tryAcquire();
-        assertNotNull(secondPermit);
 
-        assertThrows(IllegalStateException.class, () -> startup.start(secondPermit));
+        assertThrows(IllegalStateException.class, startup::start);
 
-        BoundedTaskPermit recovered = secondLimiter.tryAcquire();
-        assertNotNull(recovered, "rejected second launch did not release its permit");
-        recovered.close();
         releaseFactory.countDown();
         assertEquals("worker", startup.await(deadline()).session());
         assertEquals(1, factoryCalls.get());
@@ -170,7 +157,7 @@ final class WorkerStartupTest {
                     workerThread.set(thread);
                     return thread;
                 });
-        Thread launcher = new Thread(() -> startup.start(permit()));
+        Thread launcher = new Thread(startup::start);
         launcher.start();
         assertTrue(startEntered.await(1, TimeUnit.SECONDS));
 
@@ -195,7 +182,7 @@ final class WorkerStartupTest {
                 },
                 "startup-failure-test-",
                 ignored -> {});
-        startup.start(permit());
+        startup.start();
 
         ExecutionException observed = assertThrows(ExecutionException.class, () -> startup.await(deadline()));
 
@@ -207,7 +194,6 @@ final class WorkerStartupTest {
     void failureTargetCaptureCannotReplaceFactoryFailureOrPreventSettlement() throws Exception {
         IllegalStateException expected = new IllegalStateException("factory failed");
         AssertionError captureFailure = new AssertionError("context loader unavailable");
-        BoundedTaskLimiter limiter = new BoundedTaskLimiter(1);
         WorkerStartup<String> startup = new WorkerStartup<>(
                 () -> {
                     throw expected;
@@ -220,17 +206,12 @@ final class WorkerStartupTest {
                         throw captureFailure;
                     }
                 });
-        BoundedTaskPermit initialPermit = limiter.tryAcquire();
-        assertNotNull(initialPermit);
-        startup.start(initialPermit);
+        startup.start();
 
         ExecutionException observed = assertThrows(ExecutionException.class, () -> startup.await(deadline()));
 
         assertSame(expected, observed.getCause());
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
-        BoundedTaskPermit recoveredPermit = limiter.tryAcquire();
-        assertNotNull(recoveredPermit, "factory permit was not released");
-        recoveredPermit.close();
     }
 
     @Test
@@ -240,7 +221,7 @@ final class WorkerStartupTest {
         AtomicBoolean interrupted = new AtomicBoolean();
         WorkerStartup<String> startup =
                 new WorkerStartup<>(() -> "worker", "startup-factory-interrupt-test-", ignored -> {});
-        startup.start(permit());
+        startup.start();
         awaitDecision(startup, WorkerStartup.TerminalDecision.FACTORY_COMPLETED);
         Thread waiter = new Thread(() -> {
             Thread.currentThread().interrupt();
@@ -276,7 +257,7 @@ final class WorkerStartupTest {
                 },
                 "startup-interrupt-winner-test-",
                 late::set);
-        startup.start(permit());
+        startup.start();
         Thread waiter = new Thread(() -> {
             waiterStarted.countDown();
             try {
@@ -311,7 +292,7 @@ final class WorkerStartupTest {
                 },
                 "startup-error-interrupt-test-",
                 ignored -> {});
-        startup.start(permit());
+        startup.start();
         awaitDecision(startup, WorkerStartup.TerminalDecision.FACTORY_COMPLETED);
         Thread waiter = new Thread(() -> {
             Thread.currentThread().interrupt();
@@ -330,14 +311,6 @@ final class WorkerStartupTest {
         assertSame(expected, failure.get().getCause());
         assertTrue(interrupted.get());
         assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
-    }
-
-    private static BoundedTaskPermit permit() {
-        BoundedTaskPermit permit = new BoundedTaskLimiter(1).tryAcquire();
-        if (permit == null) {
-            throw new AssertionError("test permit was not available");
-        }
-        return permit;
     }
 
     private static long deadline() {

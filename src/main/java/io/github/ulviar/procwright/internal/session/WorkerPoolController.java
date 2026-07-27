@@ -414,8 +414,8 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     @Override
-    public WorkerStartupCoordinator.StartupClaim claimLaunch(PoolWorker<S> worker, long deadlineNanos) {
-        return state.claimStartup(worker, deadlineNanos);
+    public WorkerStartupCoordinator.StartupDecision preflight(PoolWorker<S> worker, long deadlineNanos) {
+        return state.preflightStartup(worker, deadlineNanos);
     }
 
     @Override

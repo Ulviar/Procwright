@@ -15,7 +15,6 @@ import io.github.ulviar.procwright.session.PooledSessionMetrics;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -29,7 +28,7 @@ final class WorkerPoolStateTest {
         StateFixture fixture = state(settings(1, 0, 0, 2));
         WorkerPoolState<String> state = fixture.state();
         PoolWorker<String> worker = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
-        claimStartup(fixture, worker);
+        preflightStartup(fixture, worker);
 
         WorkerPoolState.Lease<String> firstLease =
                 state.completeStartup(worker, new WorkerStartup.CreatedWorker<>("worker", 11));
@@ -94,9 +93,9 @@ final class WorkerPoolStateTest {
         PoolWorker<String> running = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
         PoolWorker<String> idle = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
         PoolWorker<String> leased = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
-        claimStartup(fixture, running);
-        claimStartup(fixture, idle);
-        claimStartup(fixture, leased);
+        preflightStartup(fixture, running);
+        preflightStartup(fixture, idle);
+        preflightStartup(fixture, leased);
         WorkerPoolState.Lease<String> idleLease =
                 state.completeStartup(idle, new WorkerStartup.CreatedWorker<>("idle", 1));
         state.releaseReusable(idleLease);
@@ -119,7 +118,7 @@ final class WorkerPoolStateTest {
         WorkerPoolState<String> state = fixture.state();
         state.finishConstruction();
         PoolWorker<String> worker = reserve(fixture, PoolWorker.StartupPurpose.DEMAND);
-        claimStartup(fixture, worker);
+        preflightStartup(fixture, worker);
         WorkerPoolState.Lease<String> lease =
                 state.completeStartup(worker, new WorkerStartup.CreatedWorker<>("worker", 3));
         state.retire(lease, PooledWorkerRetireReason.CLOSED);
@@ -152,9 +151,9 @@ final class WorkerPoolStateTest {
         WorkerPoolState<String> state = fixture.state();
         state.finishConstruction();
         PoolWorker<String> worker = reserve(fixture, PoolWorker.StartupPurpose.REPLENISHMENT);
-        claimStartup(fixture, worker);
+        preflightStartup(fixture, worker);
         WorkerStartup<String> startup = startupRef.get();
-        startup.start(new BoundedTaskPermit(new Semaphore(0)));
+        startup.start();
         ExecutionException startupFailure = assertThrows(
                 ExecutionException.class, () -> startup.await(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
         assertSame(fatal, startupFailure.getCause());
@@ -172,7 +171,7 @@ final class WorkerPoolStateTest {
     void startupExitPathsKeepCreatedAndFailedCountersDistinct() {
         StateFixture preLaunch = state(settings(1, 0, 0, 10));
         PoolWorker<String> cancelled = reserve(preLaunch, PoolWorker.StartupPurpose.DEMAND);
-        claimStartup(preLaunch, cancelled);
+        preflightStartup(preLaunch, cancelled);
 
         preLaunch.state().discardStartingWorker(cancelled);
 
@@ -181,7 +180,7 @@ final class WorkerPoolStateTest {
 
         StateFixture lateFailure = state(settings(1, 0, 0, 10));
         PoolWorker<String> failed = reserve(lateFailure, PoolWorker.StartupPurpose.DEMAND);
-        claimStartup(lateFailure, failed);
+        preflightStartup(lateFailure, failed);
         lateFailure
                 .state()
                 .completeAbandonedStartup(
@@ -198,7 +197,7 @@ final class WorkerPoolStateTest {
 
         StateFixture lateSuccess = state(settings(1, 0, 0, 10));
         PoolWorker<String> succeeded = reserve(lateSuccess, PoolWorker.StartupPurpose.DEMAND);
-        claimStartup(lateSuccess, succeeded);
+        preflightStartup(lateSuccess, succeeded);
         lateSuccess
                 .state()
                 .completeAbandonedStartup(
@@ -267,10 +266,10 @@ final class WorkerPoolStateTest {
         return worker;
     }
 
-    private static void claimStartup(StateFixture fixture, PoolWorker<String> worker) {
+    private static void preflightStartup(StateFixture fixture, PoolWorker<String> worker) {
         assertSame(
-                WorkerStartupCoordinator.StartupClaim.RUN,
-                fixture.state().claimStartup(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+                WorkerStartupCoordinator.StartupDecision.RUN,
+                fixture.state().preflightStartup(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
     }
 
     private static WorkerRetirement.Action<String> noOpClose() {

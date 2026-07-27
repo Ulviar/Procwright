@@ -108,8 +108,9 @@
   допустимый диапазон — от 1 до 256, значение по умолчанию — 1.
 - Разные pools и direct sessions не делят process-global worker quota; суммарное число процессов задает приложение
   количеством создаваемых ресурсов и `maxSize` каждого pool.
-- Startup и hooks имеют bounded admission; retirement processing использует fixed owner set и bounded queue с
-  caller-runs backpressure при насыщении. Эти механизмы не задают пользовательскую политику числа процессов.
+- `maxSize` ограничивает startup slots одного pool; независимые pools не делят startup admission. Ожидание hook
+  ограничено deadline, но некооперативный callback может завершиться позднее и больше не используется этим worker.
+  Retirement processing использует fixed owner set и bounded queue с caller-runs backpressure при насыщении.
 - Terminal outcome выбирается под pool monitor и публикуется после его освобождения.
 - Если создание pool падает после частичного warmup или при запуске replenishment, уже созданные workers закрываются.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
