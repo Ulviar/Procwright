@@ -152,6 +152,7 @@ final class ProtocolSessionDecoderFailureTest extends ProtocolSessionContractSup
             assertTrue(charset.awaitFatalDecoder(), "stderr decoder did not reach its controlled boundary");
             charset.releaseFatalDecoder();
             if (!responseFailureFirst) {
+                assertExitFailedWith(protocol, fatalError);
                 charset.releaseResponseDecoder();
             }
 
