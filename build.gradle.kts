@@ -3,6 +3,7 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
 import org.gradle.external.javadoc.StandardJavadocDocletOptions
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
     `java-library`
@@ -72,6 +73,18 @@ allprojects {
         extensions.configure<JavaPluginExtension> {
             sourceCompatibility = procwrightJavaVersion
             targetCompatibility = procwrightJavaVersion
+        }
+    }
+
+    pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
+        val kotlinToolingVersion =
+            extensions.getByType<KotlinJvmProjectExtension>().coreLibrariesVersion
+        dependencies.constraints.add(
+            "kotlinAbiValidationCompatClasspath",
+            "org.jetbrains.kotlin:kotlin-build-tools-impl",
+        ) {
+            version { strictly(kotlinToolingVersion) }
+            because("ABI validation must use a fixed, verified toolchain")
         }
     }
 

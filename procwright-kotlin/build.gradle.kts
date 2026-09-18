@@ -77,15 +77,6 @@ kotlin {
     abiValidation()
 }
 
-dependencies {
-    constraints {
-        add("kotlinAbiValidationCompatClasspath", "org.jetbrains.kotlin:kotlin-build-tools-impl") {
-            version { strictly("2.4.0") }
-            because("ABI validation must use a fixed, verified toolchain")
-        }
-    }
-}
-
 dokka {
     dokkaPublications.html {
         outputDirectory.set(dokkaHtmlOutput)

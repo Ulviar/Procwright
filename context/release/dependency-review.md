@@ -48,8 +48,9 @@ build-time dependency, закреплена dependency-verification SHA-256 meta
 runtime artifacts.
 
 Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2.4.0 механизмом ABI validation. Этот gate владеет точным
-списком опубликованных Kotlin JVM declarations. Его build-time toolchain закреплён на Kotlin 2.4.0 через constraint
-для `kotlinAbiValidationCompatClasspath`: диапазон по умолчанию в plugin не должен незаметно менять инструмент проверки.
+списком опубликованных Kotlin JVM declarations. Его build-time toolchain закреплён на версию Kotlin plugin через
+constraint для `kotlinAbiValidationCompatClasspath` во всех Kotlin projects, включая consumer fixture. Диапазон по
+умолчанию в plugin не должен незаметно менять инструмент проверки или результат генерации verification metadata.
 В runtime artifacts этот toolchain не попадает.
 
 ## Kotlin module
