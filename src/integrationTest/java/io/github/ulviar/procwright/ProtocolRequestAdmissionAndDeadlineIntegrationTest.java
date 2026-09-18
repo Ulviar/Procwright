@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.command.ShutdownPolicy;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReader;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -114,20 +115,22 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
         CountDownLatch releaseAdapter = new CountDownLatch(1);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (ProtocolSession<String, String> session = openProtocolSession(
-                fixtureService(),
-                new SlowAfterReadAdapter(responseRead, releaseAdapter),
-                call -> call.withArgs("controlled-line-repl"))) {
+                fixtureService(), new SlowAfterReadAdapter(responseRead, releaseAdapter), call -> call.withArgs(
+                                "controlled-line-repl")
+                        .withShutdown(
+                                ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1))))) {
             Future<Throwable> request =
                     executor.submit(() -> captureFailure(() -> session.request("hello", Duration.ofMillis(500))));
             assertTrue(responseRead.await(2, TimeUnit.SECONDS));
             ProtocolSessionException timeout =
-                    assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
+                    assertInstanceOf(ProtocolSessionException.class, request.get(10, TimeUnit.SECONDS));
 
             assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
+            assertExitFailedWith(session, timeout);
         } finally {
             releaseAdapter.countDown();
             executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 
@@ -152,25 +155,25 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
             }
         };
 
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         try (ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl"))) {
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            try {
-                Future<Throwable> request =
-                        executor.submit(() -> captureFailure(() -> session.request("hello", Duration.ofMillis(500))));
-                ProtocolSessionException timeout =
-                        assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
+                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl")
+                        .withShutdown(
+                                ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1))))) {
+            Future<Throwable> request =
+                    executor.submit(() -> captureFailure(() -> session.request("hello", Duration.ofMillis(500))));
+            ProtocolSessionException timeout =
+                    assertInstanceOf(ProtocolSessionException.class, request.get(10, TimeUnit.SECONDS));
 
-                assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
-                assertEquals(0, decoderStarted.getCount());
-                assertEquals(1, decoderFinished.getCount());
-                assertExitFailedWith(session, timeout);
-            } finally {
-                executor.shutdownNow();
-                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            }
+            assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
+            assertEquals(0, decoderStarted.getCount());
+            assertEquals(1, decoderFinished.getCount());
+            assertExitFailedWith(session, timeout);
+            assertEquals(1, decoderFinished.getCount());
         } finally {
             releaseDecoder.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             assertTrue(decoderFinished.await(1, TimeUnit.SECONDS));
             assertTaskStopped(decoderThread.get(), "protocol response decoder");
         }
@@ -196,23 +199,25 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
             }
         };
 
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         try (ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl"))) {
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            try {
-                Future<Throwable> request =
-                        executor.submit(() -> captureFailure(() -> session.request("hello", Duration.ofMillis(500))));
-                ProtocolSessionException timeout =
-                        assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
+                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl")
+                        .withShutdown(
+                                ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1))))) {
+            Future<Throwable> request =
+                    executor.submit(() -> captureFailure(() -> session.request("hello", Duration.ofMillis(500))));
+            ProtocolSessionException timeout =
+                    assertInstanceOf(ProtocolSessionException.class, request.get(10, TimeUnit.SECONDS));
 
-                assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
-                assertEquals(0, writerStarted.getCount());
-            } finally {
-                executor.shutdownNow();
-                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            }
+            assertEquals(ProtocolSessionException.Reason.TIMEOUT, timeout.reason());
+            assertEquals(0, writerStarted.getCount());
+            assertEquals(1, writerFinished.getCount());
+            assertExitFailedWith(session, timeout);
+            assertEquals(1, writerFinished.getCount());
         } finally {
             releaseWriter.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             assertTrue(writerFinished.await(1, TimeUnit.SECONDS));
             assertTaskStopped(writerThread.get(), "protocol request writer");
         }
