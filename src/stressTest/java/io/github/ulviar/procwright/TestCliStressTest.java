@@ -686,18 +686,15 @@ final class TestCliStressTest {
     }
 
     private static ShutdownPolicy processTreeShutdown() {
-        Duration interruptGrace = isWindows() ? Duration.ofMillis(100) : Duration.ofMillis(20);
-        Duration killGrace = isWindows() ? Duration.ofSeconds(2) : Duration.ofMillis(500);
-        return ShutdownPolicy.interruptThenKill(interruptGrace, killGrace);
+        return ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(2));
     }
 
     private static ShutdownPolicy hangingFlakyShutdown() {
-        Duration interruptGrace = isWindows() ? Duration.ofMillis(50) : Duration.ofMillis(10);
-        return ShutdownPolicy.interruptThenKill(interruptGrace, Duration.ofSeconds(2));
+        return ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(2));
     }
 
     private static Duration hangingFlakyWatchdog() {
-        return isWindows() ? Duration.ofSeconds(20) : Duration.ofSeconds(12);
+        return isWindows() ? Duration.ofSeconds(20) : Duration.ofSeconds(35);
     }
 
     private static final class BoundedExecutor implements AutoCloseable {

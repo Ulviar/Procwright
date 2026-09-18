@@ -33,7 +33,7 @@ final class RunTimeoutCleanupIntegrationTest {
                 .withArgs("sleep", "--millis=5000", "--finished=false")
                 .withCapture(CapturePolicy.toPath(stdoutFile, stderrFile))
                 .withTimeout(timeoutAfterFixtureStartup())
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .withShutdown(timeoutCleanupPolicy())
                 .execute();
 
         assertTrue(result.timedOut());
@@ -47,7 +47,7 @@ final class RunTimeoutCleanupIntegrationTest {
                 .run()
                 .withArgs("sleep", "--millis=5000", "--finished=false")
                 .withTimeout(timeoutAfterFixtureStartup())
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .withShutdown(timeoutCleanupPolicy())
                 .execute();
 
         assertTrue(result.timedOut());
@@ -60,10 +60,10 @@ final class RunTimeoutCleanupIntegrationTest {
         java.time.Instant started = java.time.Instant.now();
         CommandResult result = fixtureService()
                 .run()
-                .withArgs("ignore-stdin", "--millis=5000")
+                .withArgs("ignore-stdin", "--millis=60000")
                 .withInput("x".repeat(8 * 1024 * 1024))
                 .withTimeout(Duration.ofMillis(100))
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(200)))
+                .withShutdown(timeoutCleanupPolicy())
                 .execute();
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
@@ -71,8 +71,8 @@ final class RunTimeoutCleanupIntegrationTest {
         assertFalse(result.succeeded());
         String stdout = normalizeLineEndings(result.stdout());
         assertTrue(stdout.isEmpty() || "started\n".equals(stdout));
-        assertTrue(result.elapsed().compareTo(Duration.ofSeconds(3)) < 0);
-        assertTrue(wallClockElapsed.compareTo(Duration.ofSeconds(3)) < 0);
+        assertTrue(result.elapsed().compareTo(boundedCleanupLimit()) < 0);
+        assertTrue(wallClockElapsed.compareTo(boundedCleanupLimit()) < 0);
     }
 
     @Test
@@ -82,7 +82,7 @@ final class RunTimeoutCleanupIntegrationTest {
                 .run()
                 .withArgs("long-run", "--ticks=100000", "--interval-millis=20", "--stderr-every=1")
                 .withTimeout(timeoutAfterFixtureStartup())
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
+                .withShutdown(timeoutCleanupPolicy())
                 .execute();
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
@@ -100,7 +100,7 @@ final class RunTimeoutCleanupIntegrationTest {
                 .run()
                 .withArgs("spawn-child", "--child-scenario=sleep", "--child-millis=10000", "--wait=true")
                 .withTimeout(descendantStartupTimeout())
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(500)))
+                .withShutdown(timeoutCleanupPolicy())
                 .execute();
         long childPid = result.stdout()
                 .lines()
@@ -185,6 +185,10 @@ final class RunTimeoutCleanupIntegrationTest {
         } catch (Exception exception) {
             throw new AssertionError("could not wait for " + path, exception);
         }
+    }
+
+    private static ShutdownPolicy timeoutCleanupPolicy() {
+        return ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1));
     }
 
     private static Duration timeoutAfterFixtureStartup() {

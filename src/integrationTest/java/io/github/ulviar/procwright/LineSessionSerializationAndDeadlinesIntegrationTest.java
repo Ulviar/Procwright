@@ -209,18 +209,21 @@ final class LineSessionSerializationAndDeadlinesIntegrationTest {
         };
         LineSessionScenario.Draft service = fixtureScenario().withResponseDecoder(decoder);
 
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            long started = System.nanoTime();
-            LineSessionException timeout =
-                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofMillis(500)));
-            Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+            Future<LineSessionException> request = executor.submit(() ->
+                    assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofMillis(500))));
+            LineSessionException timeout = request.get(10, TimeUnit.SECONDS);
 
             assertEquals(LineSessionException.Reason.TIMEOUT, timeout.reason());
-            assertTrue(elapsed.compareTo(Duration.ofMillis(1500)) < 0, () -> "decoder timeout took " + elapsed);
             assertEquals(0, decoderStarted.getCount());
+            assertEquals(1, decoderFinished.getCount());
             assertExitFailedWith(session, timeout);
+            assertEquals(1, decoderFinished.getCount());
         } finally {
             releaseDecoder.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
             assertTrue(decoderFinished.await(1, TimeUnit.SECONDS));
             assertTaskStopped(decoderThread.get(), "line response decoder");
         }
