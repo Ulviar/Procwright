@@ -36,8 +36,9 @@ final class PooledSessionMetricsTest {
         reasons.put(PooledWorkerRetireReason.TIMEOUT, 1L);
 
         assertEquals(Map.of(PooledWorkerRetireReason.CLOSED, 1L), metrics.retireReasons());
-        assertThrows(UnsupportedOperationException.class, () -> metrics.retireReasons()
-                .put(PooledWorkerRetireReason.TIMEOUT, 1L));
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> metrics.retireReasons().put(PooledWorkerRetireReason.TIMEOUT, 1L));
     }
 
     @ParameterizedTest(name = "{1}")

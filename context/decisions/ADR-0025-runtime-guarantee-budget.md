@@ -82,7 +82,7 @@ Runtime не обязан гарантировать:
 readiness, health/reset hook, regex или listener в зависимости от сценария. Если callback не реагирует на interruption
 после deadline, его handle или worker становится terminal и не создаёт следующую callback-задачу. Daemon thread может
 остаться до фактического возврата callback. Это per-handle containment, а не глобальный memory bound, который невозможно
-честно гарантировать на Java 17 без общей admission-зависимости.
+честно гарантировать без общей admission-зависимости, в том числе при использовании virtual threads.
 
 Abandonment после deadline является logical settlement request callback и не ожидает его физического возврата. Выбранная
 request failure может быть возвращена после такого settlement; terminal future всего scenario публикуется только после

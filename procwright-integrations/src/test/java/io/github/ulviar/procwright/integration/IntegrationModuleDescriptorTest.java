@@ -26,7 +26,7 @@ final class IntegrationModuleDescriptorTest {
                         .map(ModuleDescriptor.Exports::source)
                         .collect(java.util.stream.Collectors.toUnmodifiableSet()));
         assertTransitiveRequirement(descriptor, "io.github.ulviar.procwright");
-        assertTransitiveRequirement(descriptor, "com.fasterxml.jackson.databind");
+        assertTransitiveRequirement(descriptor, "tools.jackson.databind");
         assertStaticTransitiveRequirement(descriptor, "org.jspecify");
     }
 

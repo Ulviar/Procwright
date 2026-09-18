@@ -25,7 +25,7 @@ public final class BoundedFailureReporter {
 
     private static final BoundedFailureReporter SHARED =
             new BoundedFailureReporter(SHARED_WORKER_CAPACITY, SHARED_QUEUE_CAPACITY);
-    private static final ThreadLocal<NotificationTarget> NOTIFICATION_TARGET = new ThreadLocal<>();
+    private static final ScopedValue<NotificationTarget> NOTIFICATION_TARGET = ScopedValue.newInstance();
 
     private final BoundedIsolatedTaskDispatcher dispatcher;
     private final Object settlementMonitor = new Object();
@@ -65,7 +65,7 @@ public final class BoundedFailureReporter {
 
     /** Captures the current notification destination before its source thread can terminate. */
     public static FailureTarget captureFailureTarget() {
-        NotificationTarget inherited = NOTIFICATION_TARGET.get();
+        NotificationTarget inherited = NOTIFICATION_TARGET.isBound() ? NOTIFICATION_TARGET.get() : null;
         NotificationTarget target = inherited == null ? targetFor(Thread.currentThread()) : inherited;
         return new FailureTarget(target);
     }
@@ -95,13 +95,15 @@ public final class BoundedFailureReporter {
             boolean accepted = dispatcher.executeRequeueing(
                     "procwright-failure-report-",
                     () -> {
-                        NOTIFICATION_TARGET.set(target);
                         try {
-                            callback.run();
-                        } catch (Throwable failure) {
-                            target.report(failure);
+                            ScopedValue.where(NOTIFICATION_TARGET, target).run(() -> {
+                                try {
+                                    callback.run();
+                                } catch (Throwable failure) {
+                                    target.report(failure);
+                                }
+                            });
                         } finally {
-                            NOTIFICATION_TARGET.remove();
                             settlement.complete();
                         }
                         return false;
@@ -152,7 +154,7 @@ public final class BoundedFailureReporter {
     }
 
     public static Thread notificationSourceThread() {
-        NotificationTarget target = NOTIFICATION_TARGET.get();
+        NotificationTarget target = NOTIFICATION_TARGET.isBound() ? NOTIFICATION_TARGET.get() : null;
         return target == null ? Thread.currentThread() : target.source().detachedThread();
     }
 
@@ -160,21 +162,11 @@ public final class BoundedFailureReporter {
     public static void withFailureTarget(FailureTarget failureTarget, Runnable task) {
         Objects.requireNonNull(failureTarget, "failureTarget");
         Objects.requireNonNull(task, "task");
-        NotificationTarget previous = NOTIFICATION_TARGET.get();
-        NOTIFICATION_TARGET.set(failureTarget.target);
-        try {
-            task.run();
-        } finally {
-            if (previous == null) {
-                NOTIFICATION_TARGET.remove();
-            } else {
-                NOTIFICATION_TARGET.set(previous);
-            }
-        }
+        ScopedValue.where(NOTIFICATION_TARGET, failureTarget.target).run(task);
     }
 
     private static NotificationTarget targetFor(Thread sourceThread) {
-        NotificationTarget inherited = NOTIFICATION_TARGET.get();
+        NotificationTarget inherited = NOTIFICATION_TARGET.isBound() ? NOTIFICATION_TARGET.get() : null;
         if (inherited != null) {
             return inherited;
         }
@@ -276,8 +268,11 @@ public final class BoundedFailureReporter {
         }
 
         private Thread detachedThread() {
-            Thread detached = new Thread(null, () -> {}, name, 0, false);
-            detached.setDaemon(daemon);
+            Thread detached = Thread.ofPlatform()
+                    .inheritInheritableThreadLocals(false)
+                    .name(name)
+                    .daemon(daemon)
+                    .unstarted(() -> {});
             detached.setContextClassLoader(contextClassLoader);
             detached.setPriority(priority);
             return detached;

@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.terminal;
 
+import io.github.ulviar.procwright.internal.DurationSupport;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
@@ -14,7 +15,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 final class PtyLaunchAdmission {
@@ -98,7 +98,7 @@ final class PtyLaunchAdmission {
         private final AtomicBoolean cleanupStarted = new AtomicBoolean();
 
         private Context(Duration timeout) {
-            deadline = addSaturated(System.nanoTime(), timeout.toNanos());
+            deadline = DurationSupport.deadlineFromNow(timeout);
         }
 
         void registerProcess(Process launched) throws IOException, InterruptedException {
@@ -179,19 +179,15 @@ final class PtyLaunchAdmission {
         }
     }
 
-    private static long addSaturated(long value, long addition) {
-        try {
-            return Math.addExact(value, addition);
-        } catch (ArithmeticException ignored) {
-            return Long.MAX_VALUE;
-        }
-    }
-
-    private static ThreadPoolExecutor executor() {
-        AtomicLong sequence = new AtomicLong();
+    static ThreadPoolExecutor executor() {
+        ThreadFactory platformFactory = Thread.ofPlatform()
+                .daemon(true)
+                .inheritInheritableThreadLocals(false)
+                .name("procwright-pty-launch-", 1L)
+                .factory();
         ThreadFactory factory = task -> {
-            Thread thread = new Thread(task, "procwright-pty-launch-" + sequence.incrementAndGet());
-            thread.setDaemon(true);
+            Thread thread = platformFactory.newThread(task);
+            thread.setContextClassLoader(PtyLaunchAdmission.class.getClassLoader());
             return thread;
         };
         ThreadPoolExecutor executor = new ThreadPoolExecutor(

@@ -1,10 +1,9 @@
 # Getting started
 
-Procwright requires Java 17 or newer. Until the planned `0.1.0` release is published, install it from this checkout:
+Procwright requires Java 25. Until the planned `0.1.0` release is published, install it from this checkout:
 
 ```shell
 ./gradlew publishToMavenLocal \
-  --project-prop=procwright.javaRelease=17 \
   --project-prop=procwright.version=0.1.0 \
   --no-daemon
 ```

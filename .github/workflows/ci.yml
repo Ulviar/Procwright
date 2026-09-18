@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify Java 17 artifact on Java ${{ matrix.java-runtime }} / ${{ matrix.os }}
+    name: Verify Java 25 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions:
@@ -25,64 +25,53 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            java-runtime: 17
-            verification: regressionCheck spotlessCheck
+            verification: regressionCheck spotlessCheck publicationStructureCheck :procwright-kotlin:kotlinJSpecifyStrictnessCheck
           - os: macos-latest
-            java-runtime: 17
             verification: scenarioCheck
           - os: windows-2025
-            java-runtime: 17
-            verification: scenarioCheck
-          - os: ubuntu-24.04
-            java-runtime: 21
-            verification: scenarioCheck
-          - os: ubuntu-24.04
-            java-runtime: 25
             verification: scenarioCheck
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up JDK ${{ matrix.java-runtime }}
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: ${{ matrix.java-runtime }}
+          java-version: "25.0.4.1+1"
 
       # Provides build caching and validates Gradle wrapper jars automatically.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Verify system PTY prerequisites
-        if: runner.os != 'Windows' && matrix.java-runtime == 17
+        if: runner.os != 'Windows'
         run: command -v script && command -v stty && command -v env && command -v dd
 
       - name: Verify Unix
         if: runner.os != 'Windows'
-        run: ./gradlew ${{ matrix.verification }} --project-prop=procwright.javaRelease=17 --no-daemon
+        run: ./gradlew ${{ matrix.verification }} --no-daemon
         env:
-          ORG_GRADLE_PROJECT_procwright.requireSystemPty: ${{ runner.os != 'Windows' && matrix.java-runtime == 17 }}
+          ORG_GRADLE_PROJECT_procwright.requireSystemPty: ${{ runner.os != 'Windows' }}
 
       - name: Verify Windows
         if: runner.os == 'Windows'
-        run: .\gradlew.bat ${{ matrix.verification }} --project-prop=procwright.javaRelease=17 --no-daemon
+        run: .\gradlew.bat ${{ matrix.verification }} --no-daemon
 
       - name: Publication smoke Unix
-        if: matrix.os == 'ubuntu-24.04' && matrix.java-runtime == 17
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           set -euo pipefail
           repository="${RUNNER_TEMP}/procwright-m2"
           ./gradlew publishToMavenLocal \
             -Dmaven.repo.local="${repository}" \
-            --project-prop=procwright.javaRelease=17 \
             --project-prop=procwright.version=0.1.0 \
             --no-daemon
           ./gradlew \
             :procwright-consumer-examples:test \
             :procwright-integrations-consumer-example:check \
             :procwright-kotlin-consumer-example:check \
-            --project-prop=procwright.javaRelease=17 \
             --project-prop=procwright.consumerVersion=0.1.0 \
             --project-prop=procwright.consumerRepository="${repository}" \
             --dependency-verification=off \
@@ -93,7 +82,6 @@ jobs:
             :procwright-consumer-examples:test \
             :procwright-integrations-consumer-example:check \
             :procwright-kotlin-consumer-example:check \
-            --project-prop=procwright.javaRelease=17 \
             --project-prop=procwright.consumerVersion=0.1.0 \
             --project-prop=procwright.consumerRepository="${repository}" \
             --project-prop=procwright.consumerPomOnly=true \
@@ -106,47 +94,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: failed-tests-${{ matrix.os }}-java-${{ matrix.java-runtime }}
-          path: |
-            **/build/test-results/**
-            **/build/reports/tests/**
-          if-no-files-found: ignore
-          retention-days: 7
-
-  source-variants:
-    name: Verify source target Java ${{ matrix.java-release }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        java-release:
-          - 21
-          - 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up JDK ${{ matrix.java-release }}
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
-        with:
-          distribution: temurin
-          java-version: ${{ matrix.java-release }}
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
-
-      - name: Verify source variant
-        run: ./gradlew scenarioCheck --project-prop=procwright.javaRelease=${{ matrix.java-release }} --no-daemon
-
-      - name: Upload failed test reports
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: failed-tests-source-java-${{ matrix.java-release }}
+          name: failed-tests-${{ matrix.os }}-java-25
           path: |
             **/build/test-results/**
             **/build/reports/tests/**
@@ -164,27 +112,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: "17.0.19+10"
+          java-version: "25.0.4.1+1"
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.14
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13.14"
+          python-version: "3.14.7"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
-          version: "0.10.12"
+          version: "0.12.17"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Build docs site in strict mode
-        run: ./gradlew publicDocsCheck --project-prop=procwright.javaRelease=17 --no-daemon
+        run: ./gradlew publicDocsCheck --no-daemon
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -196,7 +144,6 @@ jobs:
     name: Deploy documentation
     needs:
       - verify
-      - source-variants
       - docs
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -211,4 +158,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

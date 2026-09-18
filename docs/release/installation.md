@@ -1,6 +1,6 @@
 # Installation
 
-No public release exists yet. Use Java 17 or newer; release artifacts target Java 17.
+No public release exists yet. Use JDK 25 to build and run Procwright; all release artifacts target Java 25.
 
 !!! note "No public repository yet"
     Install the planned `0.1.0` artifacts from the Procwright checkout with the exact command below. After the artifacts
@@ -9,7 +9,6 @@ No public release exists yet. Use Java 17 or newer; release artifacts target Jav
 
 ```shell
 ./gradlew publishToMavenLocal \
-  --project-prop=procwright.javaRelease=17 \
   --project-prop=procwright.version=0.1.0 \
   --no-daemon
 ```
@@ -53,7 +52,7 @@ Maven:
 </dependency>
 ```
 
-The six exported core packages are `@NullMarked` with JSpecify 1.0.0. Build tools receive JSpecify as published API
+The six exported core packages are `@NullMarked` with JSpecify 1.0.1. Build tools receive JSpecify as published API
 metadata so Kotlin and other nullness-aware consumers can enforce the contract; the core runtime itself still has no
 dependency outside the JDK. On the module path, core declares `requires static transitive org.jspecify`.
 
@@ -61,7 +60,7 @@ dependency outside the JDK. On the module path, core declares `requires static t
 
 Use `procwright-kotlin` for Kotlin duration, coroutine, Flow, and adapter-factory extensions. Use
 `procwright-integrations` for JSON and byte-framing protocol adapters.
-`procwright-integrations` exposes `jackson-databind:2.22.0` transitively because Jackson types are part of its public
+`procwright-integrations` exposes `tools.jackson.core:jackson-databind:3.2.2` transitively because Jackson 3 types (`tools.jackson.databind.JsonNode`) are part of its public
 adapter API. Check your dependency constraints before adding it to an application that manages a different Jackson version.
 
 The Kotlin artifact is the explicit JPMS module `io.github.ulviar.procwright.kotlin`. A named consumer needs only

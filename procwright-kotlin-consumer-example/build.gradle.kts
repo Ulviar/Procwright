@@ -1,9 +1,6 @@
 import org.gradle.api.tasks.bundling.Jar
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins { id("org.jetbrains.kotlin.jvm") }
-
-val procwrightJavaRelease = rootProject.extra["procwrightJavaRelease"] as Int
 
 dependencies {
     val consumerVersion = providers.gradleProperty("procwright.consumerVersion").orNull
@@ -21,15 +18,6 @@ kotlin {
         kotlin.srcDir(rootProject.layout.projectDirectory.dir("docs/examples/kotlin"))
     }
     compilerOptions {
-        jvmTarget.set(
-            when (procwrightJavaRelease) {
-                17 -> JvmTarget.JVM_17
-                21 -> JvmTarget.JVM_21
-                25 -> JvmTarget.JVM_25
-                else ->
-                    throw GradleException("Unsupported Kotlin JVM target $procwrightJavaRelease")
-            }
-        )
         freeCompilerArgs.add("-Xjspecify-annotations=strict")
     }
 }

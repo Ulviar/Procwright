@@ -133,8 +133,9 @@ final class StreamScenarioIntegrationTest {
                 .open()) {
             assertTrue(
                     listenerInvoked.await(2, TimeUnit.SECONDS), "the never-exiting fixture did not reach the listener");
-            ExecutionException exception = assertThrows(ExecutionException.class, () -> session.onExit()
-                    .get(exitWaitTimeout().toSeconds(), TimeUnit.SECONDS));
+            ExecutionException exception = assertThrows(
+                    ExecutionException.class,
+                    () -> session.onExit().get(exitWaitTimeout().toSeconds(), TimeUnit.SECONDS));
 
             assertSame(listenerFailure, exception.getCause());
             assertTrue(

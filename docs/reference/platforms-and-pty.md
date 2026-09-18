@@ -1,7 +1,7 @@
 # Platforms and terminal support
 
-Published artifacts target Java 17 and run on Java 17 or newer. Internal threading may differ by runtime version without
-changing public API behavior.
+Published artifacts target and require Java 25. Lifecycle tasks use virtual threads. Bounded isolation workers use
+platform threads where blocked provider calls must retain their capacity until they actually finish.
 
 Ordinary direct-process scenarios use the JDK process API on macOS, Linux, and Windows. Shell commands remain platform
 specific.

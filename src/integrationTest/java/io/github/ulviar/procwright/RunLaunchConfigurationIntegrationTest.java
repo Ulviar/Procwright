@@ -89,10 +89,12 @@ final class RunLaunchConfigurationIntegrationTest {
 
     @Test
     void invalidEnvironmentValueDoesNotExposeRawValue() {
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> fixtureService()
-                .run()
-                .withEnvironment("SECRET_VALUE", "hidden\0value")
-                .execute());
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> fixtureService()
+                        .run()
+                        .withEnvironment("SECRET_VALUE", "hidden\0value")
+                        .execute());
 
         assertFalse(exception.getMessage().contains("hidden"));
     }

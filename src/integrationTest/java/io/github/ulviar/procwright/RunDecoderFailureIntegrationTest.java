@@ -30,24 +30,29 @@ final class RunDecoderFailureIntegrationTest {
 
     @Test
     void truncatedDecodeRejectsOverflowWithoutInputOrOutputProgress() {
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=4142")
-                .withCapture(CapturePolicy.bounded(1))
-                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(OverflowBehavior.NO_PROGRESS)))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=4142")
+                        .withCapture(CapturePolicy.bounded(1))
+                        .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(OverflowBehavior.NO_PROGRESS)))
+                        .execute());
 
         assertDecodeFailureRetainsCapturedPrefix(exception);
     }
 
     @Test
     void truncatedDecodeBoundsOutputProducedWithoutConsumingInput() {
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=4142")
-                .withCapture(CapturePolicy.bounded(1))
-                .withCharsetPolicy(CharsetPolicy.report(new OverflowProbeCharset(OverflowBehavior.PRODUCE_OUTPUT)))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=4142")
+                        .withCapture(CapturePolicy.bounded(1))
+                        .withCharsetPolicy(
+                                CharsetPolicy.report(new OverflowProbeCharset(OverflowBehavior.PRODUCE_OUTPUT)))
+                        .execute());
 
         assertDecodeFailureRetainsCapturedPrefix(exception);
     }
@@ -56,12 +61,14 @@ final class RunDecoderFailureIntegrationTest {
     void decoderCreationRuntimeFailureIsTypedAndRetainsResult() {
         IllegalStateException decoderFailure = new IllegalStateException("decoder creation failed");
 
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=41")
-                .withCharsetPolicy(
-                        CharsetPolicy.report(new FailingCharset(DecoderFailureStage.NEW_DECODER, decoderFailure)))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=41")
+                        .withCharsetPolicy(CharsetPolicy.report(
+                                new FailingCharset(DecoderFailureStage.NEW_DECODER, decoderFailure)))
+                        .execute());
 
         assertTypedDecodeFailure(exception, decoderFailure);
     }
@@ -70,12 +77,14 @@ final class RunDecoderFailureIntegrationTest {
     void decoderConfigurationRuntimeFailureIsTypedAndRetainsResult() {
         IllegalStateException decoderFailure = new IllegalStateException("decoder configuration failed");
 
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=41")
-                .withCharsetPolicy(
-                        CharsetPolicy.report(new FailingCharset(DecoderFailureStage.CONFIGURE, decoderFailure)))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=41")
+                        .withCharsetPolicy(
+                                CharsetPolicy.report(new FailingCharset(DecoderFailureStage.CONFIGURE, decoderFailure)))
+                        .execute());
 
         assertTypedDecodeFailure(exception, decoderFailure);
     }
@@ -84,11 +93,14 @@ final class RunDecoderFailureIntegrationTest {
     void decoderMalfunctionDuringDecodeIsTypedAndRetainsResult() {
         CoderMalfunctionError decoderFailure = new CoderMalfunctionError(new IllegalStateException("decode failed"));
 
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=41")
-                .withCharsetPolicy(CharsetPolicy.report(new FailingCharset(DecoderFailureStage.DECODE, decoderFailure)))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=41")
+                        .withCharsetPolicy(
+                                CharsetPolicy.report(new FailingCharset(DecoderFailureStage.DECODE, decoderFailure)))
+                        .execute());
 
         assertTypedDecodeFailure(exception, decoderFailure);
     }
@@ -97,11 +109,14 @@ final class RunDecoderFailureIntegrationTest {
     void decoderMalfunctionDuringFlushIsTypedAndRetainsResult() {
         CoderMalfunctionError decoderFailure = new CoderMalfunctionError(new IllegalStateException("flush failed"));
 
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=41")
-                .withCharsetPolicy(CharsetPolicy.report(new FailingCharset(DecoderFailureStage.FLUSH, decoderFailure)))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=41")
+                        .withCharsetPolicy(
+                                CharsetPolicy.report(new FailingCharset(DecoderFailureStage.FLUSH, decoderFailure)))
+                        .execute());
 
         assertTypedDecodeFailure(exception, decoderFailure);
     }
@@ -110,12 +125,14 @@ final class RunDecoderFailureIntegrationTest {
     void decoderErrorOutsideTypedBoundaryPreservesIdentity() {
         AssertionError decoderFailure = new AssertionError("decoder failed irrecoverably");
 
-        AssertionError thrown = assertThrows(AssertionError.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=41")
-                .withCharsetPolicy(
-                        CharsetPolicy.report(new FailingCharset(DecoderFailureStage.NEW_DECODER, decoderFailure)))
-                .execute());
+        AssertionError thrown = assertThrows(
+                AssertionError.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=41")
+                        .withCharsetPolicy(CharsetPolicy.report(
+                                new FailingCharset(DecoderFailureStage.NEW_DECODER, decoderFailure)))
+                        .execute());
 
         assertSame(decoderFailure, thrown);
     }

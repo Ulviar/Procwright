@@ -44,7 +44,7 @@ final class WorkflowPolicyTest {
                     Map<String, String> expected = "deploy-docs".equals(entry.getKey()) ? PAGES_DEPLOY : READ_ONLY;
                     assertEquals(expected, permissions, workflow + " permissions for " + entry.getKey());
                     if ("deploy-docs".equals(entry.getKey())) {
-                        assertEquals(List.of("verify", "source-variants", "docs"), job.get("needs"));
+                        assertEquals(List.of("verify", "docs"), job.get("needs"));
                         assertEquals(
                                 "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'",
                                 job.get("if"));

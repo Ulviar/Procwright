@@ -22,5 +22,5 @@ need, configure its immutable Draft with `with*` methods, then call `execute()` 
 | Consume output as it arrives | [`listen`](scenarios/streaming.md) |
 | Reuse initialized workers | [pooling](scenarios/pooling.md) |
 
-The planned first release is `0.1.0`. It targets Java 17 and runs on Java 17 or newer. No public artifact has been
+The planned first release is `0.1.0`. It targets and requires Java 25. No public artifact has been
 published yet; [installation](release/installation.md) uses Maven Local from this checkout.

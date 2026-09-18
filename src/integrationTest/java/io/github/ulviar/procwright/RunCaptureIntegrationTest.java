@@ -169,11 +169,13 @@ final class RunCaptureIntegrationTest {
     void fileCaptureWithSeparateOutputRejectsMergedSinglePathEarly(@TempDir Path directory) {
         Path mergedFile = directory.resolve("merged.log");
 
-        assertThrows(IllegalArgumentException.class, () -> fixtureService()
-                .run()
-                .withArgs("exit")
-                .withCapture(CapturePolicy.toPath(mergedFile))
-                .execute());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("exit")
+                        .withCapture(CapturePolicy.toPath(mergedFile))
+                        .execute());
         assertFalse(java.nio.file.Files.exists(mergedFile));
     }
 

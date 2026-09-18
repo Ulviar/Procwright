@@ -33,10 +33,12 @@ final class LineSessionReadinessAndAdmissionIntegrationTest {
 
     @Test
     void readinessProbeRunsBeforeLineSessionIsReturned() {
-        try (LineSession session = openLineSession(fixtureScenario(), call -> call.withArgs("controlled-line-repl")
-                .withReadiness(ready ->
-                        assertEquals("response:healthy", ready.request("health").text()))
-                .withReadinessTimeout(Duration.ofSeconds(2)))) {
+        try (LineSession session = openLineSession(
+                fixtureScenario(),
+                call -> call.withArgs("controlled-line-repl")
+                        .withReadiness(ready -> assertEquals(
+                                "response:healthy", ready.request("health").text()))
+                        .withReadinessTimeout(Duration.ofSeconds(2)))) {
             LineResponse response = session.request("hello");
 
             assertEquals("response:hello", response.text());
@@ -47,11 +49,13 @@ final class LineSessionReadinessAndAdmissionIntegrationTest {
     void readinessFailureClosesLineSessionBeforeReturn() {
         CommandExecutionException exception = assertThrows(
                 CommandExecutionException.class,
-                () -> openLineSession(fixtureScenario(), call -> call.withArgs("controlled-line-repl")
-                        .withReadiness(ready -> {
-                            throw new IllegalStateException("not ready");
-                        })
-                        .withReadinessTimeout(Duration.ofSeconds(2))));
+                () -> openLineSession(
+                        fixtureScenario(),
+                        call -> call.withArgs("controlled-line-repl")
+                                .withReadiness(ready -> {
+                                    throw new IllegalStateException("not ready");
+                                })
+                                .withReadinessTimeout(Duration.ofSeconds(2))));
 
         assertEquals(CommandExecutionException.Reason.READINESS_FAILED, exception.reason());
     }

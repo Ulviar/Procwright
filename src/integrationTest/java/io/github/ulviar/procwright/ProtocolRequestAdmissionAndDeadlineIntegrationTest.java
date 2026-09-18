@@ -115,8 +115,9 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
         CountDownLatch releaseAdapter = new CountDownLatch(1);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (ProtocolSession<String, String> session = openProtocolSession(
-                fixtureService(), new SlowAfterReadAdapter(responseRead, releaseAdapter), call -> call.withArgs(
-                                "controlled-line-repl")
+                fixtureService(),
+                new SlowAfterReadAdapter(responseRead, releaseAdapter),
+                call -> call.withArgs("controlled-line-repl")
                         .withShutdown(
                                 ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1))))) {
             Future<Throwable> request =
@@ -156,8 +157,10 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
         };
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
-        try (ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl")
+        try (ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("controlled-line-repl")
                         .withShutdown(
                                 ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1))))) {
             Future<Throwable> request =
@@ -200,8 +203,10 @@ final class ProtocolRequestAdmissionAndDeadlineIntegrationTest {
         };
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
-        try (ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl")
+        try (ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("controlled-line-repl")
                         .withShutdown(
                                 ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1))))) {
             Future<Throwable> request =

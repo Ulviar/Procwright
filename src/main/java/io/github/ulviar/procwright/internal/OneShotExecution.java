@@ -146,20 +146,18 @@ final class OneShotExecution {
     }
 
     private ProcessCompletion settleProcess(OneShotSupervision.Signal signal) {
-        if (signal instanceof OneShotSupervision.StdinFailure stdinFailure) {
-            throwStdinFailure(stdinFailure.failure());
-        }
-        if (signal instanceof OneShotSupervision.OutputFailure outputFailure) {
-            throw outputFailure(outputFailure.failure());
-        }
-        if (signal instanceof OneShotSupervision.TimedOut) {
-            return settleTimeout(OptionalInt.empty());
-        }
-        OptionalInt exitCode = OptionalInt.of(process.exitValue());
-        if (stdinWriter != null) {
-            stdinWriter.cancel(true);
-        }
-        return new ProcessCompletion(exitCode, false);
+        return switch (signal) {
+            case OneShotSupervision.StdinFailure(var failure) -> throw stdinFailure(failure);
+            case OneShotSupervision.OutputFailure(var failure) -> throw outputFailure(failure);
+            case OneShotSupervision.TimedOut _ -> settleTimeout(OptionalInt.empty());
+            case OneShotSupervision.ProcessExited _ -> {
+                OptionalInt exitCode = OptionalInt.of(process.exitValue());
+                if (stdinWriter != null) {
+                    stdinWriter.cancel(true);
+                }
+                yield new ProcessCompletion(exitCode, false);
+            }
+        };
     }
 
     private void captureOutput(ProcessCompletion completion) {
@@ -376,15 +374,15 @@ final class OneShotExecution {
         return new CommandExecutionException("Could not capture command output", failure);
     }
 
-    private static void throwStdinFailure(Throwable failure) {
+    private static RuntimeException stdinFailure(Throwable failure) {
         if (failure instanceof Error error) {
             throw error;
         }
         if (failure instanceof CommandExecutionException commandFailure
                 && commandFailure.reason() == CommandExecutionException.Reason.RUNTIME_FAILURE) {
-            throw commandFailure;
+            return commandFailure;
         }
-        throw new CommandExecutionException(
+        return new CommandExecutionException(
                 CommandExecutionException.Reason.RUNTIME_FAILURE, "Could not write command stdin", failure);
     }
 

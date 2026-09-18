@@ -116,10 +116,9 @@ final class TestCliApplicationTest {
             assertTrue(worker.isAlive(), "binary fixture must hold after flushing its raw bytes");
         } finally {
             worker.interrupt();
-            worker.join(Duration.ofSeconds(1).toMillis());
+            assertTrue(worker.join(Duration.ofSeconds(1)));
         }
 
-        assertTrue(!worker.isAlive());
         assertTrue(failure.get() instanceof InterruptedException);
         assertArrayEquals(new byte[] {'A', '\r', 'B'}, stdout.toByteArray());
     }

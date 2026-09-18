@@ -242,7 +242,7 @@
 - real shell проходит под Unix `script(1)` provider;
 - terminal size передается в `PtyRequest` и системный provider выставляет `LINES`/`COLUMNS` плюс делает best-effort `stty`;
 - `Session.sendSignal(TerminalSignal.INTERRUPT)` проверен как Ctrl+C-style mapping под PTY.
-- Linux/JDK 17 CI job требует доступный system PTY и фактическое выполнение PTY tests; остальные платформы могут
+- Linux/macOS JDK 25 CI job требует доступный system PTY и фактическое выполнение PTY tests; остальные платформы могут
   использовать assumptions для unsupported capability.
 
 Ограничения текущего среза:
@@ -271,5 +271,5 @@
 - session shutdown escalation hardening закрыт тестом
   `RunShutdownEscalationIntegrationTest.shutdownEscalationForceKillsProcessThatSurvivesInterruptSignal` через общий
   shutdown helper `ProcessLifecycle.stop`;
-- Java 17-targeted build проходит scenario checks на Linux, macOS и Windows с JDK 17, а также на Linux с JDK 21/25;
-  source targets 21/25 отдельно проходят scenario checks на соответствующих Linux/JDK.
+- Java 25 build проходит scenario checks на Linux, macOS и Windows; все три published JAR содержат только
+  stable Java 25 bytecode, а Gradle library variants требуют JVM 25.

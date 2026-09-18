@@ -96,8 +96,9 @@ final class SessionProcessCleanupTest {
             Future<Throwable> failingCleanup = executor.submit(cleanup::stopAfterFailure);
 
             observed = failingCleanup.get(1, TimeUnit.SECONDS);
-            ExecutionException repeated = assertThrows(ExecutionException.class, () -> executor.submit(cleanup::stop)
-                    .get(1, TimeUnit.SECONDS));
+            ExecutionException repeated = assertThrows(
+                    ExecutionException.class,
+                    () -> executor.submit(cleanup::stop).get(1, TimeUnit.SECONDS));
             assertSame(observed, repeated.getCause());
         } finally {
             executor.shutdownNow();

@@ -45,8 +45,9 @@ final class PoolMetricsTest {
         assertEquals(11, snapshot.totalWorkerStartupNanos());
         assertEquals(1, snapshot.retireReasons().get(PooledWorkerRetireReason.AGE));
         assertEquals(1, snapshot.retireReasons().get(PooledWorkerRetireReason.HEALTH_FAILED));
-        assertThrows(UnsupportedOperationException.class, () -> snapshot.retireReasons()
-                .put(PooledWorkerRetireReason.CLOSED, 1L));
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> snapshot.retireReasons().put(PooledWorkerRetireReason.CLOSED, 1L));
     }
 
     @Test

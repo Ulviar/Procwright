@@ -55,10 +55,10 @@ public final class FailureAggregation {
             return selectedPrimary;
         }
         Objects.requireNonNull(message, "message");
-        return switch (type(selectedPrimary)) {
-            case ERROR -> new AggregateError(message, selectedPrimary, unique);
-            case RUNTIME -> new AggregateRuntimeException(message, selectedPrimary, unique);
-            case CHECKED -> new AggregateException(message, selectedPrimary, unique);
+        return switch (selectedPrimary) {
+            case Error _ -> new AggregateError(message, selectedPrimary, unique);
+            case RuntimeException _ -> new AggregateRuntimeException(message, selectedPrimary, unique);
+            default -> new AggregateException(message, selectedPrimary, unique);
         };
     }
 
@@ -99,19 +99,6 @@ public final class FailureAggregation {
             }
         }
         return false;
-    }
-
-    private static FailureType type(Throwable failure) {
-        if (failure instanceof Error) {
-            return FailureType.ERROR;
-        }
-        return failure instanceof RuntimeException ? FailureType.RUNTIME : FailureType.CHECKED;
-    }
-
-    private enum FailureType {
-        CHECKED,
-        RUNTIME,
-        ERROR
     }
 
     private interface AggregateFailure {

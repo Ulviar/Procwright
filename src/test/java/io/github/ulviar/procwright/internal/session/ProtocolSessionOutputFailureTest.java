@@ -156,9 +156,9 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
             @Override
             public String readResponse(ProtocolReaders readers) {
                 for (int attempt = 0; attempt < 10_000; attempt++) {
-                    ProtocolSessionException observed =
-                            assertThrows(ProtocolSessionException.class, () -> readers.stderr()
-                                    .readByte());
+                    ProtocolSessionException observed = assertThrows(
+                            ProtocolSessionException.class,
+                            () -> readers.stderr().readByte());
                     ProtocolSessionException first =
                             firstObserved.updateAndGet(existing -> existing == null ? observed : existing);
                     assertSame(first, observed);

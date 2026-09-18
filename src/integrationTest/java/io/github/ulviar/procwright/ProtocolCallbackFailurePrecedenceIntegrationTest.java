@@ -38,9 +38,10 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 return "fallback";
             }
         };
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("ignore-stdin", "--millis=5000")
-                        .withMaxRequestBytes(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("ignore-stdin", "--millis=5000").withMaxRequestBytes(1));
         try {
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> session.request("too-large"));
@@ -75,9 +76,10 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 return "fallback";
             }
         };
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("ignore-stdin", "--millis=5000")
-                        .withMaxRequestBytes(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("ignore-stdin", "--millis=5000").withMaxRequestBytes(1));
         try {
             ProtocolSessionException failure =
                     assertThrows(ProtocolSessionException.class, () -> session.request("too-large"));
@@ -114,9 +116,11 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 }
             }
         };
-        ProtocolSession<String, String> session = openProtocolSession(fixtureService(), adapter, call -> call.withArgs(
-                        "partial", "--stdout=ab\n", "--stderr=", "--hold-millis=5000")
-                .withMaxResponseChars(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("partial", "--stdout=ab\n", "--stderr=", "--hold-millis=5000")
+                        .withMaxResponseChars(1));
         try {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
@@ -149,9 +153,11 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 }
             }
         };
-        ProtocolSession<String, String> session = openProtocolSession(fixtureService(), adapter, call -> call.withArgs(
-                        "partial", "--stdout=ab\n", "--stderr=", "--hold-millis=5000")
-                .withMaxResponseChars(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("partial", "--stdout=ab\n", "--stderr=", "--hold-millis=5000")
+                        .withMaxResponseChars(1));
         try {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
@@ -187,9 +193,11 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 }
             }
         };
-        ProtocolSession<String, String> session = openProtocolSession(fixtureService(), adapter, call -> call.withArgs(
-                        "partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
-                .withMaxResponseBytes(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
+                        .withMaxResponseBytes(1));
         try {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
@@ -223,9 +231,11 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 }
             }
         };
-        ProtocolSession<String, String> session = openProtocolSession(fixtureService(), adapter, call -> call.withArgs(
-                        "partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
-                .withMaxResponseBytes(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
+                        .withMaxResponseBytes(1));
         try {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 

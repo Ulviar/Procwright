@@ -11,7 +11,7 @@ release, поэтому способ загрузки в registry, signing и re
 - `procwright`, `procwright-integrations` и `procwright-kotlin` имеют стабильные coordinates и Maven publications;
 - все три publication содержат sources, API documentation и обязательные POM metadata; это проверяет
   `publicationStructureCheck` без привязки к remote registry;
-- public artifacts собираются с Java 17 target;
+- public artifacts собираются с Java 25 target и требуют JVM 25 в Gradle metadata;
 - CI публикует все три модуля в изолированный Maven Local repository и запускает внешние Java, Kotlin и integrations
   consumers через Gradle metadata и принудительный Maven POM-only resolution;
 - Public package/scenario surface, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
@@ -19,7 +19,7 @@ release, поэтому способ загрузки в registry, signing и re
 Агрегирующая локальная проверка:
 
 ```bash
-./gradlew publicationReadinessCheck --project-prop=procwright.javaRelease=17
+./gradlew publicationReadinessCheck
 ```
 
 Она доказывает согласованность исходников, API и документации. Maven publication metadata отдельно доказывает CI

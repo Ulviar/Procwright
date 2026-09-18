@@ -2,14 +2,14 @@
 
 package io.github.ulviar.procwright.consumer.integrations;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.BooleanNode;
-import com.fasterxml.jackson.databind.node.TextNode;
 import io.github.ulviar.procwright.CommandService;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.ProtocolSessionScenario;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.integration.ProtocolAdapters;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.BooleanNode;
+import tools.jackson.databind.node.StringNode;
 
 final class IntegrationsConsumer {
 
@@ -56,13 +56,13 @@ final class IntegrationsConsumer {
     static ProtocolSessionScenario.Draft<String, String> typedJsonSession(String executable) {
         return command(executable)
                 .protocolSession(ProtocolAdapters.typedJson(
-                        TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.jsonLines(1024)));
+                        StringNode::valueOf, JsonNode::stringValue, ProtocolAdapters.jsonLines(1024)));
     }
 
     static ProtocolSessionScenario.PoolDraft<String, String> typedJsonPool(String executable) {
         return command(executable)
                 .protocolSession(ProtocolAdapters.typedJson(
-                        TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.contentLengthJson(1024)))
+                        StringNode::valueOf, JsonNode::stringValue, ProtocolAdapters.contentLengthJson(1024)))
                 .pooled();
     }
 }

@@ -12,7 +12,12 @@ import org.junit.jupiter.api.Test;
 final class BuildBaselineTest {
 
     @Test
-    void productionClassesTargetConfiguredJavaBytecode() throws IOException {
+    void testsUseJava25Toolchain() {
+        assertEquals(25, Runtime.version().feature());
+    }
+
+    @Test
+    void productionClassesTargetJava25Bytecode() throws IOException {
         try (InputStream stream = CommandService.class.getResourceAsStream("CommandService.class")) {
             assertNotNull(stream);
 
@@ -20,16 +25,7 @@ final class BuildBaselineTest {
 
             int majorVersion = ((header[6] & 0xFF) << 8) | (header[7] & 0xFF);
 
-            assertEquals(expectedClassFileMajorVersion(), majorVersion);
+            assertEquals(69, majorVersion);
         }
-    }
-
-    private static int expectedClassFileMajorVersion() {
-        return switch (Integer.getInteger("procwright.javaRelease", 25)) {
-            case 17 -> 61;
-            case 21 -> 65;
-            case 25 -> 69;
-            default -> throw new AssertionError("Unsupported procwright.javaRelease");
-        };
     }
 }

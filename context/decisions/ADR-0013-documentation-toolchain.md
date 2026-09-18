@@ -17,7 +17,7 @@ LLM-агентов.
   страницы без пользовательской задачи.
 - MkDocs Material собирает статический сайт; `publicDocsCheck` запускает strict build из hash-pinned
   `docs/requirements.lock`.
-- CI/docs jobs явно выбирают Python 3.13.14 и uv 0.10.12; используемые GitHub Actions зафиксированы exact commit
+- CI/docs jobs явно выбирают Python 3.14.7 и uv 0.12.17; используемые GitHub Actions зафиксированы exact commit
   SHA.
 - Java reference генерируется Javadoc для core и integrations.
 - Kotlin имеет task-oriented reference; `javadocJar` использует официальный Dokka 2.2.0 как KDoc gate с

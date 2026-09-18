@@ -33,11 +33,13 @@ final class RunCharsetPolicyIntegrationTest {
 
     @Test
     void strictCharsetPolicyReportsDecodeErrorAsTypedFailure() {
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("binary", "--pattern=hex", "--hex=ff", "--stream=both")
-                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("binary", "--pattern=hex", "--hex=ff", "--stream=both")
+                        .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
+                        .execute());
 
         assertEquals(CommandExecutionException.Reason.DECODE_ERROR, exception.reason());
         CommandResult snapshot = exception.result().orElseThrow();
@@ -76,8 +78,9 @@ final class RunCharsetPolicyIntegrationTest {
                 .withArgs("binary", "--pattern=hex", "--hex=ff")
                 .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8));
 
-        CommandExecutionException failure =
-                assertThrows(CommandExecutionException.class, () -> strict.withTimeout(Duration.ofSeconds(2))
+        CommandExecutionException failure = assertThrows(
+                CommandExecutionException.class,
+                () -> strict.withTimeout(Duration.ofSeconds(2))
                         .withCapture(CapturePolicy.bounded(1024))
                         .withOutput(OutputMode.SEPARATE)
                         .execute());

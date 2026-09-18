@@ -73,5 +73,5 @@ Windows ConPTY пока explicit unsupported behavior.
 - `REQUIRED` не fallback-ится в pipes.
 - Wrapper environment не зависит от `PtyRequest.environment`; child environment и argv не интерполируются в shell source.
 - `available()` означает успешный bounded probe именно того absolute `script`, который затем запускается.
-- PTY-only tests skip-аются при отсутствии platform capability, кроме контролируемых Linux и macOS/JDK 17 CI
+- PTY-only tests skip-аются при отсутствии platform capability, кроме контролируемых Linux и macOS/JDK 25 CI
   jobs: они требуют system PTY и тем самым доказывают, что весь набор не был незаметно пропущен.

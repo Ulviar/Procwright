@@ -5,7 +5,7 @@
  */
 module io.github.ulviar.procwright.integrations {
     requires transitive io.github.ulviar.procwright;
-    requires transitive com.fasterxml.jackson.databind;
+    requires transitive tools.jackson.databind;
     requires static transitive org.jspecify;
 
     exports io.github.ulviar.procwright.integration;

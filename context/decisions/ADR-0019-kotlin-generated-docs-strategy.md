@@ -19,7 +19,7 @@ generated API site имеет собственную стоимость подд
 - Output этой проверки в `procwright-kotlin/build/kdoc-validation` упаковывается в стандартный
   `procwright-kotlin-<version>-javadoc.jar`; пустой Java Javadoc classifier для Kotlin-only module не публикуется.
 - Public Kotlin reference и scenario examples поддерживаются в основной документации. Generated KDoc доступен через
-  Javadoc classifier, но не дублируется внутри MkDocs site.
+  Javadoc classifier и включён в MkDocs site по пути `api/kotlin`.
 - Отдельный Dokka site и его публикация отложены до появления подтвержденной пользовательской потребности.
 
 ## Последствия

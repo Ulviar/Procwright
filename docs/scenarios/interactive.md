@@ -24,7 +24,7 @@ public final class InteractiveExample {
     private InteractiveExample() {}
 
     public static void main(String[] args) throws Exception {
-        ExecutorService drains = Executors.newFixedThreadPool(2);
+        ExecutorService drains = Executors.newVirtualThreadPerTaskExecutor();
         try (Session session = Procwright.command(ExampleSupport.workerCommand("interactive"))
                 .interactive()
                 .withIdleTimeout(Duration.ofSeconds(10))

@@ -91,9 +91,10 @@ final class ProtocolTerminalOutcomeIntegrationTest {
             }
         };
 
-        try (ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("length-line-frame")
-                        .withTranscriptLimit(8))) {
+        try (ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("length-line-frame").withTranscriptLimit(8))) {
             ProtocolSessionException exception = assertThrows(
                     ProtocolSessionException.class, () -> session.request("0123456789abcdef0123456789abcdef"));
 

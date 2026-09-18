@@ -30,10 +30,13 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
 
     @Test
     void responseSizeLimitIsTypedFailure() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(), new FramedStringAdapter(), call -> call.withArgs("length-line-frame")
-                                .withMaxResponseBytes(8))
-                .request("response is too large"));
+        ProtocolSessionException exception = assertThrows(
+                ProtocolSessionException.class,
+                () -> openProtocolSession(
+                                fixtureService(),
+                                new FramedStringAdapter(),
+                                call -> call.withArgs("length-line-frame").withMaxResponseBytes(8))
+                        .request("response is too large"));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
@@ -56,9 +59,11 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                 }
             }
         };
-        ProtocolSession<String, String> session = openProtocolSession(fixtureService(), adapter, call -> call.withArgs(
-                        "partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
-                .withMaxResponseBytes(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
+                        .withMaxResponseBytes(1));
         try {
             ProtocolSessionException exception =
                     assertThrows(ProtocolSessionException.class, () -> session.request(""));
@@ -95,9 +100,11 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                 return "fallback";
             }
         };
-        ProtocolSession<String, String> session = openProtocolSession(fixtureService(), adapter, call -> call.withArgs(
-                        "partial", "--stdout=abc", "--stderr=", "--hold-millis=5000")
-                .withMaxResponseBytes(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("partial", "--stdout=abc", "--stderr=", "--hold-millis=5000")
+                        .withMaxResponseBytes(1));
         try {
             ProtocolSessionException exception =
                     assertThrows(ProtocolSessionException.class, () -> session.request(""));
@@ -112,7 +119,9 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
     @Test
     void strictExactTextFieldFailurePreservesTranscriptAndTerminatesSession() throws Exception {
         ProtocolSession<byte[], String> session = openProtocolSession(
-                fixtureService(), new ExactTextFieldAdapter(), call -> call.withArgs("length-line-frame")
+                fixtureService(),
+                new ExactTextFieldAdapter(),
+                call -> call.withArgs("length-line-frame")
                         .withTranscriptLimit(64)
                         .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8)));
         try {
@@ -186,8 +195,10 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                 return stdout.readTextExactly(1, 1);
             }
         };
-        ProtocolSession<byte[], String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("length-line-frame")
+        ProtocolSession<byte[], String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("length-line-frame")
                         .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8)));
         try {
             ProtocolSessionException exception = assertThrows(
@@ -205,33 +216,41 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
 
     @Test
     void textCharacterLimitFailsBeforeDelimiterOrEof() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(),
-                        new StdoutLineAdapter(4),
-                        call -> call.withArgs("burst", "--stdout-bytes=100", "--stdout-byte=a"))
-                .request(""));
+        ProtocolSessionException exception = assertThrows(
+                ProtocolSessionException.class,
+                () -> openProtocolSession(
+                                fixtureService(),
+                                new StdoutLineAdapter(4),
+                                call -> call.withArgs("burst", "--stdout-bytes=100", "--stdout-byte=a"))
+                        .request(""));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
 
     @Test
     void textCharacterLimitAppliesAcrossMultipleTextReads() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(), new TwoLineTextAdapter(), call -> call.withArgs("controlled-line-repl")
-                                .withMaxResponseChars(20))
-                .request("multi"));
+        ProtocolSessionException exception = assertThrows(
+                ProtocolSessionException.class,
+                () -> openProtocolSession(
+                                fixtureService(),
+                                new TwoLineTextAdapter(),
+                                call -> call.withArgs("controlled-line-repl").withMaxResponseChars(20))
+                        .request("multi"));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
 
     @Test
     void delimiterReadStopsAtResponseByteLimitAndKeepsTranscriptBounded() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(), new DelimiterBytesAdapter(), call -> call.withArgs(
-                                        "burst", "--stdout-bytes=256k", "--stdout-byte=a")
-                                .withMaxResponseBytes(4096)
-                                .withTranscriptLimit(128))
-                .request(""));
+        ProtocolSessionException exception = assertThrows(
+                ProtocolSessionException.class,
+                () -> openProtocolSession(
+                                fixtureService(),
+                                new DelimiterBytesAdapter(),
+                                call -> call.withArgs("burst", "--stdout-bytes=256k", "--stdout-byte=a")
+                                        .withMaxResponseBytes(4096)
+                                        .withTranscriptLimit(128))
+                        .request(""));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         assertTrue(exception.transcript().truncated());

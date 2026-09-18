@@ -12,7 +12,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 - Stress остается bounded: он ловит регрессии, но не превращается в нестабильный benchmark suite.
 - Publication-readiness gate собирает уже определенные уровни и документацию; remote release mechanics в него не входят.
 - Machine-specific capabilities проверяются через assumptions/skip там, где среда их не гарантирует. Контролируемый
-  Linux/JDK 17 job, напротив, требует system PTY и падает, если capability недоступна: так допустимый skip не может
+  Linux/macOS JDK 25 job, напротив, требует system PTY и падает, если capability недоступна: так допустимый skip не может
   скрыть полное отсутствие реального PTY coverage.
 - Каждый JUnit test имеет default deadline 60 секунд в отдельном timeout thread; более строгий локальный `@Timeout`
   сохраняет приоритет. Блокирующие future waits внутри тестов дополнительно используют явные deadlines там, где
@@ -25,7 +25,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew quickCheck --project-prop=procwright.javaRelease=17
+./gradlew quickCheck
 ```
 
 Назначение:
@@ -44,7 +44,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew scenarioCheck --project-prop=procwright.javaRelease=17
+./gradlew scenarioCheck
 ```
 
 Назначение:
@@ -64,7 +64,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew regressionCheck --project-prop=procwright.javaRelease=17
+./gradlew regressionCheck
 ```
 
 Назначение:
@@ -80,10 +80,10 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команды:
 
 ```bash
-./gradlew publicJavaJavadocCheck --project-prop=procwright.javaRelease=17
-./gradlew :procwright-kotlin:javadocJar --project-prop=procwright.javaRelease=17
-./gradlew :procwright-kotlin:checkKotlinAbi --project-prop=procwright.javaRelease=17
-./gradlew publicDocsCheck --project-prop=procwright.javaRelease=17
+./gradlew publicJavaJavadocCheck
+./gradlew :procwright-kotlin:javadocJar
+./gradlew :procwright-kotlin:checkKotlinAbi
+./gradlew publicDocsCheck
 ```
 
 Назначение:
@@ -101,7 +101,7 @@ Test/eval tiers фиксируют, какие инварианты защища
 Команда:
 
 ```bash
-./gradlew publicationReadinessCheck --project-prop=procwright.javaRelease=17
+./gradlew publicationReadinessCheck
 ```
 
 Назначение:

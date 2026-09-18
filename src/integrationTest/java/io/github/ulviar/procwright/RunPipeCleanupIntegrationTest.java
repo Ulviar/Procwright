@@ -39,17 +39,19 @@ final class RunPipeCleanupIntegrationTest {
         }));
         java.time.Instant started = java.time.Instant.now();
 
-        CommandExecutionException failure = assertThrows(CommandExecutionException.class, () -> service.run()
-                .withArgs(
-                        "spawn-child",
-                        "--close-stdin=true",
-                        "--child-scenario=never-exit",
-                        "--pid-file=" + childPidFile,
-                        "--wait=true")
-                .withInput(CommandInput.bytes(new byte[8 * 1024 * 1024]))
-                .withTimeout(Duration.ofSeconds(30))
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(2)))
-                .execute());
+        CommandExecutionException failure = assertThrows(
+                CommandExecutionException.class,
+                () -> service.run()
+                        .withArgs(
+                                "spawn-child",
+                                "--close-stdin=true",
+                                "--child-scenario=never-exit",
+                                "--pid-file=" + childPidFile,
+                                "--wait=true")
+                        .withInput(CommandInput.bytes(new byte[8 * 1024 * 1024]))
+                        .withTimeout(Duration.ofSeconds(30))
+                        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(2)))
+                        .execute());
 
         assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, failure.reason());
         assertTrue(failure.getCause() instanceof IOException, () -> "unexpected writer cause: " + failure.getCause());

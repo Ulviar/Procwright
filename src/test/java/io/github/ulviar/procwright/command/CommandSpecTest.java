@@ -222,8 +222,9 @@ final class CommandSpecTest {
 
     @Test
     void rejectsInvalidEnvironmentValueWithoutEchoingIt() {
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> CommandSpec.of("tool")
-                .withEnvironment("SECRET", "hidden\0value"));
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> CommandSpec.of("tool").withEnvironment("SECRET", "hidden\0value"));
 
         assertFalse(exception.getMessage().contains("hidden"));
     }

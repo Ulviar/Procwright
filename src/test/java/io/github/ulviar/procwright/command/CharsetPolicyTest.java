@@ -21,8 +21,9 @@ final class CharsetPolicyTest {
 
     @Test
     void reportPolicyRejectsMalformedInput() {
-        assertThrows(CharacterCodingException.class, () -> CharsetPolicy.report(StandardCharsets.UTF_8)
-                .decode(new byte[] {(byte) 0xFF}));
+        assertThrows(
+                CharacterCodingException.class,
+                () -> CharsetPolicy.report(StandardCharsets.UTF_8).decode(new byte[] {(byte) 0xFF}));
     }
 
     @Test

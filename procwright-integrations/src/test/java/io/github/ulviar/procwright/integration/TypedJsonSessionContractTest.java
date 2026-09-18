@@ -8,8 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.TextNode;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.session.PooledProtocolSession;
@@ -29,6 +27,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.StringNode;
 
 final class TypedJsonSessionContractTest {
 
@@ -38,12 +38,13 @@ final class TypedJsonSessionContractTest {
     @Test
     void transportFactoryRuntimeFailurePropagatesBeforeSessionLaunch() {
         IllegalStateException failure = new IllegalStateException("transport runtime");
-        var factory = typedFactory(TextNode::valueOf, JsonNode::textValue, () -> {
+        var factory = typedFactory(StringNode::valueOf, JsonNode::stringValue, () -> {
             throw failure;
         });
 
-        IllegalStateException propagated =
-                assertThrows(IllegalStateException.class, () -> Procwright.command(MISSING_COMMAND)
+        IllegalStateException propagated = assertThrows(
+                IllegalStateException.class,
+                () -> Procwright.command(MISSING_COMMAND)
                         .protocolSession(factory)
                         .open());
 
@@ -53,23 +54,26 @@ final class TypedJsonSessionContractTest {
     @Test
     void transportFactoryErrorPropagatesBeforeSessionLaunch() {
         AssertionError failure = new AssertionError("transport error");
-        var factory = typedFactory(TextNode::valueOf, JsonNode::textValue, () -> {
+        var factory = typedFactory(StringNode::valueOf, JsonNode::stringValue, () -> {
             throw failure;
         });
 
-        AssertionError propagated = assertThrows(AssertionError.class, () -> Procwright.command(MISSING_COMMAND)
-                .protocolSession(factory)
-                .open());
+        AssertionError propagated = assertThrows(
+                AssertionError.class,
+                () -> Procwright.command(MISSING_COMMAND)
+                        .protocolSession(factory)
+                        .open());
 
         assertSame(failure, propagated);
     }
 
     @Test
     void nullTransportFailsBeforeSessionLaunch() {
-        var factory = typedFactory(TextNode::valueOf, JsonNode::textValue, () -> null);
+        var factory = typedFactory(StringNode::valueOf, JsonNode::stringValue, () -> null);
 
-        NullPointerException failure =
-                assertThrows(NullPointerException.class, () -> Procwright.command(MISSING_COMMAND)
+        NullPointerException failure = assertThrows(
+                NullPointerException.class,
+                () -> Procwright.command(MISSING_COMMAND)
                         .protocolSession(factory)
                         .open());
 
@@ -84,7 +88,7 @@ final class TypedJsonSessionContractTest {
                 ignored -> {
                     throw callbackFailure;
                 },
-                JsonNode::textValue);
+                JsonNode::stringValue);
 
         assertEquals(ProtocolSessionException.Reason.FAILURE, failure.reason());
         assertSame(callbackFailure, failure.getCause());
@@ -100,7 +104,7 @@ final class TypedJsonSessionContractTest {
                         ignored -> {
                             throw callbackFailure;
                         },
-                        JsonNode::textValue));
+                        JsonNode::stringValue));
 
         assertSame(callbackFailure, propagated);
     }
@@ -115,7 +119,7 @@ final class TypedJsonSessionContractTest {
                         ignored -> {
                             throw callbackFailure;
                         },
-                        JsonNode::textValue));
+                        JsonNode::stringValue));
 
         assertSame(callbackFailure, propagated);
         assertEquals(ProtocolSessionException.Reason.CLOSED, propagated.reason());
@@ -123,7 +127,7 @@ final class TypedJsonSessionContractTest {
 
     @Test
     void nullEncodeResultMapsToProtocolFailure() {
-        ProtocolSessionException failure = requestFailure(ignored -> null, JsonNode::textValue);
+        ProtocolSessionException failure = requestFailure(ignored -> null, JsonNode::stringValue);
 
         assertEquals(ProtocolSessionException.Reason.FAILURE, failure.reason());
         NullPointerException cause = assertInstanceOf(NullPointerException.class, failure.getCause());
@@ -134,7 +138,7 @@ final class TypedJsonSessionContractTest {
     void decodeRuntimeFailureMapsToDecoderFailureWithCauseIdentity() {
         IllegalArgumentException callbackFailure = new IllegalArgumentException("decode runtime");
 
-        ProtocolSessionException failure = requestFailure(TextNode::valueOf, ignored -> {
+        ProtocolSessionException failure = requestFailure(StringNode::valueOf, ignored -> {
             throw callbackFailure;
         });
 
@@ -148,7 +152,7 @@ final class TypedJsonSessionContractTest {
 
         AssertionError propagated = assertThrows(
                 AssertionError.class,
-                () -> request(TextNode::valueOf, ignored -> {
+                () -> request(StringNode::valueOf, ignored -> {
                     throw callbackFailure;
                 }));
 
@@ -161,7 +165,7 @@ final class TypedJsonSessionContractTest {
 
         ProtocolSessionException propagated = assertThrows(
                 ProtocolSessionException.class,
-                () -> request(TextNode::valueOf, ignored -> {
+                () -> request(StringNode::valueOf, ignored -> {
                     throw callbackFailure;
                 }));
 
@@ -171,7 +175,7 @@ final class TypedJsonSessionContractTest {
 
     @Test
     void nullDecodeResultMapsToDecoderFailure() {
-        ProtocolSessionException failure = requestFailure(TextNode::valueOf, ignored -> null);
+        ProtocolSessionException failure = requestFailure(StringNode::valueOf, ignored -> null);
 
         assertEquals(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, failure.reason());
         NullPointerException cause = assertInstanceOf(NullPointerException.class, failure.getCause());
@@ -186,11 +190,11 @@ final class TypedJsonSessionContractTest {
                 Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
         Function<String, JsonNode> encode = value -> {
             awaitOverlap(encodeEntered);
-            return TextNode.valueOf(value);
+            return StringNode.valueOf(value);
         };
         Function<JsonNode, String> decode = value -> {
             awaitOverlap(decodeEntered);
-            return value.textValue();
+            return value.stringValue();
         };
         Supplier<ProtocolAdapter<String, String>> factory = typedFactory(encode, decode, () -> {
             ProtocolAdapter<JsonNode, JsonNode> transport =
@@ -228,10 +232,11 @@ final class TypedJsonSessionContractTest {
     @Test
     void retainedTransportFactoryCanOverlapAcrossConcurrentFactoryCalls() throws Exception {
         CountDownLatch factoryEntered = new CountDownLatch(2);
-        Supplier<ProtocolAdapter<String, String>> factory = typedFactory(TextNode::valueOf, JsonNode::textValue, () -> {
-            awaitOverlap(factoryEntered);
-            return ProtocolAdapters.jsonLines(1024).get();
-        });
+        Supplier<ProtocolAdapter<String, String>> factory =
+                typedFactory(StringNode::valueOf, JsonNode::stringValue, () -> {
+                    awaitOverlap(factoryEntered);
+                    return ProtocolAdapters.jsonLines(1024).get();
+                });
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
         try {

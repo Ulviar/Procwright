@@ -10,7 +10,7 @@
 
 ## Активная карта
 
-- [backlog.md](backlog.md) — порядок актуализации основной ветки, перехода на Java 25 и упрощения runtime.
+- [backlog.md](backlog.md) — следующий этап упрощения runtime и прояснения контрактов.
 - [architecture.md](architecture.md) — текущие слои, модули и границы runtime.
 - [invariant-architecture.md](invariant-architecture.md) — как изолируются инварианты API и runtime.
 - [scenario-api.md](scenario-api.md) — scenario-first пользовательский язык.

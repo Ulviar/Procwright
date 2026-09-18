@@ -82,15 +82,17 @@ final class PooledProtocolSessionWarmupIntegrationTest {
 
     @Test
     void pooledProtocolWarmupReadinessFailureIsStartupFailure() {
-        PooledSessionException exception = assertThrows(PooledSessionException.class, () -> fixtureService()
-                .protocolSession(FramedStringAdapter::new)
-                .withArgs("length-line-frame")
-                .withReadiness(ready -> {
-                    throw new IllegalStateException("not ready");
-                })
-                .pooled()
-                .withWarmupSize(1)
-                .open());
+        PooledSessionException exception = assertThrows(
+                PooledSessionException.class,
+                () -> fixtureService()
+                        .protocolSession(FramedStringAdapter::new)
+                        .withArgs("length-line-frame")
+                        .withReadiness(ready -> {
+                            throw new IllegalStateException("not ready");
+                        })
+                        .pooled()
+                        .withWarmupSize(1)
+                        .open());
 
         assertEquals(PooledSessionException.Reason.STARTUP_FAILED, exception.reason());
     }

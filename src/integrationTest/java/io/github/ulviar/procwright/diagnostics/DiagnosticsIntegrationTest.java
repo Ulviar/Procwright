@@ -46,14 +46,16 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         AssertionError readinessFailure = new AssertionError("fatal readiness failure");
 
-        AssertionError thrown = assertThrows(AssertionError.class, () -> fixtureService()
-                .interactive()
-                .withDiagnosticListener(recorder)
-                .withArgs("sleep", "--millis=5000", "--finished=false")
-                .withReadiness(ignored -> {
-                    throw readinessFailure;
-                })
-                .open());
+        AssertionError thrown = assertThrows(
+                AssertionError.class,
+                () -> fixtureService()
+                        .interactive()
+                        .withDiagnosticListener(recorder)
+                        .withArgs("sleep", "--millis=5000", "--finished=false")
+                        .withReadiness(ignored -> {
+                            throw readinessFailure;
+                        })
+                        .open());
 
         assertSame(readinessFailure, thrown);
         assertOpenFailureLifecycle(recorder, "interactive", AssertionError.class);
@@ -64,14 +66,16 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         IllegalStateException readinessFailure = new IllegalStateException("line not ready");
 
-        CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .lineSession()
-                .withDiagnosticListener(recorder)
-                .withArg("controlled-line-repl")
-                .withReadiness(ignored -> {
-                    throw readinessFailure;
-                })
-                .open());
+        CommandExecutionException thrown = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .lineSession()
+                        .withDiagnosticListener(recorder)
+                        .withArg("controlled-line-repl")
+                        .withReadiness(ignored -> {
+                            throw readinessFailure;
+                        })
+                        .open());
 
         assertSame(readinessFailure, thrown.getCause());
         assertEquals(CommandExecutionException.Reason.READINESS_FAILED, thrown.reason());
@@ -83,14 +87,16 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         IllegalStateException readinessFailure = new IllegalStateException("protocol not ready");
 
-        CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .protocolSession(TextLineAdapter::new)
-                .withDiagnosticListener(recorder)
-                .withArg("controlled-line-repl")
-                .withReadiness(ignored -> {
-                    throw readinessFailure;
-                })
-                .open());
+        CommandExecutionException thrown = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .protocolSession(TextLineAdapter::new)
+                        .withDiagnosticListener(recorder)
+                        .withArg("controlled-line-repl")
+                        .withReadiness(ignored -> {
+                            throw readinessFailure;
+                        })
+                        .open());
 
         assertSame(readinessFailure, thrown.getCause());
         assertEquals(CommandExecutionException.Reason.READINESS_FAILED, thrown.reason());
@@ -102,15 +108,17 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         IllegalStateException readinessFailure = new IllegalStateException("expect not ready");
 
-        CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .interactive()
-                .expect()
-                .withDiagnosticListener(recorder)
-                .withArgs("sleep", "--millis=5000", "--finished=false")
-                .withReadiness(ignored -> {
-                    throw readinessFailure;
-                })
-                .open());
+        CommandExecutionException thrown = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .interactive()
+                        .expect()
+                        .withDiagnosticListener(recorder)
+                        .withArgs("sleep", "--millis=5000", "--finished=false")
+                        .withReadiness(ignored -> {
+                            throw readinessFailure;
+                        })
+                        .open());
 
         assertSame(readinessFailure, thrown.getCause());
         assertEquals(CommandExecutionException.Reason.READINESS_FAILED, thrown.reason());
@@ -123,15 +131,17 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         AssertionError readinessFailure = new AssertionError("fatal expect readiness failure");
 
-        AssertionError thrown = assertThrows(AssertionError.class, () -> fixtureService()
-                .interactive()
-                .expect()
-                .withDiagnosticListener(recorder)
-                .withArgs("sleep", "--millis=5000", "--finished=false")
-                .withReadiness(ignored -> {
-                    throw readinessFailure;
-                })
-                .open());
+        AssertionError thrown = assertThrows(
+                AssertionError.class,
+                () -> fixtureService()
+                        .interactive()
+                        .expect()
+                        .withDiagnosticListener(recorder)
+                        .withArgs("sleep", "--millis=5000", "--finished=false")
+                        .withReadiness(ignored -> {
+                            throw readinessFailure;
+                        })
+                        .open());
 
         assertSame(readinessFailure, thrown);
         assertOpenFailureLifecycle(recorder, "expect", AssertionError.class);
@@ -143,14 +153,16 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         CountDownLatch releaseProbe = new CountDownLatch(1);
         try {
-            CommandExecutionException thrown = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                    .interactive()
-                    .expect()
-                    .withDiagnosticListener(recorder)
-                    .withArgs("sleep", "--millis=5000", "--finished=false")
-                    .withReadiness(ignored -> awaitUninterruptibly(releaseProbe))
-                    .withReadinessTimeout(Duration.ofMillis(50))
-                    .open());
+            CommandExecutionException thrown = assertThrows(
+                    CommandExecutionException.class,
+                    () -> fixtureService()
+                            .interactive()
+                            .expect()
+                            .withDiagnosticListener(recorder)
+                            .withArgs("sleep", "--millis=5000", "--finished=false")
+                            .withReadiness(ignored -> awaitUninterruptibly(releaseProbe))
+                            .withReadinessTimeout(Duration.ofMillis(50))
+                            .open());
 
             assertEquals(CommandExecutionException.Reason.READINESS_TIMEOUT, thrown.reason());
             assertOpenFailureLifecycle(recorder, "expect", CommandExecutionException.class);
@@ -165,17 +177,19 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         IllegalStateException readinessFailure = new IllegalStateException("worker not ready");
 
-        PooledSessionException thrown = assertThrows(PooledSessionException.class, () -> fixtureService()
-                .lineSession()
-                .withDiagnosticListener(recorder)
-                .withArg("controlled-line-repl")
-                .withReadiness(ignored -> {
-                    throw readinessFailure;
-                })
-                .pooled()
-                .withMaxSize(1)
-                .withWarmupSize(1)
-                .open());
+        PooledSessionException thrown = assertThrows(
+                PooledSessionException.class,
+                () -> fixtureService()
+                        .lineSession()
+                        .withDiagnosticListener(recorder)
+                        .withArg("controlled-line-repl")
+                        .withReadiness(ignored -> {
+                            throw readinessFailure;
+                        })
+                        .pooled()
+                        .withMaxSize(1)
+                        .withWarmupSize(1)
+                        .open());
 
         assertEquals(PooledSessionException.Reason.STARTUP_FAILED, thrown.reason());
         assertOpenFailureLifecycle(recorder, "pooled", CommandExecutionException.class);
@@ -272,8 +286,9 @@ final class DiagnosticsIntegrationTest {
                     throw new IllegalStateException("listener failed");
                 })
                 .open()) {
-            assertThrows(java.util.concurrent.ExecutionException.class, () -> session.onExit()
-                    .get(2, TimeUnit.SECONDS));
+            assertThrows(
+                    java.util.concurrent.ExecutionException.class,
+                    () -> session.onExit().get(2, TimeUnit.SECONDS));
         }
 
         assertEventsSafe(

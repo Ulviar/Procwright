@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.testcli;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
@@ -182,8 +183,7 @@ final class OutputScenarios {
     }
 
     private static void joinWriter(Thread writer) throws InterruptedException {
-        writer.join(TimeUnit.SECONDS.toMillis(2));
-        if (writer.isAlive()) {
+        if (!writer.join(Duration.ofSeconds(2))) {
             throw new IllegalStateException(writer.getName() + " did not finish within the bounded fixture deadline");
         }
     }

@@ -1,11 +1,11 @@
 # Kotlin extensions
 
-After [installing Procwright from this checkout](../getting-started.md), configure a Kotlin/JVM 17 project:
+After [installing Procwright from this checkout](../getting-started.md), configure a Kotlin/JVM 25 project:
 
 <!-- procwright-docs: build-configuration -->
 ```kotlin
 plugins {
-    kotlin("jvm") version "2.4.0"
+    kotlin("jvm") version "2.4.20"
 }
 
 repositories {
@@ -18,7 +18,7 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(25)
 }
 ```
 

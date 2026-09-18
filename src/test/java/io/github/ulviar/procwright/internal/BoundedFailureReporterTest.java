@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
@@ -16,6 +17,50 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class BoundedFailureReporterTest {
+
+    @Test
+    void nestedFailureTargetsRestoreTheirParentAfterFailureAndDoNotLeak() {
+        Thread current = Thread.currentThread();
+        Thread outer = Thread.ofPlatform().name("outer-source").unstarted(() -> {});
+        Thread inner = Thread.ofPlatform().name("inner-source").unstarted(() -> {});
+        var callerTarget = BoundedFailureReporter.captureFailureTarget();
+        BoundedFailureReporter.withFailureTarget(
+                callerTarget,
+                () -> assertEquals(
+                        current.getName(),
+                        BoundedFailureReporter.notificationSourceThread().getName()));
+        var outerTarget = BoundedFailureReporter.captureFailureTarget(outer);
+        var innerTarget = BoundedFailureReporter.captureFailureTarget(inner);
+        AssertionError failure = new AssertionError("nested failure");
+
+        BoundedFailureReporter.withFailureTarget(outerTarget, () -> {
+            assertEquals(
+                    "outer-source",
+                    BoundedFailureReporter.notificationSourceThread().getName());
+            assertSame(
+                    failure,
+                    assertThrows(
+                            AssertionError.class,
+                            () -> BoundedFailureReporter.withFailureTarget(innerTarget, () -> {
+                                assertEquals(
+                                        "inner-source",
+                                        BoundedFailureReporter.notificationSourceThread()
+                                                .getName());
+                                var capturedInner = BoundedFailureReporter.captureFailureTarget();
+                                BoundedFailureReporter.withFailureTarget(
+                                        capturedInner,
+                                        () -> assertEquals(
+                                                "inner-source",
+                                                BoundedFailureReporter.notificationSourceThread()
+                                                        .getName()));
+                                throw failure;
+                            })));
+            assertEquals(
+                    "outer-source",
+                    BoundedFailureReporter.notificationSourceThread().getName());
+        });
+        assertSame(current, BoundedFailureReporter.notificationSourceThread());
+    }
 
     @Test
     void bestEffortReportingContainsFailureTargetCaptureErrors() throws Exception {

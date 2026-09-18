@@ -42,11 +42,13 @@ final class RunInputIntegrationTest {
     void stdinFromMissingFileFailsWithTypedLaunchFailure(@TempDir Path directory) {
         Path missing = directory.resolve("missing-input.bin");
 
-        CommandExecutionException exception = assertThrows(CommandExecutionException.class, () -> fixtureService()
-                .run()
-                .withArgs("stdin-echo")
-                .withInput(io.github.ulviar.procwright.command.CommandInput.fromPath(missing))
-                .execute());
+        CommandExecutionException exception = assertThrows(
+                CommandExecutionException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("stdin-echo")
+                        .withInput(io.github.ulviar.procwright.command.CommandInput.fromPath(missing))
+                        .execute());
 
         assertEquals(CommandExecutionException.Reason.LAUNCH_FAILED, exception.reason());
     }

@@ -592,7 +592,8 @@ ledger; snapshot не вызывает пользовательский callback
 ### Kotlin
 
 **Инвариант:** Kotlin API сохраняет Java Draft semantics, а coroutine cancellation соблюдает ownership direct
-sessions, pooled requests и stream collectors.
+sessions, pooled requests и stream collectors. Отменённый caller не получает значение completed future и отменяет
+только своё pending view, сохраняя shared session state.
 
 **Владелец:** `:procwright-kotlin`.
 

@@ -42,10 +42,12 @@ final class RunTimeoutIntegrationTest {
 
     @Test
     void negativeTimeoutIsRejectedBeforeLaunch() {
-        assertThrows(IllegalArgumentException.class, () -> fixtureService()
-                .run()
-                .withArgs("exit")
-                .withTimeout(Duration.ofMillis(-1))
-                .execute());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> fixtureService()
+                        .run()
+                        .withArgs("exit")
+                        .withTimeout(Duration.ofMillis(-1))
+                        .execute());
     }
 }

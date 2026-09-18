@@ -319,10 +319,11 @@ final class TestCliProcessTest {
             }
             long pid = Long.parseLong(identity.get(0));
             Instant startInstant = Instant.parse(identity.get(1));
-            return ProcessHandle.of(pid).filter(process -> process.info()
-                    .startInstant()
-                    .map(startInstant::equals)
-                    .orElse(false));
+            return ProcessHandle.of(pid)
+                    .filter(process -> process.info()
+                            .startInstant()
+                            .map(startInstant::equals)
+                            .orElse(false));
         } catch (Exception ignored) {
             return Optional.empty();
         }

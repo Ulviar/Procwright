@@ -45,8 +45,9 @@ final class PtyTransportPolicyIntegrationTest {
 
     @Test
     void requiredTerminalFailsWhenProviderIsUnavailable() {
-        CommandExecutionException failure =
-                assertThrows(CommandExecutionException.class, () -> Procwright.command(CommandSpec.of("never-started"))
+        CommandExecutionException failure = assertThrows(
+                CommandExecutionException.class,
+                () -> Procwright.command(CommandSpec.of("never-started"))
                         .interactive()
                         .withPtyProvider(PtyProvider.unavailable())
                         .withTerminal(TerminalPolicy.REQUIRED)

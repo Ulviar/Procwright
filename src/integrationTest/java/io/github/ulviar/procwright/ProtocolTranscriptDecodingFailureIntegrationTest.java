@@ -54,8 +54,10 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
                 return "fallback";
             }
         };
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl")
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("controlled-line-repl")
                         .withTranscriptLimit(32)
                         .withCharsetPolicy(CharsetPolicy.report(charset)));
         sessionReference.set(session);
@@ -79,10 +81,12 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
 
             ProtocolSessionException exception = assertThrows(
                     ProtocolSessionException.class,
-                    () -> openProtocolSession(fixtureService(), new StdoutLineAdapter(16), call -> call.withArgs(
-                                    "partial", "--stdout=", "--stderr=", "--hold-millis=5000")
-                            .withTranscriptLimit(32)
-                            .withCharsetPolicy(CharsetPolicy.report(charset))));
+                    () -> openProtocolSession(
+                            fixtureService(),
+                            new StdoutLineAdapter(16),
+                            call -> call.withArgs("partial", "--stdout=", "--stderr=", "--hold-millis=5000")
+                                    .withTranscriptLimit(32)
+                                    .withCharsetPolicy(CharsetPolicy.report(charset))));
 
             assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
             assertTrue(causeChainContains(exception, charset.failure()));
@@ -94,9 +98,10 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
     @Test
     void transcriptDecoderFlushRuntimeFailureClosesProtocolSession() throws Exception {
         PersistentTranscriptFlushFailureCharset charset = new PersistentTranscriptFlushFailureCharset();
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), new StdoutLineAdapter(16), call -> call.withArgs(
-                                "partial", "--stdout=x", "--stderr=", "--hold-millis=100")
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                new StdoutLineAdapter(16),
+                call -> call.withArgs("partial", "--stdout=x", "--stderr=", "--hold-millis=100")
                         .withTranscriptLimit(32)
                         .withCharsetPolicy(CharsetPolicy.report(charset)));
         try {
@@ -114,9 +119,10 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
 
     @Test
     void transcriptDecoderWithoutProgressFailsAndClosesProtocolSession() throws Exception {
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), new StdoutLineAdapter(16), call -> call.withArgs(
-                                "partial", "--stdout=", "--stderr=" + "e".repeat(4096), "--hold-millis=5000")
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                new StdoutLineAdapter(16),
+                call -> call.withArgs("partial", "--stdout=", "--stderr=" + "e".repeat(4096), "--hold-millis=5000")
                         .withTranscriptLimit(32)
                         .withCharsetPolicy(CharsetPolicy.report(new NoProgressCharset())));
         try {
@@ -135,9 +141,10 @@ final class ProtocolTranscriptDecodingFailureIntegrationTest {
 
     @Test
     void invalidReplacementLengthInTranscriptFailsAndClosesProtocolSession() throws Exception {
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), new StdoutLineAdapter(16), call -> call.withArgs(
-                                "partial", "--stdout=", "--stderr=x", "--hold-millis=5000")
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                new StdoutLineAdapter(16),
+                call -> call.withArgs("partial", "--stdout=", "--stderr=x", "--hold-millis=5000")
                         .withTranscriptLimit(32)
                         .withCharsetPolicy(CharsetPolicy.report(new FiniteErrorAfterExhaustionCharset())));
         try {

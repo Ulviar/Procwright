@@ -1,36 +1,18 @@
 import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
-import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
 import org.gradle.external.javadoc.StandardJavadocDocletOptions
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
     `java-library`
     `maven-publish`
-    id("com.diffplug.spotless") version "8.8.0"
-    id("org.jetbrains.kotlin.jvm") version "2.4.0" apply false
+    id("com.diffplug.spotless") version "8.10.2"
+    id("org.jetbrains.kotlin.jvm") version "2.4.20" apply false
     id("org.jetbrains.dokka") version "2.2.0" apply false
 }
 
-val supportedJavaReleases = setOf(17, 21, 25)
-val procwrightJavaRelease =
-    providers
-        .gradleProperty("procwright.javaRelease")
-        .map { value ->
-            value.toIntOrNull()
-                ?: throw GradleException("procwright.javaRelease must be a number: $value")
-        }
-        .orElse(25)
-        .get()
-
-if (procwrightJavaRelease !in supportedJavaReleases) {
-    throw GradleException(
-        "procwright.javaRelease must be one of $supportedJavaReleases, got $procwrightJavaRelease"
-    )
-}
-
-val procwrightJavaVersion = JavaVersion.toVersion(procwrightJavaRelease)
+val procwrightJavaRelease = 25
 val procwrightVersionProperty = providers.gradleProperty("procwright.version").orNull
 val conventionalVersionProperty = providers.gradleProperty("version").orNull
 
@@ -63,22 +45,23 @@ val requireSystemPty =
         .get()
 val publicMavenGroup = "io.github.ulviar"
 
-extra["procwrightJavaRelease"] = procwrightJavaRelease
-
 allprojects {
     group = publicMavenGroup
     version = procwrightVersion
 
     pluginManager.withPlugin("java") {
         extensions.configure<JavaPluginExtension> {
-            sourceCompatibility = procwrightJavaVersion
-            targetCompatibility = procwrightJavaVersion
+            toolchain.languageVersion.set(JavaLanguageVersion.of(procwrightJavaRelease))
         }
     }
 
     pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
         val kotlinToolingVersion =
             extensions.getByType<KotlinJvmProjectExtension>().coreLibrariesVersion
+        extensions.configure<KotlinJvmProjectExtension> {
+            jvmToolchain(procwrightJavaRelease)
+            compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25)
+        }
         dependencies.constraints.add(
             "kotlinAbiValidationCompatClasspath",
             "org.jetbrains.kotlin:kotlin-build-tools-impl",
@@ -115,9 +98,16 @@ allprojects {
         }
     }
 
+    tasks.withType<JavaExec>().configureEach {
+        javaLauncher.set(
+            javaToolchains.launcherFor {
+                languageVersion.set(JavaLanguageVersion.of(procwrightJavaRelease))
+            }
+        )
+    }
+
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
-        systemProperty("procwright.javaRelease", procwrightJavaRelease.toString())
         systemProperty("procwright.requireSystemPty", requireSystemPty.toString())
         systemProperty("junit.jupiter.execution.timeout.default", "60 s")
         systemProperty("junit.jupiter.execution.timeout.thread.mode.default", "separate_thread")
@@ -136,16 +126,6 @@ allprojects {
             charSet = "UTF-8"
             docEncoding = "UTF-8"
             addBooleanOption("Werror", true)
-        }
-    }
-
-    tasks.withType<PublishToMavenLocal>().configureEach {
-        doFirst {
-            if (procwrightJavaRelease != 17) {
-                throw GradleException(
-                    "Public Procwright artifacts must be published with --project-prop=procwright.javaRelease=17"
-                )
-            }
         }
     }
 }
@@ -171,12 +151,12 @@ publishing {
 }
 
 dependencies {
-    compileOnlyApi("org.jspecify:jspecify:1.0.0")
+    compileOnlyApi("org.jspecify:jspecify:1.0.1")
 
-    testImplementation(platform("org.junit:junit-bom:6.1.2"))
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("org.snakeyaml:snakeyaml-engine:3.0.1")
-    testRuntimeOnly("org.jspecify:jspecify:1.0.0")
+    testImplementation("org.snakeyaml:snakeyaml-engine:3.1.1")
+    testRuntimeOnly("org.jspecify:jspecify:1.0.1")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -330,7 +310,7 @@ tasks.check {
 
 spotless {
     java {
-        palantirJavaFormat("2.80.0")
+        palantirJavaFormat("2.98.0")
         target("src/**/*.java", "procwright-*/src/**/*.java", "docs/examples/**/*.java")
         licenseHeader(
             "/* SPDX-License-Identifier: Apache-2.0 */\n\n",
@@ -338,7 +318,7 @@ spotless {
         )
     }
     kotlin {
-        ktfmt("0.58").kotlinlangStyle()
+        ktfmt("0.64").kotlinlangStyle()
         target("procwright-kotlin/src/**/*.kt", "docs/examples/**/*.kt")
         licenseHeader(
             "/* SPDX-License-Identifier: Apache-2.0 */\n\n",
@@ -346,7 +326,7 @@ spotless {
         )
     }
     kotlinGradle {
-        ktfmt("0.58").kotlinlangStyle()
+        ktfmt("0.64").kotlinlangStyle()
         target("*.gradle.kts", "gradle/**/*.gradle.kts", "procwright-*/*.gradle.kts")
     }
 }

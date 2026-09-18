@@ -31,6 +31,6 @@ One-shot, sessions, streaming, pooling, diagnostics, Kotlin adapters и integrat
 
 ## Последствия
 
-`./gradlew check --project-prop=procwright.javaRelease=17` запускает bounded stress suite. Machine-dependent
+`./gradlew regressionCheck` запускает bounded stress suite. Machine-dependent
 performance measurements не входят в release gate: пользовательские гарантии выражены через deterministic limits и
 behavioral regressions.

@@ -25,7 +25,7 @@ Build/test dependencies:
 ## Documentation toolchain
 
 Публичная документация собирается отдельно от runtime artifacts через `./gradlew publicDocsCheck`. Эта задача также
-собирает Java Javadocs и подкладывает их в итоговый public site output.
+собирает Java Javadocs и Kotlin KDoc и подкладывает их в итоговый public site output.
 
 Docs-only top-level dependencies закреплены по версиям в `docs/requirements.txt` и устанавливаются через `uv` в
 isolated environment:
@@ -39,15 +39,15 @@ isolated environment:
 Transitive Python dependencies закреплены в `docs/requirements.lock` с SHA-256 hashes. `publicDocsCheck` использует
 этот lock, а `docs/requirements.txt` остается коротким входным файлом для намеренного обновления top-level docs
 tooling. `docsRequirementsLockCheck` проверяет совпадение top-level pins и наличие hashes у всех locked packages.
-Workflow устанавливает exact `uv 0.10.12`; обновление lock выполняется намеренно командой из его заголовка той же
-версией `uv`.
+Workflow устанавливает exact `uv 0.12.17`; обновление lock выполняется намеренно командой из его заголовка той же
+версией `uv`. `.python-version` закрепляет Python 3.14.7 для локальной сборки и CI.
 
 Public Kotlin KDoc проверяется task `javadocJar` через Dokka 2.2.0 с `reportUndocumented=true` и
 `failOnWarning=true`. Dokka является только Gradle
 build-time dependency, закреплена dependency-verification SHA-256 metadata, не публикует отдельный сайт и не попадает в
 runtime artifacts.
 
-Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2.4.0 механизмом ABI validation. Этот gate владеет точным
+Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2.4.20 механизмом ABI validation. Этот gate владеет точным
 списком опубликованных Kotlin JVM declarations. Его build-time toolchain закреплён на версию Kotlin plugin через
 constraint для `kotlinAbiValidationCompatClasspath` во всех Kotlin projects, включая consumer fixture. Диапазон по
 умолчанию в plugin не должен незаметно менять инструмент проверки или результат генерации verification metadata.
@@ -59,12 +59,12 @@ constraint для `kotlinAbiValidationCompatClasspath` во всех Kotlin proj
 
 Runtime dependencies модуля:
 
-- Kotlin runtime через Kotlin Gradle plugin 2.4.0;
+- Kotlin runtime через Kotlin Gradle plugin 2.4.20;
 - `kotlinx-coroutines-core` 1.11.0 для suspending wrappers и Flow adapter.
 
 ## Integrations module
 
-`:procwright-integrations` зависит от core module и экспортирует Jackson Databind, потому что adapters принимают и
+`:procwright-integrations` зависит от core module и экспортирует Jackson Databind 3.2.2 (`tools.jackson.core:jackson-databind`), потому что adapters принимают и
 возвращают `JsonNode`. JSON Lines, delimiter и Content-Length adapters используют существующий core runtime и не
 создают второй process engine.
 
@@ -76,7 +76,7 @@ integration layer.
 
 ## Public nullness metadata
 
-`org.jspecify:jspecify:1.0.0` относится к public compile-time metadata только артефактов `procwright` и
+`org.jspecify:jspecify:1.0.1` относится к public compile-time metadata только артефактов `procwright` и
 `procwright-integrations`. Оба проекта объявляют его как `compileOnlyApi`, а оба JPMS descriptor — как
 `requires static transitive org.jspecify`: named consumers видят аннотации при компиляции, но модуль не требуется для
 запуска Procwright. В Gradle module metadata dependency присутствует только в `apiElements`, а Maven POM выражает ее
@@ -91,7 +91,8 @@ JSpecify отсутствует в Gradle `runtimeClasspath` всех трех p
 ## Publication metadata
 
 Три public modules применяют `maven-publish` и содержат sources, Javadoc/KDoc и обязательные POM metadata.
-`publishToMavenLocal` разрешен только для Java 17 target. CI проверяет локальные publications внешними consumers как
+`publicationStructureCheck` проверяет stable Java 25 bytecode (major 69, minor 0) каждого class во всех трёх JAR
+и JVM 25 во всех Gradle library variants. CI проверяет локальные publications внешними consumers как
 через Gradle module metadata, так и в принудительном Maven POM-only режиме с `ignoreGradleMetadataRedirection()`.
 
 Конкретный remote registry, signing и credentials до первого release не выбраны и не являются build dependencies.
@@ -107,8 +108,8 @@ classpath и прямые dependency declarations core, Kotlin и integrations m
 
 ## Зависимости CI
 
-GitHub Actions закреплены по commit SHA. CI использует минимальные permissions, проверяет Java 17 artifact на
-Linux/macOS/Windows с JDK 17 и на Linux с JDK 21/25; source targets 21/25 отдельно проходят scenario checks на Linux.
+GitHub Actions закреплены по commit SHA. CI использует минимальные permissions и проверяет Java 25 на
+Linux/macOS/Windows.
 Documentation workflow получает `pages: write` и `id-token: write` только в deploy job; build job имеет только
 `contents: read`. `WorkflowPolicyTest` запрещает unpinned external actions, `pull_request_target`,
 `continue-on-error` и неожиданные write permissions без собственного YAML framework.

@@ -16,14 +16,13 @@ Kotlin ergonomics, pooling, protocol integrations и bounded stress suite. Дл�
 
 - лицензия проекта — Apache License 2.0;
 - root и optional modules наследуют единые `group` и `version`, чтобы релизная версия была версией всего проекта;
-- Java release variants — 17/21/25 через единый source tree и Gradle property `procwright.javaRelease`;
+- Java 25 — единый runtime, compilation target и toolchain по [ADR-0026](ADR-0026-java25-baseline.md);
 - публичные пакеты стабилизируются на уровне core package family из ADR-0014, `io.github.ulviar.procwright.kotlin` и
   `io.github.ulviar.procwright.integration`;
 - `quickCheck`, `scenarioCheck` и `regressionCheck` разделяют unit, integration и bounded stress tests;
 - `:procwright-kotlin:javadocJar` запускает Dokka-проверку с
   `reportUndocumented=true` и `failOnWarning=true`; Java modules собирают Javadoc и Javadoc artifacts;
-- CI проверяет Java 17 artifact на Linux/macOS/Windows с JDK 17 и на Linux с JDK 21/25; source targets 21/25
-  отдельно проходят scenario checks на Linux;
+- CI проверяет Java 25 на Linux/macOS/Windows; Linux также выполняет regression/stress и publication consumers;
 - POSIX shell/PTTY fixtures skip-аются на Windows, если сценарий реально требует `sh` или системный PTY provider;
 - versioning, compatibility, dependency и publication-readiness policy живут в `context/release/`.
 

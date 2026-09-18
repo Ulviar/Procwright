@@ -1,7 +1,6 @@
 import java.io.ByteArrayOutputStream
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.bundling.Jar
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -12,17 +11,16 @@ plugins {
     id("org.jetbrains.dokka")
 }
 
-val procwrightJavaRelease = rootProject.extra["procwrightJavaRelease"] as Int
 val kotlinModuleName = "io.github.ulviar.procwright.kotlin"
 val kotlinNullnessCompiler = configurations.create("kotlinNullnessCompiler")
 
 dependencies {
     api(project(":"))
-    api("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    api("org.jetbrains.kotlin:kotlin-stdlib:2.4.20")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation(kotlin("test"))
-    kotlinNullnessCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0")
+    kotlinNullnessCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.20")
 }
 
 java {
@@ -71,7 +69,6 @@ publishing {
 @OptIn(ExperimentalAbiValidation::class)
 kotlin {
     compilerOptions {
-        jvmTarget.set(kotlinJvmTarget(procwrightJavaRelease))
         freeCompilerArgs.add("-Xjspecify-annotations=strict")
     }
     abiValidation()
@@ -108,6 +105,8 @@ tasks.register<JavaExec>("kotlinJSpecifyStrictnessCheck") {
     argumentProviders.add(
         CommandLineArgumentProvider {
             listOf(
+                "-jvm-target",
+                "25",
                 "-no-stdlib",
                 "-no-reflect",
                 "-Xjspecify-annotations=strict",
@@ -136,12 +135,6 @@ tasks.register<JavaExec>("kotlinJSpecifyStrictnessCheck") {
     }
 }
 
-tasks.check { dependsOn(kotlinJavadocJar) }
-
-fun kotlinJvmTarget(release: Int): JvmTarget =
-    when (release) {
-        17 -> JvmTarget.JVM_17
-        21 -> JvmTarget.JVM_21
-        25 -> JvmTarget.JVM_25
-        else -> throw GradleException("Unsupported Kotlin JVM target for Java release $release")
-    }
+tasks.check {
+    dependsOn(kotlinJavadocJar)
+}

@@ -16,15 +16,44 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 class CoroutineExtensionsTest {
+
+    @Test
+    fun `already cancelled coroutine cancels only its pending future view`() = runBlocking {
+        val shared = CompletableFuture<String>()
+        val view = shared.copy()
+        val waiter = async {
+            currentCoroutineContext().cancel()
+            assertFailsWith<CancellationException> { view.awaitDetached() }
+        }
+        waiter.join()
+        assertTrue(view.isCancelled)
+        assertFalse(shared.isDone)
+        assertTrue(shared.complete("finished"))
+    }
+
+    @Test
+    fun `completed future does not bypass coroutine cancellation`() = runBlocking {
+        val completed = CompletableFuture.completedFuture("finished")
+        val waiter = async {
+            currentCoroutineContext().cancel()
+            assertFailsWith<CancellationException> { completed.awaitDetached() }
+        }
+        waiter.join()
+        assertTrue(waiter.isCancelled)
+        assertEquals("finished", completed.join())
+    }
 
     @Test
     fun `cancelled detached wait cancels its view and releases observable callbacks`() =

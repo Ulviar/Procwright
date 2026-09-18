@@ -10,14 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.JsonNodeType;
-import com.fasterxml.jackson.databind.node.TextNode;
-import com.fasterxml.jackson.databind.node.ValueNode;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
@@ -27,7 +19,6 @@ import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolTranscript;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -36,6 +27,14 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.core.JsonToken;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.JsonNodeType;
+import tools.jackson.databind.node.StringNode;
+import tools.jackson.databind.node.ValueNode;
 
 final class ProtocolAdaptersTest {
 
@@ -94,7 +93,7 @@ final class ProtocolAdaptersTest {
 
         ProtocolSessionException failure = assertThrows(
                 ProtocolSessionException.class,
-                () -> ProtocolAdapters.jsonLines(1024).get().writeRequest(TextNode.valueOf("payload"), writer));
+                () -> ProtocolAdapters.jsonLines(1024).get().writeRequest(StringNode.valueOf("payload"), writer));
 
         assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
         assertEquals(0, writer.bytes().length);
@@ -160,7 +159,9 @@ final class ProtocolAdaptersTest {
 
         ProtocolSessionException failure = assertThrows(
                 ProtocolSessionException.class,
-                () -> ProtocolAdapters.contentLengthJson(1024).get().writeRequest(TextNode.valueOf("payload"), writer));
+                () -> ProtocolAdapters.contentLengthJson(1024)
+                        .get()
+                        .writeRequest(StringNode.valueOf("payload"), writer));
 
         assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
         assertEquals(0, writer.bytes().length);
@@ -170,10 +171,11 @@ final class ProtocolAdaptersTest {
     void contentLengthAdapterPreflightsActualHeaderAndBodyBeforeWriting() {
         BoundedRecordingWriter writer = new BoundedRecordingWriter(31);
 
-        ProtocolSessionException failure =
-                assertThrows(ProtocolSessionException.class, () -> ProtocolAdapters.contentLengthJson(1024)
+        ProtocolSessionException failure = assertThrows(
+                ProtocolSessionException.class,
+                () -> ProtocolAdapters.contentLengthJson(1024)
                         .get()
-                        .writeRequest(TextNode.valueOf("12345678"), writer));
+                        .writeRequest(StringNode.valueOf("12345678"), writer));
 
         assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
         assertEquals(0, writer.bytes().length);
@@ -182,7 +184,7 @@ final class ProtocolAdaptersTest {
     @Test
     void contentLengthSerializesMutableNodeOnceBeforeWritingHeaderAndBody() {
         RecordingWriter writer = new RecordingWriter();
-        ChangingTextNode request = new ChangingTextNode();
+        ChangingStringNode request = new ChangingStringNode();
 
         ProtocolAdapters.contentLengthJson(1024).get().writeRequest(request, writer);
 
@@ -280,8 +282,9 @@ final class ProtocolAdaptersTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("nonEofProtocolFailures")
     void contentLengthAdapterDoesNotNormalizeCoreProtocolFailures(ProtocolFailureCase testCase) {
-        ProtocolSessionException propagated =
-                assertThrows(ProtocolSessionException.class, () -> ProtocolAdapters.contentLengthJson(1024)
+        ProtocolSessionException propagated = assertThrows(
+                ProtocolSessionException.class,
+                () -> ProtocolAdapters.contentLengthJson(1024)
                         .get()
                         .readResponse(readers(new FaultingByteReader(
                                 testCase.bytes(), testCase.failureOffset(), testCase.failure()))));
@@ -294,8 +297,9 @@ final class ProtocolAdaptersTest {
         byte[] header = "Content-Length: 2\r\n".getBytes(StandardCharsets.US_ASCII);
         ProtocolSessionException eof = protocolFailure(ProtocolSessionException.Reason.EOF);
 
-        IntegrationProtocolException failure =
-                assertThrows(IntegrationProtocolException.class, () -> ProtocolAdapters.contentLengthJson(1024)
+        IntegrationProtocolException failure = assertThrows(
+                IntegrationProtocolException.class,
+                () -> ProtocolAdapters.contentLengthJson(1024)
                         .get()
                         .readResponse(readers(new FaultingByteReader(header, header.length, eof))));
 
@@ -309,8 +313,9 @@ final class ProtocolAdaptersTest {
         int bodyOffset = frame.length - 2;
         ProtocolSessionException eof = protocolFailure(ProtocolSessionException.Reason.EOF);
 
-        IntegrationProtocolException failure =
-                assertThrows(IntegrationProtocolException.class, () -> ProtocolAdapters.contentLengthJson(1024)
+        IntegrationProtocolException failure = assertThrows(
+                IntegrationProtocolException.class,
+                () -> ProtocolAdapters.contentLengthJson(1024)
                         .get()
                         .readResponse(readers(new FaultingByteReader(frame, bodyOffset + 1, eof))));
 
@@ -338,7 +343,7 @@ final class ProtocolAdaptersTest {
             return ProtocolAdapters.jsonLines(1024).get();
         };
         Supplier<ProtocolAdapter<String, String>> factory =
-                ProtocolAdapters.typedJson(TextNode::valueOf, JsonNode::textValue, transportFactory);
+                ProtocolAdapters.typedJson(StringNode::valueOf, JsonNode::stringValue, transportFactory);
 
         assertNotSame(factory.get(), factory.get());
         assertEquals(2, transports.get());
@@ -567,7 +572,7 @@ final class ProtocolAdaptersTest {
         }
     }
 
-    private static final class ChangingTextNode extends ValueNode {
+    private static final class ChangingStringNode extends ValueNode {
 
         private static final long serialVersionUID = 1L;
         private int serializations;
@@ -583,12 +588,17 @@ final class ProtocolAdaptersTest {
         }
 
         @Override
-        public String asText() {
+        public String asString() {
             return "value-" + serializations;
         }
 
         @Override
-        public void serialize(JsonGenerator generator, SerializerProvider serializers) throws IOException {
+        protected String _valueDesc() {
+            return asString();
+        }
+
+        @Override
+        public void serialize(JsonGenerator generator, SerializationContext serializers) {
             generator.writeString("value-" + ++serializations);
         }
 

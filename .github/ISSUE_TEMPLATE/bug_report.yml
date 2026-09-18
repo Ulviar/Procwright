@@ -43,7 +43,7 @@ body:
     id: environment
     attributes:
       label: JVM version and operating system
-      placeholder: e.g. Temurin 21.0.7 on Ubuntu 24.04
+      placeholder: e.g. Temurin 25.0.4.1 on Ubuntu 24.04
     validations:
       required: true
 

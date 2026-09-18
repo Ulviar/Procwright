@@ -2,9 +2,6 @@
 
 package io.github.ulviar.procwright.examples.integration;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.TextNode;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.integration.ProtocolAdapters;
@@ -18,6 +15,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.StringNode;
 
 public final class JsonLineIntegrationExample {
 
@@ -42,7 +42,7 @@ public final class JsonLineIntegrationExample {
         }
 
         var typedFactory = ProtocolAdapters.typedJson(
-                TextNode::valueOf, JsonNode::textValue, ProtocolAdapters.jsonLines(MAX_FRAME));
+                StringNode::valueOf, JsonNode::stringValue, ProtocolAdapters.jsonLines(MAX_FRAME));
         try (ProtocolSession<String, String> session = Procwright.command(workerCommand("--json-lines-worker"))
                 .protocolSession(typedFactory)
                 .withRequestTimeout(Duration.ofSeconds(5))

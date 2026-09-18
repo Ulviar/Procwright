@@ -3,6 +3,9 @@
 package io.github.ulviar.procwright.terminal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,6 +35,32 @@ final class PtyLaunchAdmissionTest {
             PtyTestPaths.ENV,
             PtyTestPaths.DD,
             "admission test provider");
+
+    @Test
+    void newAdmissionWorkersDoNotRetainCallerContext() throws Exception {
+        InheritableThreadLocal<String> inherited = new InheritableThreadLocal<>();
+        Thread caller = Thread.currentThread();
+        ClassLoader original = caller.getContextClassLoader();
+        var executor = PtyLaunchAdmission.executor();
+        inherited.set("caller-state");
+        caller.setContextClassLoader(new ClassLoader(null) {});
+        try {
+            executor.submit(() -> {
+                        assertNull(inherited.get());
+                        assertSame(
+                                PtyLaunchAdmission.class.getClassLoader(),
+                                Thread.currentThread().getContextClassLoader());
+                        assertFalse(Thread.currentThread().isVirtual());
+                        assertTrue(Thread.currentThread().isDaemon());
+                    })
+                    .get(2, TimeUnit.SECONDS);
+        } finally {
+            caller.setContextClassLoader(original);
+            inherited.remove();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+        }
+    }
 
     @Test
     void timedOutPreparersKeepAdmissionUntilTheirTasksActuallyComplete() throws Exception {

@@ -39,31 +39,31 @@ fun StreamScenario.Draft.openFlow(): Flow<StreamChunk> = openFlow { listener, ow
 @JvmSynthetic
 internal fun StreamScenario.Draft.openFlow(launcher: StreamFlowLauncher): Flow<StreamChunk> =
     callbackFlow {
-            val ownedClose = AtomicReference<() -> Unit>()
-            val ownedExitView = AtomicReference<CompletableFuture<*>>()
-            try {
-                val exitView = runProcwrightInterruptible {
-                    launcher(
-                        { chunk -> trySendBlocking(chunk) },
-                        { close ->
-                            check(ownedClose.compareAndSet(null, close)) {
-                                "Stream Flow launcher registered ownership more than once"
-                            }
-                        },
-                    )
-                }
-                ownedExitView.set(exitView)
-                exitView.whenComplete { _, failure ->
-                    if (failure == null) close() else close(failure.unwrapCompletionFailure())
-                }
-                awaitClose {
-                    ownedExitView.getAndSet(null)?.cancel(false)
-                    ownedClose.getAndSet(null)?.invoke()
-                }
-            } catch (failure: Throwable) {
+        val ownedClose = AtomicReference<() -> Unit>()
+        val ownedExitView = AtomicReference<CompletableFuture<*>>()
+        try {
+            val exitView = runProcwrightInterruptible {
+                launcher(
+                    { chunk -> trySendBlocking(chunk) },
+                    { close ->
+                        check(ownedClose.compareAndSet(null, close)) {
+                            "Stream Flow launcher registered ownership more than once"
+                        }
+                    },
+                )
+            }
+            ownedExitView.set(exitView)
+            exitView.whenComplete { _, failure ->
+                if (failure == null) close() else close(failure.unwrapCompletionFailure())
+            }
+            awaitClose {
                 ownedExitView.getAndSet(null)?.cancel(false)
                 ownedClose.getAndSet(null)?.invoke()
-                throw failure
             }
+        } catch (failure: Throwable) {
+            ownedExitView.getAndSet(null)?.cancel(false)
+            ownedClose.getAndSet(null)?.invoke()
+            throw failure
         }
-        .buffer(capacity = 0)
+    }
+    .buffer(capacity = 0)

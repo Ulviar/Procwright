@@ -422,8 +422,7 @@ final class LifecycleScenarios {
                 }
 
                 List<OwnedProcess> snapshot = List.copyOf(owned.values());
-                for (int index = snapshot.size() - 1; index >= 0; index--) {
-                    OwnedProcess process = snapshot.get(index);
+                for (OwnedProcess process : snapshot.reversed()) {
                     if (process.isAlive()) {
                         process.handle().destroyForcibly();
                     }

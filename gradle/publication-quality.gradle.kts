@@ -1,7 +1,11 @@
+import groovy.json.JsonSlurper
+import java.io.DataInputStream
+import java.util.jar.JarFile
 import javax.xml.parsers.DocumentBuilderFactory
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.GenerateMavenPom
+import org.gradle.api.publish.tasks.GenerateModuleMetadata
 import org.w3c.dom.Element
 
 private fun Element.directChild(name: String): Element? =
@@ -39,10 +43,10 @@ val externalLibraryBoundaryCheck =
                     it.group == "org.jspecify" && it.name == "jspecify"
                 }
             if (
-                jspecifyDependencies.size != 1 || jspecifyDependencies.single().version != "1.0.0"
+                jspecifyDependencies.size != 1 || jspecifyDependencies.single().version != "1.0.1"
             ) {
                 throw GradleException(
-                    "Core compileOnlyApi must contain exactly org.jspecify:jspecify:1.0.0"
+                    "Core compileOnlyApi must contain exactly org.jspecify:jspecify:1.0.1"
                 )
             }
 
@@ -60,7 +64,8 @@ val externalLibraryBoundaryCheck =
                             }
                             if (
                                 checkedProject.path != ":procwright-integrations" &&
-                                    id.group.startsWith("com.fasterxml.jackson")
+                                    (id.group.startsWith("com.fasterxml.jackson") ||
+                                        id.group.startsWith("tools.jackson"))
                             ) {
                                 throw GradleException(
                                     "Jackson dependency $coordinate leaked into ${checkedProject.path}:runtimeClasspath"
@@ -112,6 +117,7 @@ val publicationStructureCheck =
                 "${prefix}sourcesJar",
                 "${prefix}javadocJar",
                 "${prefix}generatePomFileForMavenJavaPublication",
+                "${prefix}generateMetadataFileForMavenJavaPublication",
             )
         }
 
@@ -144,6 +150,54 @@ val publicationStructureCheck =
                             "Publication artifact is missing or empty: ${artifact.file}"
                         )
                     }
+                }
+
+                val mainJar = publication.artifacts.single { it.classifier == null }.file
+                JarFile(mainJar).use { jar ->
+                    val classes =
+                        jar.entries().asSequence().filter { it.name.endsWith(".class") }.toList()
+                    if (classes.isEmpty()) {
+                        throw GradleException("Public JAR contains no classes: $mainJar")
+                    }
+                    classes.forEach { entry ->
+                        DataInputStream(jar.getInputStream(entry)).use { input ->
+                            val magic = input.readInt()
+                            val minor = input.readUnsignedShort()
+                            val major = input.readUnsignedShort()
+                            if (magic != 0xCAFEBABE.toInt() || major != 69 || minor != 0) {
+                                throw GradleException(
+                                    "Public class must target stable Java 25: $mainJar!/${entry.name} ($major.$minor)"
+                                )
+                            }
+                        }
+                    }
+                }
+                val metadataFile =
+                    checkedProject.tasks
+                        .named(
+                            "generateMetadataFileForMavenJavaPublication",
+                            GenerateModuleMetadata::class.java,
+                        )
+                        .get()
+                        .outputFile
+                        .get()
+                        .asFile
+                val metadata = JsonSlurper().parse(metadataFile) as Map<*, *>
+                val variants = metadata["variants"] as List<*>
+                val libraryVariants =
+                    variants.filterIsInstance<Map<*, *>>().filter { variant ->
+                        val attributes = variant["attributes"] as Map<*, *>
+                        attributes["org.gradle.category"] == "library"
+                    }
+                if (
+                    libraryVariants.isEmpty() ||
+                        libraryVariants.any { variant ->
+                            (variant["attributes"] as Map<*, *>)["org.gradle.jvm.version"] != 25
+                        }
+                ) {
+                    throw GradleException(
+                        "Every published library variant must require Java 25: $metadataFile"
+                    )
                 }
 
                 val pomTask =

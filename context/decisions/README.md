@@ -17,7 +17,7 @@
 - [ADR-0015: JPMS encapsulation](ADR-0015-jpms-encapsulation.md)
 - [ADR-0018: platform PTY strategy](ADR-0018-platform-pty-strategy.md)
 - [ADR-0019: Kotlin generated documentation](ADR-0019-kotlin-generated-docs-strategy.md)
-- [ADR-0020: Java release variants](ADR-0020-java-release-variants.md)
 - [ADR-0021: runtime decomposition](ADR-0021-runtime-decomposition.md)
 - [ADR-0023: cognitive pool architecture](ADR-0023-cognitive-pool-architecture.md)
 - [ADR-0025: runtime guarantee budget](ADR-0025-runtime-guarantee-budget.md)
+- [ADR-0026: Java 25 baseline](ADR-0026-java25-baseline.md)

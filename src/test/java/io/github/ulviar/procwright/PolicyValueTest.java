@@ -103,24 +103,33 @@ final class PolicyValueTest {
 
     @Test
     void lineSessionSettingsRejectInvalidTimeoutAndTranscriptLimit() {
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withRequestTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withTranscriptLimit(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withStdoutBacklogLines(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withStdoutBacklogChars(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withMaxLineChars(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withMaxRequestBytes(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withMaxRequestChars(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withMaxResponseLines(0));
-        assertThrows(IllegalArgumentException.class, () -> LineSessionSettings.defaults()
-                .withMaxResponseChars(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withRequestTimeout(Duration.ZERO));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withTranscriptLimit(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withStdoutBacklogLines(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withStdoutBacklogChars(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withMaxLineChars(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withMaxRequestBytes(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withMaxRequestChars(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withMaxResponseLines(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineSessionSettings.defaults().withMaxResponseChars(0));
     }
 
     @Test
@@ -177,9 +186,11 @@ final class PolicyValueTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> poolSettings().withMinIdle(2).validateForOpen());
-        assertThrows(IllegalArgumentException.class, () -> poolSettings()
-                .withMaxSize(WorkerPoolSettings.MAX_SIZE + 1)
-                .validateForOpen());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> poolSettings()
+                        .withMaxSize(WorkerPoolSettings.MAX_SIZE + 1)
+                        .validateForOpen());
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withAcquireTimeout(Duration.ZERO));
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withHookTimeout(Duration.ZERO));
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withCloseTimeout(Duration.ZERO));
@@ -225,20 +236,27 @@ final class PolicyValueTest {
 
     @Test
     void protocolSessionSettingsRejectInvalidLimits() {
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
-                .withRequestTimeout(Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
-                .withTranscriptLimit(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
-                .withOutputBacklogLimit(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
-                .withMaxRequestBytes(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
-                .withMaxRequestChars(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
-                .withMaxResponseBytes(0));
-        assertThrows(IllegalArgumentException.class, () -> ProtocolSessionSettings.defaults()
-                .withMaxResponseChars(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolSessionSettings.defaults().withRequestTimeout(Duration.ZERO));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolSessionSettings.defaults().withTranscriptLimit(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolSessionSettings.defaults().withOutputBacklogLimit(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolSessionSettings.defaults().withMaxRequestBytes(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolSessionSettings.defaults().withMaxRequestChars(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolSessionSettings.defaults().withMaxResponseBytes(0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ProtocolSessionSettings.defaults().withMaxResponseChars(0));
     }
 
     private static RunSettings runSettings() {

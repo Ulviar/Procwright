@@ -50,10 +50,12 @@ final class CliOptionsTest {
     void rejectsMalformedOptionsBeforeScenarioExecution() {
         assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[] {"--=bad"}));
         assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[] {"--count"}));
-        assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[] {"--count=-1"})
-                .byteSize("count", 0));
-        assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[] {"--flag=maybe"})
-                .bool("flag", false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CliOptions.parse(new String[] {"--count=-1"}).byteSize("count", 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CliOptions.parse(new String[] {"--flag=maybe"}).bool("flag", false));
     }
 
     @Test

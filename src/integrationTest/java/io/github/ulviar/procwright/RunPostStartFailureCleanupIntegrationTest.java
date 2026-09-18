@@ -41,10 +41,12 @@ final class RunPostStartFailureCleanupIntegrationTest {
             childPid.set(process.pid());
             throw failure;
         }));
-        exception = assertThrows(CommandExecutionException.class, () -> service.run()
-                .withArgs("sleep", "--millis=5000", "--finished=false")
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
-                .execute());
+        exception = assertThrows(
+                CommandExecutionException.class,
+                () -> service.run()
+                        .withArgs("sleep", "--millis=5000", "--finished=false")
+                        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
+                        .execute());
         Duration wallClockElapsed = Duration.between(started, java.time.Instant.now());
 
         assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, exception.reason());
@@ -63,10 +65,12 @@ final class RunPostStartFailureCleanupIntegrationTest {
             throw failure;
         }));
 
-        AssertionError thrown = assertThrows(AssertionError.class, () -> service.run()
-                .withArgs("sleep", "--millis=5000", "--finished=false")
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
-                .execute());
+        AssertionError thrown = assertThrows(
+                AssertionError.class,
+                () -> service.run()
+                        .withArgs("sleep", "--millis=5000", "--finished=false")
+                        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofMillis(250)))
+                        .execute());
 
         assertEquals(failure, thrown);
         assertTrue(childPid.get() > 0);

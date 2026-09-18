@@ -29,7 +29,7 @@ Scorecard фиксирует текущее состояние source и нал�
 | Public consumers | Синхронизировано | Java, Kotlin и integrations consumers используют текущий API; итоговый compilation proof требует запуска gate на release commit. |
 | API boundary | Синхронизировано | До первого выпуска Java surface защищают целевые tests, JPMS и external consumers; Kotlin DSL дополнительно имеет ABI baseline. После первой публикации нужен стандартный binary compatibility gate относительно выпущенного artifact. |
 | Documentation | Синхронизировано | Public docs, context owners, snippets и canonical examples описывают текущий API и pool lifecycle contract; итоговый strict docs proof еще должен пройти на release commit. |
-| Java/platform matrix | Проверяется CI | Java 17 target на Linux/macOS/Windows и JDK 17/21/25; source targets 21/25 отдельно на Linux. |
+| Java/platform matrix | Проверяется CI | Java 25 runtime/target на Linux/macOS/Windows; major 69 и JVM 25 metadata всех public artifacts. |
 | Publication | Proof-механизм готов, не выпущено | Три Maven publications и isolated normal/POM-only consumers проверяются без преждевременного выбора remote registry и signing. |
 
 ## Блокеры первого выпуска

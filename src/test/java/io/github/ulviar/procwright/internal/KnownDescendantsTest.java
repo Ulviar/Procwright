@@ -27,8 +27,9 @@ final class KnownDescendantsTest {
         assertTrue(snapshot.discoveryUnavailable());
         assertThrows(
                 UnsupportedOperationException.class, () -> snapshot.handles().clear());
-        assertThrows(UnsupportedOperationException.class, () -> snapshot.handlesByIdentity()
-                .clear());
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> snapshot.handlesByIdentity().clear());
     }
 
     @Test

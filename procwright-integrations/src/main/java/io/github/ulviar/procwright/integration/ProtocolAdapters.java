@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.integration;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReader;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -13,6 +12,7 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import tools.jackson.databind.JsonNode;
 
 /** Protocol adapter factories built on Procwright protocol sessions. */
 public final class ProtocolAdapters {

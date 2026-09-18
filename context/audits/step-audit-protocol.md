@@ -26,7 +26,7 @@ Audit output не является постоянным контекстом п�
 - Документальный шаг: Markdown review, context index consistency, аудит документации.
 - API шаг: compile-tested examples или public API surface test.
 - Runtime шаг: unit/integration/stress test для затронутого поведения.
-- Publication-readiness шаг: `./gradlew publicationReadinessCheck --project-prop=procwright.javaRelease=17` и
+- Publication-readiness шаг: `./gradlew publicationReadinessCheck` и
   `git diff --check`. Изменение Maven metadata дополнительно требует isolated local-publication smoke для всех трех
   consumer fixtures. Remote publication path проверяется только после его явного выбора перед release.
 

@@ -43,20 +43,26 @@ final class ProtocolRequestFramingAndLimitsIntegrationTest {
 
     @Test
     void requestSizeLimitIsTypedFailure() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(), new FramedStringAdapter(), call -> call.withArgs("length-line-frame")
-                                .withMaxRequestBytes(4))
-                .request("too-large"));
+        ProtocolSessionException exception = assertThrows(
+                ProtocolSessionException.class,
+                () -> openProtocolSession(
+                                fixtureService(),
+                                new FramedStringAdapter(),
+                                call -> call.withArgs("length-line-frame").withMaxRequestBytes(4))
+                        .request("too-large"));
 
         assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, exception.reason());
     }
 
     @Test
     void requestCharacterLimitIsTypedFailure() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(), new TextLineAdapter(), call -> call.withArgs("controlled-line-repl")
-                                .withMaxRequestChars(4))
-                .request("hello"));
+        ProtocolSessionException exception = assertThrows(
+                ProtocolSessionException.class,
+                () -> openProtocolSession(
+                                fixtureService(),
+                                new TextLineAdapter(),
+                                call -> call.withArgs("controlled-line-repl").withMaxRequestChars(4))
+                        .request("hello"));
 
         assertEquals(ProtocolSessionException.Reason.REQUEST_TOO_LARGE, exception.reason());
     }
@@ -78,9 +84,10 @@ final class ProtocolRequestFramingAndLimitsIntegrationTest {
                 return "fallback";
             }
         };
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("ignore-stdin", "--millis=5000")
-                        .withMaxRequestBytes(1));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("ignore-stdin", "--millis=5000").withMaxRequestBytes(1));
         try {
             ProtocolSessionException exception =
                     assertThrows(ProtocolSessionException.class, () -> session.request("too-large"));
@@ -114,9 +121,10 @@ final class ProtocolRequestFramingAndLimitsIntegrationTest {
                 return "fallback";
             }
         };
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("ignore-stdin", "--millis=5000")
-                        .withMaxRequestBytes(2));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("ignore-stdin", "--millis=5000").withMaxRequestBytes(2));
         try {
             ProtocolSessionException exception =
                     assertThrows(ProtocolSessionException.class, () -> session.request("ignored"));
@@ -152,8 +160,10 @@ final class ProtocolRequestFramingAndLimitsIntegrationTest {
             }
         };
 
-        try (ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), adapter, call -> call.withArgs("controlled-line-repl")
+        try (ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("controlled-line-repl")
                         .withMaxRequestBytes(2)
                         .withCharsetPolicy(CharsetPolicy.replace(charset)))) {
             assertEquals("response:x", session.request("x"));

@@ -39,10 +39,14 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
 
     @Test
     void strictCharsetPolicyReportsMalformedOutput() {
-        ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> openProtocolSession(
-                        fixtureService(), new FramedBytesAsLineAdapter(), call -> call.withArgs("length-line-frame")
-                                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8)))
-                .request(new byte[] {(byte) 0xFF}));
+        ProtocolSessionException exception = assertThrows(
+                ProtocolSessionException.class,
+                () -> openProtocolSession(
+                                fixtureService(),
+                                new FramedBytesAsLineAdapter(),
+                                call -> call.withArgs("length-line-frame")
+                                        .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8)))
+                        .request(new byte[] {(byte) 0xFF}));
 
         assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, exception.reason());
         assertEquals(true, exception.transcript().malformed());
@@ -65,10 +69,12 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
                 }
             }
         };
-        ProtocolSession<String, String> session = openProtocolSession(fixtureService(), adapter, call -> call.withArgs(
-                        "partial", "--stdout=x", "--stderr=", "--hold-millis=5000")
-                .withTranscriptLimit(32)
-                .withCharsetPolicy(CharsetPolicy.replace(new PersistentResponseInvalidReplacementCharset())));
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                adapter,
+                call -> call.withArgs("partial", "--stdout=x", "--stderr=", "--hold-millis=5000")
+                        .withTranscriptLimit(32)
+                        .withCharsetPolicy(CharsetPolicy.replace(new PersistentResponseInvalidReplacementCharset())));
         try {
             ProtocolSessionException exception =
                     assertThrows(ProtocolSessionException.class, () -> session.request(""));
@@ -85,9 +91,10 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
 
     @Test
     void persistentTextDecoderContractViolationIsDecodeErrorAndClosesSession() throws Exception {
-        ProtocolSession<String, String> session =
-                openProtocolSession(fixtureService(), new StdoutLineAdapter(16), call -> call.withArgs(
-                                "partial", "--stdout=x", "--stderr=", "--hold-millis=5000")
+        ProtocolSession<String, String> session = openProtocolSession(
+                fixtureService(),
+                new StdoutLineAdapter(16),
+                call -> call.withArgs("partial", "--stdout=x", "--stderr=", "--hold-millis=5000")
                         .withTranscriptLimit(32)
                         .withCharsetPolicy(CharsetPolicy.replace(new PersistentResponseInvalidReplacementCharset())));
         try {
@@ -108,7 +115,9 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
     @Test
     void persistentResponseDecoderCannotRetainBytesAcrossRequestsWithoutBound() throws Exception {
         ProtocolSession<String, String> session = openProtocolSession(
-                fixtureService(), new TextLineAdapter(), call -> call.withArgs("controlled-line-repl")
+                fixtureService(),
+                new TextLineAdapter(),
+                call -> call.withArgs("controlled-line-repl")
                         .withTranscriptLimit(1024)
                         .withOutputBacklogLimit(64)
                         .withMaxResponseBytes(64)

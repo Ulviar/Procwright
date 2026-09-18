@@ -2,29 +2,26 @@
 
 ## Базовая runtime-платформа
 
-- Публикуемые artifacts имеют Java 17 bytecode target и поддерживаются на runtime JDK 17, 21 и 25.
-- Один source tree может компилироваться с `--release ${procwright.javaRelease}` для 17, 21 и 25; default target для
-  локальной разработки — 25. Варианты 21/25 являются source-compatibility checks, а не отдельными публикуемыми
-  artifacts.
-- Kotlin module компилируется Kotlin 2.4.0 с JVM target, соответствующим `procwright.javaRelease`, и остается optional
-  module. Consumer compiler должен читать Kotlin 2.4 metadata; совместимость с более старыми compiler versions не
-  заявлена.
-- На Java 24+ runtime Procwright может использовать virtual threads через внутренний runtime boundary. Java 17–23
-  используют daemon platform-thread fallback, чтобы monitor pinning в ранней реализации virtual threads не нарушал
-  bounded concurrency; это не меняет public API contract, но может менять performance profile.
+- Java 25 — единственные minimum runtime, compilation target и toolchain разработки/CI всех модулей.
+- Публикуемые Java/Kotlin classes имеют major version 69 без preview flag; Gradle library variants требуют JVM 25.
+  Эти свойства всех трёх JAR проверяет `publicationStructureCheck`.
+- Kotlin module компилируется Kotlin 2.4.20 с JVM target 25 и остаётся optional. Consumer compiler должен читать
+  Kotlin 2.4 metadata; совместимость с более старыми compiler versions не заявлена.
+- Lifecycle tasks используют прямые virtual-thread API. Bounded isolation workers, PTY admission и scheduler
+  сохраняют platform threads и собственные лимиты; virtual threads не заменяют admission/cleanup policies.
+- Optional integrations экспортирует Jackson 3 `tools.jackson.databind.JsonNode` и JPMS module `tools.jackson.databind`.
+- Решение и границы модернизации: [ADR-0026](../decisions/ADR-0026-java25-baseline.md).
 
 ## Поддержка платформ
 
 Обязательная CI-матрица для публичного релиза:
 
-- Linux latest;
+- Linux Ubuntu 24.04;
 - macOS latest;
 - Windows 2025 hosted runner.
 
-Java 17-targeted build проверяется на Temurin JDK 17 под Linux, macOS и Windows, а также на Temurin JDK 21/25 под Linux.
-Отдельно на Linux исходники собираются и тестируются с targets 21 и 25 на соответствующих JDK. Такое разделение
-проверяет minimum bytecode compatibility, три основные OS на минимальной JDK, новые runtimes и source compatibility,
-не заявляя полный Cartesian product OS × JDK.
+Все три ОС проверяются на Temurin JDK 25. Linux запускает regression/stress и publication consumers, macOS и Windows —
+scenario gate. Linux и macOS требуют system PTY; его отсутствие на этих контролируемых runners является ошибкой.
 
 Все кроссплатформенные сценарии должны проходить на всех трех платформах. Сценарии, которым нужен POSIX shell или
 system PTY provider, skip-аются через JUnit assumptions, если платформа не предоставляет нужную возможность.

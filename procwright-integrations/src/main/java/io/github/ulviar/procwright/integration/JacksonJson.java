@@ -2,17 +2,6 @@
 
 package io.github.ulviar.procwright.integration;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.core.StreamWriteConstraints;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -21,6 +10,17 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.StreamWriteConstraints;
+import tools.jackson.core.json.JsonFactory;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectReader;
+import tools.jackson.databind.ObjectWriter;
+import tools.jackson.databind.json.JsonMapper;
 
 final class JacksonJson {
 
@@ -60,9 +60,7 @@ final class JacksonJson {
         try {
             WRITER.writeValue(output, value);
             return output.toByteArray();
-        } catch (OutputLimitExceededException exception) {
-            return null;
-        } catch (IOException exception) {
+        } catch (JacksonException exception) {
             if (exception.getCause() instanceof OutputLimitExceededException) {
                 return null;
             }
@@ -91,7 +89,7 @@ final class JacksonJson {
         Objects.requireNonNull(text, "text");
         try {
             return READER.readValue(text);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IntegrationProtocolException(
                     IntegrationProtocolException.Reason.MALFORMED_JSON,
                     "Frame must contain exactly one JSON value",

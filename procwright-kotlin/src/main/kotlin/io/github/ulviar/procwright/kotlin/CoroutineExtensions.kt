@@ -16,14 +16,14 @@ import io.github.ulviar.procwright.session.StreamExit
 import io.github.ulviar.procwright.session.StreamSession
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
-import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.runInterruptible
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Executes this run draft without blocking the caller thread.
@@ -156,17 +156,15 @@ internal suspend fun <T> runProcwrightInterruptible(block: () -> T): T {
 }
 
 @JvmSynthetic
-internal suspend fun <T> CompletableFuture<T>.awaitDetached(): T =
-    suspendCancellableCoroutine { continuation ->
-        continuation.invokeOnCancellation { cancel(false) }
-        whenComplete { value, failure ->
-            if (failure == null) {
-                continuation.resumeWith(Result.success(value))
-            } else {
-                continuation.resumeWithException(failure.unwrapCompletionFailure())
-            }
-        }
+internal suspend fun <T> CompletableFuture<T>.awaitDetached(): T {
+    try {
+        currentCoroutineContext().ensureActive()
+    } catch (cancelled: CancellationException) {
+        cancel(false)
+        throw cancelled
     }
+    return await()
+}
 
 @JvmSynthetic
 internal fun Throwable.unwrapCompletionFailure(): Throwable =

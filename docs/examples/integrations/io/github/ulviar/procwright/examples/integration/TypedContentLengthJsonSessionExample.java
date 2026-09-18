@@ -2,9 +2,6 @@
 
 package io.github.ulviar.procwright.examples.integration;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.integration.IntegrationProtocolException;
@@ -18,6 +15,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.function.Supplier;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.JsonNodeFactory;
 
 public final class TypedContentLengthJsonSessionExample {
 
@@ -25,7 +25,8 @@ public final class TypedContentLengthJsonSessionExample {
     private static final int MAX_BODY_BYTES = 64 * 1024;
     private static final int MAX_REQUEST_WIRE_BYTES = MAX_HEADER_BYTES + MAX_BODY_BYTES;
     private static final int MAX_RESPONSE_WIRE_BYTES = MAX_HEADER_BYTES + MAX_BODY_BYTES;
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON =
+            tools.jackson.databind.json.JsonMapper.builder().build();
 
     private TypedContentLengthJsonSessionExample() {}
 
@@ -81,10 +82,10 @@ public final class TypedContentLengthJsonSessionExample {
 
     private static TextMetricsRequest decodeRequest(JsonNode value) {
         JsonNode text = value.get("text");
-        if (text == null || !text.isTextual()) {
+        if (text == null || !text.isString()) {
             throw new IllegalArgumentException("text must be a string");
         }
-        return new TextMetricsRequest(text.textValue());
+        return new TextMetricsRequest(text.stringValue());
     }
 
     private static JsonNode encodeResponse(TextMetricsResponse response) {

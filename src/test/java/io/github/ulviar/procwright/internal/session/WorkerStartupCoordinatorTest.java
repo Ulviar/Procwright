@@ -74,8 +74,9 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 },
                 PoolWorker.StartupPurpose.REPLENISHMENT);
 
-        PoolFailure observed = assertThrows(PoolFailure.class, () -> coordinator(state)
-                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        PoolFailure observed = assertThrows(
+                PoolFailure.class,
+                () -> coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.STARTUP_FAILED, observed.kind);
         assertSame(factoryFailure, observed.getCause());
@@ -93,8 +94,9 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             return "unexpected";
         });
 
-        IllegalStateException observed = assertThrows(IllegalStateException.class, () -> coordinator(state)
-                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        IllegalStateException observed = assertThrows(
+                IllegalStateException.class,
+                () -> coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertSame(claimFailure, observed);
         assertEquals(0, factoryCalls.get());
@@ -120,8 +122,9 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                     throw launchFailure;
                 }));
 
-        IllegalStateException observed = assertThrows(IllegalStateException.class, () -> coordinator(state)
-                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        IllegalStateException observed = assertThrows(
+                IllegalStateException.class,
+                () -> coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertSame(launchFailure, observed);
         assertEquals(0, factoryCalls.get());
@@ -138,8 +141,9 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             return "unexpected";
         });
 
-        PoolFailure observed = assertThrows(PoolFailure.class, () -> coordinator(state)
-                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        PoolFailure observed = assertThrows(
+                PoolFailure.class,
+                () -> coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.CLOSED, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.CLOSED, worker.startup().terminalDecision());
@@ -157,8 +161,9 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
             return "unexpected";
         });
 
-        PoolFailure observed = assertThrows(PoolFailure.class, () -> coordinator(state)
-                .start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        PoolFailure observed = assertThrows(
+                PoolFailure.class,
+                () -> coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.ACQUIRE_TIMEOUT, observed.kind);
         assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, worker.startup().terminalDecision());

@@ -6,14 +6,12 @@
 Procwright is a JVM library for running and controlling external command-line processes. Choose the workflow first;
 Procwright then applies the timeout, output, lifecycle, and cleanup rules for that workflow.
 
-No public release exists yet. The planned first version is `0.1.0`. Artifacts target Java 17 and run on Java 17 or
-newer.
+No public release exists yet. The planned first version is `0.1.0`. Build and run Procwright with JDK 25. All artifacts target Java 25.
 
 ## Install from this checkout
 
 ```shell
 ./gradlew publishToMavenLocal \
-  --project-prop=procwright.javaRelease=17 \
   --project-prop=procwright.version=0.1.0 \
   --no-daemon
 ```

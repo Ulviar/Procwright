@@ -16,7 +16,9 @@ final class ProtocolSessionReadinessIntegrationTest {
     @Test
     void readinessProbeRunsBeforeProtocolSessionIsReturned() {
         try (ProtocolSession<String, String> session = openProtocolSession(
-                fixtureService(), new FramedStringAdapter(), call -> call.withArgs("length-line-frame")
+                fixtureService(),
+                new FramedStringAdapter(),
+                call -> call.withArgs("length-line-frame")
                         .withReadiness(ready -> assertEquals("ready", ready.request("ready")))
                         .withReadinessTimeout(Duration.ofSeconds(2)))) {
             assertEquals("payload", session.request("payload"));

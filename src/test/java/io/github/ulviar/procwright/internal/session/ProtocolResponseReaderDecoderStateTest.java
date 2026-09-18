@@ -238,7 +238,8 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 requestReader(output, options, textStream, Duration.ofSeconds(2))
                         .readLine(1));
         ProtocolSessionException closed = assertThrows(
-                ProtocolSessionException.class, () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
+                ProtocolSessionException.class,
+                () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
                         .readLine(1));
         assertEquals(ProtocolSessionException.Reason.CLOSED, closed.reason());
     }
@@ -311,9 +312,10 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
             ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
             output.offer(new byte[] {1});
 
-            ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> requestReader(
-                            output, options, textStream, Duration.ofSeconds(2))
-                    .readLine(1));
+            ProtocolSessionException failure = assertThrows(
+                    ProtocolSessionException.class,
+                    () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
+                            .readLine(1));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
             assertEquals(0, output.pendingBytes());
@@ -332,7 +334,8 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
         output.offer(new byte[] {1});
 
         ProtocolSessionException failure = assertThrows(
-                ProtocolSessionException.class, () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
+                ProtocolSessionException.class,
+                () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
                         .readLine(1));
 
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, failure.reason());
