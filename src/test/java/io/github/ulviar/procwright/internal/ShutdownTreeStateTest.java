@@ -232,8 +232,14 @@ final class ShutdownTreeStateTest {
 
     private static List<MutableProcessHandle> handles(int count, long firstPid) {
         List<MutableProcessHandle> handles = new ArrayList<>(count);
+        ProcessHandle.Info processInfo = ProcessHandle.current().info();
         for (int index = 0; index < count; index++) {
-            handles.add(new MutableProcessHandle(firstPid + index));
+            handles.add(new MutableProcessHandle(firstPid + index) {
+                @Override
+                public Info info() {
+                    return processInfo;
+                }
+            });
         }
         return handles;
     }

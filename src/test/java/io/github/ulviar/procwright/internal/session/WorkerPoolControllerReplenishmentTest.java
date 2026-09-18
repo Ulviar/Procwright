@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.WorkerPoolController.HealthOutcome.HEALTHY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -265,7 +266,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
     void closeStopsReplenishmentDuringRetryBackoff() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
         AtomicInteger cancellations = new AtomicInteger();
-        CountDownLatch retryScheduled = new CountDownLatch(1);
+        AtomicReference<Runnable> initial = new AtomicReference<>();
         AtomicReference<Runnable> retry = new AtomicReference<>();
         WorkerPoolController<TestWorker> pool = controller(
                 () -> {
@@ -276,15 +277,16 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 (task, delay) -> {
                     if (delay.isZero()) {
-                        Threading.start("test-replenish-", task);
+                        initial.set(task);
                     } else {
                         retry.set(task);
-                        retryScheduled.countDown();
                     }
                     return cancellations::incrementAndGet;
                 });
         try {
-            assertTrue(retryScheduled.await(1, TimeUnit.SECONDS));
+            initial.get().run();
+            assertEquals(1, attempts.get());
+            assertNotNull(retry.get());
 
             pool.closeAsync().get(1, TimeUnit.SECONDS);
             int attemptsAfterDrain = attempts.get();

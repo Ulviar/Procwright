@@ -168,7 +168,7 @@ public final class DefaultLineSession implements LineSession {
                 throw fatal.error();
             }
             if (primary.reason() != LineSessionException.Reason.CLOSED) {
-                closePreserving(primary);
+                closePreserving(outcome.primary());
             }
             throw primary;
         } catch (Error error) {
@@ -178,7 +178,7 @@ public final class DefaultLineSession implements LineSession {
                 throw fatal.error();
             }
             LineSessionException selected = state.terminalException((LineSessionState.FailureSnapshot) outcome);
-            closePreserving(selected);
+            closePreserving(outcome.primary());
             throw selected;
         }
     }

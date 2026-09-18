@@ -314,11 +314,14 @@ interruption или write failure становятся terminal из-за нео
 ### Line terminal state
 
 **Инвариант:** active request, close и terminal failure имеют одного арбитра; позднее failure не меняет уже выбранный
-outcome, typed reason сохраняется для последующих requests, а transcript не строится под state monitor.
+outcome, typed reason сохраняется для последующих requests, а transcript не строится под state monitor. Request и
+output pump передают в cleanup одну выбранную первичную причину: `onExit()` не подменяет исходную ошибку декодера
+обёрткой request exception в зависимости от порядка потоков.
 
 **Владелец:** `LineSessionState`.
 
-**Proof:** `LineSessionStateTest`, `LineSessionBacklogAndTerminalIntegrationTest`.
+**Proof:** `LineSessionStateTest`, `LineSessionBacklogAndTerminalIntegrationTest`,
+`DefaultLineSessionOutputDecodingTest`, `LineSessionDecoderSafetyIntegrationTest`.
 
 ### Line backlog
 

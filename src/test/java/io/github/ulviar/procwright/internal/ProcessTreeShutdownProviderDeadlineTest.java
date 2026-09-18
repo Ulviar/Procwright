@@ -32,6 +32,10 @@ import org.junit.jupiter.api.Test;
 
 final class ProcessTreeShutdownProviderDeadlineTest {
 
+    private static final Duration POST_SIGNAL_WAIT_BUDGET = Duration.ofSeconds(1);
+    // Each delay fits the wait budget, but together they outlive the original operation deadline.
+    private static final long POST_SIGNAL_DELAY_MILLIS = 600;
+
     @Test
     void providerOperationCannotOutliveForceStopDeadlineAndRetainsCapacityUntilReturn() throws Exception {
         ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofSeconds(5));
@@ -117,13 +121,13 @@ final class ProcessTreeShutdownProviderDeadlineTest {
 
     @Test
     void guardedExitCodeUsesThePostSignalWaitDeadline() {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(25), Duration.ofSeconds(1));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(25), Duration.ofSeconds(5));
         DelayedPostSignalExitProcess delegate = DelayedPostSignalExitProcess.afterGracefulSignal();
 
         OptionalInt exitCode = ProcessLifecycle.stop(
                 scanner.guard(delegate),
                 KnownDescendants.empty(),
-                ShutdownPolicy.interruptThenKill(Duration.ofMillis(200), Duration.ofMillis(100)));
+                ShutdownPolicy.interruptThenKill(POST_SIGNAL_WAIT_BUDGET, POST_SIGNAL_WAIT_BUDGET));
 
         assertEquals(23, exitCode.orElseThrow());
         assertEquals(0, delegate.forceDestroyCalls());
@@ -131,13 +135,13 @@ final class ProcessTreeShutdownProviderDeadlineTest {
 
     @Test
     void guardedExitCodeUsesThePostForceSignalWaitDeadline() {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(25), Duration.ofSeconds(1));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(4, 4, Duration.ofMillis(25), Duration.ofSeconds(5));
         DelayedPostSignalExitProcess delegate = DelayedPostSignalExitProcess.afterForcefulSignal();
 
         OptionalInt exitCode = ProcessLifecycle.stop(
                 scanner.guard(delegate),
                 KnownDescendants.empty(),
-                ShutdownPolicy.interruptThenKill(Duration.ZERO, Duration.ofMillis(200)));
+                ShutdownPolicy.interruptThenKill(Duration.ZERO, POST_SIGNAL_WAIT_BUDGET));
 
         assertEquals(23, exitCode.orElseThrow());
         assertEquals(1, delegate.forceDestroyCalls());
@@ -226,11 +230,11 @@ final class ProcessTreeShutdownProviderDeadlineTest {
         }
 
         private static DelayedPostSignalExitProcess afterGracefulSignal() {
-            return new DelayedPostSignalExitProcess(2, 120, 0);
+            return new DelayedPostSignalExitProcess(2, POST_SIGNAL_DELAY_MILLIS, 0);
         }
 
         private static DelayedPostSignalExitProcess afterForcefulSignal() {
-            return new DelayedPostSignalExitProcess(4, 0, 120);
+            return new DelayedPostSignalExitProcess(4, 0, POST_SIGNAL_DELAY_MILLIS);
         }
 
         @Override
@@ -280,7 +284,7 @@ final class ProcessTreeShutdownProviderDeadlineTest {
         @Override
         public boolean isAlive() {
             if (livenessCalls.incrementAndGet() == exitOnLivenessCall) {
-                sleepUninterruptibly(120);
+                sleepUninterruptibly(POST_SIGNAL_DELAY_MILLIS);
                 alive.set(false);
             }
             return alive.get();
