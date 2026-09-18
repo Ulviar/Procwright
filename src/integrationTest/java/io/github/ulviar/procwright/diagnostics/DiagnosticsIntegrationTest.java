@@ -353,12 +353,17 @@ final class DiagnosticsIntegrationTest {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         RunScenario.Draft scenario = fixtureService().run().withDiagnosticListener(recorder);
 
-        CommandResult result = scenario.withArgs("sleep", "--millis=5000", "--finished=false")
+        long started = System.nanoTime();
+        CommandResult result = scenario.withArgs("sleep", "--millis=60000", "--finished=false")
                 .withTimeout(Duration.ofMillis(100))
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(5)))
+                // Initial process-tree discovery must fit inside the graceful phase budget.
+                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(5)))
                 .execute();
 
         assertTrue(result.timedOut());
+        assertTrue(
+                System.nanoTime() - started < Duration.ofSeconds(10).toNanos(),
+                "timeout must stop the process before its natural exit");
         assertTrue(recorder.awaitContains(DiagnosticEventType.TIMEOUT_REACHED));
         assertTrue(recorder.awaitContains(DiagnosticEventType.SHUTDOWN_REQUESTED));
         assertEquals(

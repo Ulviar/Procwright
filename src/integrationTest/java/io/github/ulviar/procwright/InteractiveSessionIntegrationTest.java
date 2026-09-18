@@ -279,10 +279,11 @@ final class InteractiveSessionIntegrationTest {
                 .withShutdown(idleShutdownPolicy());
 
         try (Session session =
-                scenario.withArgs("sleep", "--millis=5000", "--finished=false").open()) {
+                scenario.withArgs("sleep", "--millis=60000", "--finished=false").open()) {
             SessionExit exit = session.onExit().get(10, TimeUnit.SECONDS);
 
             assertTrue(exit.timedOut());
+            assertTrue(exit.exitCode().isPresent(), "idle timeout must reap the process before its natural exit");
         }
     }
 
@@ -298,9 +299,9 @@ final class InteractiveSessionIntegrationTest {
     }
 
     private static ShutdownPolicy idleShutdownPolicy() {
-        // The grace windows are upper bounds on reap latency, not added test time. A tight kill
-        // grace races process-tree reaping on loaded CI machines and fails shutdown spuriously.
-        return ShutdownPolicy.interruptThenKill(Duration.ofMillis(10), Duration.ofSeconds(5));
+        // Initial discovery shares the graceful phase budget. Give the OS scan enough time to
+        // complete; an incomplete scan correctly prevents successful cleanup even after a kill.
+        return ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(5));
     }
 
     private static boolean isWindows() {
