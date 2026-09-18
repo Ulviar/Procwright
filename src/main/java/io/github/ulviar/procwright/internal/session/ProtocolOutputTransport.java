@@ -98,10 +98,6 @@ final class ProtocolOutputTransport {
             publishFatal(fatal.error());
             return;
         }
-        if (outcome instanceof ProtocolSessionState.ClosedSnapshot) {
-            closeReaders();
-            return;
-        }
         throw new AssertionError("Unknown protocol terminal outcome: " + outcome);
     }
 
@@ -120,7 +116,7 @@ final class ProtocolOutputTransport {
                 options.outputBacklogLimit(), overflowPolicy, nanoTime, () -> {}, () -> {}, exitCode, null);
     }
 
-    private void closeReaders() {
+    void closeReaders() {
         stdout.close();
         stderr.close();
     }

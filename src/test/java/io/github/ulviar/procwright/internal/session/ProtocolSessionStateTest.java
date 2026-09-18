@@ -5,7 +5,6 @@ package io.github.ulviar.procwright.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -44,11 +43,10 @@ final class ProtocolSessionStateTest {
         IllegalStateException cause = new IllegalStateException("overflow");
 
         state.recordTerminalFailure(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "overflow", cause);
-        ProtocolSessionState.CloseClaim close = state.claimClose(true);
+        assertTrue(state.claimClose());
 
-        assertTrue(close.owner());
         ProtocolSessionState.FailureSnapshot terminal =
-                assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, close.terminalToPublish());
+                assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, state.terminal());
         assertSame(cause, terminal.primary());
         ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, followUp.reason());
@@ -102,16 +100,38 @@ final class ProtocolSessionStateTest {
     }
 
     @Test
+    void requestFailureAfterCloseUsesTranscriptCapturedOutsideStateMonitor() {
+        AtomicReference<ProtocolSessionState> owner = new AtomicReference<>();
+        ProtocolTranscript transcript = new ProtocolTranscript("diagnostic", false, false);
+        ProtocolSessionState state = new ProtocolSessionState(
+                () -> {
+                    assertFalse(Thread.holdsLock(owner.get()), "transcript supplier ran under the state monitor");
+                    return transcript;
+                },
+                OptionalInt::empty);
+        owner.set(state);
+        ProtocolSessionState.RequestOutcome request = state.beginRequest();
+        state.claimClose();
+
+        ProtocolSessionException selected = state.recordRequestTimeout(request);
+
+        assertEquals(ProtocolSessionException.Reason.CLOSED, selected.reason());
+        assertSame(transcript, selected.transcript());
+        assertNull(state.terminal());
+    }
+
+    @Test
     void closeSelectedBeforeNonfatalFailureRemainsCanonical() {
         List<Throwable> discarded = new ArrayList<>();
         ProtocolSessionState state = state(discarded);
         IllegalStateException late = new IllegalStateException("late");
 
-        state.claimClose(true);
+        state.claimClose();
         ProtocolSessionState.TerminalSnapshot selected =
                 state.recordTerminalFailure(ProtocolSessionException.Reason.FAILURE, "late", late);
 
-        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, selected);
+        assertNull(selected);
+        assertNull(state.terminal());
         assertTrue(discarded.isEmpty());
         ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertEquals(ProtocolSessionException.Reason.CLOSED, followUp.reason());
@@ -124,34 +144,38 @@ final class ProtocolSessionStateTest {
         IllegalStateException runtime = new IllegalStateException("late output");
         AssertionError fatal = new AssertionError("late fatal output");
 
-        state.claimClose(true);
+        state.claimClose();
         ProtocolSessionState.OutputSelection runtimeSelection =
                 state.recordOutputFailure(ProtocolSessionException.Reason.FAILURE, "late", runtime);
         ProtocolSessionState.OutputSelection fatalSelection = state.recordOutputFatalError(fatal);
 
         assertTrue(runtimeSelection.rejectedAfterClose());
         assertTrue(fatalSelection.rejectedAfterClose());
-        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, runtimeSelection.selected());
-        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, fatalSelection.selected());
-        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, state.terminal());
+        assertNull(runtimeSelection.selected());
+        assertNull(fatalSelection.selected());
+        assertNull(state.terminal());
         assertEquals(List.of(fatal), discarded);
     }
 
     @Test
-    void closeClaimsEncodeOwnershipAndPublication() {
-        ProtocolSessionState silent = state();
+    void closeHasOneOwnerWithoutCreatingATerminalFailure() {
+        ProtocolSessionState state = state();
 
-        ProtocolSessionState.CloseClaim silentOwner = silent.claimClose(false);
-        assertTrue(silentOwner.owner());
-        assertNull(silentOwner.terminalToPublish());
-        ProtocolSessionState.CloseClaim silentObserver = silent.claimClose(true);
-        assertFalse(silentObserver.owner());
-        assertNull(silentObserver.terminalToPublish());
+        assertTrue(state.claimClose());
+        assertFalse(state.claimClose());
+        assertNull(state.terminal());
+    }
 
-        ProtocolSessionState publishing = state();
-        ProtocolSessionState.CloseClaim publication = publishing.claimClose(true);
-        assertTrue(publication.owner());
-        assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, publication.terminalToPublish());
+    @Test
+    void closeSelectedBeforeSuccessfulCompletionReturnsClosed() {
+        ProtocolSessionState state = state();
+        ProtocolSessionState.RequestOutcome request = state.beginRequest();
+
+        state.claimClose();
+
+        ProtocolSessionException closed =
+                assertThrows(ProtocolSessionException.class, () -> state.completeRequest(request));
+        assertEquals(ProtocolSessionException.Reason.CLOSED, closed.reason());
     }
 
     @Test
@@ -167,34 +191,27 @@ final class ProtocolSessionStateTest {
         ExecutorService executor = Executors.newFixedThreadPool(callers);
         CountDownLatch ready = new CountDownLatch(callers);
         CountDownLatch start = new CountDownLatch(1);
-        List<Future<ProtocolSessionState.CloseClaim>> decisions = new ArrayList<>();
+        List<Future<Boolean>> decisions = new ArrayList<>();
         try {
             for (int index = 0; index < callers; index++) {
                 decisions.add(executor.submit(() -> {
                     ready.countDown();
                     start.await();
-                    return state.claimClose(true);
+                    return state.claimClose();
                 }));
             }
             assertTrue(ready.await(1, TimeUnit.SECONDS));
             start.countDown();
 
             int owners = 0;
-            int observers = 0;
-            for (Future<ProtocolSessionState.CloseClaim> decision : decisions) {
-                ProtocolSessionState.CloseClaim selected = decision.get(1, TimeUnit.SECONDS);
-                if (selected.owner()) {
+            for (Future<Boolean> decision : decisions) {
+                if (decision.get(1, TimeUnit.SECONDS)) {
                     owners++;
-                    assertNotNull(selected.terminalToPublish());
-                } else {
-                    observers++;
-                    assertNull(selected.terminalToPublish());
                 }
             }
 
             assertEquals(1, owners);
-            assertEquals(callers - 1, observers);
-            assertEquals(1, transcriptSnapshots.get());
+            assertEquals(0, transcriptSnapshots.get());
         } finally {
             start.countDown();
             executor.shutdownNow();
@@ -210,12 +227,10 @@ final class ProtocolSessionStateTest {
         ProtocolSessionException closed = state.recordRequestFailure(request, () -> state.closed(null));
         AssertionError fatal = new AssertionError("fatal");
 
-        state.claimClose(true);
+        state.claimClose();
         ProtocolSessionState.TerminalSnapshot selected = state.recordFatalError(fatal);
 
-        ProtocolSessionException selectedClosed = assertInstanceOf(ProtocolSessionState.ClosedSnapshot.class, selected)
-                .failure();
-        assertEquals(ProtocolSessionException.Reason.CLOSED, selectedClosed.reason());
+        assertNull(selected);
         assertSame(closed, request.failure());
         assertEquals(List.of(fatal), discarded);
         ProtocolSessionException observed = assertThrows(ProtocolSessionException.class, state::ensureOpen);
@@ -288,14 +303,31 @@ final class ProtocolSessionStateTest {
     void terminalFailureReplacesEarlierActiveClosedFailure() {
         ProtocolSessionState state = state();
         ProtocolSessionState.RequestOutcome request = state.beginRequest();
-        state.recordRequestFailure(request, () -> state.closed(null));
+        ProtocolSessionException staleClosed = state.recordRequestFailure(request, () -> state.closed(null));
         IllegalStateException overflow = new IllegalStateException("overflow");
+        request.close();
+        assertNull(state.terminal());
 
         state.recordTerminalFailure(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "overflow", overflow);
 
-        ProtocolSessionException selected = request.failure();
+        ProtocolSessionException selected = state.selectProtocolFailure(request, staleClosed);
         assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, selected.reason());
         assertSame(overflow, selected.getCause());
+    }
+
+    @Test
+    void terminalSnapshotDoesNotRewrapItsOriginatingRequestFailure() {
+        ProtocolSessionState state = state();
+        ProtocolSessionState.RequestOutcome request = state.beginRequest();
+        IllegalStateException callbackFailure = new IllegalStateException("callback");
+        ProtocolSessionException primary =
+                state.failure(ProtocolSessionException.Reason.PROTOCOL_DECODER_FAILED, "decoder", callbackFailure);
+        request.close();
+
+        state.recordTerminalFailure(primary.reason(), primary.getMessage(), primary);
+
+        assertSame(primary, state.selectProtocolFailure(request, primary));
+        assertSame(callbackFailure, primary.getCause());
     }
 
     @Test
@@ -328,7 +360,7 @@ final class ProtocolSessionStateTest {
     @Test
     void terminalStateOverridesLocalRequestAdmissionFailure() {
         ProtocolSessionState closed = state();
-        closed.claimClose(true);
+        closed.claimClose();
         ProtocolSessionException closedFailure = assertThrows(
                 ProtocolSessionException.class,
                 () -> closed.arbitrateRequestAdmissionFailure(() -> closed.timeout(null)));
@@ -369,13 +401,13 @@ final class ProtocolSessionStateTest {
                     ProtocolSessionException.Reason.FAILURE, "failure", new IllegalStateException("failure")));
             assertTrue(snapshotEntered.await(1, TimeUnit.SECONDS));
 
-            Future<ProtocolSessionState.CloseClaim> close = executor.submit(() -> state.claimClose(false));
-            ProtocolSessionState.CloseClaim selected = close.get(1, TimeUnit.SECONDS);
-            assertTrue(selected.owner());
-            assertNull(selected.terminalToPublish());
+            Future<Boolean> close = executor.submit(state::claimClose);
+            assertTrue(close.get(1, TimeUnit.SECONDS));
 
             releaseSnapshot.countDown();
-            assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, terminal.get(1, TimeUnit.SECONDS));
+            assertNull(terminal.get(1, TimeUnit.SECONDS));
+            ProtocolSessionException closed = assertThrows(ProtocolSessionException.class, state::ensureOpen);
+            assertEquals(ProtocolSessionException.Reason.CLOSED, closed.reason());
         } finally {
             releaseSnapshot.countDown();
             executor.shutdownNow();

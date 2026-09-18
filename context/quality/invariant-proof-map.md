@@ -366,8 +366,9 @@ adapter-у проглотить partial-write или limit failure.
 
 ### Protocol terminal state
 
-**Инвариант:** active request, close и terminal failure имеют одного арбитра; typed reason сохраняется для последующих
-requests, а snapshots и exit-code lookup не выполняются под state monitor.
+**Инвариант:** active request, close и terminal failure имеют одного арбитра; normal close фиксируется отдельным
+монотонным ownership flag и не создаёт failure snapshot. Snapshots принадлежат только failure/fatal outcomes, typed
+reason сохраняется для последующих requests, а transcript и exit-code lookup не выполняются под state monitor.
 
 **Владелец:** `ProtocolSessionState`.
 

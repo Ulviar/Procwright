@@ -138,18 +138,25 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             return response;
         } catch (ProtocolSessionException exception) {
             ProtocolSessionException primary = state.primaryFailure(requestOutcome, exception);
-            ProtocolSessionState.TerminalSnapshot outcome = state.terminal();
             if (primary.reason() != ProtocolSessionException.Reason.CLOSED) {
-                outcome = state.recordTerminalFailure(primary.reason(), primary.getMessage(), primary);
+                state.recordTerminalFailure(primary.reason(), primary.getMessage(), primary);
             }
-            if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
-                closePreserving(fatal.error());
-            } else if (primary.reason() != ProtocolSessionException.Reason.CLOSED) {
-                closePreserving(primary);
+            ProtocolSessionException selected;
+            try {
+                selected = state.selectProtocolFailure(requestOutcome, primary);
+            } catch (Error fatal) {
+                closePreserving(fatal);
+                throw fatal;
             }
-            throw state.selectProtocolFailure(primary);
+            if (selected.reason() != ProtocolSessionException.Reason.CLOSED) {
+                closePreserving(selected);
+            }
+            throw selected;
         } catch (Error error) {
             ProtocolSessionState.TerminalSnapshot outcome = state.recordFatalError(error);
+            if (outcome == null) {
+                throw state.closed(null);
+            }
             if (outcome instanceof ProtocolSessionState.FatalSnapshot fatal) {
                 closePreserving(fatal.error());
                 throw fatal.error();
@@ -204,18 +211,23 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
     }
 
     private void closeWithEvent(boolean publishClosed, Throwable primary) {
-        ProtocolSessionState.CloseClaim close = state.claimClose(publishClosed);
-        if (close.owner()) {
+        boolean lifecycleOwner = state.claimClose();
+        if (lifecycleOwner) {
             callbackCancellation.cancel();
         }
         try {
-            if (close.terminalToPublish() != null) {
-                output.publishTerminal(close.terminalToPublish());
+            if (lifecycleOwner && publishClosed) {
+                ProtocolSessionState.TerminalSnapshot terminal = state.terminal();
+                if (terminal == null) {
+                    output.closeReaders();
+                } else {
+                    output.publishTerminal(terminal);
+                }
             }
         } finally {
             if (primary != null) {
                 outputPumps.closeSessionAfterFailure(primary);
-            } else if (close.owner()) {
+            } else if (lifecycleOwner) {
                 outputPumps.closeSession();
             }
         }

@@ -53,14 +53,16 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     void completeRequest(RequestOutcome request) {
         ProtocolSessionException requestFailure;
         TerminalSnapshot sessionOutcome;
+        boolean sessionClosed;
         synchronized (this) {
             if (activeRequest != request) {
                 throw new IllegalStateException("protocol request outcome is not active");
             }
             requestFailure = request.failure();
             sessionOutcome = terminalOutcome;
+            sessionClosed = closed;
             activeRequest = null;
-            if (requestFailure == null && sessionOutcome == null) {
+            if (requestFailure == null && sessionOutcome == null && !sessionClosed) {
                 return;
             }
         }
@@ -71,7 +73,10 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         if (requestFailure != null) {
             throw requestFailure;
         }
-        throwTerminalOutcome(sessionOutcome);
+        if (sessionOutcome != null) {
+            throwTerminalOutcome(sessionOutcome);
+        }
+        throw closed(null);
     }
 
     private void endRequest(RequestOutcome request) {
@@ -83,13 +88,32 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         }
     }
 
-    ProtocolSessionException selectProtocolFailure(ProtocolSessionException fallback) {
-        Error fatalError;
+    ProtocolSessionException selectProtocolFailure(RequestOutcome request, ProtocolSessionException fallback) {
+        TerminalSnapshot outcome;
+        ProtocolSessionException requestFailure;
+        boolean sessionClosed;
         synchronized (this) {
-            fatalError = fatalError(terminalOutcome);
+            outcome = terminalOutcome;
+            requestFailure = request.failure();
+            sessionClosed = closed;
         }
+        Error fatalError = fatalError(outcome);
         if (fatalError != null) {
             throw fatalError;
+        }
+        if (outcome instanceof FailureSnapshot failure) {
+            if (failure.primary() == fallback) {
+                return fallback;
+            }
+            if (requestFailure == null || requestFailure.reason() == ProtocolSessionException.Reason.CLOSED) {
+                return terminalExceptionWithLatestExitCode(failure);
+            }
+        }
+        if (requestFailure != null) {
+            return requestFailure;
+        }
+        if (sessionClosed) {
+            return closed(null);
         }
         return fallback;
     }
@@ -98,33 +122,15 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         if (outcome instanceof FailureSnapshot failure) {
             return terminalExceptionWithLatestExitCode(failure);
         }
-        if (outcome instanceof ClosedSnapshot closedSnapshot) {
-            return closedSnapshot.failure();
-        }
         throw new IllegalArgumentException("Fatal outcome does not have a protocol exception");
     }
 
-    CloseClaim claimClose(boolean publishClosed) {
-        synchronized (this) {
-            if (closed) {
-                return CloseClaim.OBSERVER;
-            }
-            closed = true;
-            if (!publishClosed) {
-                return CloseClaim.SILENT_OWNER;
-            }
-            if (terminalOutcome != null) {
-                return new CloseClaim(true, terminalOutcome);
-            }
+    synchronized boolean claimClose() {
+        if (closed) {
+            return false;
         }
-
-        ProtocolSessionException closedFailure = closed(null);
-        synchronized (this) {
-            if (terminalOutcome == null) {
-                terminalOutcome = new ClosedSnapshot(closedFailure);
-            }
-            return new CloseClaim(true, terminalOutcome);
-        }
+        closed = true;
+        return true;
     }
 
     synchronized TerminalSnapshot terminal() {
@@ -148,11 +154,16 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
 
     ProtocolSessionException arbitrateRequestAdmissionFailure(Supplier<ProtocolSessionException> localFailure) {
         TerminalSnapshot outcome;
+        boolean sessionClosed;
         synchronized (this) {
             outcome = terminalOutcome;
+            sessionClosed = closed;
         }
         if (outcome != null) {
             throwTerminalOutcome(outcome);
+        }
+        if (sessionClosed) {
+            throw closed(null);
         }
         return Objects.requireNonNull(localFailure.get(), "localFailure");
     }
@@ -164,9 +175,9 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
                 cause,
                 Objects.requireNonNull(transcript.get(), "transcript"),
                 Objects.requireNonNull(exitCode.get(), "exitCode"),
-                false);
+                true);
         retainDiscarded(selection.discarded());
-        return Objects.requireNonNull(selection.selected(), "selected");
+        return selection.selected();
     }
 
     OutputSelection recordOutputFailure(ProtocolSessionException.Reason reason, String message, Throwable cause) {
@@ -182,9 +193,9 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     }
 
     TerminalSnapshot recordFatalError(Error error) {
-        Selection selection = selectFatal(error, false);
+        Selection selection = selectFatal(error, true);
         retainDiscarded(selection.discarded());
-        return Objects.requireNonNull(selection.selected(), "selected");
+        return selection.selected();
     }
 
     OutputSelection recordOutputFatalError(Error error) {
@@ -203,10 +214,18 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
 
     private ProtocolSessionException recordRequestFailureLocked(
             RequestOutcome request, ProtocolSessionException candidate) {
-        if (terminalOutcome == null) {
-            if (candidate.reason() == ProtocolSessionException.Reason.CLOSED) {
-                return request.record(candidate);
+        if (candidate.reason() == ProtocolSessionException.Reason.CLOSED && terminalOutcome == null) {
+            return request.record(candidate);
+        }
+        if (closed && terminalOutcome == null) {
+            ProtocolSessionException selected = request.failure();
+            if (selected == null) {
+                selected = request.record(new ProtocolSessionException(
+                        ProtocolSessionException.Reason.CLOSED, candidate.transcript(), "Protocol session is closed"));
             }
+            return selected;
+        }
+        if (terminalOutcome == null) {
             ProtocolSessionException primary = request.failure();
             if (primary == null) {
                 primary = request.record(candidate);
@@ -223,17 +242,6 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
                 primary = request.record(terminalExceptionFromSnapshot(failure));
             } else if (primary.reason() == ProtocolSessionException.Reason.CLOSED) {
                 primary = request.replaceWithTerminal(terminalExceptionFromSnapshot(failure));
-            }
-            return primary;
-        }
-        if (terminalOutcome instanceof ClosedSnapshot closedSnapshot) {
-            ProtocolSessionException primary = request.failure();
-            if (primary == null || primary.reason() != ProtocolSessionException.Reason.CLOSED) {
-                ProtocolSessionException closedFailure = candidate.reason() == ProtocolSessionException.Reason.CLOSED
-                        ? candidate
-                        : closedSnapshot.failure();
-                primary = request.replaceWithTerminal(closedFailure);
-                return primary;
             }
             return primary;
         }
@@ -362,7 +370,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         if (outcome instanceof FailureSnapshot failure) {
             throw terminalExceptionWithLatestExitCode(failure);
         }
-        throw ((ClosedSnapshot) outcome).failure();
+        throw ((FatalSnapshot) outcome).error();
     }
 
     private ProtocolSessionException terminalExceptionWithLatestExitCode(FailureSnapshot failure) {
@@ -447,19 +455,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         return new Selection(selected, discarded, rejected);
     }
 
-    record CloseClaim(boolean owner, TerminalSnapshot terminalToPublish) {
-
-        private static final CloseClaim OBSERVER = new CloseClaim(false, null);
-        private static final CloseClaim SILENT_OWNER = new CloseClaim(true, null);
-
-        CloseClaim {
-            if (!owner && terminalToPublish != null) {
-                throw new IllegalArgumentException("Only the close owner may publish a terminal outcome");
-            }
-        }
-    }
-
-    sealed interface TerminalSnapshot permits FailureSnapshot, FatalSnapshot, ClosedSnapshot {
+    sealed interface TerminalSnapshot permits FailureSnapshot, FatalSnapshot {
 
         Throwable primary();
     }
@@ -490,18 +486,6 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         @Override
         public Throwable primary() {
             return error;
-        }
-    }
-
-    record ClosedSnapshot(ProtocolSessionException failure) implements TerminalSnapshot {
-
-        ClosedSnapshot {
-            Objects.requireNonNull(failure, "failure");
-        }
-
-        @Override
-        public Throwable primary() {
-            return failure;
         }
     }
 
