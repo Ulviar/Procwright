@@ -210,17 +210,10 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
         GatedEofInputStream stdout = new GatedEofInputStream();
         ControllableProcess process =
                 new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        DiagnosticEmitter diagnostics = DiagnosticEmitter.of(
-                DiagnosticsSettings.disabled(), "protocol-exit-observation-test", CommandEcho.empty());
         CountDownLatch responseReadStarted = new CountDownLatch(1);
+        AtomicReference<DefaultSession> session = new AtomicReference<>();
         DefaultProtocolSession<String, Byte> protocol = protocolSession(
-                process,
-                byteReadingAdapter(responseReadStarted),
-                ProtocolSessionSettings.defaults(),
-                DefaultProtocolSession.Dependencies.defaults(),
-                diagnostics,
-                new BoundedCloseDispatcher(2, 2),
-                DefaultSession.WatcherStarter.threading());
+                process, byteReadingAdapter(responseReadStarted), ProtocolSessionSettings.defaults(), session::set);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
@@ -228,6 +221,7 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
             assertTrue(stdout.awaitReadEntered());
 
             process.exitNaturally(17);
+            assertTrue(eventually(() -> session.get().processExitCode().orElse(-1) == 17));
             assertFalse(protocol.onExit().isDone());
 
             stdout.releaseEof();
