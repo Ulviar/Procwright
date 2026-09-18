@@ -416,7 +416,9 @@ callback заменить timeout или cancellation.
 ### Expect
 
 **Инвариант:** matching не меняет stdin/transcript/cursor после invalid или terminal operation; output публикуется
-incrementally, а close, EOF, timeout и I/O failures разрешаются first-terminal-wins.
+incrementally, а terminal outcomes разрешаются first-terminal-wins. Обычный timeout ожидания вывода остаётся
+recoverable: повторная regex evaluation начинается только после изменения output или cursor. Изменение cursor будит
+ожидающий matcher даже без нового output.
 
 **Владелец:** `ExpectSessionState`.
 

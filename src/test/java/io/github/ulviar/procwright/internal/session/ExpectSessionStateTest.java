@@ -2,19 +2,94 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static io.github.ulviar.procwright.internal.session.ExpectTestFixtures.eventually;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.session.ExpectException;
+import io.github.ulviar.procwright.session.ExpectMatch;
+import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 final class ExpectSessionStateTest {
+
+    @Test
+    void unchangedRegexSnapshotWaitsUntilRecoverableTimeout() {
+        ExpectSessionState state = state((thread, error) -> {});
+        ExpectSessionState.RegexSnapshot snapshot = state.regexSnapshot();
+
+        ExpectException timeout = assertThrows(
+                ExpectException.class,
+                () -> state.acceptRegexEvaluation(
+                        snapshot,
+                        null,
+                        System.nanoTime() + Duration.ofMillis(100).toNanos(),
+                        "not found"));
+
+        assertEquals(ExpectException.Reason.TIMEOUT, timeout.reason());
+        assertFalse(state.isStopping());
+        assertFalse(state.isClosed());
+        state.publishDecoded("stdout", true, "ready");
+        assertEquals(
+                "ready",
+                state.awaitLiteral(
+                                "ready",
+                                System.nanoTime() + Duration.ofSeconds(1).toNanos(),
+                                "not found",
+                                "literal")
+                        .matched());
+    }
+
+    @Test
+    void cursorChangeWakesRegexWaiterWithoutNewOutput() throws Exception {
+        ExpectSessionState state = state((thread, error) -> {});
+        state.publishDecoded("stdout", true, "prefixfoo");
+        ExpectSessionState.RegexSnapshot snapshot = state.regexSnapshot();
+        Pattern pattern = Pattern.compile("^foo");
+        assertNull(ExpectRegexMatcher.evaluate(pattern, snapshot.output(), snapshot.searchStart()));
+        AtomicReference<Thread> waitingThread = new AtomicReference<>();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ExpectMatch> waiter = executor.submit(() -> {
+                waitingThread.set(Thread.currentThread());
+                return state.acceptRegexEvaluation(
+                        snapshot,
+                        null,
+                        System.nanoTime() + Duration.ofSeconds(10).toNanos(),
+                        "not found");
+            });
+            assertTrue(eventually(
+                    () -> waitingThread.get() != null && waitingThread.get().getState() == Thread.State.TIMED_WAITING));
+
+            state.awaitLiteral(
+                    "prefix", System.nanoTime() + Duration.ofSeconds(1).toNanos(), "not found", "literal");
+
+            assertNull(waiter.get(1, TimeUnit.SECONDS));
+            ExpectSessionState.RegexSnapshot advanced = state.regexSnapshot();
+            ExpectMatch match = state.acceptRegexEvaluation(
+                    advanced,
+                    ExpectRegexMatcher.evaluate(pattern, advanced.output(), advanced.searchStart()),
+                    System.nanoTime() + Duration.ofSeconds(1).toNanos(),
+                    "not found");
+            assertEquals("foo", match.matched());
+        } finally {
+            state.close();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
 
     @Test
     void closeOwnsTerminalBeforeLosingRegexErrorAndReportsErrorOutsideStateLock() {

@@ -82,6 +82,7 @@ final class ExpectSessionState {
                 String before = output.substring(searchStart, match.start());
                 cursorOffset = match.end();
                 cursorRevision++;
+                notifyAll();
                 return new ExpectMatch(text, java.util.List.of(), before);
             }
             waitForMore(deadlineNanos, timeoutMessage);
@@ -106,13 +107,13 @@ final class ExpectSessionState {
         if (evaluation != null) {
             cursorOffset = snapshot.outputOffset() + evaluation.end();
             cursorRevision++;
+            notifyAll();
             String before = snapshot.output().substring(snapshot.searchStart(), evaluation.start());
             return new ExpectMatch(evaluation.matched(), evaluation.groups(), before);
         }
-        if (output.revision() != snapshot.outputRevision()) {
-            return null;
+        while (output.revision() == snapshot.outputRevision() && cursorRevision == snapshot.cursorRevision()) {
+            waitForMore(deadlineNanos, timeoutMessage);
         }
-        waitForMore(deadlineNanos, timeoutMessage);
         return null;
     }
 
