@@ -20,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -144,6 +145,154 @@ class StreamFlowTest {
             val observed = assertFailsWith<IllegalArgumentException> { collection.await() }
             assertEquals(exitFailure.message, observed.message)
             assertEquals(1, harness.opens.single().closeCalls.get())
+        }
+    }
+
+    @Test
+    fun `cleanup failure preserves launch failure without mutating it`() = runBlocking {
+        val launchFailure = IllegalArgumentException("launch failed after ownership registration")
+        val closeCalls = AtomicInteger()
+
+        val observed =
+            assertFailsWith<IllegalArgumentException> {
+                javaService()
+                    .listen()
+                    .openFlow { _, own ->
+                        own {
+                            closeCalls.incrementAndGet()
+                            throw IllegalStateException("cleanup failed")
+                        }
+                        throw launchFailure
+                    }
+                    .toList()
+            }
+
+        assertEquals(launchFailure.message, observed.message)
+        assertTrue(launchFailure.suppressed.isEmpty())
+        assertEquals(1, closeCalls.get())
+    }
+
+    @Test
+    fun `cleanup failure preserves exceptional process exit`() = runBlocking {
+        val exitFailure = IllegalArgumentException("process failed")
+        val closeCalls = AtomicInteger()
+
+        val observed =
+            assertFailsWith<IllegalArgumentException> {
+                javaService()
+                    .listen()
+                    .openFlow { _, own ->
+                        own {
+                            closeCalls.incrementAndGet()
+                            throw IllegalStateException("cleanup failed")
+                        }
+                        CompletableFuture.failedFuture(exitFailure)
+                    }
+                    .toList()
+            }
+
+        assertEquals(exitFailure.message, observed.message)
+        assertTrue(exitFailure.suppressed.isEmpty())
+        assertEquals(1, closeCalls.get())
+    }
+
+    @Test
+    fun `cleanup failure is visible when process exit succeeded`() = runBlocking {
+        val closeCalls = AtomicInteger()
+
+        val observed =
+            assertFailsWith<IllegalStateException> {
+                javaService()
+                    .listen()
+                    .openFlow { _, own ->
+                        own {
+                            closeCalls.incrementAndGet()
+                            throw IllegalStateException("cleanup failed")
+                        }
+                        CompletableFuture.completedFuture(exit())
+                    }
+                    .toList()
+            }
+
+        assertEquals("cleanup failed", observed.message)
+        assertEquals(1, closeCalls.get())
+    }
+
+    @Test
+    fun `cleanup failure preserves collector cancellation and cancels only its exit view`() =
+        runBlocking {
+            val processExit = CompletableFuture<StreamExit>()
+            val exitView = processExit.copy()
+            val closeCalls = AtomicInteger()
+            val observed = AtomicReference<Throwable>()
+            val collection =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    try {
+                        javaService()
+                            .listen()
+                            .openFlow { _, own ->
+                                own {
+                                    closeCalls.incrementAndGet()
+                                    throw IllegalStateException("cleanup failed")
+                                }
+                                exitView
+                            }
+                            .toList()
+                    } catch (failure: Throwable) {
+                        observed.set(failure)
+                        throw failure
+                    }
+                }
+            awaitCondition { exitView.numberOfDependents == 1 }
+
+            collection.cancelAndJoin()
+
+            assertTrue(observed.get() is CancellationException)
+            assertTrue(exitView.isCancelled)
+            assertFalse(processExit.isDone)
+            assertEquals(1, closeCalls.get())
+        }
+
+    @Test
+    fun `cancellation during cleanup remains cancellation when close fails`() = runBlocking {
+        supervisorScope {
+            val closeEntered = CountDownLatch(1)
+            val releaseClose = CountDownLatch(1)
+            val closeCalls = AtomicInteger()
+            val observed = AtomicReference<Throwable>()
+            val collection =
+                async(Dispatchers.Default) {
+                    try {
+                        javaService()
+                            .listen()
+                            .openFlow { _, own ->
+                                own {
+                                    closeCalls.incrementAndGet()
+                                    closeEntered.countDown()
+                                    releaseClose.await()
+                                    throw IllegalStateException("cleanup failed after cancellation")
+                                }
+                                CompletableFuture.completedFuture(exit())
+                            }
+                            .toList()
+                    } catch (failure: Throwable) {
+                        observed.set(failure)
+                        throw failure
+                    }
+                }
+            try {
+                awaitCondition { closeEntered.count == 0L }
+
+                collection.cancel()
+                releaseClose.countDown()
+                collection.join()
+
+                assertTrue(observed.get() is CancellationException)
+                assertEquals(1, closeCalls.get())
+            } finally {
+                releaseClose.countDown()
+                collection.cancelAndJoin()
+            }
         }
     }
 

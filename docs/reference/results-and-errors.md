@@ -27,7 +27,8 @@ snapshot.
   output backlog overflow, adapter decoder failure, process exit, and other runtime failure. It preserves a bounded
   protocol transcript. `exitCode()` is an `OptionalInt` snapshot and can be empty when the failure is selected.
 - `ExpectException` distinguishes timeout, EOF, closed, and process I/O, decoding, or input-write failure, with a bounded
-  transcript. A timeout is retryable. Output and input failures close the process and complete `onExit()` exceptionally
+  transcript. Timeout while waiting for output or a matcher slot is retryable; abandonment of a regex evaluation is
+  terminal, so `TIMEOUT` alone does not establish regex retryability. Output and input failures close the process and complete `onExit()` exceptionally
   with the selected failure when it is still pending. EOF reported before normal output drain also stops a process that
   is still live; EOF materialized after normal drain does not rewrite the process result. A physical stdin-close failure that
   arrives after `closeStdin()` returns can instead surface from `onExit()` as its original cause.

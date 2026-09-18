@@ -10,7 +10,10 @@ Choose by the process's I/O contract, not by a list of low-level flags.
 | Uses line requests and line-oriented responses | `lineSession()` |
 | Uses custom framing, bytes, multi-line messages, or typed values | `protocolSession(adapterFactory)` |
 | Produces output continuously | `listen()` |
-| Is expensive to start and safely reusable | add `pooled()` to a line or factory-backed protocol Draft |
+| Handles concurrent independent requests through interchangeable workers | add `pooled()` to a line or factory-backed protocol Draft |
+
+One line or protocol session already reuses one process and serializes requests. Keep a direct session for sequential
+work or worker-local state. Add a pool when independent requests need several interchangeable workers concurrently.
 
 ## Finite command
 

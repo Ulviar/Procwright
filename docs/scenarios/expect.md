@@ -46,8 +46,11 @@ asynchronously. If it later fails while the process is still running, `onExit()`
 original failure, which is not required to be an `ExpectException`.
 
 A match timeout, EOF, close, or output failure throws `ExpectException` with its stable reason and bounded transcript
-snapshot. A timeout leaves `Expect` and its process open, so you can retry or wait for a different prompt. Close, output
-failure, and EOF keep the first selected reason when operations race. Output and input failures are terminal. EOF
+snapshot. A timeout while waiting for new output or the serialized matcher slot leaves `Expect` open for another match.
+If a regex evaluation is abandoned before it completes, the timeout is terminal: the process stops and later matcher
+calls keep the selected failure, even if the old evaluation eventually returns. Do not treat the `TIMEOUT` reason alone
+as permission to retry a regex call; use a fresh handle after abandoned evaluation. Close, output failure, and EOF keep
+the first selected reason when operations race. Output and input failures are terminal. EOF
 reported to a matcher before normal output drain stops the process when it is still live. A matcher that materializes EOF
 after normal output drain does not replace the process result.
 

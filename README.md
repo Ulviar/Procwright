@@ -111,6 +111,9 @@ configure it with `withCloseTimeout(...)`. Use `closeAsync()` only when the call
 blocking. Raw interactive, Expect, line, protocol, and listen are separate pre-launch output modes; their handles do not
 expose competing output consumers.
 
+For line, protocol, and Expect sessions, request timeouts do not bound output drain after process exit. Bound the
+`onExit()` wait and explicitly close the handle when that wait times out; see [cleanup limits](docs/explanations/process-cleanup-limits.md).
+
 ## Documentation
 
 - [Documentation](docs/index.md)

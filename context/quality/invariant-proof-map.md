@@ -185,10 +185,12 @@ root и известных descendants, а fatal traversal не лишает cle
 
 **Инвариант:** raw, line, protocol, Expect и stream output modes выбираются до launch и получают ровно одного consumer;
 helper pumps должны быть готовы до открытия exit-watcher gate.
+Natural exit line/protocol/Expect ждёт drain; timeout внешнего ожидания future не забирает output ownership.
+Явный close после root exit завершает logical drain даже при оставшемся открытом pipe.
 
 **Владелец:** `SessionOutputOwnership`.
 
-**Proof:** `SessionOutputOwnershipStateTest`, `SessionRuntimeTest`.
+**Proof:** `SessionOutputOwnershipStateTest`, `SessionRuntimeTest`, `SessionOutputOwnerLifecycleTest`.
 
 ### Process I/O ownership
 
@@ -593,11 +595,12 @@ ledger; snapshot не вызывает пользовательский callback
 
 **Инвариант:** Kotlin API сохраняет Java Draft semantics, а coroutine cancellation соблюдает ownership direct
 sessions, pooled requests и stream collectors. Отменённый caller не получает значение completed future и отменяет
-только своё pending view, сохраняя shared session state.
+только своё pending view, сохраняя shared session state. Flow закрывает принадлежащую collection сессию ровно один раз;
+secondary cleanup failure не подменяет первичную failure или cancellation и не мутирует исходный `Throwable`.
 
 **Владелец:** `:procwright-kotlin`.
 
-**Proof:** `PublicKotlinApiSurfaceTest`, `CoroutineExtensionsTest`.
+**Proof:** `PublicKotlinApiSurfaceTest`, `CoroutineExtensionsTest`, `StreamFlowTest`.
 
 ### Integrations
 

@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.internal.ExpectSettings;
@@ -18,6 +19,7 @@ import java.io.InputStream;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -86,6 +88,64 @@ final class SessionOutputOwnerLifecycleTest extends SessionOutputOwnershipTestSu
     void expectOwnerDrainsAndClosesOutputAfterNaturalProcessExit() throws Exception {
         assertHelperDrainsAndClosesOutput(
                 SessionOutputMode.EXPECT, rawSession -> new DefaultExpect(rawSession, ExpectSettings.defaults()));
+    }
+
+    @Test
+    void lineCloseAfterExitWaitTimeoutAbandonsInheritedOutput() throws Exception {
+        assertCloseAfterExitWaitTimeout(
+                SessionOutputMode.LINE,
+                rawSession -> new DefaultLineSession(rawSession, LineSessionSettings.defaults()));
+    }
+
+    @Test
+    void protocolCloseAfterExitWaitTimeoutAbandonsInheritedOutput() throws Exception {
+        assertCloseAfterExitWaitTimeout(
+                SessionOutputMode.PROTOCOL,
+                rawSession ->
+                        new DefaultProtocolSession<>(rawSession, noOpAdapter(), ProtocolSessionSettings.defaults()));
+    }
+
+    @Test
+    void expectCloseAfterExitWaitTimeoutAbandonsInheritedOutput() throws Exception {
+        assertCloseAfterExitWaitTimeout(
+                SessionOutputMode.EXPECT, rawSession -> new DefaultExpect(rawSession, ExpectSettings.defaults()));
+    }
+
+    private static <T extends AutoCloseable> void assertCloseAfterExitWaitTimeout(
+            SessionOutputMode outputMode, Function<DefaultSession, T> helperFactory) throws Exception {
+        BlockingDrainInputStream stdout = new BlockingDrainInputStream();
+        BlockingDrainInputStream stderr = new BlockingDrainInputStream();
+        StubProcess process = new StubProcess(stdout, stderr);
+        OpenedHelper<T> opened = openHelper(process, outputMode, helperFactory);
+        DefaultSession rawSession = opened.rawSession();
+        T helper = opened.helper();
+
+        try {
+            stdout.awaitReadStarted();
+            stderr.awaitReadStarted();
+            process.completeExit(0);
+            awaitProcessTerminal(rawSession);
+
+            assertThrows(TimeoutException.class, () -> rawSession.onExit().get(10, TimeUnit.MILLISECONDS));
+            assertFalse(stdout.isClosed(), "a timed future wait must not take output ownership");
+            assertFalse(stderr.isClosed(), "a timed future wait must not take output ownership");
+            assertFalse(rawSession.onExit().isDone());
+
+            // Neither EOF is released: explicit close must settle without waiting for inherited pipes.
+            helper.close();
+
+            assertEquals(
+                    0, rawSession.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
+            assertTrue(stdout.awaitClosed());
+            assertTrue(stderr.awaitClosed());
+            helper.close();
+            assertEquals(1, stdout.closeCalls());
+            assertEquals(1, stderr.closeCalls());
+        } finally {
+            stdout.releaseEof();
+            stderr.releaseEof();
+            helper.close();
+        }
     }
 
     @Test

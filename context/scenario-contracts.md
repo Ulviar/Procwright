@@ -70,6 +70,12 @@ Caller выбирает timeout, capture budget, charset policy, input, output m
 Caller владеет parsing и ordering raw protocol. Для сериализованного line/typed workflow используются отдельные
 сценарии.
 
+У line/protocol/Expect natural `onExit()` дополнительно ждёт drain принадлежащих helper потоков вывода.
+Request/match timeout не является absolute drain timeout; idle watcher прекращает ожидание после process outcome.
+Если root завершился, но потомок удерживает pipe, caller ограничивает ожидание future и явно закрывает handle при
+истечении этого срока. Таймаут future сам по себе handle не закрывает. Явный close логически завершает drain и запускает
+bounded cleanup, не ожидая физического возврата каждого stream close.
+
 ## `interactive().expect()`
 
 `interactive().expect()` возвращает неизменяемый `ExpectScenario.Draft`; каждый `with*` создает новую ветку.
@@ -81,6 +87,8 @@ Caller владеет parsing и ordering raw protocol. Для сериализ�
 - transcript bounded и доступен в `ExpectException`;
 - send/expect values редактируются в transcript по умолчанию;
 - EOF, timeout, closed Expect handle и read failure имеют разные reasons;
+- timeout ожидания output или matcher slot допускает следующий match; abandonment незавершённой regex evaluation
+  делает handle terminal и запрещает новые matcher tasks, поэтому один reason `TIMEOUT` не доказывает retryability;
 - `closeStdin()` посылает EOF без остановки процесса и matcher;
 - input/output используют общий charset по умолчанию, но output может иметь отдельный явный override;
 - встроенное incremental stripping для 7-bit CSI sequences с префиксом `ESC [` применяется до matching и transcript
@@ -212,6 +220,8 @@ Scenario Draft подключает `DiagnosticListener` и `DiagnosticTranscrip
 - cancellation `awaitExit()` отменяет только waiter;
 - `openFlow()` cold и создает отдельную `StreamSession` на collection;
 - cancellation collector закрывает только принадлежащую ему session;
+- `openFlow()` имеет один cleanup path: вторичный сбой close не заменяет исходную failure или cancellation и не
+  изменяет переданный `Throwable`; при отсутствии первичной ошибки сбой cleanup завершает collection ошибкой;
 - public suspending `openAwait()` отсутствует, пока ownership при startup/cancellation race не доказан.
 
 ## Optional integrations

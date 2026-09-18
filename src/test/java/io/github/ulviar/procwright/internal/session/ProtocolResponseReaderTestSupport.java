@@ -187,7 +187,9 @@ abstract class ProtocolResponseReaderTestSupport {
     }
 
     static RequestCapabilityScope readerScope() {
-        return RequestCapabilityScope.unrestricted("ProtocolReader unit test");
+        RequestCapabilityScope scope = new RequestCapabilityScope("ProtocolReader unit test");
+        scope.activate();
+        return scope;
     }
 
     static List<Consumer<ProtocolResponseReader>> zeroLengthReads() {

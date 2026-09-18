@@ -15,7 +15,6 @@ import io.github.ulviar.procwright.session.SessionExit
 import io.github.ulviar.procwright.session.StreamExit
 import io.github.ulviar.procwright.session.StreamSession
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CompletionException
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 import kotlinx.coroutines.CancellationException
@@ -165,7 +164,3 @@ internal suspend fun <T> CompletableFuture<T>.awaitDetached(): T {
     }
     return await()
 }
-
-@JvmSynthetic
-internal fun Throwable.unwrapCompletionFailure(): Throwable =
-    if (this is CompletionException && cause != null) cause!! else this

@@ -8,11 +8,12 @@ import io.github.ulviar.procwright.session.StreamExit
 import io.github.ulviar.procwright.session.StreamListener
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicReference
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.channels.trySendBlocking
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
 
 private typealias CloseRegistrar = (close: () -> Unit) -> Unit
 
@@ -29,6 +30,8 @@ private typealias StreamFlowLauncher =
  * This terminal owns the draft's output listener: it replaces any listener previously set with
  * `onOutput`. It emits chunks only and discards [io.github.ulviar.procwright.session.StreamExit]
  * metadata on normal completion. Use `open()` when another listener or exit metadata is required.
+ * Cleanup failures cannot replace an existing collection failure or cancellation. When collection
+ * otherwise succeeds, a cleanup failure fails collection.
  */
 fun StreamScenario.Draft.openFlow(): Flow<StreamChunk> = openFlow { listener, own ->
     val session = onOutput(listener).open()
@@ -38,9 +41,9 @@ fun StreamScenario.Draft.openFlow(): Flow<StreamChunk> = openFlow { listener, ow
 
 @JvmSynthetic
 internal fun StreamScenario.Draft.openFlow(launcher: StreamFlowLauncher): Flow<StreamChunk> =
-    callbackFlow {
+    channelFlow {
         val ownedClose = AtomicReference<() -> Unit>()
-        val ownedExitView = AtomicReference<CompletableFuture<*>>()
+        var primaryFailure: Throwable? = null
         try {
             val exitView = runProcwrightInterruptible {
                 launcher(
@@ -52,18 +55,20 @@ internal fun StreamScenario.Draft.openFlow(launcher: StreamFlowLauncher): Flow<S
                     },
                 )
             }
-            ownedExitView.set(exitView)
-            exitView.whenComplete { _, failure ->
-                if (failure == null) close() else close(failure.unwrapCompletionFailure())
-            }
-            awaitClose {
-                ownedExitView.getAndSet(null)?.cancel(false)
-                ownedClose.getAndSet(null)?.invoke()
-            }
+            exitView.awaitDetached()
         } catch (failure: Throwable) {
-            ownedExitView.getAndSet(null)?.cancel(false)
-            ownedClose.getAndSet(null)?.invoke()
+            primaryFailure = failure
             throw failure
+        } finally {
+            try {
+                ownedClose.getAndSet(null)?.invoke()
+            } catch (cleanupFailure: Throwable) {
+                // Preserve the selected outcome without mutating a caller-owned Throwable.
+                if (primaryFailure == null) {
+                    currentCoroutineContext().ensureActive()
+                    throw cleanupFailure
+                }
+            }
         }
     }
     .buffer(capacity = 0)

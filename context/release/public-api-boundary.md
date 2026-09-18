@@ -89,6 +89,10 @@ consumer.
 Kotlin module не публикует mutable scenario scopes, terminal configuration lambdas, `openAwait()` или второй pool
 DSL. Его Kotlin ABI baseline проверяется вместе с отдельным consumer fixture.
 
+`openFlow()` владеет одним process handle на collection и освобождает его ровно один раз. Исходная failure или
+cancellation сохраняется при secondary cleanup failure; новый failure cleanup виден, если collection иначе успешна.
+Контракт подтверждается `StreamFlowTest`, включая launch/exit/cancellation races; API declarations не меняются.
+
 ## Изменение поверхности
 
 До первого выпуска утвержденная поверхность меняется только вместе с:

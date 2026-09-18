@@ -8,7 +8,7 @@
 | Line-oriented request/response | [Line session](line-session.md) | [Talk to a line worker](../how-to/talk-to-line-worker.md) |
 | Custom framed or typed messages | [Protocol session](protocol-session.md) | [Choose a process scenario](../how-to/choose-process-scenario.md#framed-or-typed-protocol-worker) |
 | Continuous output | [Streaming](streaming.md) | [Follow logs](../how-to/follow-logs.md) |
-| Reusable workers | [Pooling](pooling.md) | [Reuse workers](../how-to/reuse-workers.md) |
+| Concurrent interchangeable workers | [Pooling](pooling.md) | [Pool workers](../how-to/reuse-workers.md) |
 | Terminal-dependent process | [Terminal capability](terminal.md) | [Require a terminal](../how-to/require-terminal.md) |
 | Structured line, byte, or JSON wrapper | [Integrations](integrations.md) | [Wrap a CLI tool](../how-to/wrap-cli-tool.md) |
 

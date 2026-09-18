@@ -1,6 +1,9 @@
-# Reuse initialized workers
+# Pool workers for concurrent requests
 
-Pool only workers whose protocol supports independent requests and whose state can be reset or health-checked.
+A direct [line session](../scenarios/line-session.md) or [protocol session](../scenarios/protocol-session.md) already
+reuses one initialized process and serializes requests. Use it when requests are sequential or depend on worker-local
+state. Choose a pool for concurrent independent requests to interchangeable workers whose state can be reset or
+health-checked.
 
 ## Line worker
 

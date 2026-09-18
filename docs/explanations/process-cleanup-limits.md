@@ -13,10 +13,16 @@ outlives it. Output drain uses the same deadline as process waiting, so an inher
 timed-out `CommandResult` even when the root process exited normally. Cleanup also targets descendants observed while
 the root was alive.
 
-Helper scenarios also wait for their owned stdout/stderr pumps on natural completion. Their configured absolute timeout
-continues to apply after the root exits, so `listen`, line, protocol, and Expect callers should set a timeout when a
-descendant may inherit a pipe. With the default disabled timeout, preserving all naturally drained output intentionally
-takes precedence over guessing when an open pipe is stale.
+Helper scenarios also wait for their owned stdout/stderr pumps on natural completion. For `listen`, the configured
+absolute timeout continues to apply after the root exits. Set it when a descendant may inherit a pipe; the default
+disabled timeout preserves natural output drain for as long as the pipe remains open.
+
+Line, protocol, and Expect sessions have no absolute drain timeout. Request and match timeouts bound their respective
+operations; an idle timeout stops watching once the root process outcome is known. They do not bound a later wait for
+`onExit()` while an inherited output pipe remains open. Keep the handle in a resource scope, wait with
+`onExit().get(timeout, TimeUnit.SECONDS)`, and close the handle if that wait times out. The future wait timeout does not
+close the process by itself. Explicit close abandons the outstanding drain logically and applies bounded cleanup;
+physical stream close and a detached descendant may still require caller-side containment.
 
 During graceful and forceful shutdown, Procwright refreshes the descendant set and retains observed reparented
 descendants while they remain alive. Interactive-session close and pooled worker retirement use the same

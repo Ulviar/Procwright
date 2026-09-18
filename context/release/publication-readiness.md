@@ -14,6 +14,8 @@ release, поэтому способ загрузки в registry, signing и re
 - public artifacts собираются с Java 25 target и требуют JVM 25 в Gradle metadata;
 - CI публикует все три модуля в изолированный Maven Local repository и запускает внешние Java, Kotlin и integrations
   consumers через Gradle metadata и принудительный Maven POM-only resolution;
+- Kotlin consumer `check` исполняет также обе канонические точки входа из документации: `KotlinExampleKt` и
+  `KotlinPoolExampleKt`, включая запуск вложенного worker с опубликованными runtime dependencies;
 - Public package/scenario surface, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
 
 Агрегирующая локальная проверка:

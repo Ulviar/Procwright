@@ -26,16 +26,26 @@ val kotlinConsumerJar = tasks.named<Jar>("jar")
 val kotlinConsumerRuntimeClasspath =
     files(kotlinConsumerJar.flatMap { it.archiveFile }) + configurations.runtimeClasspath.get()
 
-val runKotlinConsumer =
-    tasks.register<JavaExec>("runKotlinConsumer") {
-        description = "Runs the standalone Kotlin external consumer fixture."
+val kotlinConsumerEntrypoints =
+    mapOf(
+        "runKotlinConsumer" to "io.github.ulviar.procwright.consumer.kotlin.KotlinConsumer",
+        "runCanonicalKotlinExample" to
+            "io.github.ulviar.procwright.examples.kotlin.KotlinExampleKt",
+        "runCanonicalKotlinPoolExample" to
+            "io.github.ulviar.procwright.examples.kotlin.KotlinPoolExampleKt",
+    )
+
+val runKotlinConsumers = kotlinConsumerEntrypoints.map { (taskName, entrypoint) ->
+    tasks.register<JavaExec>(taskName) {
+        description = "Runs Kotlin external consumer $entrypoint."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         dependsOn(kotlinConsumerJar)
         classpath = kotlinConsumerRuntimeClasspath
         modularity.inferModulePath.set(true)
         mainModule.set("io.github.ulviar.procwright.kotlin.consumer.example")
-        mainClass.set("io.github.ulviar.procwright.consumer.kotlin.KotlinConsumer")
+        mainClass.set(entrypoint)
         doFirst { systemProperty("java.class.path", kotlinConsumerRuntimeClasspath.asPath) }
     }
+}
 
-tasks.check { dependsOn(runKotlinConsumer) }
+tasks.check { dependsOn(runKotlinConsumers) }

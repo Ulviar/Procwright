@@ -10,5 +10,5 @@ Choose the task that matches the process you need to control:
 - [Talk to a line worker](talk-to-line-worker.md)
 - [Automate prompts](automate-prompts.md)
 - [Require terminal capability](require-terminal.md)
-- [Reuse initialized workers](reuse-workers.md)
+- [Pool workers for concurrent requests](reuse-workers.md)
 - [Wrap a CLI tool](wrap-cli-tool.md)

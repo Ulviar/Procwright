@@ -82,6 +82,10 @@ caller close terminated the process, duration, and diagnostic transcript are dis
 matters, use `listen().onOutput(...).open()` and inspect the session with `awaitExit()` or `onExit()`. `openFlow()` installs
 its own output callback and replaces any listener previously set with `onOutput` on that Draft.
 
+Launch and process failures fail collection. Cleanup always attempts to close the owned session once. A cleanup failure
+does not replace an existing failure or collector cancellation; when collection otherwise succeeds, cleanup failure
+fails collection. Cancelling the exit wait affects only that collector's future view.
+
 ## Protocol adapter factory
 
 `protocolAdapterFactory<I, O> { ... }` returns a `Supplier<ProtocolAdapter<I, O>>`. Its configuration block runs for every

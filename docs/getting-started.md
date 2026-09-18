@@ -92,7 +92,8 @@ complete `CommandResult`.
 - Use [`lineSession()`](scenarios/line-session.md) for one-line request/response workers.
 - Use [`protocolSession(adapterFactory)`](scenarios/protocol-session.md) for custom framing or typed messages.
 - Use [`listen()`](scenarios/streaming.md) for continuous output.
-- Add [`pooled()`](scenarios/pooling.md) only when a worker can safely serve multiple requests.
+- Add [`pooled()`](scenarios/pooling.md) for concurrent independent requests to interchangeable workers. A direct line or
+  protocol session already reuses one process and serializes requests; use it for sequential work or worker-local state.
 
 Sessions and pools own processes and can use try-with-resources in Java or `use` in Kotlin. Pool close is synchronous but
 bounded; configure its budget with `withCloseTimeout(...)`. See the [pooling scenario](scenarios/pooling.md) for copyable

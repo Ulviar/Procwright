@@ -56,11 +56,12 @@ final class ScenarioRuntime {
     Session interactive(SessionSettings settings, ReadinessSettings<Session> readiness) {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(readiness, "readiness");
+        SessionExecutionPlan plan = settings.plan();
         return openReadyHandle(
                 "interactive",
-                settings.plan(),
+                plan,
                 settings.diagnostics(),
-                diagnostics -> SessionRuntime.open(settings.plan(), diagnostics),
+                diagnostics -> SessionRuntime.open(plan, diagnostics),
                 readiness);
     }
 
@@ -72,11 +73,12 @@ final class ScenarioRuntime {
         Objects.requireNonNull(settings, "settings");
         Objects.requireNonNull(expectSettings, "expectSettings");
         Objects.requireNonNull(readiness, "readiness");
+        SessionExecutionPlan plan = settings.plan();
         return openReadyHandle(
                 "expect",
-                settings.plan(),
+                plan,
                 settings.diagnostics(),
-                diagnostics -> SessionRuntime.openExpect(settings.plan(), diagnostics, expectSettings),
+                diagnostics -> SessionRuntime.openExpect(plan, diagnostics, expectSettings),
                 readiness);
     }
 
@@ -140,12 +142,12 @@ final class ScenarioRuntime {
     private LineSession openLineSession(
             String scenario, SessionScenarioSettings<LineSession, LineSessionSettings> settings) {
         Objects.requireNonNull(settings, "settings");
+        SessionExecutionPlan plan = settings.session().plan();
         return openReadyHandle(
                 scenario,
-                settings.session().plan(),
+                plan,
                 settings.session().diagnostics(),
-                diagnostics ->
-                        SessionRuntime.openLineSession(settings.session().plan(), diagnostics, settings.protocol()),
+                diagnostics -> SessionRuntime.openLineSession(plan, diagnostics, settings.protocol()),
                 settings.readiness());
     }
 
@@ -155,12 +157,12 @@ final class ScenarioRuntime {
             SessionScenarioSettings<ProtocolSession<I, O>, ProtocolSessionSettings> settings) {
         Objects.requireNonNull(adapter, "adapter");
         Objects.requireNonNull(settings, "settings");
+        SessionExecutionPlan plan = settings.session().plan();
         return openReadyHandle(
                 scenario,
-                settings.session().plan(),
+                plan,
                 settings.session().diagnostics(),
-                diagnostics -> SessionRuntime.openProtocolSession(
-                        settings.session().plan(), diagnostics, adapter, settings.protocol()),
+                diagnostics -> SessionRuntime.openProtocolSession(plan, diagnostics, adapter, settings.protocol()),
                 settings.readiness());
     }
 

@@ -15,9 +15,11 @@ import java.util.regex.Pattern;
  * sequence introducer (CSI) sequences that begin with {@code ESC [}. Stderr is drained into the transcript for
  * diagnostics.
  *
- * <p>A match timeout is recoverable: it does not close this handle or its process, and a caller may perform another
- * match. A concurrent handle close, output failure, or stdout EOF retains its distinct failure reason instead of being
- * reported as a timeout.
+ * <p>A timeout while waiting for new output or the serialized matcher slot leaves this handle open for another match.
+ * If a regex evaluation is abandoned before it completes, the timeout is terminal: the process is stopped and no new
+ * matcher task is admitted, even if the abandoned evaluation later returns. The {@code TIMEOUT} reason alone therefore
+ * does not guarantee that a regex call can be retried. A concurrent handle close, output failure, or stdout EOF retains
+ * its distinct failure reason instead of being reported as a timeout.
  *
  * <p>This sealed interface is a Procwright-owned handle contract, not a service-provider interface.
  */

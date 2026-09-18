@@ -431,12 +431,17 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
             throw decoderFailure;
         }));
         queue.offer(new byte[] {1, '|'});
-        ProtocolResponseReader reader = reader(queue, 2, 2, Duration.ofSeconds(2), policy);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (var monitor = hold(decoderFailure)) {
             monitor.verifyHeld();
-            Future<Throwable> outcome = executor.submit(
-                    () -> assertThrows(AssertionError.class, () -> reader.readTextUntil((byte) '|', 2)));
+            Future<Throwable> outcome = executor.submit(() -> {
+                ProtocolResponseReader reader = reader(queue, 2, 2, Duration.ofSeconds(2), policy);
+                AssertionError observed = assertThrows(AssertionError.class, () -> reader.readTextUntil((byte) '|', 2));
+                ProtocolSessionException terminal =
+                        assertThrows(ProtocolSessionException.class, () -> reader.readTextUntil((byte) '|', 2));
+                assertSame(terminalCause, terminal.getCause());
+                return observed;
+            });
 
             assertSame(decoderFailure, outcome.get(1, TimeUnit.SECONDS));
         } finally {
@@ -444,9 +449,6 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         }
         assertEquals(0, decoderFailure.getSuppressed().length);
-        ProtocolSessionException terminal =
-                assertThrows(ProtocolSessionException.class, () -> reader.readTextUntil((byte) '|', 2));
-        assertSame(terminalCause, terminal.getCause());
     }
 
     @Test

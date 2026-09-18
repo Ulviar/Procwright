@@ -55,7 +55,7 @@ nav:
       - Talk to a Line Worker: how-to/talk-to-line-worker.md
       - Automate Prompts: how-to/automate-prompts.md
       - Require a Terminal: how-to/require-terminal.md
-      - Reuse Workers: how-to/reuse-workers.md
+      - Pool Workers: how-to/reuse-workers.md
       - Wrap a CLI Tool: how-to/wrap-cli-tool.md
   - Reference:
       - reference/index.md
