@@ -39,7 +39,7 @@ jobs:
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: "25.0.4.1+1"
+          java-version: "25.0.4+101.0.LTS" # Temurin 25.0.4.1+1 in Adoptium SemVer notation
 
       # Provides build caching and validates Gradle wrapper jars automatically.
       - name: Set up Gradle
@@ -116,7 +116,7 @@ jobs:
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: "25.0.4.1+1"
+          java-version: "25.0.4+101.0.LTS" # Temurin 25.0.4.1+1 in Adoptium SemVer notation
 
       - name: Set up Python 3.14
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
