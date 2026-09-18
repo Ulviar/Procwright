@@ -7,8 +7,8 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions
 plugins {
     `java-library`
     `maven-publish`
-    id("com.diffplug.spotless") version "8.6.0"
-    id("org.jetbrains.kotlin.jvm") version "2.3.21" apply false
+    id("com.diffplug.spotless") version "8.8.0"
+    id("org.jetbrains.kotlin.jvm") version "2.4.0" apply false
     id("org.jetbrains.dokka") version "2.2.0" apply false
 }
 
@@ -160,7 +160,7 @@ publishing {
 dependencies {
     compileOnlyApi("org.jspecify:jspecify:1.0.0")
 
-    testImplementation(platform("org.junit:junit-bom:6.0.0"))
+    testImplementation(platform("org.junit:junit-bom:6.1.2"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.snakeyaml:snakeyaml-engine:3.0.1")
     testRuntimeOnly("org.jspecify:jspecify:1.0.0")
@@ -168,14 +168,14 @@ dependencies {
 }
 
 sourceSets {
-    val integrationTest by creating {
+    create("integrationTest") {
         compileClasspath += sourceSets.main.get().output
         compileClasspath += configurations.testRuntimeClasspath.get()
         runtimeClasspath += output
         runtimeClasspath += compileClasspath
     }
 
-    val stressTest by creating {
+    create("stressTest") {
         compileClasspath += sourceSets.main.get().output
         compileClasspath += configurations.testRuntimeClasspath.get()
         runtimeClasspath += output

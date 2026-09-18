@@ -14,15 +14,15 @@ plugins {
 
 val procwrightJavaRelease = rootProject.extra["procwrightJavaRelease"] as Int
 val kotlinModuleName = "io.github.ulviar.procwright.kotlin"
-val kotlinNullnessCompiler by configurations.creating
+val kotlinNullnessCompiler = configurations.create("kotlinNullnessCompiler")
 
 dependencies {
     api(project(":"))
-    api("org.jetbrains.kotlin:kotlin-stdlib:2.3.21")
+    api("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation(kotlin("test"))
-    kotlinNullnessCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.3.21")
+    kotlinNullnessCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.0")
 }
 
 java {
@@ -74,7 +74,16 @@ kotlin {
         jvmTarget.set(kotlinJvmTarget(procwrightJavaRelease))
         freeCompilerArgs.add("-Xjspecify-annotations=strict")
     }
-    abiValidation { enabled.set(true) }
+    abiValidation()
+}
+
+dependencies {
+    constraints {
+        add("kotlinAbiValidationCompatClasspath", "org.jetbrains.kotlin:kotlin-build-tools-impl") {
+            version { strictly("2.4.0") }
+            because("ABI validation must use a fixed, verified toolchain")
+        }
+    }
 }
 
 dokka {

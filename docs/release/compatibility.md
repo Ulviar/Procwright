@@ -9,8 +9,8 @@
 - Optional coordinates: `io.github.ulviar:procwright-kotlin` and
   `io.github.ulviar:procwright-integrations`.
 
-Core has no runtime dependency outside the JDK. The Kotlin module uses Kotlin 2.3.21 and exposes
-`kotlinx-coroutines-core` 1.11.0 transitively; consumers need a compiler that can read Kotlin 2.3 metadata. The
+Core has no runtime dependency outside the JDK. The Kotlin module uses Kotlin 2.4.0 and exposes
+`kotlinx-coroutines-core` 1.11.0 transitively; consumers need a compiler that can read Kotlin 2.4 metadata. The
 integrations module uses Jackson `JsonNode` as its JSON protocol payload and exposes Jackson Databind 2.22.0
 transitively.
 

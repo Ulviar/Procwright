@@ -47,8 +47,10 @@ Public Kotlin KDoc проверяется task `javadocJar` через Dokka 2.2
 build-time dependency, закреплена dependency-verification SHA-256 metadata, не публикует отдельный сайт и не попадает в
 runtime artifacts.
 
-Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2.3.21 механизмом ABI validation. Этот gate владеет точным
-списком опубликованных Kotlin JVM declarations и не добавляет отдельную dependency.
+Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2.4.0 механизмом ABI validation. Этот gate владеет точным
+списком опубликованных Kotlin JVM declarations. Его build-time toolchain закреплён на Kotlin 2.4.0 через constraint
+для `kotlinAbiValidationCompatClasspath`: диапазон по умолчанию в plugin не должен незаметно менять инструмент проверки.
+В runtime artifacts этот toolchain не попадает.
 
 ## Kotlin module
 
@@ -56,7 +58,7 @@ Kotlin ABI проверяется встроенным в Kotlin Gradle Plugin 2
 
 Runtime dependencies модуля:
 
-- Kotlin runtime через Kotlin Gradle plugin 2.3.21;
+- Kotlin runtime через Kotlin Gradle plugin 2.4.0;
 - `kotlinx-coroutines-core` 1.11.0 для suspending wrappers и Flow adapter.
 
 ## Integrations module

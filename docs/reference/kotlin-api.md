@@ -5,7 +5,7 @@ After [installing Procwright from this checkout](../getting-started.md), configu
 <!-- procwright-docs: build-configuration -->
 ```kotlin
 plugins {
-    kotlin("jvm") version "2.3.21"
+    kotlin("jvm") version "2.4.0"
 }
 
 repositories {
@@ -23,7 +23,7 @@ kotlin {
 ```
 
 The Kotlin artifact brings in Procwright core, Kotlin standard library, and coroutines transitively. It requires a
-compiler that can read Kotlin 2.3 metadata. The Java persistent Draft API remains the primary API; this module adds
+compiler that can read Kotlin 2.4 metadata. The Java persistent Draft API remains the primary API; this module adds
 type-safe durations, coroutine terminals, Flow streaming, and a protocol adapter factory DSL.
 
 Use the [generated Kotlin API](../api/kotlin/index.html) for exact receivers and overloads. This page focuses on the

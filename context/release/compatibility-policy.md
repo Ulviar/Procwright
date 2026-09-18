@@ -6,8 +6,8 @@
 - Один source tree может компилироваться с `--release ${procwright.javaRelease}` для 17, 21 и 25; default target для
   локальной разработки — 25. Варианты 21/25 являются source-compatibility checks, а не отдельными публикуемыми
   artifacts.
-- Kotlin module компилируется Kotlin 2.3.21 с JVM target, соответствующим `procwright.javaRelease`, и остается optional
-  module. Consumer compiler должен читать Kotlin 2.3 metadata; совместимость с более старыми compiler versions не
+- Kotlin module компилируется Kotlin 2.4.0 с JVM target, соответствующим `procwright.javaRelease`, и остается optional
+  module. Consumer compiler должен читать Kotlin 2.4 metadata; совместимость с более старыми compiler versions не
   заявлена.
 - На Java 24+ runtime Procwright может использовать virtual threads через внутренний runtime boundary. Java 17–23
   используют daemon platform-thread fallback, чтобы monitor pinning в ранней реализации virtual threads не нарушал
