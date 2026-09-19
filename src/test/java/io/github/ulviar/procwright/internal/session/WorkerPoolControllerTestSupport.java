@@ -69,7 +69,7 @@ abstract class WorkerPoolControllerTestSupport {
             java.util.function.Consumer<TestWorker> closer,
             WorkerPoolSettings<?> settings,
             PoolReplenisher.Scheduler replenishmentScheduler,
-            java.util.function.BiConsumer<Thread, Throwable> lateFailureReporter,
+            java.util.function.Consumer<Throwable> lateFailureReporter,
             java.util.function.LongSupplier clock) {
         return WorkerPoolController.fromSettings(
                 factory,
@@ -82,15 +82,9 @@ abstract class WorkerPoolControllerTestSupport {
                         replenishmentScheduler, reportingSink(lateFailureReporter), clock));
     }
 
-    static java.util.function.Consumer<FailureReport> reportingSink(
-            java.util.function.BiConsumer<Thread, Throwable> observer) {
-        return report -> BoundedFailureReporter.withFailureTarget(
-                report.failureTarget(),
-                () -> BoundedFailureReporter.shared()
-                        .execute(
-                                Thread.currentThread(),
-                                () -> observer.accept(
-                                        BoundedFailureReporter.notificationSourceThread(), report.failure())));
+    static java.util.function.Consumer<FailureReport> reportingSink(java.util.function.Consumer<Throwable> observer) {
+        return report -> BoundedFailureReporter.shared()
+                .execute(Thread.currentThread(), () -> observer.accept(report.failure()));
     }
 
     static WorkerPoolController<TestWorker> controller(

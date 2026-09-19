@@ -97,6 +97,8 @@ final class OneShotExecution {
             OneShotSupervision.Signal signal = awaitSupervisionSignal();
             ProcessCompletion completion = settleProcess(signal);
             captureOutput(completion);
+        } catch (InterruptedException interruption) {
+            handleInterruption(interruption);
         } catch (RuntimeException | Error failure) {
             handleExecutionFailure(failure);
         } finally {
@@ -126,7 +128,7 @@ final class OneShotExecution {
         stdinWriter = startStdinWriter(resources.stdin(), ioPlan.stdinOperation(), executor);
     }
 
-    private OneShotSupervision.Signal awaitSupervisionSignal() {
+    private OneShotSupervision.Signal awaitSupervisionSignal() throws InterruptedException {
         OneShotSupervision supervision = new OneShotSupervision(process, deadline, liveDescendants);
         if (stdinWriter != null) {
             stdinWriter.onFailure(supervision.stdinFailureHandler());
@@ -137,12 +139,7 @@ final class OneShotExecution {
         if (stderrCapture != null) {
             stderrCapture.onFailure(supervision.outputFailureHandler());
         }
-        try {
-            return supervision.await();
-        } catch (InterruptedException interruption) {
-            restoreInterrupt = true;
-            throw interruptedFailure(process, plan, liveDescendants, diagnostics, interruption);
-        }
+        return supervision.await();
     }
 
     private ProcessCompletion settleProcess(OneShotSupervision.Signal signal) {
@@ -220,6 +217,22 @@ final class OneShotExecution {
                 failure);
         primaryFailure = forceStopAfterFailureWithoutStreamClose(
                 process, liveDescendants.sealForCleanup(), dependencies.cleanupTimeout(), primaryFailure);
+    }
+
+    private void handleInterruption(InterruptedException interruption) {
+        restoreInterrupt = true;
+        CommandExecutionException failure =
+                new CommandExecutionException("Interrupted while waiting for command completion", interruption);
+        primaryFailure = emitSecondary(
+                diagnostics,
+                DiagnosticEventType.SHUTDOWN_REQUESTED,
+                DiagnosticEmitter.attributes("reason", "interrupted"),
+                failure);
+        try {
+            ProcessLifecycle.stop(process, liveDescendants.sealForCleanup(), plan.shutdownPolicy());
+        } catch (RuntimeException | Error shutdownFailure) {
+            handleExecutionFailure(combineFailures(primaryFailure, shutdownFailure));
+        }
     }
 
     private void cleanup() {
@@ -303,27 +316,6 @@ final class OneShotExecution {
     private static OptionalInt stopTimedOutProcess(
             Process process, KnownDescendants knownDescendants, ShutdownPolicy shutdownPolicy) {
         return ProcessLifecycle.stop(process, knownDescendants, shutdownPolicy);
-    }
-
-    private static RuntimeException interruptedFailure(
-            Process process,
-            ExecutionPlan plan,
-            LiveDescendantSnapshot liveDescendants,
-            DiagnosticEmitter diagnostics,
-            InterruptedException interruption) {
-        CommandExecutionException failure =
-                new CommandExecutionException("Interrupted while waiting for command completion", interruption);
-        Throwable outcome = emitSecondary(
-                diagnostics,
-                DiagnosticEventType.SHUTDOWN_REQUESTED,
-                DiagnosticEmitter.attributes("reason", "interrupted"),
-                failure);
-        try {
-            ProcessLifecycle.stop(process, liveDescendants.sealForCleanup(), plan.shutdownPolicy());
-        } catch (RuntimeException | Error shutdownFailure) {
-            outcome = combineFailures(outcome, shutdownFailure);
-        }
-        return executionFailure(outcome);
     }
 
     private CapturedOutput awaitCaptureUntilDeadline(Future<CapturedOutput> output, boolean terminalShutdown)

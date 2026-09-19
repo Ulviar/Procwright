@@ -35,6 +35,7 @@ and `--version`. Defaults are a 30-second timeout and at most 1 MiB of retained 
 | Your task | Start here |
 | --- | --- |
 | Run a tool and use its output or exit status | [Run a finite command](docs/how-to/run-finite-command.md) |
+| Save large output directly to files | [Run and capture policies](docs/scenarios/run.md) |
 | Call a long-lived CLI as a typed service | [JSON Lines worker → service](docs/how-to/wrap-cli-tool.md) |
 | Consume logs or events as they arrive | [Follow live output](docs/how-to/follow-logs.md) |
 

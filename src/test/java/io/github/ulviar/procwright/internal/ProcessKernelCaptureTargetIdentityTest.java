@@ -216,7 +216,7 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
     }
 
     @Test
-    void existingPortableAliasesAreRejectedEvenWhenTheFilesystemKeepsThemDistinct(@TempDir Path directory)
+    void existingPortableAliasesAreAcceptedWhenTheFilesystemKeepsThemDistinct(@TempDir Path directory)
             throws IOException {
         Path stdout = directory.resolve("Capture.log");
         Path stderr = directory.resolve("capture.log");
@@ -225,14 +225,15 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                 Files.exists(stderr) && Files.isSameFile(stdout, stderr),
                 "filesystem does not keep case variants distinct");
         Files.writeString(stderr, "stderr-unchanged");
+        AssertionError marker = new AssertionError("process launch reached");
         AtomicInteger starts = new AtomicInteger();
         ProcessKernel kernel = kernel(ignored -> {}, (launchPlan, stdio) -> {
             starts.incrementAndGet();
-            throw new AssertionError("capture validation must run before process launch");
+            throw marker;
         });
 
-        assertThrows(
-                IllegalArgumentException.class,
+        AssertionError thrown = assertThrows(
+                AssertionError.class,
                 () -> kernel.run(executionPlan(
                         CapturePolicy.toPath(stdout, stderr),
                         DiagnosticsSettings.disabled(),
@@ -240,9 +241,34 @@ final class ProcessKernelCaptureTargetIdentityTest extends ProcessKernelTestSupp
                         OutputMode.SEPARATE,
                         Duration.ofSeconds(1))));
 
-        assertEquals(0, starts.get());
+        assertSame(marker, thrown);
+        assertEquals(1, starts.get());
         assertEquals("stdout-unchanged", Files.readString(stdout));
         assertEquals("stderr-unchanged", Files.readString(stderr));
+    }
+
+    @Test
+    void existingPortableAliasesUseFilesystemIdentityForCaseUnicodeAndTrailingCharacters(@TempDir Path directory)
+            throws IOException {
+        URI archive =
+                URI.create("jar:" + directory.resolve("distinct-paths.zip").toUri());
+        try (FileSystem paths = FileSystems.newFileSystem(archive, Map.of("create", "true"))) {
+            for (java.util.List<String> names : java.util.List.of(
+                    java.util.List.of("Capture.log", "capture.log"),
+                    java.util.List.of("\u00e9.log", "e\u0301.log"),
+                    java.util.List.of("trailing.log", "trailing.log. "))) {
+                Path stdout = paths.getPath("/" + names.getFirst());
+                Path stderr = paths.getPath("/" + names.getLast());
+                Files.writeString(stdout, "stdout");
+                Files.writeString(stderr, "stderr");
+                assertFalse(Files.isSameFile(stdout, stderr));
+
+                CaptureTargetValidator.validate(CapturePolicy.toPath(stdout, stderr));
+
+                assertEquals("stdout", Files.readString(stdout));
+                assertEquals("stderr", Files.readString(stderr));
+            }
+        }
     }
 
     @Test

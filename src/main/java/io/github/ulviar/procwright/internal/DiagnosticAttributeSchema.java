@@ -3,55 +3,19 @@
 package io.github.ulviar.procwright.internal;
 
 import io.github.ulviar.procwright.diagnostics.DiagnosticEventType;
-import java.util.EnumMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
 public final class DiagnosticAttributeSchema {
 
-    private static final Map<DiagnosticEventType, Set<String>> ALLOWED_ATTRIBUTES = allowedAttributes();
-
     private DiagnosticAttributeSchema() {}
 
     public static Map<String, String> validate(DiagnosticEventType type, Map<String, String> attributes) {
         Objects.requireNonNull(type, "type");
-        LinkedHashMap<String, String> snapshot = new LinkedHashMap<>(Objects.requireNonNull(attributes, "attributes"));
-        Set<String> allowed = ALLOWED_ATTRIBUTES.get(type);
-        if (allowed == null) {
-            throw new IllegalArgumentException("Unknown diagnostic event type: " + type);
-        }
-        for (Map.Entry<String, String> entry : snapshot.entrySet()) {
-            CommandValidation.requireText(entry.getKey(), "attributeName");
-            Objects.requireNonNull(entry.getValue(), "attributeValue");
-            if (!allowed.contains(entry.getKey())) {
-                throw new IllegalArgumentException(
-                        "Attribute " + entry.getKey() + " is not allowed for diagnostic event " + type);
-            }
-        }
+        Map<String, String> snapshot = Map.copyOf(Objects.requireNonNull(attributes, "attributes"));
         validateShape(type, snapshot);
-        return Map.copyOf(snapshot);
-    }
-
-    public static Map<DiagnosticEventType, Set<String>> allowedAttributesByType() {
-        return ALLOWED_ATTRIBUTES;
-    }
-
-    private static Map<DiagnosticEventType, Set<String>> allowedAttributes() {
-        EnumMap<DiagnosticEventType, Set<String>> schema = new EnumMap<>(DiagnosticEventType.class);
-        schema.put(DiagnosticEventType.COMMAND_PREPARED, Set.of());
-        schema.put(DiagnosticEventType.PROCESS_STARTED, Set.of("pid"));
-        schema.put(DiagnosticEventType.OUTPUT_TRUNCATED, Set.of("source", "limitBytes", "limitChars"));
-        schema.put(DiagnosticEventType.TIMEOUT_REACHED, Set.of());
-        schema.put(DiagnosticEventType.SHUTDOWN_REQUESTED, Set.of("reason"));
-        schema.put(DiagnosticEventType.LISTENER_FAILED, Set.of());
-        schema.put(DiagnosticEventType.PROCESS_EXITED, Set.of("timedOut", "exitCode"));
-        schema.put(DiagnosticEventType.PROCESS_FAILED, Set.of("error"));
-        if (schema.keySet().size() != DiagnosticEventType.values().length) {
-            throw new IllegalStateException("Diagnostic attribute schema must cover every event type");
-        }
-        return Map.copyOf(schema);
+        return snapshot;
     }
 
     private static void validateShape(DiagnosticEventType type, Map<String, String> attributes) {

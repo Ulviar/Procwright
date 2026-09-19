@@ -135,8 +135,7 @@ final class ProcessIoAcquisition {
                             stream,
                             "procwright-acquisition-" + name + "-close-",
                             ignored -> {},
-                            BoundedFailureReporter::reportBestEffort,
-                            () -> {}));
+                            BoundedFailureReporter::reportBestEffort));
                 } catch (RuntimeException | Error dispatchFailure) {
                     failures.add(dispatchFailure);
                 }

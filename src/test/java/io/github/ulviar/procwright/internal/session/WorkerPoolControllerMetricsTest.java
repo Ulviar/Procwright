@@ -29,7 +29,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
                 worker -> {},
                 settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 threadedScheduler("test-metrics-replenish-"),
-                (thread, failure) -> {},
+                failure -> {},
                 () -> switch (clockReads.incrementAndGet()) {
                     case 1 -> 100L;
                     case 2 -> 175L;
@@ -55,7 +55,7 @@ final class WorkerPoolControllerMetricsTest extends WorkerPoolControllerTestSupp
                 worker -> {},
                 settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 threadedScheduler("test-replenish-"),
-                (thread, failure) -> {},
+                failure -> {},
                 now::get);
 
         RequestObservation observation = pool.observeRequest();

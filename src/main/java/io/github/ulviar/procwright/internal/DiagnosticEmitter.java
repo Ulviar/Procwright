@@ -97,8 +97,7 @@ public final class DiagnosticEmitter {
         if (!enabled) {
             return;
         }
-        DiagnosticEvent event = eventFactory.create(
-                type, runId, Instant.now(), scenario, command, DiagnosticAttributeSchema.validate(type, attributes));
+        DiagnosticEvent event = eventFactory.create(type, runId, Instant.now(), scenario, command, attributes);
         if (type == DiagnosticEventType.PROCESS_FAILED && !processFailureEmitted.compareAndSet(false, true)) {
             return;
         }

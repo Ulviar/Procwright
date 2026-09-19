@@ -103,7 +103,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 worker -> {},
                 settings(1, 1, 1, Duration.ofSeconds(1), 1, Duration.ZERO),
                 threadedScheduler("test-replenish-"),
-                (thread, failure) -> {
+                failure -> {
                     reported.compareAndSet(null, failure);
                     reportReceived.countDown();
                 },
@@ -244,7 +244,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 worker -> {},
                 settings(1, 0, 1, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 PoolReplenishmentScheduler::schedule,
-                (thread, failure) -> {
+                failure -> {
                     reports.incrementAndGet();
                     reported.compareAndSet(null, failure);
                     reportReceived.countDown();
@@ -325,7 +325,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                     awaitIgnoringInterrupt(releaseRetryScheduling);
                     throw lateFailure;
                 },
-                (thread, failure) -> {
+                failure -> {
                     if (failure == lateFailure) {
                         lateReports.incrementAndGet();
                         lateFailureReported.countDown();

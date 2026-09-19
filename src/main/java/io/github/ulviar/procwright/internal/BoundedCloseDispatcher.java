@@ -6,6 +6,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 
@@ -77,13 +78,18 @@ public final class BoundedCloseDispatcher {
         return SHARED;
     }
 
+    /** The settlement owns the close outcome and any failure publication. */
+    static CloseRequest ownedCloseRequest(
+            Closeable closeable, String threadPrefix, Consumer<? super Throwable> settlement) {
+        return new CloseRequest(closeable, threadPrefix, settlement, Optional.empty());
+    }
+
     static CloseRequest ownedCloseRequest(
             Closeable closeable,
             String threadPrefix,
             Consumer<? super Throwable> settlement,
-            Consumer<? super Throwable> failureHandler,
-            Runnable completionHandler) {
-        return new CloseRequest(closeable, threadPrefix, settlement, failureHandler, completionHandler);
+            Consumer<? super Throwable> failureHandler) {
+        return new CloseRequest(closeable, threadPrefix, settlement, Optional.of(failureHandler));
     }
 
     void dispatch(CloseRequest request) {
@@ -97,31 +103,16 @@ public final class BoundedCloseDispatcher {
         rethrow(startFailure);
     }
 
-    void dispatchPair(CloseRequest first, CloseRequest second) {
-        Objects.requireNonNull(first, "first");
-        Objects.requireNonNull(second, "second");
-        CloseExecution firstLaunch;
-        CloseExecution secondLaunch;
-        synchronized (lock) {
-            requireCapacityLocked(2);
-            outstanding += 2;
-            firstLaunch = admitLocked(new CloseExecution(first));
-            secondLaunch = admitLocked(new CloseExecution(second));
-        }
-        startExecution(firstLaunch);
-        startExecution(secondLaunch);
-    }
-
     private CloseExecution admit(CloseRequest request) {
         synchronized (lock) {
-            requireCapacityLocked(1);
+            requireCapacityLocked();
             outstanding++;
             return admitLocked(new CloseExecution(request));
         }
     }
 
-    private void requireCapacityLocked(int requests) {
-        if (outstanding > maxOutstandingCapacity - requests) {
+    private void requireCapacityLocked() {
+        if (outstanding >= maxOutstandingCapacity) {
             throw new RejectedExecutionException("Stream close capacity is exhausted: "
                     + outstanding
                     + " of "
@@ -176,7 +167,6 @@ public final class BoundedCloseDispatcher {
         startExecution(releaseAndClaimNext());
         Thread sourceThread = Thread.currentThread();
         publishFailure(request, settledFailure, sourceThread);
-        publishCompletion(request, sourceThread);
     }
 
     private CloseExecution releaseAndClaimNext() {
@@ -206,13 +196,13 @@ public final class BoundedCloseDispatcher {
     }
 
     private void publishFailure(CloseRequest request, Throwable failure, Thread sourceThread) {
-        if (failure == null) {
+        if (failure == null || request.failureHandler().isEmpty()) {
             return;
         }
         try {
             notifications.execute(sourceThread, () -> {
                 try {
-                    request.failureHandler().accept(failure);
+                    request.failureHandler().orElseThrow().accept(failure);
                 } catch (Throwable callbackFailure) {
                     notifications.report(
                             sourceThread,
@@ -220,14 +210,6 @@ public final class BoundedCloseDispatcher {
                                     failure, callbackFailure, "Process stream close and failure callback both failed"));
                 }
             });
-        } catch (Throwable ignored) {
-            // Physical close and mandatory settlement are already complete.
-        }
-    }
-
-    private void publishCompletion(CloseRequest request, Thread sourceThread) {
-        try {
-            notifications.execute(sourceThread, request.completionHandler());
         } catch (Throwable ignored) {
             // Physical close and mandatory settlement are already complete.
         }
@@ -267,15 +249,13 @@ public final class BoundedCloseDispatcher {
             Closeable closeable,
             String threadPrefix,
             Consumer<? super Throwable> settlement,
-            Consumer<? super Throwable> failureHandler,
-            Runnable completionHandler) {
+            Optional<Consumer<? super Throwable>> failureHandler) {
 
         CloseRequest {
             Objects.requireNonNull(closeable, "closeable");
             Objects.requireNonNull(threadPrefix, "threadPrefix");
             Objects.requireNonNull(settlement, "settlement");
             Objects.requireNonNull(failureHandler, "failureHandler");
-            Objects.requireNonNull(completionHandler, "completionHandler");
         }
     }
 

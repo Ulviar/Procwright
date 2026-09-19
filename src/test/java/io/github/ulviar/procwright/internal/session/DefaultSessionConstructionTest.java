@@ -278,11 +278,19 @@ final class DefaultSessionConstructionTest {
 
     @Test
     void saturatedCloseCapacityDoesNotRejectSessionConstruction() throws Exception {
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
+        CountDownLatch acceptedClosesSettled = new CountDownLatch(3);
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, (prefix, task) -> {
+            Threading.start(prefix, () -> {
+                try {
+                    task.run();
+                } finally {
+                    acceptedClosesSettled.countDown();
+                }
+            });
+        });
         CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
         CountDownLatch releaseOccupyingClose = new CountDownLatch(1);
         CountDownLatch pendingClosesFinished = new CountDownLatch(2);
-        CountDownLatch acceptedClosesSettled = new CountDownLatch(3);
         dispatch(
                 closeDispatcher,
                 () -> {
@@ -290,21 +298,10 @@ final class DefaultSessionConstructionTest {
                     awaitUninterruptibly(releaseOccupyingClose);
                 },
                 "procwright-occupying-output-close-",
-                failure -> {},
-                acceptedClosesSettled::countDown);
+                failure -> {});
         assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
-        dispatch(
-                closeDispatcher,
-                pendingClosesFinished::countDown,
-                "procwright-pending-output-close-",
-                failure -> {},
-                acceptedClosesSettled::countDown);
-        dispatch(
-                closeDispatcher,
-                pendingClosesFinished::countDown,
-                "procwright-pending-output-close-",
-                failure -> {},
-                acceptedClosesSettled::countDown);
+        dispatch(closeDispatcher, pendingClosesFinished::countDown, "procwright-pending-output-close-", failure -> {});
+        dispatch(closeDispatcher, pendingClosesFinished::countDown, "procwright-pending-output-close-", failure -> {});
 
         CloseTrackingInputStream stdout = new CloseTrackingInputStream();
         CloseTrackingInputStream stderr = new CloseTrackingInputStream();
@@ -329,7 +326,7 @@ final class DefaultSessionConstructionTest {
             assertTrue(pendingClosesFinished.await(1, TimeUnit.SECONDS), "previously accepted work must drain");
             assertTrue(
                     acceptedClosesSettled.await(1, TimeUnit.SECONDS),
-                    "accepted close completion callbacks must be published");
+                    "accepted close tasks must finish and release capacity");
             assertEquals(0, closeDispatcher.outstandingCount());
         } finally {
             releaseOccupyingClose.countDown();

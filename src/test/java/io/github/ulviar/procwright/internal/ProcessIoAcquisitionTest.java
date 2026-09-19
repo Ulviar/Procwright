@@ -51,9 +51,7 @@ final class ProcessIoAcquisitionTest extends ProcessIoResourcesTestSupport {
                         awaitUninterruptibly(releaseCloses);
                     },
                     "occupying-close-",
-                    ignored -> {},
-                    ignored -> {},
-                    () -> {}));
+                    ignored -> {}));
         }
         assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
         TrackingProcess process = new TrackingProcess();

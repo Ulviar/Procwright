@@ -118,7 +118,15 @@ terminal cleanup перед возвратом caller-у; отдельный asy
 попасть в bounded close dispatcher. Saturation или невозможность запустить task означает best-effort cleanup failure:
 process termination остаётся обязательной, physical close может быть пропущен и результат не задерживается. Natural exit
 не закрывает caller-owned raw stdout/stderr, чтобы непрочитанный хвост оставался доступен. Это устраняет скрытую
-process-global квоту на число одновременно живых sessions и pools.
+process-global квоту на число одновременно живых sessions и pools. Stdout/stderr совместно закрепляются за close owner,
+но независимо допускаются в dispatcher: нехватка места для второго stream не отменяет закрытие первого. Атомарный допуск
+пары не защищает пользовательский outcome и потому не требуется. Результат каждого close фиксируется обязательно;
+отдельного канала уведомлений об успешном close нет.
+
+Для file capture два существующих target сравниваются по реальной filesystem identity. Запрет имён, похожих на другой
+файловой системе, не нужен, если текущая система уже установила различие файлов. Если хотя бы один target отсутствует,
+консервативная нормализация имени сохраняется: до создания файлов их identity ещё неизвестна. Hardlink/symlink aliases
+одного файла запрещены; одновременная замена/relink путей во время launch не поддерживается.
 
 Доставка diagnostics является отдельной best-effort операцией. Она не входит в critical callback admission, не может
 задерживать protocol, stream или pool operation и не меняет runtime outcome, включая construction, close и output

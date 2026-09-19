@@ -83,7 +83,18 @@ cleanup, а блокирующий physical close не переписывает 
 
 **Владелец:** `OneShotExecution`.
 
-**Proof:** `OneShotSupervisionTest`, `RunTimeoutCleanupIntegrationTest`.
+**Proof:** `OneShotSupervisionTest`, `RunTimeoutCleanupIntegrationTest`, `ProcessKernelInterruptionCleanupTest`,
+`RunInterruptionCleanupIntegrationTest`. Успешный shutdown после interruption не повторяется; при его отказе сохраняется
+force fallback и восстанавливается interrupt flag.
+
+### File capture identity
+
+**Инвариант:** stdout/stderr не открывают один файл через разные aliases. Два существующих файла сравниваются по
+filesystem identity; если хотя бы один отсутствует, похожие portable names консервативно запрещены.
+
+**Владелец:** `CaptureTargetValidator`.
+
+**Proof:** `ProcessKernelCaptureTargetIdentityTest`, `RunCaptureIntegrationTest`.
 
 ### One-shot execution isolation
 
@@ -317,9 +328,11 @@ logical settlement выбранного output mode, но не блокирую�
 ровно один раз. Ни ранний EOF одной pump, ни закрытие её wrapper-а не разрешают premature close. Завершение обеих
 pump tasks либо logical abandonment достаточно; отдельные per-stream уведомления не нужны.
 
-**Владелец:** `OutputPumpCleanup`; pair admission и single physical close принадлежат `ProcessStreamResource`.
+**Владелец:** `OutputPumpCleanup`; совместный ownership claim и single physical close принадлежат
+`ProcessStreamResource`. Admission в dispatcher независим для каждого stream: отказ одного не отменяет попытку другого.
 
-**Proof:** `OutputPumpCleanupCoordinationTest`, `OutputPumpStartupTransactionTest`, `SessionOutputOwnerLifecycleTest`.
+**Proof:** `OutputPumpCleanupCoordinationTest`, `OutputPumpStartupTransactionTest`, `SessionOutputOwnerLifecycleTest`,
+`ProcessStreamResourceTest`, `BoundedCloseDispatcherTest`.
 
 ### Line request transaction
 
@@ -674,9 +687,9 @@ ledger; snapshot не вызывает пользовательский callback
 **Инвариант:** diagnostics bounded, schema-valid, best-effort и не меняет outcome; события одного lifecycle
 упорядочены для каждого recipient и связаны `runId`.
 
-**Владелец:** `DiagnosticEmitter`.
+**Владелец:** `DiagnosticEvent` и `DiagnosticAttributeSchema` — immutable attributes и schema; `DiagnosticEmitter` — delivery.
 
-**Proof:** `DiagnosticEmitterTest`, `DiagnosticsIntegrationTest`.
+**Proof:** `DiagnosticEventTest`, `DiagnosticEmitterTest`, `DiagnosticsIntegrationTest`.
 
 ### Kotlin
 

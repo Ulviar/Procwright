@@ -109,7 +109,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                 },
                 settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 threadedScheduler("test-replenish-"),
-                (thread, failure) -> {
+                failure -> {
                     reports.incrementAndGet();
                     reported.compareAndSet(null, failure);
                     reportReceived.countDown();
@@ -267,7 +267,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                 worker -> physicalCloses.incrementAndGet(),
                 settings(1, 0, 0, Duration.ofSeconds(1), Integer.MAX_VALUE, Duration.ZERO),
                 threadedScheduler("test-replenish-"),
-                (thread, failure) -> {
+                failure -> {
                     reported.compareAndSet(null, failure);
                     reportReceived.countDown();
                 },
@@ -588,7 +588,7 @@ final class WorkerPoolControllerStartupRaceTest extends WorkerPoolControllerTest
                     worker -> {},
                     settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO),
                     threadedScheduler("test-replenish-"),
-                    (thread, failure) -> {
+                    failure -> {
                         reported.compareAndSet(null, failure);
                         reports.incrementAndGet();
                         reportReceived.countDown();

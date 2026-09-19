@@ -19,6 +19,10 @@ decoded text. The default capture retains the first 1 MiB separately from each s
 output. Use `withCapture(CapturePolicy.bounded(bytes))` to change that budget. `stdoutTruncated()` and `stderrTruncated()`
 identify streams whose later bytes were discarded. Redirected or discarded streams produce empty captured values.
 
+Use `withCapture(CapturePolicy.toPath(stdoutPath, stderrPath))` to write directly to separate files without retaining
+output in memory. Existing content is overwritten. The targets must be distinct files; existing files are compared by
+filesystem identity. See [file capture checks](../reference/security.md#output-and-diagnostics) for aliases and new paths.
+
 The timeout is one deadline for stdin writing, process waiting, and output drain. A child process that keeps an
 inherited output pipe open can therefore make the result timed out after the root process has already exited. Required
 process-tree cleanup starts after that outcome is selected and remains bounded by the shutdown policy.

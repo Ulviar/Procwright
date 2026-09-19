@@ -14,12 +14,74 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
+
+    @Test
+    void outputPairUsesTheRemainingSlotAndSettlesRejectedOutputSeparately() throws Exception {
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
+        CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
+        CountDownLatch releaseOccupyingClose = new CountDownLatch(1);
+        dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                () -> {
+                    occupyingCloseStarted.countDown();
+                    try {
+                        releaseOccupyingClose.await();
+                    } catch (InterruptedException interruption) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(interruption);
+                    }
+                },
+                "occupying-close-",
+                ignored -> {}));
+        TrackingProcess process = new TrackingProcess();
+        ProcessIoResources resources = ProcessIoResources.acquire(process, dispatcher);
+        AtomicReference<Throwable> stderrFailure = new AtomicReference<>();
+        CountDownLatch failureReported = new CountDownLatch(1);
+        try {
+            assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
+
+            ProcessStreamResource.closePairAsync(
+                    resources.stdout(),
+                    "stdout-close-",
+                    ignored -> {},
+                    resources.stderr(),
+                    "stderr-close-",
+                    failure -> {
+                        stderrFailure.set(failure);
+                        failureReported.countDown();
+                    });
+
+            assertTrue(resources.stdout().closeStarted());
+            assertTrue(resources.stderr().closeStarted());
+            assertFalse(resources.stdout().closeOutcome().isDone());
+            Throwable rejected =
+                    resources.stderr().closeOutcome().get(1, TimeUnit.SECONDS).failure();
+            assertTrue(rejected instanceof RejectedExecutionException);
+            assertTrue(failureReported.await(1, TimeUnit.SECONDS));
+            assertSame(rejected, stderrFailure.get());
+            assertEquals(1, dispatcher.pendingCount());
+            assertEquals(2, dispatcher.outstandingCount());
+
+            releaseOccupyingClose.countDown();
+            assertNull(
+                    resources.stdout().closeOutcome().get(1, TimeUnit.SECONDS).failure());
+            assertSame(rejected, resources.stderr().closeOutcome().join().failure());
+            resources.stdout().closeInline();
+            resources.stderr().closeInline();
+            assertEquals(1, process.stdout.closeCalls.get());
+            assertEquals(0, process.stderr.closeCalls.get());
+            assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+        } finally {
+            releaseOccupyingClose.countDown();
+            resources.stdin().closeInline();
+        }
+    }
 
     @Test
     void invalidPairArgumentsDoNotClaimResourcesOrConsumeCloseCapacity() throws Exception {
@@ -162,11 +224,9 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
                 resources.stdout(),
                 "procwright-test-stdout-close-",
                 ignored -> {},
-                () -> {},
                 resources.stderr(),
                 "procwright-test-stderr-close-",
-                ignored -> {},
-                () -> {});
+                ignored -> {});
     }
 
     private enum InvalidPairArgument {
@@ -176,10 +236,8 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
         FOREIGN_RESOURCE(IllegalArgumentException.class),
         NULL_FIRST_PREFIX(NullPointerException.class),
         NULL_FIRST_FAILURE_HANDLER(NullPointerException.class),
-        NULL_FIRST_COMPLETION_HANDLER(NullPointerException.class),
         NULL_SECOND_PREFIX(NullPointerException.class),
-        NULL_SECOND_FAILURE_HANDLER(NullPointerException.class),
-        NULL_SECOND_COMPLETION_HANDLER(NullPointerException.class);
+        NULL_SECOND_FAILURE_HANDLER(NullPointerException.class);
 
         private final Class<? extends Throwable> expectedType;
 
@@ -196,7 +254,6 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
                     this == NULL_FIRST_RESOURCE ? null : resources.stdout(),
                     this == NULL_FIRST_PREFIX ? null : "first-",
                     this == NULL_FIRST_FAILURE_HANDLER ? null : ignored -> {},
-                    this == NULL_FIRST_COMPLETION_HANDLER ? null : () -> {},
                     switch (this) {
                         case NULL_SECOND_RESOURCE -> null;
                         case SAME_RESOURCE -> resources.stdout();
@@ -204,8 +261,7 @@ final class ProcessIoBundleTest extends ProcessIoResourcesTestSupport {
                         default -> resources.stderr();
                     },
                     this == NULL_SECOND_PREFIX ? null : "second-",
-                    this == NULL_SECOND_FAILURE_HANDLER ? null : ignored -> {},
-                    this == NULL_SECOND_COMPLETION_HANDLER ? null : () -> {});
+                    this == NULL_SECOND_FAILURE_HANDLER ? null : ignored -> {});
         }
     }
 }

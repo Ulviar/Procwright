@@ -124,7 +124,7 @@ final class SessionResources {
         if (!stdinOpen.compareAndSet(true, false)) {
             return;
         }
-        resources.stdin().closeRequiredAsync("procwright-process-stdin-close-", terminalCloseFailures, () -> {});
+        resources.stdin().closeRequiredAsync("procwright-process-stdin-close-", terminalCloseFailures);
         activity.run();
     }
 
@@ -140,9 +140,7 @@ final class SessionResources {
         resources
                 .stdin()
                 .closeOwnedAsync(
-                        "procwright-process-stdin-close-",
-                        Objects.requireNonNull(failureHandler, "failureHandler"),
-                        () -> {});
+                        "procwright-process-stdin-close-", Objects.requireNonNull(failureHandler, "failureHandler"));
     }
 
     void close() {
@@ -156,12 +154,10 @@ final class SessionResources {
         if (outputOwnership.raw()) {
             attemptBestEffort(() -> resources
                     .stdout()
-                    .closeOwnedAsync(
-                            "procwright-process-stdout-close-", BoundedFailureReporter::reportBestEffort, () -> {}));
+                    .closeOwnedAsync("procwright-process-stdout-close-", BoundedFailureReporter::reportBestEffort));
             attemptBestEffort(() -> resources
                     .stderr()
-                    .closeOwnedAsync(
-                            "procwright-process-stderr-close-", BoundedFailureReporter::reportBestEffort, () -> {}));
+                    .closeOwnedAsync("procwright-process-stderr-close-", BoundedFailureReporter::reportBestEffort));
         }
     }
 

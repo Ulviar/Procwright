@@ -23,6 +23,8 @@ release, поэтому способ загрузки в registry, signing и re
 - cleanup proofs проверяют восстановление после временно неполного scan и сохранение известных descendants,
   недоступности observation и overflow; последний combined refresh должен завершиться до phase deadline. Повторные
   observation failures имеют ограниченный retained detail с сохранением primary и interruption;
+- capture identity proofs разрешают разные существующие файлы с portable-alias names и сохраняют защиту от одного
+  файла через hardlink/symlink; неизвестные targets остаются под консервативной проверкой;
 - Public package/scenario surface, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
 
 Агрегирующая локальная проверка:

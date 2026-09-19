@@ -114,8 +114,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         AtomicReference<Throwable> reported = new AtomicReference<>();
 
         AssertionError thrown = assertThrows(
-                AssertionError.class,
-                () -> resources.stdout().closeRequiredAsync("required-close-", reported::set, () -> {}));
+                AssertionError.class, () -> resources.stdout().closeRequiredAsync("required-close-", reported::set));
 
         assertSame(startFailure, thrown);
         assertSame(startFailure, reported.get());
@@ -151,14 +150,7 @@ final class ProcessStreamResourceTest extends ProcessIoResourcesTestSupport {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> ProcessStreamResource.closePairAsync(
-                        first,
-                        "first-close-",
-                        ignored -> {},
-                        () -> {},
-                        second,
-                        "second-close-",
-                        ignored -> {},
-                        () -> {}));
+                        first, "first-close-", ignored -> {}, second, "second-close-", ignored -> {}));
 
         assertFalse(first.closeStarted());
         assertFalse(second.closeStarted());

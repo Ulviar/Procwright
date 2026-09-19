@@ -201,10 +201,8 @@ final class OutputPumpCleanup {
         reservation.dispatchPair(
                 threadPrefix + "-stdout-close-",
                 this::reportFailure,
-                () -> {},
                 threadPrefix + "-stderr-close-",
-                this::reportFailure,
-                () -> {});
+                this::reportFailure);
     }
 
     private static void rethrow(Throwable failure) {

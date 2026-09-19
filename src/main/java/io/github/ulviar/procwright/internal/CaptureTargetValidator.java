@@ -27,21 +27,22 @@ final class CaptureTargetValidator {
         Path stdout = toPath.stdout();
         Path stderr = toPath.stderr().orElseThrow();
         try {
-            Path resolvedStdout = resolvedTarget(stdout);
-            Path resolvedStderr = resolvedTarget(stderr);
-            if (sameExistingFile(stdout, stderr)
-                    || resolvedStdout.equals(resolvedStderr)
-                    || portableIdentity(resolvedStdout).equals(portableIdentity(resolvedStderr))) {
+            boolean sameTarget;
+            if (existsFollowingLinks(stdout) && existsFollowingLinks(stderr)) {
+                sameTarget = Files.isSameFile(stdout, stderr);
+            } else {
+                Path resolvedStdout = resolvedTarget(stdout);
+                Path resolvedStderr = resolvedTarget(stderr);
+                sameTarget = resolvedStdout.equals(resolvedStderr)
+                        || portableIdentity(resolvedStdout).equals(portableIdentity(resolvedStderr));
+            }
+            if (sameTarget) {
                 throw new IllegalArgumentException("stdout and stderr capture paths must resolve to distinct files");
             }
         } catch (IOException | SecurityException exception) {
             throw new IllegalArgumentException(
                     "could not verify that stdout and stderr capture paths are distinct", exception);
         }
-    }
-
-    private static boolean sameExistingFile(Path first, Path second) throws IOException {
-        return existsFollowingLinks(first) && existsFollowingLinks(second) && Files.isSameFile(first, second);
     }
 
     private static boolean existsFollowingLinks(Path path) throws IOException {

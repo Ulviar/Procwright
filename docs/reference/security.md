@@ -38,9 +38,9 @@ messages. Redact before exporting. Truncation limits memory; it does not remove 
 
 For separate file capture, Procwright checks immediately before launch that stdout and stderr do not resolve to the same
 file, including aliases reached through symlinked directories. It fails closed when filesystem identity cannot be read.
-Any two target names that differ only by case, canonical Unicode representation, or trailing dots and spaces are rejected
-on every OS, even when both files exist and the local filesystem treats them as distinct. Supported filesystems disagree
-about those identities. Do not replace or relink capture paths concurrently with launch: `ProcessBuilder` cannot
+Two existing files are compared by their filesystem identity, so distinct files may have names such as `Capture.log`
+and `capture.log`. If either target does not exist, names that differ only by case, canonical Unicode representation,
+or trailing dots and spaces are conservatively rejected. Do not replace or relink capture paths concurrently with launch: `ProcessBuilder` cannot
 atomically verify two path identities and open both redirects. Protect attacker-controlled output directories with
 operating-system permissions.
 

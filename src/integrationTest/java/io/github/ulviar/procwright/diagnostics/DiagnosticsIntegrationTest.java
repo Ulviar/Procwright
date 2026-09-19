@@ -327,13 +327,6 @@ final class DiagnosticsIntegrationTest {
     }
 
     @Test
-    void diagnosticAttributeContractCoversEveryEventType() {
-        assertEquals(
-                Set.of(DiagnosticEventType.values()),
-                DiagnosticAttributeSchema.allowedAttributesByType().keySet());
-    }
-
-    @Test
     void runEmitsOutputTruncationMetadata() {
         DiagnosticRecorder recorder = new DiagnosticRecorder();
         RunScenario.Draft scenario = fixtureService().run().withDiagnosticListener(recorder);

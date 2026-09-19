@@ -169,15 +169,7 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
     }
 
     TerminalSnapshot recordTerminalFailure(ProtocolSessionException.Reason reason, String message, Throwable cause) {
-        Selection selection = selectFailure(
-                reason,
-                message,
-                cause,
-                Objects.requireNonNull(transcript.get(), "transcript"),
-                Objects.requireNonNull(exitCode.get(), "exitCode"),
-                true);
-        retainDiscarded(selection.discarded());
-        return selection.selected();
+        return recordOutputFailure(reason, message, cause).selected();
     }
 
     OutputSelection recordOutputFailure(ProtocolSessionException.Reason reason, String message, Throwable cause) {
@@ -186,20 +178,17 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
                 message,
                 cause,
                 Objects.requireNonNull(transcript.get(), "transcript"),
-                Objects.requireNonNull(exitCode.get(), "exitCode"),
-                true);
+                Objects.requireNonNull(exitCode.get(), "exitCode"));
         retainDiscarded(selection.discarded());
         return new OutputSelection(selection.selected(), selection.rejectedAfterClose());
     }
 
     TerminalSnapshot recordFatalError(Error error) {
-        Selection selection = selectFatal(error, true);
-        retainDiscarded(selection.discarded());
-        return selection.selected();
+        return recordOutputFatalError(error).selected();
     }
 
     OutputSelection recordOutputFatalError(Error error) {
-        Selection selection = selectFatal(error, true);
+        Selection selection = selectFatal(error);
         retainDiscarded(selection.discarded());
         return new OutputSelection(selection.selected(), selection.rejectedAfterClose());
     }
@@ -226,24 +215,13 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
             return selected;
         }
         if (terminalOutcome == null) {
-            ProtocolSessionException primary = request.failure();
-            if (primary == null) {
-                primary = request.record(candidate);
-            } else if (primary.reason() == ProtocolSessionException.Reason.CLOSED) {
-                primary = request.replaceWithTerminal(candidate);
-            }
+            ProtocolSessionException primary = selectActiveTerminalFailure(request, candidate);
             terminalOutcome = new FailureSnapshot(
                     primary.reason(), primary.getMessage(), primary, primary.transcript(), primary.exitCode());
             return primary;
         }
         if (terminalOutcome instanceof FailureSnapshot failure) {
-            ProtocolSessionException primary = request.failure();
-            if (primary == null) {
-                primary = request.record(terminalExceptionFromSnapshot(failure));
-            } else if (primary.reason() == ProtocolSessionException.Reason.CLOSED) {
-                primary = request.replaceWithTerminal(terminalExceptionFromSnapshot(failure));
-            }
-            return primary;
+            return selectActiveTerminalFailure(request, terminalExceptionFromSnapshot(failure));
         }
         return candidate;
     }
@@ -391,13 +369,16 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
                 failure.primary());
     }
 
-    private static void selectActiveTerminalFailure(RequestOutcome request, ProtocolSessionException terminalFailure) {
+    private static ProtocolSessionException selectActiveTerminalFailure(
+            RequestOutcome request, ProtocolSessionException terminalFailure) {
         ProtocolSessionException current = request.failure();
         if (current == null) {
-            request.record(terminalFailure);
-        } else if (current.reason() == ProtocolSessionException.Reason.CLOSED) {
-            request.replaceWithTerminal(terminalFailure);
+            return request.record(terminalFailure);
         }
+        if (current.reason() == ProtocolSessionException.Reason.CLOSED) {
+            return request.replaceWithTerminal(terminalFailure);
+        }
+        return current;
     }
 
     private static Error fatalError(TerminalSnapshot outcome) {
@@ -409,13 +390,12 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
             String message,
             Throwable cause,
             ProtocolTranscript terminalTranscript,
-            OptionalInt terminalExitCode,
-            boolean rejectAfterClose) {
+            OptionalInt terminalExitCode) {
         TerminalSnapshot selected;
         Throwable discarded = null;
         boolean rejected = false;
         synchronized (this) {
-            if (rejectAfterClose && closed) {
+            if (closed) {
                 selected = terminalOutcome;
                 discarded = cause;
                 rejected = true;
@@ -434,12 +414,12 @@ final class ProtocolSessionState implements ProtocolRuntimeFailures {
         return new Selection(selected, discarded, rejected);
     }
 
-    private Selection selectFatal(Error error, boolean rejectAfterClose) {
+    private Selection selectFatal(Error error) {
         TerminalSnapshot selected;
         Throwable discarded = null;
         boolean rejected = false;
         synchronized (this) {
-            if (rejectAfterClose && closed) {
+            if (closed) {
                 selected = terminalOutcome;
                 discarded = error;
                 rejected = true;

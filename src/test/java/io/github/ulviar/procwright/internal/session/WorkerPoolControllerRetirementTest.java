@@ -148,7 +148,7 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
                 "test-",
                 new WorkerPoolController.Dependencies(
                         inlineScheduler(),
-                        reportingSink((thread, failure) -> {
+                        reportingSink(failure -> {
                             reported.compareAndSet(null, failure);
                             reportReceived.countDown();
                         }),

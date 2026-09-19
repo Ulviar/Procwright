@@ -7,9 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,47 +21,44 @@ import org.junit.jupiter.api.Test;
 final class BoundedFailureReporterTest {
 
     @Test
-    void nestedFailureTargetsRestoreTheirParentAfterFailureAndDoNotLeak() {
-        Thread current = Thread.currentThread();
-        Thread outer = Thread.ofPlatform().name("outer-source").unstarted(() -> {});
-        Thread inner = Thread.ofPlatform().name("inner-source").unstarted(() -> {});
-        var callerTarget = BoundedFailureReporter.captureFailureTarget();
-        BoundedFailureReporter.withFailureTarget(
-                callerTarget,
-                () -> assertEquals(
-                        current.getName(),
-                        BoundedFailureReporter.notificationSourceThread().getName()));
-        var outerTarget = BoundedFailureReporter.captureFailureTarget(outer);
-        var innerTarget = BoundedFailureReporter.captureFailureTarget(inner);
-        AssertionError failure = new AssertionError("nested failure");
-
-        BoundedFailureReporter.withFailureTarget(outerTarget, () -> {
-            assertEquals(
-                    "outer-source",
-                    BoundedFailureReporter.notificationSourceThread().getName());
-            assertSame(
-                    failure,
-                    assertThrows(
-                            AssertionError.class,
-                            () -> BoundedFailureReporter.withFailureTarget(innerTarget, () -> {
-                                assertEquals(
-                                        "inner-source",
-                                        BoundedFailureReporter.notificationSourceThread()
-                                                .getName());
-                                var capturedInner = BoundedFailureReporter.captureFailureTarget();
-                                BoundedFailureReporter.withFailureTarget(
-                                        capturedInner,
-                                        () -> assertEquals(
-                                                "inner-source",
-                                                BoundedFailureReporter.notificationSourceThread()
-                                                        .getName()));
-                                throw failure;
-                            })));
-            assertEquals(
-                    "outer-source",
-                    BoundedFailureReporter.notificationSourceThread().getName());
+    void nestedNotificationsRetainTheirSourceWithoutLeakingItToIndependentSubmissions() throws Exception {
+        BoundedFailureReporter reporter = new BoundedFailureReporter(1, 2);
+        ConcurrentLinkedQueue<Throwable> observedFailures = new ConcurrentLinkedQueue<>();
+        ConcurrentLinkedQueue<Thread> observedSources = new ConcurrentLinkedQueue<>();
+        Thread source = Thread.ofPlatform().name("nested-notification-source").unstarted(() -> {});
+        source.setUncaughtExceptionHandler((thread, failure) -> {
+            observedSources.add(thread);
+            observedFailures.add(failure);
         });
-        assertSame(current, BoundedFailureReporter.notificationSourceThread());
+        AssertionError callbackFailure = new AssertionError("callback failed");
+        AssertionError nestedFailure = new AssertionError("nested task failed");
+
+        assertTrue(reporter.execute(source, () -> {
+            assertTrue(reporter.execute(
+                    Thread.currentThread(),
+                    () -> assertTrue(reporter.report(BoundedFailureReporter.captureFailureTarget(), nestedFailure))));
+            throw callbackFailure;
+        }));
+        assertTrue(reporter.awaitSettlement(Duration.ofSeconds(1)));
+
+        assertEquals(2, observedFailures.size());
+        assertEquals(Set.of(callbackFailure, nestedFailure), Set.copyOf(observedFailures));
+        for (Thread observed : observedSources) {
+            assertEquals(source.getName(), observed.getName());
+            assertNotSame(source, observed);
+        }
+
+        AtomicReference<Throwable> independentFailure = new AtomicReference<>();
+        Thread independent = Thread.ofPlatform().name("independent-source").unstarted(() -> {});
+        independent.setUncaughtExceptionHandler((thread, failure) -> independentFailure.set(failure));
+        AssertionError expected = new AssertionError("independent failure");
+        assertTrue(reporter.execute(independent, () -> {
+            throw expected;
+        }));
+        assertTrue(reporter.awaitSettlement(Duration.ofSeconds(1)));
+
+        assertSame(expected, independentFailure.get());
+        assertEquals(2, observedFailures.size());
     }
 
     @Test

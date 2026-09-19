@@ -75,7 +75,7 @@ Runtime получает только согласованный plan и не у
 После запуска владельцем инварианта становится конкретный runtime component:
 
 - первый сигнал для прекращения one-shot process wait — `OneShotSupervision`; итоговый outcome после capture и cleanup
-  принадлежит `OneShotExecution`;
+  принадлежит `OneShotExecution`; успешный shutdown после interruption не запускается повторно;
 - единый absolute deadline ожидания процесса и output capture — `OneShotDeadline`;
 - stdin/output tasks принадлежат одному execution и не используют глобальную квоту; фактическая I/O failure после
   отмены `Future` остаётся доступна supervision через `OneShotTask`;
@@ -97,7 +97,7 @@ Runtime получает только согласованный plan и не у
   physical close выполняется best effort и не входит в `CommandResult` publication;
 - транзакционное приобретение session streams — `ProcessIoAcquisition`, exact-once claim и outcome best-effort close
   одного stream — `ProcessStreamResource`, bundle-level close и rollback — `ProcessIoResources`; живые process streams
-  не резервируют глобальную close capacity. Готовые close operations попадают в bounded active set и bounded backlog;
+  не резервируют глобальную close capacity. Готовые close operations независимо попадают в bounded active set и bounded backlog;
   saturation или невозможность запустить close фиксируется как cleanup failure без физического close и не задерживает
   исходный terminal outcome;
 - stdin serialization и logical close, output ownership и session-level close callbacks — `SessionResources`; public

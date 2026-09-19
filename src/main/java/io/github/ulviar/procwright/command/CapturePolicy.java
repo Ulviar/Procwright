@@ -53,9 +53,9 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded, CapturePoli
      * threads run, so memory usage stays constant regardless of output volume. {@link CommandResult#stdout()} and
      * {@link CommandResult#stderr()} are empty and the truncation flags are {@code false}.
      * Immediately before launch, Procwright rejects targets that resolve to the same file, including aliases through
-     * symlinked directories. It also rejects any pair of target names that differ only by case, canonical Unicode
-     * representation, or trailing dots and spaces, even when both files already exist and the local filesystem treats
-     * them as distinct. Do not replace or relink either path concurrently with process launch: the JDK redirect API does
+     * symlinked directories. Two existing files are compared by their filesystem identity. If either target does not
+     * exist, names that differ only by case, canonical Unicode representation, or trailing dots and spaces are
+     * conservatively rejected. Do not replace or relink either path concurrently with process launch: the JDK redirect API does
      * not provide an atomic two-target identity check and open operation.
      *
      * @param stdout target file for standard output

@@ -135,9 +135,7 @@ final class ProcessCleanupTest {
                         }
                     },
                     "occupying-close-",
-                    ignored -> {},
-                    ignored -> {},
-                    () -> {}));
+                    ignored -> {}));
         }
         assertTrue(occupyingCloseStarted.await(1, TimeUnit.SECONDS));
         RecordingProcess process = new RecordingProcess();

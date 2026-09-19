@@ -3,9 +3,7 @@
 package io.github.ulviar.procwright.internal;
 
 import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatch;
-import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatchPair;
 import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.dispatchRequired;
-import static io.github.ulviar.procwright.internal.BoundedCloseDispatcherTestAccess.request;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -61,15 +59,10 @@ final class BoundedCloseDispatcherTest {
         CountDownLatch releaseSettlement = new CountDownLatch(1);
         CountDownLatch secondClosed = new CountDownLatch(1);
 
-        dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
-                () -> {},
-                "first-close-",
-                ignored -> {
-                    settlementStarted.countDown();
-                    awaitUninterruptibly(releaseSettlement);
-                },
-                ignored -> {},
-                () -> {}));
+        dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(() -> {}, "first-close-", ignored -> {
+            settlementStarted.countDown();
+            awaitUninterruptibly(releaseSettlement);
+        }));
         assertTrue(settlementStarted.await(1, TimeUnit.SECONDS));
         dispatch(dispatcher, secondClosed::countDown, "second-close-", ignored -> {});
 
@@ -84,25 +77,76 @@ final class BoundedCloseDispatcherTest {
     }
 
     @Test
-    void pairAdmissionIsAtomic() throws Exception {
-        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(1, 1);
-        CountDownLatch firstStarted = new CountDownLatch(1);
-        CountDownLatch releaseFirst = new CountDownLatch(1);
+    void successfulCloseSettlesWithoutSubmittingANotification() throws Exception {
+        RecordingNotifications notifications = new RecordingNotifications();
+        CountDownLatch taskFinished = new CountDownLatch(1);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
+                1,
+                1,
+                (prefix, task) -> {
+                    Threading.start(prefix, () -> {
+                        try {
+                            task.run();
+                        } finally {
+                            taskFinished.countDown();
+                        }
+                    });
+                },
+                notifications);
+        AtomicInteger physicalCloses = new AtomicInteger();
+        AtomicInteger settlements = new AtomicInteger();
 
-        dispatch(dispatcher, blockingClose(firstStarted, releaseFirst, new CountDownLatch(1)), "close-", ignored -> {});
-        assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
+        dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                physicalCloses::incrementAndGet,
+                "successful-close-",
+                failure -> {
+                    assertSame(null, failure);
+                    settlements.incrementAndGet();
+                },
+                ignored -> {
+                    throw new AssertionError("a successful close has no failure to report");
+                }));
+        assertTrue(taskFinished.await(1, TimeUnit.SECONDS));
 
-        assertThrows(
-                RejectedExecutionException.class,
-                () -> dispatchPair(
-                        dispatcher,
-                        request(() -> {}, "pair-", ignored -> {}),
-                        request(() -> {}, "pair-", ignored -> {})));
-        assertEquals(1, dispatcher.outstandingCount());
-        assertEquals(0, dispatcher.pendingCount());
+        assertEquals(1, physicalCloses.get());
+        assertEquals(1, settlements.get());
+        assertEquals(0, notifications.submissions.get());
+        assertTrue(notifications.reported.isEmpty());
+        assertEquals(0, dispatcher.outstandingCount());
+    }
 
-        releaseFirst.countDown();
-        assertTrue(eventually(() -> dispatcher.outstandingCount() == 0));
+    @Test
+    void ownedFailureSettlesWithoutSubmittingARedundantNotification() throws Exception {
+        IOException physicalFailure = new IOException("owned close failed");
+        RecordingNotifications notifications = new RecordingNotifications();
+        CountDownLatch taskFinished = new CountDownLatch(1);
+        BoundedCloseDispatcher dispatcher = new BoundedCloseDispatcher(
+                1,
+                1,
+                (prefix, task) -> {
+                    Threading.start(prefix, () -> {
+                        try {
+                            task.run();
+                        } finally {
+                            taskFinished.countDown();
+                        }
+                    });
+                },
+                notifications);
+        AtomicReference<Throwable> settled = new AtomicReference<>();
+
+        dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
+                () -> {
+                    throw physicalFailure;
+                },
+                "owned-close-",
+                settled::set));
+        assertTrue(taskFinished.await(1, TimeUnit.SECONDS));
+
+        assertSame(physicalFailure, settled.get());
+        assertEquals(0, notifications.submissions.get());
+        assertTrue(notifications.reported.isEmpty());
+        assertEquals(0, dispatcher.outstandingCount());
     }
 
     @Test
@@ -119,15 +163,13 @@ final class BoundedCloseDispatcherTest {
         AtomicInteger physicalCloses = new AtomicInteger();
         AtomicReference<Throwable> settled = new AtomicReference<>();
         AtomicReference<Throwable> reported = new AtomicReference<>();
-        CountDownLatch completed = new CountDownLatch(1);
 
         dispatcher.dispatch(BoundedCloseDispatcher.ownedCloseRequest(
-                physicalCloses::incrementAndGet, "close-", settled::set, reported::set, completed::countDown));
+                physicalCloses::incrementAndGet, "close-", settled::set, reported::set));
 
         assertEquals(0, physicalCloses.get());
         assertSame(startFailure, settled.get());
         assertSame(startFailure, reported.get());
-        assertTrue(completed.await(1, TimeUnit.SECONDS));
         assertEquals(0, dispatcher.outstandingCount());
     }
 
@@ -162,8 +204,7 @@ final class BoundedCloseDispatcherTest {
                 ignored -> {},
                 ignored -> {
                     throw callbackFailure;
-                },
-                () -> {}));
+                }));
         dispatch(dispatcher, secondClosed::countDown, "close-", ignored -> {});
 
         assertTrue(secondClosed.await(1, TimeUnit.SECONDS));
@@ -211,9 +252,11 @@ final class BoundedCloseDispatcherTest {
     private static final class RecordingNotifications implements CloseNotificationPublisher {
 
         private final List<Throwable> reported = new CopyOnWriteArrayList<>();
+        private final AtomicInteger submissions = new AtomicInteger();
 
         @Override
         public void execute(Thread sourceThread, Runnable callback) {
+            submissions.incrementAndGet();
             callback.run();
         }
 

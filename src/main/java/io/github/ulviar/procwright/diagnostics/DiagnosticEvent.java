@@ -5,7 +5,6 @@ package io.github.ulviar.procwright.diagnostics;
 import io.github.ulviar.procwright.internal.CommandValidation;
 import io.github.ulviar.procwright.internal.DiagnosticAttributeSchema;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -62,7 +61,6 @@ public record DiagnosticEvent(
         Objects.requireNonNull(timestamp, "timestamp");
         CommandValidation.requireText(scenario, "scenario");
         Objects.requireNonNull(command, "command");
-        attributes = DiagnosticAttributeSchema.validate(
-                type, new LinkedHashMap<>(Objects.requireNonNull(attributes, "attributes")));
+        attributes = DiagnosticAttributeSchema.validate(type, attributes);
     }
 }

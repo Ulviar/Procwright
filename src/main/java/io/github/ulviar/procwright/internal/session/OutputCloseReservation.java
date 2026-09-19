@@ -63,19 +63,10 @@ final class OutputCloseReservation {
         void dispatchPair(
                 String stdoutThreadPrefix,
                 java.util.function.Consumer<? super Throwable> stdoutFailureHandler,
-                Runnable stdoutCompletionHandler,
                 String stderrThreadPrefix,
-                java.util.function.Consumer<? super Throwable> stderrFailureHandler,
-                Runnable stderrCompletionHandler) {
+                java.util.function.Consumer<? super Throwable> stderrFailureHandler) {
             ProcessStreamResource.closePairAsync(
-                    stdout,
-                    stdoutThreadPrefix,
-                    stdoutFailureHandler,
-                    stdoutCompletionHandler,
-                    stderr,
-                    stderrThreadPrefix,
-                    stderrFailureHandler,
-                    stderrCompletionHandler);
+                    stdout, stdoutThreadPrefix, stdoutFailureHandler, stderr, stderrThreadPrefix, stderrFailureHandler);
         }
 
         private ProcessStreamResource<InputStream> resource(Stream stream) {

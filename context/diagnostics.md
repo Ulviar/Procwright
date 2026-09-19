@@ -21,7 +21,8 @@ Diagnostics — наблюдательный слой поверх сценар�
 - Diagnostic event attributes не содержат raw stdout/stderr, stdin, argv values или environment values.
 - Ordering между разными получателями (listener против transcript sink) и между разными lifecycle не является
   контрактом; runtime не гарантирует ordering поверх границы получателя, корреляция идет через `runId`.
-- Внутренний owner schema — `DiagnosticAttributeSchema`; Markdown ниже является consumer-facing mirror этой схемы.
+- `DiagnosticEvent` при создании получает immutable snapshot атрибутов и проверяет его через `DiagnosticAttributeSchema`;
+  emitter использует этот конструктор без повторной проверки. Markdown ниже отражает ту же схему.
 
 ## Схема событий
 

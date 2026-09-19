@@ -67,7 +67,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                     });
                     return PoolReplenisher.Cancellation.NONE;
                 },
-                (thread, failure) -> {},
+                failure -> {},
                 System::nanoTime);
         try {
             assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
@@ -111,7 +111,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                 worker -> {},
                 settings(1, 0, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO),
                 threadedScheduler("test-replenish-"),
-                (thread, failure) -> {
+                failure -> {
                     reported.set(failure);
                     reporterEntered.countDown();
                     awaitIgnoringInterrupt(releaseReporter);
@@ -255,7 +255,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                         },
                         settings(2, 2, 0, Duration.ofMillis(40), Integer.MAX_VALUE, Duration.ZERO),
                         threadedScheduler("test-replenish-"),
-                        (thread, failure) -> {
+                        failure -> {
                             reported.compareAndSet(null, failure);
                             reports.incrementAndGet();
                             reportPublished.countDown();

@@ -72,8 +72,7 @@ public final class ProcessCleanup {
                     closeOperation,
                     "procwright-pty-" + streamName + "-close-",
                     ignored -> {},
-                    failure -> report(failureReporter, failure),
-                    () -> {}));
+                    failure -> report(failureReporter, failure)));
         } catch (RuntimeException | Error dispatchFailure) {
             report(failureReporter, dispatchFailure);
         }

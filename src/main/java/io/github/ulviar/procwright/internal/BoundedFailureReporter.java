@@ -144,18 +144,6 @@ public final class BoundedFailureReporter {
         return settlement;
     }
 
-    public static Thread notificationSourceThread() {
-        NotificationTarget target = NOTIFICATION_TARGET.isBound() ? NOTIFICATION_TARGET.get() : null;
-        return target == null ? Thread.currentThread() : target.source().detachedThread();
-    }
-
-    /** Runs internal lifecycle accounting while preserving the physical owner's failure-reporting destination. */
-    public static void withFailureTarget(FailureTarget failureTarget, Runnable task) {
-        Objects.requireNonNull(failureTarget, "failureTarget");
-        Objects.requireNonNull(task, "task");
-        ScopedValue.where(NOTIFICATION_TARGET, failureTarget.target).run(task);
-    }
-
     private static NotificationTarget targetFor(Thread sourceThread) {
         NotificationTarget inherited = NOTIFICATION_TARGET.isBound() ? NOTIFICATION_TARGET.get() : null;
         if (inherited != null) {
