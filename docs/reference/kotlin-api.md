@@ -53,6 +53,15 @@ if (!version.succeeded()) {
 [Open `KotlinExample.kt`](../examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt) and the
 [optional-module example sources](../examples.md#optional-modules).
 
+To try the complete example from this checkout with JDK 25:
+
+```shell
+./gradlew -q :procwright-kotlin-consumer-example:runCanonicalKotlinExample --console=plain
+```
+
+On Windows, replace `./gradlew` with `.\gradlew.bat`. The example runs a command, makes two requests through one worker,
+then prints the current Java version through Flow. Gradle supplies the dependencies and bundled worker.
+
 ## Durations
 
 Timeout extensions accept `kotlin.time.Duration` and return the same immutable Java draft types. Retain the returned

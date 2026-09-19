@@ -29,7 +29,7 @@ Then choose a scenario on `tool`, such as `tool.run().withArgs(arguments).execut
 
 `CommandSpec` and scenario Drafts are immutable. Keep the object returned by each `with*` call. You can reuse a configured
 Draft: each `execute()` or `open()` starts an independent process. No configuration call launches a process.
-Shared callbacks have their own [thread-safety requirements](policies.md#persistent-callback-concurrency).
+Shared callbacks have their own [thread-safety requirements](policies.md#callback-concurrency-and-lifetime).
 
 ## Use a shell deliberately
 

@@ -1,6 +1,8 @@
 # Choose a process scenario
 
-Start with what the application needs from the process.
+Choose how your application will interact with the process before starting it. A finite command needs an overall
+timeout and captured output; a worker needs request boundaries and a timeout for each exchange. Each scenario keeps
+the relevant settings together.
 
 | Your task | API | Next step |
 | --- | --- | --- |
@@ -9,6 +11,9 @@ Start with what the application needs from the process.
 | Receive logs or events while the process runs | `listen()` | [Follow live output](follow-logs.md) |
 
 ## Choose a worker's message format
+
+The program must already accept repeated requests while staying alive. For a tool that exits after each command,
+use `run()` for each call.
 
 | What the worker speaks | Start here |
 | --- | --- |
@@ -27,6 +32,7 @@ provide caller-to-worker affinity.
 - Own the raw stdin/stdout protocol with [`interactive()`](../scenarios/interactive.md).
 - [Require a terminal](require-terminal.md) only when the CLI needs terminal behavior.
 
-Choose the output mode before `open()`. Helpers own their output streams; a raw session gives that ownership to you.
+Choose the scenario before `open()`: it determines [who reads output](../reference/output-ownership.md).
+Two readers would compete for the same bytes, so an open raw session cannot later become an Expect or protocol session.
 Close sessions and pools with try-with-resources or Kotlin `use`. For file input and output, stay with
 [`run()`](../scenarios/run.md#files); it does not require a separate scenario.

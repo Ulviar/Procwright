@@ -1,7 +1,10 @@
 # Run your first command
 
-Start from the checkout root with JDK 25 on your path. If you have several JDKs, point `JAVA_HOME` at JDK 25.
-Gradle downloads its wrapper and dependencies on the first run.
+Try the included demo from a [repository checkout](https://github.com/Ulviar/Procwright), with JDK 25 on your path.
+If you have several JDKs, point `JAVA_HOME` at JDK 25. Gradle downloads its wrapper and dependencies on the first run.
+
+For an existing application, [add the dependency](release/installation.md), then use the
+[Java example below](#substitute-your-command).
 
 ## Run the included demo
 
@@ -26,8 +29,9 @@ Pass the executable followed by its arguments. For example, if Git is installed:
 ./gradlew -q demoRun --args='git --version'
 ```
 
-Edit `executable` and `arguments` in the [complete example](examples/java/io/github/ulviar/procwright/examples/RunExample.java)
-when embedding this call in your own code:
+In your application, copy the [complete Java example](examples/java/io/github/ulviar/procwright/examples/RunExample.java)
+and run its `main` method. It includes the imports and uses the current JDK when no arguments are supplied.
+To call your CLI, set `executable` to its path or name and `arguments` to its argument array:
 
 <!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java#run -->
 ```java
@@ -43,7 +47,8 @@ explicit shell commands.
 
 `result.stdout()` and `result.stderr()` contain captured text. The default timeout is 30 seconds, with up to 1 MiB retained
 from each stream. Check `stdoutTruncated()` and `stderrTruncated()` when your task requires complete output; larger output
-continues to be drained. [Output policies](scenarios/run.md) explain file and discard alternatives.
+continues to be drained. [File output](scenarios/run.md#files) and
+[capture settings](how-to/run-finite-command.md#choose-where-output-goes) cover larger output and discarding it.
 
 A non-zero exit is a `CommandResult`. This demo prints `succeeded=false` and makes the Gradle task fail using:
 
@@ -70,6 +75,6 @@ when you need to distinguish failure reasons.
 
 - [Use a JSON Lines worker as a service](how-to/wrap-cli-tool.md): two calls through one process, with explicit ownership.
 - [Follow live output](how-to/follow-logs.md): show logs and progress with `demoListen`.
-- [Send stdin or capture output in files](how-to/run-finite-command.md): adapt the command to your data.
+- [Send text to stdin](how-to/run-finite-command.md#send-input) or [use files for input and output](scenarios/run.md#files).
 - [Choose another process scenario](how-to/choose-process-scenario.md): line protocols, prompts, and raw I/O.
 - [Use Procwright in your application](release/installation.md): Gradle and Maven dependency setup.

@@ -37,7 +37,9 @@ redirected or discarded output is not retained in the result.
 
 ## Line sessions
 
-Line sessions inherit the interactive-session defaults and add these request/response defaults:
+Line sessions share the idle timeout, shutdown, terminal, readiness, and diagnostic defaults listed for
+[interactive sessions](#interactive-sessions). Procwright reads stdout and stderr; the response decoder consumes stdout.
+Request/response defaults are:
 
 | Setting | Default |
 | --- | --- |
@@ -55,7 +57,9 @@ only controls retained diagnostics.
 
 ## Protocol sessions
 
-Protocol sessions inherit the interactive-session defaults and add these adapter budgets:
+Protocol sessions share the idle timeout, shutdown, terminal, readiness, and diagnostic defaults listed for
+[interactive sessions](#interactive-sessions). Procwright reads stdout and stderr; the adapter consumes output through
+`ProtocolReader`. Adapter defaults are:
 
 | Setting | Default |
 | --- | --- |

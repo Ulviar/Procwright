@@ -3,12 +3,17 @@
 [![CI](https://github.com/Ulviar/Procwright/actions/workflows/ci.yml/badge.svg)](https://github.com/Ulviar/Procwright/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Use an external CLI as a managed component of your Java or Kotlin application. Run a command, make repeated requests to
-a worker, or consume live output. Procwright owns timeouts, output bounds, and process cleanup for the chosen workflow.
+Call external CLI tools from Java or Kotlin. For a finite command, Procwright writes stdin, reads stdout and stderr
+concurrently, applies a timeout, and handles process cleanup. For long-lived tools, it provides request/response sessions,
+prompt matching, and live output callbacks.
+
+Requires **Java 25**. The core has no runtime dependencies outside the JDK. Ordinary process execution works on
+macOS, Linux, and Windows; [terminal support](docs/reference/platforms-and-pty.md) has additional requirements.
 
 ## Try it
 
-From this checkout, with **JDK 25** available:
+To try the included demo, run this from the checkout with JDK 25 available. To use Procwright in an existing application,
+start with [dependency setup](docs/release/installation.md).
 
 ```shell
 ./gradlew -q demoRun
@@ -51,18 +56,14 @@ The API follows one sequence: **command → scenario → configuration → execu
 - Each `with*` call returns a new configuration (called a Draft); retain its return value.
 - `execute()` returns a result. `open()` returns a handle to close with try-with-resources or Kotlin `use`.
 
-For reusable workers, set request and response limits; output buffers follow the response limits automatically.
-
 See [Getting started](docs/getting-started.md), [runnable examples](docs/examples.md), and the
-[API and policy reference](docs/reference/index.md). To use Procwright in a separate application, see
-[dependency setup](docs/release/installation.md).
+[API and policy reference](docs/reference/index.md).
 
 ## Modules
 
-- `procwright`: Java core, with no runtime dependency outside the JDK.
+- `procwright`: Java core.
 - `procwright-kotlin`: Kotlin durations, coroutine calls, Flow, and adapter factory DSL.
 - `procwright-integrations`: ready-made JSON and byte-framing adapters.
 
-All modules require Java 25. See [Kotlin usage](docs/reference/kotlin-api.md),
-[platform support](docs/reference/platforms-and-pty.md), and [cleanup guarantees](docs/explanations/process-cleanup-limits.md).
+See [Kotlin usage](docs/reference/kotlin-api.md) and [cleanup guarantees](docs/explanations/process-cleanup-limits.md).
 Report vulnerabilities through [SECURITY.md](SECURITY.md). Licensed under [Apache License 2.0](LICENSE).

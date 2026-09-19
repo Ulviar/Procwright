@@ -1,7 +1,7 @@
 # Use Procwright in your application
 
-Procwright requires JDK 25. There is no public artifact yet; to use this checkout from another application, install
-its artifacts into your local Maven repository:
+Procwright requires JDK 25 to build and run. From the checkout root, install its artifacts into your local Maven
+repository, then add the dependency to your application:
 
 ```shell
 ./gradlew publishToMavenLocal \
@@ -47,6 +47,9 @@ Maven:
     <version>0.1.0</version>
 </dependency>
 ```
+
+Next, [run the Java example](../getting-started.md#substitute-your-command) and
+[inspect its result](../getting-started.md#use-the-result). The core has no runtime dependencies outside the JDK.
 
 ## Optional modules
 

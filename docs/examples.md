@@ -55,6 +55,23 @@ helpers into the same package or replace `ExampleSupport.workerCommand(...)` wit
 
 ## Optional modules
 
+Run the Kotlin example, including coroutine calls, a reusable worker, and Flow:
+
+```shell
+./gradlew -q :procwright-kotlin-consumer-example:runCanonicalKotlinExample --console=plain
+```
+
+It prints the current Java version through Flow and fails if either worker response is incorrect.
+
+For typed JSON over Content-Length framing:
+
+```shell
+./gradlew -q :procwright-integrations-consumer-example:runTypedContentLengthExample
+```
+
+This example checks one response from its bundled worker and exits silently on success. Both commands run directly from
+the checkout with JDK 25; no external worker or separately installed Procwright dependency is needed.
+
 - [Kotlin coroutines, Flow, and protocol factory](examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt)
 - [Kotlin pool lifecycle](examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinPoolExample.kt)
 - [JSON Lines integration](examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java)

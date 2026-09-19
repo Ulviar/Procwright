@@ -1,5 +1,5 @@
 site_name: Procwright
-site_description: Scenario-first JVM library for external CLI automation.
+site_description: Run external programs from Java and Kotlin with output handling, timeouts, and process cleanup.
 site_url: https://ulviar.github.io/Procwright/
 repo_name: Ulviar/Procwright
 repo_url: https://github.com/Ulviar/Procwright
@@ -44,6 +44,7 @@ markdown_extensions:
 nav:
   - Overview: index.md
   - Getting started: getting-started.md
+  - Add to your application: release/installation.md
   - Examples: examples.md
   - How-to:
       - how-to/index.md
@@ -70,10 +71,11 @@ nav:
           - Terminal support: scenarios/terminal.md
           - Integrations: scenarios/integrations.md
       - Commands and environment: reference/command-model.md
-      - Policies: reference/policies.md
+      - Settings and lifecycle: reference/policies.md
       - Defaults: reference/defaults.md
       - Output ownership: reference/output-ownership.md
       - Results and errors: reference/results-and-errors.md
+      - Timeout and close guarantees: explanations/process-cleanup-limits.md
       - Diagnostics: reference/diagnostics.md
       - Security: reference/security.md
       - Platforms and terminals: reference/platforms-and-pty.md
@@ -82,12 +84,7 @@ nav:
           - api/index.md
           - Core Java API: api/java/core/index.html
           - Integrations Java API: api/java/integrations/index.html
-  - Explanation:
-      - explanations/index.md
-      - Choosing a scenario: explanations/scenario-first.md
-      - Timeout and close guarantees: explanations/process-cleanup-limits.md
   - Setup and compatibility:
       - release/index.md
-      - Installation: release/installation.md
       - Compatibility: release/compatibility.md
       - Known limitations: release/known-limitations.md

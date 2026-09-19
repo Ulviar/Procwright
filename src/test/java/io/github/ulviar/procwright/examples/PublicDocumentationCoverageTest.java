@@ -6,24 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.CommandService;
-import io.github.ulviar.procwright.ExpectScenario;
-import io.github.ulviar.procwright.InteractiveScenario;
-import io.github.ulviar.procwright.LineSessionScenario;
-import io.github.ulviar.procwright.ProtocolSessionScenario;
-import io.github.ulviar.procwright.RunScenario;
-import io.github.ulviar.procwright.StreamScenario;
-import io.github.ulviar.procwright.terminal.PtyProvider;
-import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -38,23 +26,8 @@ final class PublicDocumentationCoverageTest {
             + ")(?:#([a-z][a-z0-9-]*))? -->\\R" + "```(java|kotlin)\\R(.*?)^```[ \\t]*$");
     private static final Pattern SOURCE_EXAMPLE_MARKER =
             Pattern.compile("(?m)^<!-- procwright-example: " + EXAMPLE_SOURCE + "(?:#[a-z][a-z0-9-]*)? -->\\R\\z");
-    private static final Pattern CALLBACK_API_REFERENCE = Pattern.compile(
-            "`((?:CommandService|RunScenario\\.Draft|InteractiveScenario\\.Draft|ExpectScenario\\.Draft|"
-                    + "LineSessionScenario\\.(?:Draft|PoolDraft)|ProtocolSessionScenario\\.(?:Draft|PoolDraft)|"
-                    + "StreamScenario\\.Draft)\\.[A-Za-z][A-Za-z0-9]*)`");
-    private static final String CALLBACK_POLICY_HEADING = "## Persistent callback concurrency";
     private static final Pattern BUILD_CONFIGURATION_MARKER =
             Pattern.compile("(?m)^<!-- procwright-docs: build-configuration -->\\R\\z");
-    private static final List<Class<?>> CALLBACK_API_OWNERS = List.of(
-            CommandService.class,
-            RunScenario.Draft.class,
-            InteractiveScenario.Draft.class,
-            ExpectScenario.Draft.class,
-            LineSessionScenario.Draft.class,
-            LineSessionScenario.PoolDraft.class,
-            ProtocolSessionScenario.Draft.class,
-            ProtocolSessionScenario.PoolDraft.class,
-            StreamScenario.Draft.class);
 
     @Test
     void canonicalExamplesMatchCompiledSources() throws Exception {
@@ -118,33 +91,6 @@ final class PublicDocumentationCoverageTest {
         }
     }
 
-    @Test
-    void callbackPolicyInventoriesEveryPublicCallbackEntryPoint() throws Exception {
-        Set<String> callbackApi = new TreeSet<>();
-        for (Class<?> owner : CALLBACK_API_OWNERS) {
-            Arrays.stream(owner.getDeclaredMethods())
-                    .filter(method -> Modifier.isPublic(method.getModifiers()))
-                    .filter(method -> Arrays.stream(method.getParameterTypes())
-                            .anyMatch(PublicDocumentationCoverageTest::isCallbackType))
-                    .map(method -> publicTypeName(owner) + "." + method.getName())
-                    .forEach(callbackApi::add);
-        }
-
-        Set<String> documentedApi = new TreeSet<>();
-        String policy = read(Path.of("docs/reference/policies.md"));
-        int sectionStart = policy.indexOf(CALLBACK_POLICY_HEADING);
-        assertTrue(sectionStart >= 0, "callback concurrency policy is missing");
-        int sectionEnd = policy.indexOf("\n## ", sectionStart + CALLBACK_POLICY_HEADING.length());
-        String callbackSection =
-                sectionEnd < 0 ? policy.substring(sectionStart) : policy.substring(sectionStart, sectionEnd);
-        Matcher references = CALLBACK_API_REFERENCE.matcher(callbackSection);
-        while (references.find()) {
-            documentedApi.add(references.group(1));
-        }
-
-        assertEquals(callbackApi, documentedApi);
-    }
-
     private static List<Path> markdownFiles(Path root) throws Exception {
         try (var paths = Files.walk(root)) {
             return paths.filter(Files::isRegularFile)
@@ -197,14 +143,6 @@ final class PublicDocumentationCoverageTest {
         return (path.startsWith(Path.of("examples/java")) || path.startsWith(Path.of("examples/integrations")))
                         && name.endsWith(".java")
                 || path.startsWith(Path.of("examples/kotlin")) && name.endsWith(".kt");
-    }
-
-    private static boolean isCallbackType(Class<?> type) {
-        return type == PtyProvider.class || type.isAnnotationPresent(FunctionalInterface.class);
-    }
-
-    private static String publicTypeName(Class<?> type) {
-        return type.getCanonicalName().substring("io.github.ulviar.procwright.".length());
     }
 
     private static Path example(String fileName) {

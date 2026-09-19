@@ -3,6 +3,9 @@
 Some CLIs show prompts or accept terminal control keys only when attached to a terminal. Set `TerminalPolicy.REQUIRED`
 before opening that session. This example checks terminal startup with the current JDK's `java --version` command.
 
+The built-in provider supports compatible macOS and Linux systems; Windows ConPTY support is not included.
+Check the [required system tools](../scenarios/terminal.md#platform-requirements) before running this example.
+
 <!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/TerminalExample.java -->
 ```java
 /* SPDX-License-Identifier: Apache-2.0 */
@@ -47,9 +50,7 @@ Replace `ExampleSupport.javaExecutable()` and `--version` with your CLI and its 
 output. `java --version` itself does not require a terminal; here it verifies that the requested transport starts.
 
 `REQUIRED` fails before returning a session if no configured `PtyProvider` can supply a terminal. Use
-`TerminalPolicy.AUTO` only when ordinary pipes are an acceptable fallback. The built-in provider supports compatible
-macOS and Linux systems; Windows ConPTY support is not included. See
-[terminal requirements](../scenarios/terminal.md#platform-requirements) for the required system tools.
+`TerminalPolicy.AUTO` only when ordinary pipes are an acceptable fallback.
 
 `sendSignal(...)` sends a control byte. A PTY normally turns it into a signal for the foreground command; pipe fallback
 does not. Use `REQUIRED` when the operation depends on signal semantics.

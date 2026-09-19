@@ -1,7 +1,8 @@
 # Use a JSON Lines worker as a service
 
-Wrap a long-lived CLI in a Java service with ordinary typed methods. This example uses the JSON Lines adapter from
-`procwright-integrations`; its worker counts Unicode code points and UTF-8 bytes.
+If your CLI accepts repeated JSON Lines requests on stdin and replies on stdout, wrap it in a Java service with typed
+methods. This example uses the JSON Lines adapter from `procwright-integrations`; its worker counts Unicode code points
+and UTF-8 bytes. For a tool that exits after each command, use [`run()`](run-finite-command.md).
 
 ## Run it
 

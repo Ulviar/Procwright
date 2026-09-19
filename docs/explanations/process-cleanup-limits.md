@@ -6,8 +6,9 @@ listener failures, but it does not provide operating-system containment.
 
 ## Allow time for shutdown
 
-An operation timeout selects the failed outcome and starts cleanup. Graceful shutdown and forceful termination have
-separate deadlines, so returning from a timed-out operation can take longer than its operation timeout.
+When a timeout triggers process shutdown, graceful shutdown and forceful termination have separate deadlines.
+Returning from a timed-out operation can therefore take longer than its operation timeout. Whether a request or match
+timeout closes a session depends on the [scenario and failure stage](../reference/results-and-errors.md#decide-whether-the-session-can-be-reused).
 
 Closing a handle does not wait indefinitely for a blocked stream close or application callback. Those operations may
 finish later. For lifecycle completion, observe the handle's `onExit()` or the pool's `closeAsync()`;
