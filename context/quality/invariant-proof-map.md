@@ -540,20 +540,26 @@ Fatal failure закрывает admission до внешнего failure handler
 ### Pooled request
 
 **Инвариант:** acquire и request timeout различимы; request orchestration ровно один раз release-ит или retire-ит
-worker и не раскрывает его наружу.
+worker и не раскрывает его наружу. Line preflight отклоняет невалидный ввод до acquire; encoded array создаётся после
+acquire. Локальный failure подготовки до session request возвращает незатронутый worker без reset и без расходования
+его request limit.
 
-**Владелец:** `PooledRequestRunner`.
+**Владелец:** `PooledRequestRunner` — lease lifecycle, `LineRequestEncoder` — проверка и кодирование line input,
+`DefaultPooledLineSession` — request budget без acquire wait.
 
-**Proof:** `WorkerPoolControllerAcquisitionTest`, `PooledProtocolSessionRequestIntegrationTest`.
+**Proof:** `PooledRequestPreparationTest`, `WorkerPoolControllerAcquisitionTest`,
+`PooledLineSessionRequestIntegrationTest`, `PooledProtocolSessionRequestIntegrationTest`.
 
 ### Worker hooks
 
-**Инвариант:** reset и health hooks bounded, не перекрываются с request на одном worker и сохраняют `Error`, metrics и
-retirement reason.
+**Инвариант:** заданные reset и health hooks bounded, не перекрываются с request на одном worker и сохраняют `Error`,
+metrics и retirement reason. Отсутствующие hooks не запускают timed task и не зависят от hook timeout.
 
-**Владелец:** `WorkerHookSupport`.
+**Владелец:** `WorkerHookSupport` — выполнение callback; `WorkerPoolSettings` — явное отсутствие hooks;
+`DefaultPooledLineSession` и `DefaultPooledProtocolSession` — пропуск отсутствующего callback.
 
-**Proof:** `WorkerHookSupportTest`, `PooledProtocolSessionWorkerHooksIntegrationTest`.
+**Proof:** `PolicyValueTest`, `WorkerHookSupportTest`, `PooledLineSessionWorkerHooksIntegrationTest`,
+`PooledProtocolSessionWorkerHooksIntegrationTest`.
 
 ### Pool terminal decision
 
@@ -584,21 +590,23 @@ retirement reason.
 
 ### Pool failure publication
 
-**Инвариант:** каждый `FailureReport` передаётся пользовательскому reporter либо bounded fallback reporter; failure
-самого reporting path не заменяет terminal outcome.
+**Инвариант:** каждый `FailureReport` отправляется одному bounded best-effort reporter с сохранённым адресатом.
+Submission не ждёт доставки или свободного места; насыщение, зависший адресат и failure reporting infrastructure
+не задерживают lifecycle и не заменяют terminal outcome. Доставка каждого уведомления не гарантируется.
 
-**Владелец:** `PoolFailurePublisher`.
+**Владелец:** `PoolFailurePublisher` — submission и изоляция failure; `BoundedFailureReporter` — admission и delivery.
 
-**Proof:** `WorkerPoolControllerConstructionTest`, `WorkerPoolControllerRetirementTest`.
+**Proof:** `PoolFailurePublisherTest`, `BoundedFailureReporterTest`, `WorkerPoolControllerConstructionTest`,
+`WorkerPoolControllerRetirementTest`.
 
-### Pool failure dispatch
+### Pool retirement dispatch
 
-**Инвариант:** retirement и pool failure reporting используют отдельные bounded queues без unbounded thread creation;
-saturation policy каждого пути задана явно.
+**Инвариант:** обязательный retirement использует fixed owner set и bounded queue; при насыщении выполняется caller-ом,
+а не теряется. Retirement не зависит от доставки best-effort failure notifications.
 
 **Владелец:** `PoolLifecycleDispatcher`.
 
-**Proof:** `PoolLifecycleDispatcherTest`, `BoundedFailureReporterTest`.
+**Proof:** `PoolLifecycleDispatcherTest`, `PoolFailurePublisherTest`.
 
 ### Pool metrics
 

@@ -5,6 +5,7 @@ package io.github.ulviar.procwright.internal.session;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.internal.WorkerPoolSettings;
 import io.github.ulviar.procwright.session.PooledSessionMetrics;
@@ -77,7 +78,19 @@ abstract class WorkerPoolControllerTestSupport {
                 Failures.INSTANCE,
                 "test worker",
                 "test-",
-                new WorkerPoolController.Dependencies(replenishmentScheduler, lateFailureReporter, clock));
+                new WorkerPoolController.Dependencies(
+                        replenishmentScheduler, reportingSink(lateFailureReporter), clock));
+    }
+
+    static java.util.function.Consumer<FailureReport> reportingSink(
+            java.util.function.BiConsumer<Thread, Throwable> observer) {
+        return report -> BoundedFailureReporter.withFailureTarget(
+                report.failureTarget(),
+                () -> BoundedFailureReporter.shared()
+                        .execute(
+                                Thread.currentThread(),
+                                () -> observer.accept(
+                                        BoundedFailureReporter.notificationSourceThread(), report.failure())));
     }
 
     static WorkerPoolController<TestWorker> controller(
@@ -92,8 +105,7 @@ abstract class WorkerPoolControllerTestSupport {
                 Failures.INSTANCE,
                 "test worker",
                 "test-",
-                new WorkerPoolController.Dependencies(
-                        replenishmentScheduler, (thread, failure) -> {}, System::nanoTime));
+                new WorkerPoolController.Dependencies(replenishmentScheduler, report -> {}, System::nanoTime));
     }
 
     static PoolReplenisher.Scheduler threadedScheduler(String threadPrefix) {

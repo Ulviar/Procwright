@@ -12,8 +12,10 @@ import java.util.concurrent.CompletableFuture;
  * <p>The pool reuses {@link LineSession} workers. It does not launch processes directly and does not expose worker
  * leases; returning a worker to the pool is owned by the pooled request lifecycle.
  *
- * <p>Line validation and bounded encoding complete before a worker is leased. Once a worker is leased, every failed
- * pooled request retires that worker, including a pre-write failure that could leave a directly owned line session open.
+ * <p>Line validation and encoded-size checks complete before a worker is leased; the encoded byte array is created
+ * after acquisition. Failure during this local preparation returns an acquired worker without resetting it or consuming
+ * its request limit, subject to normal age and close rules. Once the worker's request starts, failure retires that
+ * worker, including a pre-write failure that could leave a directly owned line session open.
  *
  * <p>The configured maximum belongs to this pool, accepts values from 1 through 256, and defaults to 1. Starting, idle,
  * leased, and retiring workers all occupy this pool's slots. Separate pools and directly opened sessions do not share a

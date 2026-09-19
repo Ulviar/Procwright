@@ -13,10 +13,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Runs mandatory pool lifecycle work with fixed parallelism and bounded admission.
+ * Runs mandatory pool retirement work with fixed parallelism and bounded admission.
  *
- * <p>Retirement runs on the submitting thread when saturated. Failure reports wait for independent capacity, except
- * when recursively submitted by their own owner.
+ * <p>Retirement runs on the submitting thread when saturated or recursively submitted by its own owner.
  */
 final class PoolLifecycleDispatcher {
 
@@ -25,9 +24,8 @@ final class PoolLifecycleDispatcher {
 
     private final ThreadLocal<Boolean> ownerThread = new ThreadLocal<>();
     private final ThreadPoolExecutor executor;
-    private final Saturation saturation;
 
-    PoolLifecycleDispatcher(int parallelism, int taskCapacity, ThreadFactory threadFactory, Saturation saturation) {
+    PoolLifecycleDispatcher(int parallelism, int taskCapacity, ThreadFactory threadFactory) {
         if (parallelism <= 0) {
             throw new IllegalArgumentException("dispatcher parallelism must be positive");
         }
@@ -35,7 +33,6 @@ final class PoolLifecycleDispatcher {
             throw new IllegalArgumentException("task capacity must be larger than parallelism");
         }
         Objects.requireNonNull(threadFactory, "threadFactory");
-        this.saturation = Objects.requireNonNull(saturation, "saturation");
         BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(taskCapacity - parallelism);
         executor = new ThreadPoolExecutor(
                 parallelism,
@@ -52,10 +49,6 @@ final class PoolLifecycleDispatcher {
         Retirements.INSTANCE.execute(task);
     }
 
-    static void report(Runnable task) {
-        Reports.INSTANCE.execute(task);
-    }
-
     void execute(Runnable task) {
         Objects.requireNonNull(task, "task");
         Runnable safeTask = safe(task);
@@ -70,11 +63,7 @@ final class PoolLifecycleDispatcher {
         if (selectedExecutor.isShutdown()) {
             throw new RejectedExecutionException("pool lifecycle dispatcher is unavailable");
         }
-        if (saturation == Saturation.CALLER_RUNS) {
-            task.run();
-            return;
-        }
-        putUninterruptibly(selectedExecutor.getQueue(), task);
+        task.run();
     }
 
     private void prestartInitialOwners() {
@@ -107,49 +96,17 @@ final class PoolLifecycleDispatcher {
         };
     }
 
-    private static void putUninterruptibly(BlockingQueue<Runnable> queue, Runnable task) {
-        boolean interrupted = false;
-        while (true) {
-            try {
-                queue.put(task);
-                break;
-            } catch (InterruptedException ignored) {
-                interrupted = true;
-            }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private static PoolLifecycleDispatcher shared(String threadPrefix, Saturation saturation) {
+    private static PoolLifecycleDispatcher shared(String threadPrefix) {
         AtomicInteger sequence = new AtomicInteger();
-        return new PoolLifecycleDispatcher(
-                SHARED_PARALLELISM,
-                SHARED_TASK_CAPACITY,
-                task -> {
-                    Thread thread =
-                            Threading.unstartedPlatformNonInheriting(threadPrefix + sequence.getAndIncrement(), task);
-                    thread.setContextClassLoader(ClassLoader.getPlatformClassLoader());
-                    return thread;
-                },
-                saturation);
-    }
-
-    enum Saturation {
-        BLOCK,
-        CALLER_RUNS
+        return new PoolLifecycleDispatcher(SHARED_PARALLELISM, SHARED_TASK_CAPACITY, task -> {
+            Thread thread = Threading.unstartedPlatformNonInheriting(threadPrefix + sequence.getAndIncrement(), task);
+            thread.setContextClassLoader(ClassLoader.getPlatformClassLoader());
+            return thread;
+        });
     }
 
     private static final class Retirements {
 
-        private static final PoolLifecycleDispatcher INSTANCE =
-                shared("procwright-retirement-", Saturation.CALLER_RUNS);
-    }
-
-    private static final class Reports {
-
-        private static final PoolLifecycleDispatcher INSTANCE =
-                shared("procwright-pool-late-report-", Saturation.BLOCK);
+        private static final PoolLifecycleDispatcher INSTANCE = shared("procwright-retirement-");
     }
 }

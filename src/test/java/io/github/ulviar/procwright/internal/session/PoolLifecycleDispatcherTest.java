@@ -12,12 +12,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -85,9 +81,8 @@ final class PoolLifecycleDispatcherTest {
     }
 
     @Test
-    void recursiveBlockingSubmissionRunsInline() throws Exception {
-        PoolLifecycleDispatcher dispatcher =
-                dispatcher(1, 16, PoolLifecycleDispatcher.Saturation.BLOCK, "test-recursive-");
+    void recursiveRetirementRunsInline() throws Exception {
+        PoolLifecycleDispatcher dispatcher = dispatcher(1, 16, "test-recursive-");
         AtomicReference<Thread> owner = new AtomicReference<>();
         AtomicReference<Thread> nestedOwner = new AtomicReference<>();
         CountDownLatch finished = new CountDownLatch(1);
@@ -104,8 +99,7 @@ final class PoolLifecycleDispatcherTest {
 
     @Test
     void saturatedRetirementRunsOnSubmittingThread() throws Exception {
-        PoolLifecycleDispatcher dispatcher =
-                dispatcher(1, 2, PoolLifecycleDispatcher.Saturation.CALLER_RUNS, "test-saturated-");
+        PoolLifecycleDispatcher dispatcher = dispatcher(1, 2, "test-saturated-");
         CountDownLatch blockerStarted = new CountDownLatch(1);
         CountDownLatch releaseBlocker = new CountDownLatch(1);
         CountDownLatch queuedFinished = new CountDownLatch(1);
@@ -151,85 +145,24 @@ final class PoolLifecycleDispatcherTest {
             });
         };
 
-        NullPointerException observed = assertThrows(
-                NullPointerException.class,
-                () -> new PoolLifecycleDispatcher(2, 16, factory, PoolLifecycleDispatcher.Saturation.BLOCK));
+        NullPointerException observed =
+                assertThrows(NullPointerException.class, () -> new PoolLifecycleDispatcher(2, 16, factory));
 
         assertEquals("thread factory returned null", observed.getMessage());
         assertTrue(firstOwnerExited.await(1, TimeUnit.SECONDS));
         assertEquals(2, launches.get());
     }
 
-    @Test
-    void sharedReportAndRetirementUseIndependentOwners() throws Exception {
-        CountDownLatch publicationStarted = new CountDownLatch(1);
-        CountDownLatch releasePublication = new CountDownLatch(1);
-        CountDownLatch retirementFinished = new CountDownLatch(1);
-        PoolLifecycleDispatcher.report(() -> {
-            publicationStarted.countDown();
-            await(releasePublication);
-        });
-        assertTrue(publicationStarted.await(1, TimeUnit.SECONDS));
-
-        PoolLifecycleDispatcher.executeRetirementBatch(retirementFinished::countDown);
-
-        assertTrue(retirementFinished.await(1, TimeUnit.SECONDS));
-        releasePublication.countDown();
-    }
-
-    @Test
-    void reportAdmissionBlocksAtItsTotalTaskCapacity() throws Exception {
-        AtomicInteger ownerStarts = new AtomicInteger();
-        ThreadFactory factory = task -> {
-            ownerStarts.incrementAndGet();
-            return Threading.unstartedPlatformNonInheriting("test-bounded-report-", task);
-        };
-        PoolLifecycleDispatcher dispatcher =
-                new PoolLifecycleDispatcher(1, 3, factory, PoolLifecycleDispatcher.Saturation.BLOCK);
-        CountDownLatch firstStarted = new CountDownLatch(1);
-        CountDownLatch releaseTasks = new CountDownLatch(1);
-        CountDownLatch allFinished = new CountDownLatch(4);
-        ExecutorService blockedSubmitter = Executors.newSingleThreadExecutor();
-        try {
-            for (int index = 0; index < 3; index++) {
-                dispatcher.execute(() -> {
-                    firstStarted.countDown();
-                    await(releaseTasks);
-                    allFinished.countDown();
-                });
-            }
-            assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
-
-            Future<?> blocked = blockedSubmitter.submit(() -> dispatcher.execute(allFinished::countDown));
-            assertThrows(TimeoutException.class, () -> blocked.get(100, TimeUnit.MILLISECONDS));
-            assertEquals(1, ownerStarts.get());
-
-            releaseTasks.countDown();
-            blocked.get(1, TimeUnit.SECONDS);
-            assertTrue(allFinished.await(1, TimeUnit.SECONDS));
-        } finally {
-            releaseTasks.countDown();
-            blockedSubmitter.shutdownNow();
-            assertTrue(blockedSubmitter.awaitTermination(1, TimeUnit.SECONDS));
-        }
-    }
-
     private static PoolLifecycleDispatcher dispatcher(int parallelism) {
-        return dispatcher(
-                parallelism,
-                Math.max(16, parallelism * 8),
-                PoolLifecycleDispatcher.Saturation.BLOCK,
-                "test-lifecycle-");
+        return dispatcher(parallelism, Math.max(16, parallelism * 8), "test-lifecycle-");
     }
 
-    private static PoolLifecycleDispatcher dispatcher(
-            int parallelism, int capacity, PoolLifecycleDispatcher.Saturation saturation, String threadPrefix) {
+    private static PoolLifecycleDispatcher dispatcher(int parallelism, int capacity, String threadPrefix) {
         AtomicInteger sequence = new AtomicInteger();
         return new PoolLifecycleDispatcher(
                 parallelism,
                 capacity,
-                task -> Threading.unstartedPlatformNonInheriting(threadPrefix + sequence.getAndIncrement(), task),
-                saturation);
+                task -> Threading.unstartedPlatformNonInheriting(threadPrefix + sequence.getAndIncrement(), task));
     }
 
     private static void assertStarterFailure(Throwable expected) throws Exception {
@@ -248,9 +181,7 @@ final class PoolLifecycleDispatcherTest {
             });
         };
 
-        Throwable observed = assertThrows(
-                expected.getClass(),
-                () -> new PoolLifecycleDispatcher(2, 16, factory, PoolLifecycleDispatcher.Saturation.BLOCK));
+        Throwable observed = assertThrows(expected.getClass(), () -> new PoolLifecycleDispatcher(2, 16, factory));
 
         assertSame(expected, observed);
         assertTrue(firstOwnerExited.await(1, TimeUnit.SECONDS));

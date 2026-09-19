@@ -33,6 +33,11 @@ protocol Draft. Короткие Java/Kotlin фрагменты сверяютс
 показывает одинаковый код на GitHub и сайте. Этот механизм доказывает исполнимость и отсутствие drift, но сам по себе не
 измеряет время освоения API новым пользователем.
 
+Pool не создаёт timed tasks для отсутствующих hooks и не ждёт доставки late failure notifications. Line requests
+проверяются до acquire, а encoded array создаётся после получения worker; локальный failure подготовки сохраняет
+незатронутый worker. Эти упрощения не добавляют public settings; отсутствие лишних hooks, exact-once lease return и
+независимость retirement от reporting проверяются отдельными unit и process integration tests.
+
 | Область | Состояние | Текущий контракт |
 | --- | --- | --- |
 | Scenario API | Готово | `Procwright.command(...)` -> scenario -> persistent `Draft.with*` -> `execute/open`. |

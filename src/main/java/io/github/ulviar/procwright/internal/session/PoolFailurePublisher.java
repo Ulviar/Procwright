@@ -3,19 +3,19 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
-import io.github.ulviar.procwright.internal.FailureAggregation;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
-/** Owns bounded publication and fallback routing of late pool lifecycle failures. */
+/** Submits late pool failures without making best-effort reporting part of lifecycle completion. */
 final class PoolFailurePublisher {
 
-    private final BiConsumer<Thread, Throwable> reporter;
+    private final Consumer<FailureReport> submit;
 
-    PoolFailurePublisher(BiConsumer<Thread, Throwable> reporter) {
-        this.reporter = Objects.requireNonNull(reporter, "reporter");
+    /** The supplied sink must submit notifications without waiting for their delivery. */
+    PoolFailurePublisher(Consumer<FailureReport> submit) {
+        this.submit = Objects.requireNonNull(submit, "submit");
     }
 
     void publishAll(List<FailureReport> reports) {
@@ -27,26 +27,14 @@ final class PoolFailurePublisher {
             return;
         }
         try {
-            PoolLifecycleDispatcher.report(() -> report(report));
-        } catch (RuntimeException | Error dispatchFailure) {
-            Throwable aggregate = FailureAggregation.combine(
-                    report.failure(), dispatchFailure, "Pool failure publication dispatch failed");
-            BoundedFailureReporter.shared().report(report.failureTarget(), aggregate);
+            submit.accept(report);
+        } catch (RuntimeException | Error ignored) {
+            // Lifecycle accounting has settled; unavailable reporting must not replace its outcome.
         }
     }
 
-    private void report(FailureReport report) {
-        try {
-            BoundedFailureReporter.withFailureTarget(
-                    report.failureTarget(),
-                    () -> reporter.accept(BoundedFailureReporter.notificationSourceThread(), report.failure()));
-        } catch (RuntimeException | Error reportingFailure) {
-            BoundedFailureReporter.shared().report(report.failureTarget(), reportingFailure);
-        }
-    }
-
-    static void reportBounded(Thread ignored, Throwable failure) {
-        BoundedFailureReporter.shared().report(BoundedFailureReporter.captureFailureTarget(), failure);
+    static void reportBounded(FailureReport report) {
+        BoundedFailureReporter.shared().report(report.failureTarget(), report.failure());
     }
 
     static FailureReport capture(Thread sourceThread, Throwable failure) {

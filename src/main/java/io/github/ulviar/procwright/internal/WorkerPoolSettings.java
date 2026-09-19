@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -17,8 +18,8 @@ public record WorkerPoolSettings<W>(
         Duration closeTimeout,
         int maxRequestsPerWorker,
         Duration maxWorkerAge,
-        Consumer<W> resetHook,
-        Predicate<W> healthCheck) {
+        Optional<Consumer<W>> resetHook,
+        Optional<Predicate<W>> healthCheck) {
 
     /** Maximum worker count accepted for one pool. */
     public static final int MAX_SIZE = 256;
@@ -46,8 +47,8 @@ public record WorkerPoolSettings<W>(
                 Duration.ofSeconds(15),
                 Integer.MAX_VALUE,
                 Duration.ZERO,
-                worker -> {},
-                worker -> true);
+                Optional.empty(),
+                Optional.empty());
     }
 
     public WorkerPoolSettings<W> validateForOpen() {
@@ -185,7 +186,7 @@ public record WorkerPoolSettings<W>(
                 closeTimeout,
                 maxRequestsPerWorker,
                 maxWorkerAge,
-                value,
+                Optional.of(Objects.requireNonNull(value, "resetHook")),
                 healthCheck);
     }
 
@@ -200,7 +201,7 @@ public record WorkerPoolSettings<W>(
                 maxRequestsPerWorker,
                 maxWorkerAge,
                 resetHook,
-                value);
+                Optional.of(Objects.requireNonNull(value, "healthCheck")));
     }
 
     private static <W> WorkerPoolSettings<W> copy(
@@ -212,8 +213,8 @@ public record WorkerPoolSettings<W>(
             Duration closeTimeout,
             int maxRequestsPerWorker,
             Duration maxWorkerAge,
-            Consumer<W> resetHook,
-            Predicate<W> healthCheck) {
+            Optional<Consumer<W>> resetHook,
+            Optional<Predicate<W>> healthCheck) {
         return new WorkerPoolSettings<>(
                 maxSize,
                 warmupSize,

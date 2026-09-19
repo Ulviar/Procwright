@@ -113,8 +113,9 @@ retiring workers all occupy that pool's slots. Separate line pools, protocol poo
 share a worker quota. Bound the application's aggregate process count by limiting how many pools and direct sessions it
 creates and by choosing each pool's `maxSize`.
 
-Each pool's `maxSize` bounds its concurrent worker startups; independent pools do not share startup admission. A hook
-timeout bounds how long the caller waits, not how long non-cooperative callback code can continue. A worker with a timed
+Each pool's `maxSize` bounds its concurrent worker startups; independent pools do not share startup admission. The hook
+timeout applies only to hooks you supply. It bounds how long the caller waits, not how long non-cooperative callback
+code can continue. A worker with a timed
 out hook is not reused. Retirement processing uses a fixed owner set and a bounded queue; when that queue is full, the
 caller performs the mandatory retirement step instead.
 
@@ -138,20 +139,23 @@ asynchronously when the pool opens, then restores the floor after workers are ac
 
 Acquisition and worker request processing have separate deadlines. Worker startup and health selection consume the
 acquire budget; a health callback is capped by the lesser of the remaining acquire budget and the hook timeout. Request
-encoding and response decoding consume the request budget. For a line pool, line encoding starts before acquire,
-but the acquire wait is not charged to the remaining request budget. A reset after a successful response uses the
-separate hook timeout. Observed caller latency may therefore compose request preparation/request, acquire, and reset
-phases rather than stopping at one overall deadline.
+encoding and response decoding consume the request budget. A line pool validates the input and its encoded size before
+acquire, then creates the encoded byte array when a worker becomes available. Both preparation phases consume the
+request budget; the acquire wait does not. A configured reset after a successful response uses the separate hook
+timeout. Observed caller latency may therefore compose request preparation/request, acquire, and reset phases rather
+than stopping at one overall deadline.
 
 | Phase | Caller outcome | Worker outcome |
 | --- | --- | --- |
 | Acquire fails before lease | A pooled exception reports `ACQUIRE_TIMEOUT`, `INTERRUPTED`, `STARTUP_FAILED`, or `CLOSED`. | No request worker was handed off; a late startup can still retire as `STARTUP_TIMEOUT` or `STARTUP_INTERRUPTED`. |
-| Request fails after lease | `LineSessionException` or `ProtocolSessionException` is thrown directly for timeout, EOF or process exit, response or backlog overflow, write, decode, and protocol failures. It is not wrapped in a pooled exception. | The leased worker retires, commonly as `TIMEOUT`, `DECODER_FAILED`, `PROCESS_EXITED`, or `WORKER_FAILED`. |
+| Local line preparation fails | Invalid line separators produce `IllegalArgumentException`; size-limit, timeout, or interruption failures produce `LineSessionException`. An unexpected runtime failure produces `PooledSessionException`. | No request is sent. An acquired worker remains reusable, subject to normal age and close rules; reset and its request counter are untouched. |
+| Worker request fails | `LineSessionException` or `ProtocolSessionException` is thrown directly for timeout, EOF or process exit, response or backlog overflow, write, decode, and protocol failures. It is not wrapped in a pooled exception. | The leased worker retires, commonly as `TIMEOUT`, `DECODER_FAILED`, `PROCESS_EXITED`, or `WORKER_FAILED`. |
 | Health fails during acquire | A false result retires the candidate and acquire continues; timeout, interruption, or callback failure surfaces as a pooled exception. | The candidate retires as `HEALTH_FAILED`. |
 | Reset fails after a successful response | A runtime failure, including reset timeout, does not replace the completed response; an `Error` is rethrown. | The worker retires as `RESET_FAILED`. |
 | `close()` times out or is interrupted | The pooled exception reports `DRAIN_TIMEOUT` or `INTERRUPTED`; interruption restores the thread flag. | Cleanup continues and remains observable through `closeAsync()`. |
 
-`PooledSessionException` is reserved for acquisition, startup, surfaced hook or lifecycle failures, and close. Worker
+`PooledSessionException` reports acquisition, startup, surfaced hook or lifecycle failures, close, and unexpected local
+preparation failures. Worker
 loss can report `EOF` when output closure is selected first or `PROCESS_EXITED`
 when process exit is selected first. For `ProtocolSessionException`, `exitCode()` is optional: `EOF` has no code, and
 `PROCESS_EXITED` carries one only when it was available at failure selection.

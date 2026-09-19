@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.LineSessionSettings;
+import java.nio.charset.Charset;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -11,7 +12,7 @@ final class LineRequestEncoder {
 
     private LineRequestEncoder() {}
 
-    static byte[] encode(
+    private static Prepared prepare(
             String line,
             LineSessionSettings options,
             Function<String, ? extends RuntimeException> tooLarge,
@@ -32,7 +33,7 @@ final class LineRequestEncoder {
         if (encodedLength > options.maxRequestBytes()) {
             throw tooLarge.apply("Encoded line request exceeds maxRequestBytes");
         }
-        return BoundedTextEncoder.encode(terminated, options.charset(), (int) encodedLength, checkpoint);
+        return new Prepared(line, options.charset(), (int) encodedLength);
     }
 
     static void validate(String line) {
@@ -51,7 +52,41 @@ final class LineRequestEncoder {
             long deadlineNanos) {
         Objects.requireNonNull(timeout, "timeout");
         Objects.requireNonNull(interrupted, "interrupted");
-        return encode(line, options, tooLarge, () -> ensureCanContinue(deadlineNanos, timeout, interrupted));
+        return prepareUntil(line, options, tooLarge, timeout, interrupted, deadlineNanos)
+                .encodeUntil(timeout, interrupted, deadlineNanos);
+    }
+
+    static Prepared prepareUntil(
+            String line,
+            LineSessionSettings options,
+            Function<String, ? extends RuntimeException> tooLarge,
+            Supplier<? extends RuntimeException> timeout,
+            Function<InterruptedException, ? extends RuntimeException> interrupted,
+            long deadlineNanos) {
+        Objects.requireNonNull(timeout, "timeout");
+        Objects.requireNonNull(interrupted, "interrupted");
+        return prepare(line, options, tooLarge, () -> ensureCanContinue(deadlineNanos, timeout, interrupted));
+    }
+
+    /** Validated immutable input; the encoded array is allocated only when its worker is available. */
+    record Prepared(String line, Charset charset, int encodedLength) {
+
+        Prepared {
+            Objects.requireNonNull(line, "line");
+            Objects.requireNonNull(charset, "charset");
+            if (encodedLength < 0) {
+                throw new IllegalArgumentException("encodedLength must not be negative");
+            }
+        }
+
+        byte[] encodeUntil(
+                Supplier<? extends RuntimeException> timeout,
+                Function<InterruptedException, ? extends RuntimeException> interrupted,
+                long deadlineNanos) {
+            Runnable checkpoint = () -> ensureCanContinue(deadlineNanos, timeout, interrupted);
+            checkpoint.run();
+            return BoundedTextEncoder.encode(new LineFeedTerminatedText(line), charset, encodedLength, checkpoint);
+        }
     }
 
     private static void ensureCanContinue(

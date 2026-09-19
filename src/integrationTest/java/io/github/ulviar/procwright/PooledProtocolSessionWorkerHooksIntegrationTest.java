@@ -27,6 +27,25 @@ import org.junit.jupiter.api.Test;
 final class PooledProtocolSessionWorkerHooksIntegrationTest {
 
     @Test
+    void absentHooksDoNotApplyTheHookDeadlineOrRetireHealthyWorkers() {
+        try (PooledProtocolSession<String, String> pool = poolDraft(
+                        fixtureService(), FramedStringAdapter::new, "length-line-frame")
+                .withWarmupSize(1)
+                .withHookTimeout(Duration.ofNanos(1))
+                .open()) {
+            assertEquals("first", pool.request("first"));
+            assertEquals("second", pool.request("second"));
+
+            PooledSessionMetrics metrics = pool.metrics();
+            assertEquals(1, metrics.created());
+            assertEquals(0, metrics.retired());
+            assertEquals(1, metrics.idle());
+            assertEquals(2, metrics.completedRequests());
+            assertEquals(0, metrics.failedRequests());
+        }
+    }
+
+    @Test
     void protocolPoolHealthHookTimeoutIsBounded() throws Exception {
         NonCooperativeTask health = new NonCooperativeTask();
         ExecutorService executor = Executors.newSingleThreadExecutor();

@@ -31,11 +31,12 @@ final class PooledRequestRunner<S> {
     <R> R run(Function<S, R> request) {
         RequestObservation observation = pool.observeRequest();
         observation.pauseForAcquire();
-        return runObserved(observation, request);
+        return runObserved(observation, () -> request, (session, action) -> action.apply(session));
     }
 
-    <P, R> R runPrepared(Supplier<P> preparation, BiFunction<S, P, R> request) {
+    <P, Q, R> R runPrepared(Supplier<P> preparation, Function<P, Q> materialization, BiFunction<S, Q, R> request) {
         Objects.requireNonNull(preparation, "preparation");
+        Objects.requireNonNull(materialization, "materialization");
         Objects.requireNonNull(request, "request");
         RequestObservation observation = pool.observeRequest();
         P prepared;
@@ -49,10 +50,10 @@ final class PooledRequestRunner<S> {
             throw failure;
         }
         observation.pauseForAcquire();
-        return runObserved(observation, session -> request.apply(session, prepared));
+        return runObserved(observation, () -> materialization.apply(prepared), request);
     }
 
-    private <R> R runObserved(RequestObservation observation, Function<S, R> request) {
+    private <P, R> R runObserved(RequestObservation observation, Supplier<P> preparation, BiFunction<S, P, R> request) {
         Objects.requireNonNull(request, "request");
         WorkerPoolState.Lease<S> lease = null;
         boolean reusable = false;
@@ -60,7 +61,11 @@ final class PooledRequestRunner<S> {
         try {
             lease = acquire.get();
             observation.resumeAfterAcquire();
-            R response = request.apply(lease.session());
+            // Local preparation has no access to the worker and cannot invalidate its protocol state.
+            reusable = true;
+            P prepared = preparation.get();
+            reusable = false;
+            R response = request.apply(lease.session(), prepared);
             PooledWorkerRetireReason policyReason = pool.recordRequestAndRetirementReason(lease);
             if (policyReason == null) {
                 try {

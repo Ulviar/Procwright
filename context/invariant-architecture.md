@@ -130,8 +130,8 @@ Runtime получает только согласованный plan и не у
   `PoolReplenisher`; request lifecycle — `PooledRequestRunner`;
 - construction/closing/failure/drain decision внутри state owner — `PoolTermination`, terminal outcome и
   cancellation-isolated views — его publication token;
-- bounded retirement/report domains — `PoolLifecycleDispatcher`, delayed replenishment — `PoolReplenishmentScheduler`,
-  late failures — `PoolFailurePublisher`;
+- bounded retirement dispatch — `PoolLifecycleDispatcher`, delayed replenishment — `PoolReplenishmentScheduler`,
+  late failures — `PoolFailurePublisher` с прямой best-effort отправкой в `BoundedFailureReporter`;
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.
 
@@ -249,8 +249,12 @@ scenario flags.
   переиспользуется. Retirement processing использует fixed owner set и bounded queue с caller-runs backpressure;
 - pool terminal outcome выбирается под monitor и публикуется после его освобождения без отдельной lifetime reservation;
 - acquire timeout и request timeout различаются;
-- failed request/timeout/decoder/process exit retire worker;
-- reset/health hooks bounded и не выполняются одновременно с пользовательским request;
+- failed worker request/timeout/decoder/process exit retire worker; локальная подготовка line request до обращения к
+  session возвращает незатронутый worker без reset и без увеличения его request count;
+- line preflight выполняется до acquire, encoded byte array создаётся после; обе фазы расходуют request budget,
+  acquire wait из него исключён;
+- заданные reset/health hooks bounded и не выполняются одновременно с пользовательским request; отсутствующие hooks
+  не создают timed task;
 - close запрещает новые requests, закрывает idle workers и дает активным requests завершить установленный lifecycle;
 - metrics являются снимком наблюдаемого состояния, а retirement reason не выводится из текста exception.
 

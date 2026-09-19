@@ -189,7 +189,7 @@ final class PooledWorkerRetirementCoordinationTest {
                             Threading.start("test-delayed-terminal-replenish-", task);
                             return PoolReplenisher.Cancellation.NONE;
                         },
-                        (thread, failure) -> {},
+                        report -> {},
                         System::nanoTime));
         try {
             CompletableFuture<Void> drain = pool.closeAsync();

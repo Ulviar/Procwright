@@ -144,9 +144,7 @@ final class WorkerPoolControllerCloseIsolationTest extends WorkerPoolControllerT
                         "exit-callback worker",
                         "test-exit-callback-",
                         new WorkerPoolController.Dependencies(
-                                threadedScheduler("test-exit-callback-replenish-"),
-                                (thread, failure) -> {},
-                                System::nanoTime)));
+                                threadedScheduler("test-exit-callback-replenish-"), report -> {}, System::nanoTime)));
             }
 
             for (int index = 0; index < blockingPools; index++) {

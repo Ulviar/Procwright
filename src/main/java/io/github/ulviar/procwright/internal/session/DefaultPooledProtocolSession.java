@@ -93,6 +93,9 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         if (session.publicExitCompleted()) {
             return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
         }
+        if (options.healthCheck().isEmpty()) {
+            return WorkerPoolController.HealthOutcome.HEALTHY;
+        }
         Duration timeout = WorkerHookSupport.boundedTimeout(options.hookTimeout(), acquireDeadlineNanos);
         if (timeout.isZero()) {
             return WorkerPoolController.HealthOutcome.ACQUIRE_TIMEOUT;
@@ -100,7 +103,7 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
         boolean accepted = WorkerHookSupport.run(
                 "procwright-protocol-pool-health-",
                 timeout,
-                () -> options.healthCheck().test(session),
+                () -> options.healthCheck().orElseThrow().test(session),
                 () -> POOL_FAILURES.hookTimeout("Pooled protocol-session health check timed out"),
                 exception -> POOL_FAILURES.interrupted(
                         "Interrupted while waiting for pooled protocol-session health check", exception),
@@ -112,11 +115,14 @@ public final class DefaultPooledProtocolSession<I, O> implements PooledProtocolS
     }
 
     private void runReset(DefaultProtocolSession<I, O> session) {
+        if (options.resetHook().isEmpty()) {
+            return;
+        }
         WorkerHookSupport.run(
                 "procwright-protocol-pool-reset-",
                 options.hookTimeout(),
                 () -> {
-                    options.resetHook().accept(session);
+                    options.resetHook().orElseThrow().accept(session);
                     return null;
                 },
                 () -> POOL_FAILURES.hookTimeout("Pooled protocol-session reset hook timed out"),

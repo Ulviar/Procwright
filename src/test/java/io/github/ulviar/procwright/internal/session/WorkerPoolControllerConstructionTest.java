@@ -90,17 +90,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
     }
 
     @Test
-    void queuedLateErrorReportCannotRetainAbandonedStartupSlot() throws Exception {
-        CountDownLatch releaseReports = new CountDownLatch(1);
-        CountDownLatch reportsStarted = new CountDownLatch(8);
-        CountDownLatch reportsFinished = new CountDownLatch(8);
-        for (int index = 0; index < 8; index++) {
-            PoolLifecycleDispatcher.report(() -> {
-                reportsStarted.countDown();
-                awaitIgnoringInterrupt(releaseReports);
-                reportsFinished.countDown();
-            });
-        }
+    void blockedLateErrorHandlerCannotRetainAbandonedStartupOrDelayPoolClose() throws Exception {
         AssertionError lateError = new AssertionError("late startup failed");
         CountDownLatch factoryEntered = new CountDownLatch(1);
         CountDownLatch releaseFactory = new CountDownLatch(1);
@@ -129,7 +119,6 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                 System::nanoTime);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            assertTrue(reportsStarted.await(1, TimeUnit.SECONDS));
             Future<?> acquire = executor.submit(() -> pool.acquire((worker, deadline) -> HEALTHY));
             assertTrue(factoryEntered.await(1, TimeUnit.SECONDS));
             ExecutionException timeout = assertThrows(ExecutionException.class, () -> acquire.get(1, TimeUnit.SECONDS));
@@ -138,19 +127,17 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
 
             releaseFactory.countDown();
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
-            assertEquals(1L, reporterEntered.getCount(), "late report must remain queued behind active owners");
+            assertTrue(reporterEntered.await(1, TimeUnit.SECONDS));
+            assertEquals(1L, releaseReporter.getCount(), "handler must still be blocked");
             assertTrue(awaitMetrics(pool, metrics -> metrics.failedStartups() == 1, Duration.ofSeconds(1)));
             assertPartition(pool, 0, 0, 0, 0, 0);
 
-            releaseReports.countDown();
-            assertTrue(reporterEntered.await(1, TimeUnit.SECONDS));
+            pool.closeAsync().get(1, TimeUnit.SECONDS);
             assertSame(lateError, reported.get());
         } finally {
             releaseFactory.countDown();
             releaseReporter.countDown();
-            releaseReports.countDown();
             assertTrue(startupFinished.await(1, TimeUnit.SECONDS));
-            assertTrue(reportsFinished.await(1, TimeUnit.SECONDS));
             pool.closeAsync();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));

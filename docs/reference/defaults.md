@@ -113,7 +113,7 @@ come from the Draft on which `pooled()` was called.
 | Synchronous close timeout | 15 seconds |
 | Requests per worker | 2,147,483,647 |
 | Maximum worker age | disabled (`Duration.ZERO`) |
-| Reset hook | no-op |
+| Reset hook | none |
 | Health check | healthy while the worker process has not exited |
 
 The 15-second close timeout bounds the caller's wait. It does not abandon logical worker drain; use `closeAsync()` to

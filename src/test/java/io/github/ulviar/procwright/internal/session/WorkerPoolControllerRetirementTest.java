@@ -148,10 +148,10 @@ final class WorkerPoolControllerRetirementTest extends WorkerPoolControllerTestS
                 "test-",
                 new WorkerPoolController.Dependencies(
                         inlineScheduler(),
-                        (thread, failure) -> {
+                        reportingSink((thread, failure) -> {
                             reported.compareAndSet(null, failure);
                             reportReceived.countDown();
-                        },
+                        }),
                         System::nanoTime));
 
         ExecutionException observed =

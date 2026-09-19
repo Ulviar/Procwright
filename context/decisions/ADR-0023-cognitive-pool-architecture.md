@@ -62,8 +62,8 @@ pool monitor и возвращает их в state.
 `WorkerCloseSupport` сразу представляет результат `close()` как retirement outcome и объединяет два события:
 возврат close и наблюдение terminal future session. Ошибка request в terminal future означает settlement, но не
 повторную ошибку закрытия. Стабильный future `WorkerRetirement` нужен для concurrent/reentrant observers ещё до возврата
-close action. Отдельный bounded dispatch bookkeeping сохраняется, потому что публикация поздних pool failures может
-ждать reporting capacity; при насыщении действует явный caller-runs fallback.
+close action. Обработка retirement outcomes использует bounded dispatch с caller-runs fallback при насыщении.
+Публикация поздних pool failures не ждёт reporting capacity и не является условием завершения retirement.
 
 ### Closing
 
@@ -92,10 +92,10 @@ owner бесконечным retry-loop. `PooledRequestRunner` владеет re
 
 `PoolLifecycleDispatcher` failure-atomically создаёт фиксированный набор daemon owner-потоков в стандартном
 `ThreadPoolExecutor` и использует bounded internal queue. Owner-потоки не завершаются по idle timeout, поэтому после
-успешного construction обычная отправка task не зависит от повторного вызова thread factory. Saturation policy
-различается по смыслу работы: обязательный retirement выполняется вызывающим потоком сверх executor parallelism, а
-producer публикации diagnostics ждёт места в отдельной очереди. Рекурсивная отправка из owner thread выполняется сразу
-и не может заблокироваться на собственной очереди.
+успешного construction обычная отправка task не зависит от повторного вызова thread factory. При насыщении
+обязательный retirement выполняется вызывающим потоком сверх executor parallelism. Рекурсивная отправка из owner
+thread выполняется сразу и не может заблокироваться на собственной очереди. Late failure notifications отправляются
+напрямую в `BoundedFailureReporter`: submission не ждёт свободного места, при насыщении уведомление может быть потеряно.
 
 ## Инварианты
 

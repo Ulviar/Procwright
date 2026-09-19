@@ -100,7 +100,8 @@ public final class DefaultPooledLineSession implements PooledLineSession {
 
     private LineResponse requestObserved(String line, Duration requestTimeout) {
         return requestRunner.runPrepared(
-                () -> encodeRequest(line, requestTimeout),
+                () -> prepareRequest(line, requestTimeout),
+                this::encodeRequest,
                 (session, encodedRequest) ->
                         session.requestEncoded(encodedRequest.bytes(), encodedRequest.remainingTimeout()));
     }
@@ -132,6 +133,9 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         if (session.publicExitCompleted()) {
             return WorkerPoolController.HealthOutcome.PROCESS_EXITED;
         }
+        if (options.healthCheck().isEmpty()) {
+            return WorkerPoolController.HealthOutcome.HEALTHY;
+        }
         Duration timeout = WorkerHookSupport.boundedTimeout(options.hookTimeout(), acquireDeadlineNanos);
         if (timeout.isZero()) {
             return WorkerPoolController.HealthOutcome.ACQUIRE_TIMEOUT;
@@ -139,7 +143,7 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         boolean accepted = WorkerHookSupport.run(
                 "procwright-line-pool-health-",
                 timeout,
-                () -> options.healthCheck().test(session),
+                () -> options.healthCheck().orElseThrow().test(session),
                 () -> POOL_FAILURES.hookTimeout("Pooled line-session health check timed out"),
                 exception -> POOL_FAILURES.interrupted(
                         "Interrupted while waiting for pooled line-session health check", exception),
@@ -151,11 +155,14 @@ public final class DefaultPooledLineSession implements PooledLineSession {
     }
 
     private void runReset(LineSession session) {
+        if (options.resetHook().isEmpty()) {
+            return;
+        }
         WorkerHookSupport.run(
                 "procwright-line-pool-reset-",
                 options.hookTimeout(),
                 () -> {
-                    options.resetHook().accept(session);
+                    options.resetHook().orElseThrow().accept(session);
                     return null;
                 },
                 () -> POOL_FAILURES.hookTimeout("Pooled line-session reset hook timed out"),
@@ -185,9 +192,9 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 POOL_FAILURES.workerFailure("Pooled line-session worker failed", failure));
     }
 
-    private EncodedRequest encodeRequest(String line, Duration timeout) {
+    private PreparedRequest prepareRequest(String line, Duration timeout) {
         long deadlineNanos = DurationSupport.deadlineFromNow(timeout);
-        byte[] bytes = LineRequestEncoder.encodeUntil(
+        LineRequestEncoder.Prepared prepared = LineRequestEncoder.prepareUntil(
                 line,
                 lineOptions,
                 message -> new LineSessionException(
@@ -196,6 +203,23 @@ public final class DefaultPooledLineSession implements PooledLineSession {
                 exception -> requestFailure(
                         LineSessionException.Reason.FAILURE, "Interrupted while encoding line request", exception),
                 deadlineNanos);
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+            throw requestFailure(LineSessionException.Reason.TIMEOUT, "Line request timed out", null);
+        }
+        return new PreparedRequest(prepared, Duration.ofNanos(remainingNanos));
+    }
+
+    private EncodedRequest encodeRequest(PreparedRequest prepared) {
+        long deadlineNanos = DurationSupport.deadlineFromNow(prepared.remainingTimeout());
+        byte[] bytes = prepared.line()
+                .encodeUntil(
+                        () -> requestFailure(LineSessionException.Reason.TIMEOUT, "Line request timed out", null),
+                        exception -> requestFailure(
+                                LineSessionException.Reason.FAILURE,
+                                "Interrupted while encoding line request",
+                                exception),
+                        deadlineNanos);
         long remainingNanos = deadlineNanos - System.nanoTime();
         if (remainingNanos <= 0) {
             throw requestFailure(LineSessionException.Reason.TIMEOUT, "Line request timed out", null);
@@ -218,6 +242,8 @@ public final class DefaultPooledLineSession implements PooledLineSession {
         }
         throw new IllegalArgumentException("workerFactory must create a Procwright line session");
     }
+
+    private record PreparedRequest(LineRequestEncoder.Prepared line, Duration remainingTimeout) {}
 
     private record EncodedRequest(byte[] bytes, Duration remainingTimeout) {
 

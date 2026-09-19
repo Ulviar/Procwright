@@ -213,7 +213,8 @@ Process-wide hard cap на число queued replenishment turns не обеща
 Вместо этого Procwright ограничивает execution parallelism, coalesces retries одного pool независимо от их частоты и
 удаляет pending turn при logical close.
 
-Health и reset являются разными lifecycle points:
+Health и reset являются разными lifecycle points. Отсутствующий hook хранится как отсутствие callback и не запускает
+timed task; проверка завершения процесса перед выдачей worker сохраняется:
 
 - health выполняется после acquire перед повторным использованием; только `false` retire worker и продолжает поиск в
   пределах исходного acquire deadline. Timeout, interruption или exception retire worker и немедленно возвращают typed
@@ -223,13 +224,23 @@ Health и reset являются разными lifecycle points:
 - hooks доверенные и должны сотрудничать с interruption; неотзывчивый hook может оставить не более одного daemon owner
   для этого worker и не запускает для него следующую операцию.
 
+Line pool проверяет разделители и размер запроса до acquire, но создаёт encoded byte array только после получения
+worker. Обе фазы подготовки расходуют request budget; acquire wait из него исключён. Локальный failure до передачи
+запроса session не меняет состояние протокола: lease возвращается без reset и без увеличения request count worker.
+Обычные age/close retirement rules действуют и при таком возврате.
+
+Late pool failures передаются напрямую одному `BoundedFailureReporter` через `PoolFailurePublisher`. Best-effort
+уведомление не ждёт admission или доставки и не меняет выбранный lifecycle outcome. При насыщении либо недоступности
+reporter уведомление может быть потеряно; отдельной очереди ожидания и повторной диспетчеризации нет. Обязательный
+retirement сохраняет собственную bounded queue с caller-runs backpressure.
+
 Минимальный автомат pool имеет четыре занятых состояния:
 
 | Состояние | Допустимые переходы |
 |---|---|
 | `STARTING` | `IDLE` после readiness; завершившийся failure освобождает slot; abandoned attempt удерживает slot до позднего возврата или pool close; при close attempt отделяется от pool state, а поздний worker закрывается напрямую |
 | `IDLE` | `LEASED` при acquire; `RETIRING` при close, age или policy retirement |
-| `LEASED` | `IDLE` после успешных request и reset; `RETIRING` после failure, limit или close |
+| `LEASED` | `IDLE` после успешных request и reset либо локального failure подготовки до session request; `RETIRING` после worker request failure, limit или close |
 | `RETIRING` | завершённый close освобождает slot; возврата к ready состоянию нет |
 
 Все переходы выполняются под одним monitor. Factory, readiness, hook, request, worker close и future completion

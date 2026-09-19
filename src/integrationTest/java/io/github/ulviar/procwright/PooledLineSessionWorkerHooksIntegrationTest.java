@@ -32,6 +32,24 @@ final class PooledLineSessionWorkerHooksIntegrationTest {
     private static final long EXTERNAL_WATCHDOG_SECONDS = 5;
 
     @Test
+    void absentHooksDoNotApplyTheHookDeadlineOrRetireHealthyWorkers() {
+        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
+                .withWarmupSize(1)
+                .withHookTimeout(Duration.ofNanos(1))
+                .open()) {
+            assertEquals("response:first", pool.request("first").text());
+            assertEquals("response:second", pool.request("second").text());
+
+            PooledSessionMetrics metrics = pool.metrics();
+            assertEquals(1, metrics.created());
+            assertEquals(0, metrics.retired());
+            assertEquals(1, metrics.idle());
+            assertEquals(2, metrics.completedRequests());
+            assertEquals(0, metrics.failedRequests());
+        }
+    }
+
+    @Test
     void resetFailureRetiresWorkerWithoutChangingCompletedRequestOutcome() throws InterruptedException {
         try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
                 .withMaxSize(1)

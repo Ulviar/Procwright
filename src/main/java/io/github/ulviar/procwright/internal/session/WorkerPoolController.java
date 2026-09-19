@@ -11,7 +11,7 @@ import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -89,7 +89,7 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
         this.failures = Objects.requireNonNull(failures, "failures");
         this.workerLabel = Objects.requireNonNull(workerLabel, "workerLabel");
         this.threadPrefix = Objects.requireNonNull(threadPrefix, "threadPrefix");
-        failurePublisher = new PoolFailurePublisher(configuredDependencies.lateFailureReporter());
+        failurePublisher = new PoolFailurePublisher(configuredDependencies.lateFailureSink());
         metricsClock = configuredDependencies.metricsClock();
         retirements = new WorkerRetirementCoordinator<>(
                 task -> PoolLifecycleDispatcher.executeRetirementBatch(task),
@@ -489,12 +489,12 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
 
     record Dependencies(
             PoolReplenisher.Scheduler replenishmentScheduler,
-            BiConsumer<Thread, Throwable> lateFailureReporter,
+            Consumer<FailureReport> lateFailureSink,
             LongSupplier metricsClock) {
 
         Dependencies {
             Objects.requireNonNull(replenishmentScheduler, "replenishmentScheduler");
-            Objects.requireNonNull(lateFailureReporter, "lateFailureReporter");
+            Objects.requireNonNull(lateFailureSink, "lateFailureSink");
             Objects.requireNonNull(metricsClock, "metricsClock");
         }
 

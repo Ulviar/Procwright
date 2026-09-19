@@ -183,9 +183,10 @@ Listener должен быстро завершаться; тяжелая обр
 - worker становится idle только после readiness;
 - acquire timeout и request timeout различаются;
 - request duration metric не включает acquire wait;
-- timeout, protocol/decoder failure и process exit retire worker;
+- timeout/failure обращения к worker, включая protocol/decoder failure и process exit, retire worker; локальная
+  подготовка line request до обращения к session возвращает незатронутый worker без reset и расходования request limit;
 - reset выполняется после успешного response, health — перед повторным использованием;
-- hook timeout ограничивает reset/health;
+- hook timeout ограничивает заданные reset/health; отсутствующие hooks не запускают timed task;
 - `maxRequestsPerWorker`, `maxWorkerAge` и `minIdle` не раскрывают lifecycle caller-у; `minIdle == 0` отключает
   replenishment, положительное значение включает его;
 - `close()` bounded синхронно запрещает новые requests, закрывает idle workers и ждет retirement активных после request;

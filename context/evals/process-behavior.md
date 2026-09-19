@@ -115,8 +115,11 @@
 - Если создание pool падает после частичного warmup или при запуске replenishment, уже созданные workers закрываются.
 - Worker переиспользуется между requests, пока не превышены `maxRequestsPerWorker` или `maxWorkerAge`.
 - Acquire timeout отличается от request timeout и дает pool-level failure.
-- Кодирование pooled request использует request deadline, но не смешивает его с отдельным acquire timeout.
-- Request timeout/failure retire worker, а не возвращает его в idle set.
+- Line preflight выполняется до acquire, encoded array создаётся после; обе фазы используют request budget без
+  acquire wait.
+- Worker request timeout/failure retire worker. Локальный failure подготовки до обращения к session возвращает
+  незатронутый worker без reset и расходования его request limit.
+- Отсутствующие health/reset hooks не запускают timed task и не могут вызвать hook timeout.
 - `resetHook` выполняется после успешного user request перед возвратом worker в idle set.
 - `Error` из user request сохраняется без оборачивания и учитывается как failed request. `Error` из `resetHook` также
   сохраняется, но уже полученный response учитывается как completed request, а worker retires с `RESET_FAILED`.

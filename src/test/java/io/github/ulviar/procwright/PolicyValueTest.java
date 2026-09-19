@@ -3,7 +3,9 @@
 package io.github.ulviar.procwright;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CharsetPolicy;
@@ -21,6 +23,8 @@ import io.github.ulviar.procwright.terminal.TerminalPolicy;
 import io.github.ulviar.procwright.terminal.TerminalSize;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
 
 final class PolicyValueTest {
@@ -199,6 +203,27 @@ final class PolicyValueTest {
                 poolSettings().withCloseTimeout(Duration.ofSeconds(3)).closeTimeout());
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxRequestsPerWorker(0));
         assertThrows(IllegalArgumentException.class, () -> poolSettings().withMaxWorkerAge(Duration.ofMillis(-1)));
+    }
+
+    @Test
+    void workerHooksAreAbsentUntilExplicitlyConfiguredAndSurvivePolicyChanges() {
+        WorkerPoolSettings<Object> defaults = poolSettings();
+        assertTrue(defaults.resetHook().isEmpty());
+        assertTrue(defaults.healthCheck().isEmpty());
+        Consumer<Object> reset = worker -> {};
+        Predicate<Object> health = worker -> true;
+
+        WorkerPoolSettings<Object> configured = defaults.withResetHook(reset)
+                .withHealthCheck(health)
+                .withMaxSize(2)
+                .withHookTimeout(Duration.ofSeconds(1));
+
+        assertSame(reset, configured.resetHook().orElseThrow());
+        assertSame(health, configured.healthCheck().orElseThrow());
+        assertTrue(defaults.resetHook().isEmpty());
+        assertTrue(defaults.healthCheck().isEmpty());
+        assertThrows(NullPointerException.class, () -> defaults.withResetHook(null));
+        assertThrows(NullPointerException.class, () -> defaults.withHealthCheck(null));
     }
 
     @Test

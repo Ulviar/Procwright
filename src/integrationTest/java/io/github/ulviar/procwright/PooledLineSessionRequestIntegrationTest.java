@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntConsumer;
 import org.junit.jupiter.api.Test;
 
 final class PooledLineSessionRequestIntegrationTest {
@@ -68,6 +69,49 @@ final class PooledLineSessionRequestIntegrationTest {
     }
 
     @Test
+    void encodedByteLimitIsCheckedBeforeStartingAWorker() {
+        try (PooledLineSession pool = fixtureScenario()
+                .withArgs("controlled-line-repl")
+                .withMaxRequestBytes(4)
+                .pooled()
+                .open()) {
+            LineSessionException failure = assertThrows(LineSessionException.class, () -> pool.request("éé"));
+
+            assertEquals(LineSessionException.Reason.REQUEST_TOO_LARGE, failure.reason());
+            assertEquals(0, pool.metrics().created());
+            assertEquals(1, pool.metrics().failedRequests());
+        }
+    }
+
+    @Test
+    void localEncodingFailureReturnsTheUntouchedWorkerWithoutConsumingItsRequestLimit() {
+        IllegalStateException encodingFailure = new IllegalStateException("encoding unavailable");
+        CountingUtf8Charset charset = new CountingUtf8Charset(count -> {
+            if (count == 2) {
+                throw encodingFailure;
+            }
+        });
+        try (PooledLineSession pool = fixtureScenario()
+                .withArgs("controlled-line-repl")
+                .withCharset(charset)
+                .pooled()
+                .withMaxRequestsPerWorker(2)
+                .open()) {
+            PooledSessionException failure = assertThrows(PooledSessionException.class, () -> pool.request("first"));
+
+            assertSame(encodingFailure, failure.getCause());
+            assertEquals(1, pool.metrics().created());
+            assertEquals(1, pool.metrics().idle());
+            assertEquals(0, pool.metrics().retired());
+            assertEquals("response:second", pool.request("second").text());
+            assertEquals(1, pool.metrics().created());
+            assertEquals(0, pool.metrics().retired());
+            assertEquals(1, pool.metrics().completedRequests());
+            assertEquals(1, pool.metrics().failedRequests());
+        }
+    }
+
+    @Test
     void validatedPooledRequestIsEncodedOnlyOnce() {
         CountingUtf8Charset charset = new CountingUtf8Charset();
         LineSessionScenario.Draft scenario = fixtureScenario().withCharset(charset);
@@ -84,7 +128,8 @@ final class PooledLineSessionRequestIntegrationTest {
 
     @Test
     void acquireTimeoutIsDistinctWhenAllWorkersAreBusy() throws Exception {
-        try (PooledLineSession pool = poolDraft(fixtureScenario(), "controlled-line-repl")
+        CountingUtf8Charset charset = new CountingUtf8Charset();
+        try (PooledLineSession pool = poolDraft(fixtureScenario().withCharset(charset), "controlled-line-repl")
                 .withMaxSize(1)
                 .withAcquireTimeout(Duration.ofMillis(100))
                 .open()) {
@@ -108,6 +153,7 @@ final class PooledLineSessionRequestIntegrationTest {
                 assertEquals("response:hold", first.get().text());
                 assertEquals(1, pool.metrics().completedRequests());
                 assertEquals(1, pool.metrics().failedRequests());
+                assertEquals(3, charset.encoderCreations(), "An acquire timeout must not materialize request bytes");
             } finally {
                 executor.shutdownNow();
                 assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
@@ -138,9 +184,15 @@ final class PooledLineSessionRequestIntegrationTest {
     private static final class CountingUtf8Charset extends Charset {
 
         private final AtomicInteger encoderCreations = new AtomicInteger();
+        private final IntConsumer encoderCreated;
 
         private CountingUtf8Charset() {
+            this(count -> {});
+        }
+
+        private CountingUtf8Charset(IntConsumer encoderCreated) {
             super("X-Procwright-Counting-UTF-8", new String[0]);
+            this.encoderCreated = encoderCreated;
         }
 
         @Override
@@ -155,7 +207,7 @@ final class PooledLineSessionRequestIntegrationTest {
 
         @Override
         public CharsetEncoder newEncoder() {
-            encoderCreations.incrementAndGet();
+            encoderCreated.accept(encoderCreations.incrementAndGet());
             return StandardCharsets.UTF_8.newEncoder();
         }
 
