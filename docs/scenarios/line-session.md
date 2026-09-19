@@ -1,115 +1,86 @@
 # Line sessions
 
-`lineSession()` models a line-oriented worker. The default decoder returns the next stdout line; a custom decoder can
-combine several lines into one response.
+A line session keeps one worker alive across requests. Each request is one line; the default response is the next
+stdout line. Start with the [line-worker example](../how-to/talk-to-line-worker.md) for opening and closing a session.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java -->
+## Read a multiline response
+
+Use `withResponseDecoder(...)` when a reply spans a known number of lines or ends with a marker. This worker returns two
+content lines followed by `END`. The decoder consumes the marker without including it in the result:
+
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/MultilineResponseExample.java#multiline -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.session.LineResponse;
-import io.github.ulviar.procwright.session.LineSession;
-import java.time.Duration;
-
-public final class LineSessionExample {
-
-    private LineSessionExample() {}
-
-    public static void main(String[] args) {
-        try (LineSession session = Procwright.command(ExampleSupport.workerCommand("line"))
-                .lineSession()
-                .withRequestTimeout(Duration.ofSeconds(5))
-                .open()) {
-            LineResponse response = session.request("Zażółć gęślą jaźń");
-            if (!response.text().equals("response:Zażółć gęślą jaźń")) {
-                throw new IllegalStateException("Unexpected line response");
+try (LineSession session = Procwright.command(ExampleSupport.workerCommand("multiline"))
+        .lineSession()
+        .withMaxResponseLines(3)
+        .withMaxResponseChars(1024)
+        .withResponseDecoder(reader -> {
+            List<String> lines = new ArrayList<>();
+            String line;
+            while (!(line = reader.readLine()).equals("END")) {
+                lines.add(line);
             }
+            return lines;
+        })
+        .open()) {
+    for (String request : List.of("hello", "again")) {
+        var response = session.request(request);
+        if (!response.lines().equals(List.of("first:" + request, "second:" + request))) {
+            throw new IllegalStateException("Unexpected multiline response");
         }
     }
 }
 ```
 
-[Open `LineSessionExample.java`](../examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java) and the
-[shared example sources](../examples.md#core).
+[Complete example and imports](../examples/java/io/github/ulviar/procwright/examples/MultilineResponseExample.java) ·
+[Worker source](../examples/java/io/github/ulviar/procwright/examples/ExampleWorker.java) ·
+[Run the examples](../examples.md#core)
 
-One session handles one request at a time. Request and response limits are global per exchange, while the retained
-transcript has its own bound. `CharsetPolicy.report(...)` rejects malformed text; `replace(...)` substitutes malformed
-input.
+The three-line limit includes the terminator. A missing `END` reaches the response limit or the default five-second
+request timeout; it cannot wait indefinitely. Choose a marker that cannot appear as an ordinary content line.
+`LineResponse.lines()` contains the returned lines, and `text()` joins them with LF.
 
-Set `withMaxResponseChars(...)` and `withMaxResponseLines(...)` to accept larger responses. The unread stdout queue
-follows these limits automatically; an unfinished line is bounded by the same character limit. LF/CRLF separators do
-not count as content characters, but empty lines count toward the line limit. Excess response or pending stdout produces
-`RESPONSE_TOO_LARGE`. Unsolicited stdout shares this capacity, so keep worker logs on stderr.
+Requests cannot contain CR or LF. For multiline requests, byte-length framing, or binary data, use
+[a protocol session](protocol-session.md). Keep logs on stderr so they cannot be mistaken for replies.
 
-The Draft retains a custom response decoder. Decoder calls are serialized within one line session, but concurrent direct
-opens and line-pool workers can invoke that same decoder instance concurrently. The same cross-worker rule applies to
-readiness, diagnostics recipients, and a custom PTY provider. Make shared instances thread-safe or use separate Draft
-branches with separate instances.
+## Limits and decoding
 
-`ResponseDecoder.Reader` is callback-scoped and thread-confined. Use it only on the thread executing the decoder and do
-not retain it after the decoder returns. A late or cross-thread read fails before consuming output, so it cannot steal a
-line from a later request.
+`withMaxResponseChars(...)` and `withMaxResponseLines(...)` bound one exchange and the unread stdout queue. An unfinished
+line uses the same character limit. LF/CRLF separators do not count as content characters; empty lines count toward the
+line limit. Excess response or unread stdout produces `RESPONSE_TOO_LARGE` and closes the session. Unsolicited stdout
+shares these bounds.
 
-A local request-preparation or wait failure that completes before a request is handed off for stdin writing, when no
-later write can occur, leaves the direct session open and can be retried. This includes line validation, request-size
-checks, encoding, and deadlines while waiting for another request or for stdin writing to become available. `onExit()`
-remains incomplete unless the worker exits independently.
-Once the request is handed off, a timeout, interruption, or write failure closes the session even if no received byte can
-be confirmed. EOF, malformed text, oversized output, backlog overflow, and other response/protocol failures are also
-terminal and close the process. The first accepted non-exit terminal claim wins while the public outcome has not yet been
-selected; process exit is the fallback. After a request timeout, a decoder that ignores interruption or an output read
-blocked in the JDK may keep running on a daemon thread. It does not delay `onExit()`, and its eventual return or failure
-cannot replace the timeout.
-Use `protocolSession` when messages may contain embedded newlines or need custom framing.
+Request limits and the retained diagnostic transcript have separate bounds. `CharsetPolicy.report(...)` rejects
+malformed text; `replace(...)` substitutes replacement characters. See [defaults](../reference/defaults.md#line-sessions)
+for the initial limits and charset.
 
-Readiness runs after launch and before `open()` returns. A pooled worker also completes readiness before it becomes idle.
-A failed or timed-out readiness probe closes the process.
+## Concurrent calls and callbacks
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ReadinessExample.java -->
-```java
-/* SPDX-License-Identifier: Apache-2.0 */
+One session serializes requests. The Draft retains its decoder instance: opening several sessions or a pool can call
+that decoder concurrently. Readiness, diagnostics recipients, and a custom PTY provider are also shared. Keep shared
+callbacks thread-safe, or supply separate instances through separate Draft branches.
 
-package io.github.ulviar.procwright.examples;
+Use `ResponseDecoder.Reader` only inside the decoder callback, on the calling thread. Do not retain it or pass it to
+another thread; such reads fail before consuming output.
 
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.session.LineSession;
-import java.time.Duration;
-import java.util.concurrent.atomic.AtomicBoolean;
+## Request failures
 
-public final class ReadinessExample {
+Before a request is handed off for stdin writing, local validation, size checks, encoding, and wait failures leave the
+direct session open if no later write can occur. That includes a timeout while waiting behind another request.
 
-    private ReadinessExample() {}
+After handoff, a timeout, interruption, or write failure closes the session, even if the caller cannot confirm that the
+worker received a byte. EOF, malformed output, oversized output, and decoder failures are also terminal. Do not blindly
+retry work that may already have taken effect. Use the exception's reason and bounded transcript to diagnose the failure;
+see [results and errors](../reference/results-and-errors.md#sessions).
 
-    public static void main(String[] args) {
-        AtomicBoolean readinessCompleted = new AtomicBoolean();
-        try (LineSession session = Procwright.command(ExampleSupport.workerCommand("line"))
-                .lineSession()
-                .withReadiness(ready -> {
-                    String response = ready.request("health").text();
-                    if (!response.equals("response:health")) {
-                        throw new IllegalStateException("Worker readiness check failed");
-                    }
-                    readinessCompleted.set(true);
-                })
-                .withReadinessTimeout(Duration.ofSeconds(5))
-                .withRequestTimeout(Duration.ofSeconds(5))
-                .open()) {
-            if (!readinessCompleted.get()) {
-                throw new IllegalStateException("Session opened before readiness completed");
-            }
-            if (!session.request("work").text().equals("response:work")) {
-                throw new IllegalStateException("Worker failed after readiness completed");
-            }
-        }
-    }
-}
-```
+A terminal failure completes a still-pending `onExit()` exceptionally. A callback that ignores interruption may continue
+running after a timeout; `onExit()` does not wait for it or a blocked physical stream close. Its eventual result cannot
+replace the selected failure.
 
-[Open `ReadinessExample.java`](../examples/java/io/github/ulviar/procwright/examples/ReadinessExample.java) and the
-[shared example sources](../examples.md#core).
+## Wait for a worker to become ready
 
-See [scenario defaults](../reference/defaults.md#line-sessions) for request, response, decoding, terminal,
-and readiness limits.
+`withReadiness(...)` runs after launch and before `open()` returns. It can send a health request and reject an unexpected
+reply. A failed or timed-out probe closes the process. Pool workers also pass readiness before becoming available.
+
+The [readiness example](../examples/java/io/github/ulviar/procwright/examples/ReadinessExample.java) sends `health`, checks
+`response:health`, and applies a five-second readiness timeout.

@@ -45,6 +45,7 @@ fun main(args: Array<String>) {
         }
         // docs:end run
 
+        // docs:start protocol
         val service = Procwright.command(lineWorkerCommand())
         val adapters =
             protocolAdapterFactory<String, String> {
@@ -58,7 +59,9 @@ fun main(args: Array<String>) {
             check(session.requestAwait("hello", 5.seconds) == "response:hello")
             check(session.requestAwait("世界", 5.seconds) == "response:世界")
         }
+        // docs:end protocol
 
+        // docs:start flow
         Procwright.command(javaExecutable())
             .listen()
             .withArgs("--version")
@@ -70,6 +73,7 @@ fun main(args: Array<String>) {
                     StreamSource.STDERR -> System.err.print(chunk.text())
                 }
             }
+        // docs:end flow
     }
 }
 

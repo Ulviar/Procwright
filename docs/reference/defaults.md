@@ -1,16 +1,10 @@
 # Scenario defaults
 
-Procwright starts every scenario from bounded, non-terminal defaults. These values matter before the first `with*` call:
+These values apply until you override them with a `with*` method. Commands inherit their executable, arguments, working
+directory, and environment from `CommandSpec`.
 
-- `run()` stops a process after 30 seconds;
-- one-shot capture retains at most 1 MiB from each output stream;
-- text decoding uses UTF-8 and replaces malformed input unless a strict `CharsetPolicy` is selected;
-- interactive, line, and protocol sessions have no idle timeout;
-- `listen()` has no absolute timeout;
-- a pool starts with capacity for one worker and `close()` waits at most 15 seconds for requests and logical worker drain.
-
-The tables below are the authoritative user-facing defaults. A scenario inherits executable, base arguments, working
-directory, environment policy, and environment entries from the `CommandSpec` owned by its `CommandService`.
+`run()` has a 30-second timeout. Long-lived sessions have no idle timeout by default, and `listen()` has no absolute
+timeout. Close their handles when finished or configure a timeout for your task.
 
 ## Run
 
@@ -118,8 +112,8 @@ come from the Draft on which `pooled()` was called.
 | Reset hook | none |
 | Health check | healthy while the worker process has not exited |
 
-The 15-second close timeout bounds the caller's wait. It does not abandon logical worker drain; use `closeAsync()` to
-observe eventual logical completion after a timed-out `close()`. Neither close method waits for potentially blocking
+The 15-second close timeout bounds the caller's wait. It does not abandon worker shutdown; use `closeAsync()` to
+observe eventual completion after a timed-out `close()`. Neither close method waits for potentially blocking
 physical process-stream close.
 
 Each pool applies its own maximum to starting, idle, leased, and retiring workers. Pools and directly opened sessions do

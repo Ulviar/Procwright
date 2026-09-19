@@ -13,6 +13,7 @@ public final class StopHungCommandExample {
     private StopHungCommandExample() {}
 
     public static void main(String[] args) {
+        // docs:start timeout
         CommandResult result = Procwright.command(ExampleSupport.workerCommand("hang"))
                 .run()
                 .withCapture(CapturePolicy.bounded(64 * 1024))
@@ -23,5 +24,6 @@ public final class StopHungCommandExample {
         if (!result.timedOut()) {
             throw new IllegalStateException("Expected the worker to time out");
         }
+        // docs:end timeout
     }
 }

@@ -1,9 +1,9 @@
 # Integrations
 
-The optional `procwright-integrations` module maps structured Java values onto JSON Lines, delimiter-framed bytes, and
-Content-Length JSON without creating a second process runtime.
+Use `procwright-integrations` when your worker speaks JSON Lines, delimiter-framed bytes, or Content-Length JSON. Its
+adapter factories plug into the same `protocolSession(...)` API as custom adapters.
 
-Add the integrations artifact alongside core:
+Add the integrations artifact; it includes core as a transitive dependency:
 
 <!-- procwright-docs: build-configuration -->
 ```kotlin
@@ -38,49 +38,44 @@ public static ProtocolSessionScenario.Draft<Request, Metrics> draft(CommandSpec 
 }
 ```
 
-`ProtocolAdapters.jsonLines(...)`, `delimited(...)`, and `contentLengthJson(...)` return factories
-that can be passed directly to `protocolSession(...)` and then to `pooled()`. Every factory call creates a fresh adapter,
-so separate sessions and pool workers do not share framing state. `typedJson(...)` preserves the same invariant by
-accepting a transport factory and creating a fresh typed wrapper for each call.
+Pass these factories directly to `protocolSession(...)`; add `pooled()` when requests can use interchangeable workers.
+Each opened session or pool worker gets a fresh adapter. Use `typedJson(...)` to map between your domain objects and
+Jackson `JsonNode` values. Jackson Databind is included transitively.
 
-`jsonLines(maxLineBytes)` counts the complete response frame including LF and always reads and writes JSON as
-strict UTF-8 bytes, independently of the scenario's text charset policy.
+## JSON Lines and delimiter frames
 
-`typedJson(...)` retains its encode, decode, and transport-factory callbacks. Separate sessions and pool workers
-can invoke the same callback objects concurrently, so applications must make them thread-safe and create mutable
-per-adapter state inside each transport-factory call. The helper does not synchronize callbacks across workers. A null
-transport, encoded JSON value, or decoded domain result fails closed; runtime callback failures retain core's distinct
-request-write and response-decoder reasons, while callback `Error` values are propagated.
+`jsonLines(maxLineBytes)` reads and writes one JSON value per line using strict UTF-8, regardless of the scenario's text
+charset. It writes LF and accepts LF or CRLF responses. The response limit includes the line ending.
 
-The application still chooses the executable and owns its domain mapping. JSON adapters use Jackson `JsonNode`
-directly, so the optional artifact exposes Jackson Databind transitively. `IntegrationProtocolException.reason()`
-distinguishes framing, UTF-8, JSON, and size failures without message matching.
+`delimited(delimiter, maxFrameBytes)` appends one delimiter byte to each request and removes it from the response.
+Request payloads must not contain that byte; the adapter does not escape it. The response limit includes the delimiter.
+
+Both adapters also obey the scenario's `withMaxRequestBytes(...)` and `withMaxResponseBytes(...)` limits. Include framing
+bytes in those limits. Their [complete example](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java)
+contains both worker implementations.
+
+## Shared callbacks
+
+`typedJson(...)` retains your encoder, decoder, and transport factory. Separate sessions and pool workers can invoke
+those callbacks concurrently. Keep them thread-safe, and create mutable adapter state inside the transport factory.
+Returning null for the transport, encoded value, or decoded result fails the operation.
 
 ## Content-Length JSON wire contract
 
-The adapter writes exactly `Content-Length: N\r\n\r\n<body>`. The header is US-ASCII with that casing; `N` is the
+`contentLengthJson(...)` writes `Content-Length: N\r\n\r\n<body>`. The header is US-ASCII with that casing; `N` is the
 decimal count of UTF-8 body bytes, not Java characters. The body is one JSON value.
-
-Responses use this grammar:
-
-```text
-frame        = header-line *(header-line) CRLF body
-header-line  = field-name ":" field-value CRLF
-field-name   = 1*(ALPHA / DIGIT / "!" / "#" / "$" / "%" / "&" / "'" / "*" /
-                  "+" / "-" / "." / "^" / "_" / "`" / "|" / "~")
-field-value  = *(HTAB / %x20-7E)
-```
 
 Exactly one case-insensitive `Content-Length` field is required. Its value is optional spaces or tabs, one or more
 unsigned ASCII decimal digits in the Java `int` range, then optional spaces or tabs. Additional well-formed headers are
 ignored. Header names cannot contain whitespace before `:`, folded lines are rejected, every line uses CRLF, and the
-empty CRLF line ends the block. All other control and non-ASCII header bytes are rejected.
+empty CRLF line ends the block. Header names use ASCII letters, digits, or `!#$%&'*+-.^_` plus backtick, `|`, and `~`;
+values contain printable ASCII or tabs. Other control and non-ASCII header bytes are rejected.
 
 The complete header block, including its final `\r\n\r\n`, may contain at most 8192 bytes; a terminator ending at byte
 8192 is valid. The adapter then reads exactly `N` raw body bytes, decodes them with strict UTF-8, and parses one complete
 JSON value with no trailing content.
 
-## Limits
+## Content-Length limits
 
 | Setting | What it counts for this transport |
 | --- | --- |
@@ -91,12 +86,14 @@ JSON value with no trailing content.
 | `withCharsetPolicy(...)` | Text reads and transcripts only. The JSON body is always strict UTF-8, even if the scenario policy replaces malformed text. |
 
 The unread stdout/stderr queues follow `withMaxResponseBytes(...)` automatically.
-Set both byte layers. For a body limit `B`, allow request wire bytes for the generated header plus `B`, and response wire
-bytes for up to 8192 header bytes plus `B`. The example uses the conservative `8192 + B` bound for both directions.
+For a body limit `B`, allow request bytes for the generated header plus `B`, and response bytes for up to 8192 header bytes
+plus `B`. The [complete example](../examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java)
+uses `8192 + B` for both directions.
 
 ## Failures
 
-`session.request(...)` exposes adapter failures through the outer `ProtocolSessionException`:
+`session.request(...)` exposes adapter failures through `ProtocolSessionException`. Inspect `reason()` and, when present,
+the cause's `IntegrationProtocolException.reason()` instead of matching exception messages:
 
 | Failure | Outer reason | Cause | Direct session |
 | --- | --- | --- | --- |

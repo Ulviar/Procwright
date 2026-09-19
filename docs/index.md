@@ -8,8 +8,9 @@ timeouts, and output bounds while your code calls the tool.
 | Task | Walkthrough |
 | --- | --- |
 | Run a command and inspect its result | [First command](getting-started.md) |
+| Read input from a file or save large output | [File input and output](scenarios/run.md#files) |
 | Make repeated typed requests to one worker | [CLI worker as a service](how-to/wrap-cli-tool.md) |
-| Receive logs or events continuously | [Follow live output](how-to/follow-logs.md) |
+| Show logs and progress as they arrive | [Follow live output](how-to/follow-logs.md) |
 
 The checkout demos require JDK 25 and include their own workers. Start with `./gradlew -q demoRun`.
 

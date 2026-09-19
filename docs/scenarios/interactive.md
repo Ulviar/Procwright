@@ -1,7 +1,7 @@
 # Interactive sessions
 
-`interactive()` opens a process whose stdin, stdout, stderr, exit future, and terminal controls are exposed through
-`Session`.
+`interactive()` gives you the process's raw streams through `Session`. Choose it when your application needs to read and
+write the CLI's protocol directly. For prompt matching, start with [Expect](../how-to/automate-prompts.md).
 
 <!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/InteractiveExample.java -->
 ```java
@@ -53,26 +53,32 @@ public final class InteractiveExample {
 [Open `InteractiveExample.java`](../examples/java/io/github/ulviar/procwright/examples/InteractiveExample.java) and the
 [shared example sources](../examples.md#core).
 
-The caller owns both output streams and must drain them concurrently when the child can write to both. Waiting for exit
-before draining can deadlock a child on a full pipe.
+Replace `ExampleSupport.workerCommand("interactive")` with your executable or `CommandSpec`. The bundled worker reads
+one line, writes the answer to stdout, and writes `processed` to stderr.
 
-`closeStdin()` immediately rejects later writes from the session API, then closes the physical stream asynchronously.
-Its return does not prove that a concurrent write has released the stream monitor or that the child has already observed
-EOF. Use an application-protocol response when processing EOF must be acknowledged; `onExit()` confirms only that the
-process reached a terminal outcome. If the close cannot be scheduled, `closeStdin()` throws and the session becomes
-terminal. If a scheduled close later fails while the session is still running, `onExit()` completes exceptionally with
-the original failure.
+## Read both output streams
 
-`open()` starts the process. Close the returned session to initiate process shutdown and best-effort physical stream
-cleanup; potentially blocking closes may continue asynchronously. `withIdleTimeout` measures inactivity according to the
-session contract; it is not an absolute runtime limit.
+Drain stdout and stderr concurrently when the child can write to both. Waiting for exit before draining can block the
+child on a full pipe. `onExit()` does not wait for your readers; join them separately, as the example does.
 
-The Draft retains its readiness probe, diagnostics recipients, and optional PTY provider. Each open waits for its own
-readiness call, but concurrent opens can invoke the same retained instances concurrently. Make shared instances
-thread-safe or branch the Draft with separate instances.
+The example uses `readAllBytes()` because the worker's response is small and finite. For large or ongoing output, read
+incrementally or copy each stream to its destination. Procwright does not bound data that your raw-stream readers retain.
 
-Raw interactive sessions cannot be converted into another output mode after launch. Choose `interactive().expect()`,
-`lineSession()`, or `protocolSession(...)` before opening the process when Procwright should consume output.
+## Input and shutdown
+
+`closeStdin()` rejects later writes and starts closing the input stream. It leaves the process running so you can read a
+response produced after EOF. The return does not confirm that the child has observed EOF; wait for its protocol response
+when that matters. If closing cannot start, the call throws and stops the session. A later close failure can complete
+`onExit()` exceptionally while the session is still running.
+
+Closing the session requests process shutdown. Potentially blocking stream cleanup can continue asynchronously.
+`withIdleTimeout(...)` limits inactivity; it is not an absolute runtime limit.
+
+If you reuse a draft concurrently, its readiness probe, diagnostics callbacks, and custom PTY provider must be thread-safe:
+separate opens can call the same instances at the same time. Alternatively, configure separate instances on each draft.
+
+Choose `interactive().expect()`, `lineSession()`, or `protocolSession(...)` before `open()` when Procwright should consume
+output. A raw session cannot switch output ownership after launch.
 
 See [scenario defaults](../reference/defaults.md#interactive-sessions) for idle timeout, shutdown, charset, terminal,
 readiness, and diagnostics values.

@@ -1,62 +1,30 @@
-# Terminal capability
+# Terminal sessions
 
-Session-family Drafts accept `TerminalPolicy` when a child needs terminal behavior instead of ordinary pipes.
+Add `withTerminal(TerminalPolicy.REQUIRED)` to an interactive, Expect, line, or protocol draft when the CLI needs terminal
+behavior. Start with [Require a terminal](../how-to/require-terminal.md) for the complete example.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/TerminalExample.java -->
-```java
-/* SPDX-License-Identifier: Apache-2.0 */
+| Policy | Behavior |
+| --- | --- |
+| `DISABLED` (default) | Use ordinary process pipes. |
+| `AUTO` | Request a terminal; allow ordinary pipes if the provider is unavailable. |
+| `REQUIRED` | Fail if the configured provider cannot supply a terminal. |
 
-package io.github.ulviar.procwright.examples;
+`run()` and `listen()` use pipes and do not accept a terminal policy.
 
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.session.Expect;
-import io.github.ulviar.procwright.session.SessionExit;
-import io.github.ulviar.procwright.terminal.TerminalPolicy;
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
+## Control keys
 
-public final class TerminalExample {
+`sendSignal(...)` writes a terminal control byte. A PTY normally translates that byte into an operating-system signal
+for its foreground command; an ordinary pipe receives only the byte. Use `REQUIRED` when your interaction depends on
+that terminal behavior.
 
-    private TerminalExample() {}
+## Platform requirements
 
-    public static void main(String[] args) {
-        try (Expect expect = Procwright.command(ExampleSupport.javaExecutable())
-                .interactive()
-                .expect()
-                .withArgs("--version")
-                .withTerminal(TerminalPolicy.REQUIRED)
-                .withIdleTimeout(Duration.ofSeconds(10))
-                .withTimeout(Duration.ofSeconds(5))
-                .open()) {
-            expect.expectRegex(Pattern.compile("(?i)(java|openjdk)"));
-            SessionExit exit = expect.onExit().orTimeout(5, TimeUnit.SECONDS).join();
-            if (exit.exitCode().orElse(-1) != 0) {
-                throw new IllegalStateException("java --version failed: " + exit.exitCode());
-            }
-        }
-    }
-}
-```
+The built-in provider supports compatible macOS and Linux systems. It requires executable `script`, `stty`, `env`, and
+`dd` in `/usr/bin` or `/bin`, plus executable `/bin/sh`. It checks that those tools support terminal startup and child
+exit-code reporting. Unsupported tool variants make the provider unavailable. Windows ConPTY support is not included.
 
-[Open `TerminalExample.java`](../examples/java/io/github/ulviar/procwright/examples/TerminalExample.java) and the
-[shared example sources](../examples.md#core).
+The system provider rejects executable names containing `=` because its launcher cannot distinguish them from
+environment assignments. Ordinary pipe transport has no such restriction.
 
-- `DISABLED` uses ordinary process pipes.
-- `AUTO` requests a terminal but permits pipe fallback.
-- `REQUIRED` fails if the configured `PtyProvider` cannot create one.
-
-`sendSignal(...)` writes the terminal control byte. A PTY normally translates that byte into an operating-system signal
-for its foreground command; an ordinary pipe receives only the byte. Do not rely on signal semantics when `AUTO` falls
-back to pipes.
-
-The built-in Unix provider requires trusted `script`, `stty`, `env`, and `dd` executables in `/usr/bin` or `/bin` and
-executable `/bin/sh`; it does not use `PATH` to find transport helpers. It enables only an exact BSD or util-linux
-invocation that passes a bounded terminal, direct-`env`, and exit-code probe. Child argv and environment remain isolated
-from that wrapper and travel in a bounded post-`READY` terminal-input frame, not a temporary file. See
-[Platforms and terminal support](../reference/platforms-and-pty.md) for platform requirements and the fail-closed
-restriction on executable tokens containing `=`. Windows ConPTY is not shipped in planned `0.1.0`; a required terminal
-must fail explicitly rather than silently changing transport.
-
-The default session policy is `DISABLED`; selecting `AUTO` or `REQUIRED` activates the built-in provider. See
-[scenario defaults](../reference/defaults.md#interactive-sessions) for the initial policy, provider, and terminal size.
+For custom providers and platform details, see [Platforms and terminal support](../reference/platforms-and-pty.md).
+See [session defaults](../reference/defaults.md#interactive-sessions) for the initial provider and terminal size.

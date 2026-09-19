@@ -25,6 +25,7 @@ final class ExampleWorker {
             case "ansi-expect" -> ansiExpect();
             case "listen" -> listen();
             case "line" -> line();
+            case "multiline" -> multiline();
             case "protocol" -> protocol();
             default -> throw new IllegalArgumentException("Unknown worker mode: " + args[0]);
         }
@@ -61,11 +62,18 @@ final class ExampleWorker {
     }
 
     private static void listen() throws Exception {
-        BufferedWriter output = writer(System.out);
-        for (int index = 0; ; index++) {
-            writeLine(output, "event:" + index);
-            Thread.sleep(25);
+        BufferedWriter logs = writer(System.out);
+        BufferedWriter progress = writer(System.err);
+        writeLine(logs, "Starting work");
+        Thread.sleep(100);
+        for (int percent = 0; percent <= 100; percent += 25) {
+            progress.write("\rProgress: " + percent + "%");
+            progress.flush();
+            Thread.sleep(100);
         }
+        writeLine(progress, "");
+        Thread.sleep(100);
+        writeLine(logs, "Work complete");
     }
 
     private static void line() throws Exception {
@@ -74,6 +82,16 @@ final class ExampleWorker {
         String line;
         while ((line = input.readLine()) != null) {
             writeLine(output, "response:" + line);
+        }
+    }
+
+    private static void multiline() throws Exception {
+        BufferedReader input = reader();
+        BufferedWriter output = writer(System.out);
+        String line;
+        while ((line = input.readLine()) != null) {
+            output.write("first:" + line + "\nsecond:" + line + "\nEND\n");
+            output.flush();
         }
     }
 

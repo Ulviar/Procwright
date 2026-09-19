@@ -1,6 +1,7 @@
 # Automate prompts
 
-Select the Expect branch before launch so prompt matching owns process output from the start.
+Wait for a prompt, send a reply, then wait for the command's response with `interactive().expect()`.
+The example uses a bundled worker that prints `ready> ` and echoes each reply with an `ok:` prefix.
 
 <!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ExpectExample.java -->
 ```java
@@ -34,7 +35,12 @@ public final class ExpectExample {
 [Open `ExpectExample.java`](../examples/java/io/github/ulviar/procwright/examples/ExpectExample.java) and the
 [shared example sources](../examples.md#core).
 
-Configure process and matching options on the same draft before calling `open()`. Closing `Expect` stops its process.
+For your CLI, replace `ExampleSupport.workerCommand("expect")` with its executable or `CommandSpec`, then change the
+expected prompts and replies. Configure arguments and timeouts before `open()`. Closing `Expect` stops its process.
 
-If prompts contain ANSI color or cursor-control CSI sequences, add
-`interactive().expect().withAnsiControlSequenceStripping()` before `open()`.
+Matching reads stdout; stderr is drained into the diagnostic transcript. If the CLI requires a terminal to show its
+prompts, [require a terminal](require-terminal.md).
+
+For ANSI-decorated prompts, add `withAnsiControlSequenceStripping()` before `open()`; see the
+[ANSI example and matching limits](../scenarios/expect.md#ansi-decorated-prompts). This removes CSI sequences from the
+text; it does not reconstruct a terminal screen.

@@ -12,6 +12,7 @@ public final class LineSessionExample {
     private LineSessionExample() {}
 
     public static void main(String[] args) {
+        // docs:start request
         try (LineSession session = Procwright.command(ExampleSupport.workerCommand("line"))
                 .lineSession()
                 .withRequestTimeout(Duration.ofSeconds(5))
@@ -21,5 +22,6 @@ public final class LineSessionExample {
                 throw new IllegalStateException("Unexpected line response");
             }
         }
+        // docs:end request
     }
 }

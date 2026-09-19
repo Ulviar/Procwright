@@ -2,10 +2,14 @@
 
 package io.github.ulviar.procwright.consumer.examples;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.Procwright;
 import io.github.ulviar.procwright.command.CommandException;
+import io.github.ulviar.procwright.command.CommandResult;
 import io.github.ulviar.procwright.examples.AnsiExpectExample;
 import io.github.ulviar.procwright.examples.DiagnosticsExample;
 import io.github.ulviar.procwright.examples.ExpectExample;
@@ -67,8 +71,18 @@ final class CanonicalExamplesTest {
     }
 
     @Test
-    void listenExampleExecutesAndStopsAtItsDeadline() {
-        ListenExample.main(new String[0]);
+    void listenExampleForwardsLogsAndCarriageReturnProgressUntilNaturalExit() {
+        String executable = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        String java =
+                Path.of(System.getProperty("java.home"), "bin", executable).toString();
+        CommandResult result = Procwright.command(java)
+                .run()
+                .withArgs("-cp", System.getProperty("java.class.path"), ListenExample.class.getName())
+                .execute();
+
+        assertTrue(result.succeeded(), result::stderr);
+        assertEquals("Starting work\nWork complete\n", result.stdout());
+        assertEquals("\rProgress: 0%\rProgress: 25%\rProgress: 50%\rProgress: 75%\rProgress: 100%\n", result.stderr());
     }
 
     @Test

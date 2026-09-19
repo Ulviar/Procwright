@@ -26,3 +26,10 @@ tasks.register<JavaExec>("demoRun") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("io.github.ulviar.procwright.examples.RunExample")
 }
+
+tasks.register<JavaExec>("demoListen") {
+    description = "Shows live log output and progress from the bundled worker."
+    group = "application"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.ulviar.procwright.examples.ListenExample")
+}

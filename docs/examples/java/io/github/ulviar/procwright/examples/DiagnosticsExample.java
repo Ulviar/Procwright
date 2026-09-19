@@ -13,6 +13,7 @@ public final class DiagnosticsExample {
     private DiagnosticsExample() {}
 
     public static void main(String[] args) throws Exception {
+        // docs:start observe
         CountDownLatch processExited = new CountDownLatch(1);
         var run = Procwright.command(ExampleSupport.workerCommand("finite"))
                 .run()
@@ -26,5 +27,6 @@ public final class DiagnosticsExample {
         if (!processExited.await(5, TimeUnit.SECONDS)) {
             throw new IllegalStateException("PROCESS_EXITED diagnostic was not delivered");
         }
+        // docs:end observe
     }
 }

@@ -57,18 +57,19 @@ if (!result.succeeded()) {
 A launch or supervision failure throws `CommandExecutionException` directly. See [results and errors](reference/results-and-errors.md)
 when you need to distinguish failure reasons.
 
-## Keep this model
+## Reuse configuration
 
 | Part | Meaning |
 | --- | --- |
 | `command(...)` | Executable and reusable launch context |
 | `run()`, `protocolSession(...)`, or another scenario | How you interact with that process |
-| `with*` | A new configuration snapshot; the original remains unchanged |
+| `with*` | A new configuration; keep the returned value |
 | `execute()` / `open()` | Start work and obtain a result / owned handle |
 
 ## Take the next step
 
 - [Use a JSON Lines worker as a service](how-to/wrap-cli-tool.md): two calls through one process, with explicit ownership.
-- [Follow live output](how-to/follow-logs.md): receive chunks without retaining all output.
+- [Follow live output](how-to/follow-logs.md): show logs and progress with `demoListen`.
+- [Send stdin or capture output in files](how-to/run-finite-command.md): adapt the command to your data.
 - [Choose another process scenario](how-to/choose-process-scenario.md): line protocols, prompts, and raw I/O.
 - [Use Procwright in your application](release/installation.md): Gradle and Maven dependency setup.

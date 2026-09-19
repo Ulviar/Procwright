@@ -1,7 +1,7 @@
 # Use a JSON Lines worker as a service
 
-Keep one CLI process open across calls to a small Java service. This walkthrough uses the ready-made JSON Lines adapter
-from `procwright-integrations`; the included worker counts Unicode code points and UTF-8 bytes.
+Wrap a long-lived CLI in a Java service with ordinary typed methods. This example uses the JSON Lines adapter from
+`procwright-integrations`; its worker counts Unicode code points and UTF-8 bytes.
 
 ## Run it
 
@@ -20,7 +20,7 @@ café: Metrics[codePoints=4, utf8Bytes=5]
 
 Both requests go through the same session. The worker stays alive until the service is closed.
 
-## Give the process one owner
+## Keep the service open across calls
 
 The client creates the service once, uses it twice, and closes it:
 
@@ -33,8 +33,8 @@ try (var service = new TextWorkerService(command)) {
 ```
 
 In the demo, `command` launches the [included worker](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLinesTextWorker.java).
-In your application, supply a `CommandSpec` for your executable. Create the service with its application owner and close
-it when that owner stops; do not create a new service inside each business-method call.
+In your application, supply a `CommandSpec` for your executable. Create the service once in the component that uses it
+and close it when that component stops. Creating it inside each `analyze` call would launch a new process each time.
 
 These are the lifecycle methods inside [TextWorkerService.java](../examples/integrations/io/github/ulviar/procwright/examples/integration/TextWorkerService.java):
 
@@ -61,7 +61,7 @@ same source file. One session serializes concurrent calls, so they cannot mix pr
 
 ## Map your domain types
 
-The service's `draft` method supplies request encoding, response decoding, and the existing JSON Lines transport:
+The service's `draft` method maps Java records to JSON and selects JSON Lines framing:
 
 <!-- procwright-example: examples/integrations/io/github/ulviar/procwright/examples/integration/TextWorkerService.java#protocol -->
 ```java
@@ -80,9 +80,8 @@ The worker reads a JSON value followed by LF, for example `{"text":"hello"}`, an
 `{"codePoints":5,"utf8Bytes":5}` followed by LF. It must flush each reply and reserve stdout for protocol messages;
 send logs to stderr. JSON Lines uses strict UTF-8.
 
-The adapter caps a response line, including LF, at 64 KiB. Core defaults additionally bound request bytes, response bytes,
-and the five-second request wait. Output buffers follow the response byte limit. Change these only when the worker needs different budgets; see
-[protocol defaults](../reference/defaults.md#protocol-sessions).
+The adapter caps each response line, including LF, at 64 KiB. Requests have a five-second timeout by default. Core byte
+limits also bound messages and unread output; see [protocol defaults](../reference/defaults.md#protocol-sessions).
 
 ## Connect your worker
 
@@ -92,20 +91,21 @@ A worker with this same JSON contract can replace the bundled one:
 ./gradlew -q demoWorker --args='my-worker --json-lines'
 ```
 
-For a different JSON schema, edit the two records and the encode/decode functions. The adapter factory already creates
-separate protocol state for each session. The [complete client](../examples/integrations/io/github/ulviar/procwright/examples/integration/WorkerServiceExample.java)
-and [worker](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLinesTextWorker.java) are separate files.
-Copy the client and service into your application. In `WorkerServiceExample` or `WorkerPoolExample`, replace
+For a different JSON schema, edit the two records and the encode/decode functions. Copy the
+[client](../examples/integrations/io/github/ulviar/procwright/examples/integration/WorkerServiceExample.java) and
+[service](../examples/integrations/io/github/ulviar/procwright/examples/integration/TextWorkerService.java) into your application.
+In `WorkerServiceExample` or `WorkerPoolExample`, replace
 `JsonLinesTextWorker.command(args)` with `CommandSpec.of("my-worker").withArgs("--json-lines")` to remove the dependency
 on the bundled worker.
 
 For a separate application, add `procwright-integrations`; it brings in core and Jackson transitively.
 [Dependency setup](../release/installation.md#optional-modules) gives the build snippets.
 
-An admitted protocol request failure closes the session. Let the service owner replace it before another call;
-[results and errors](../reference/results-and-errors.md#sessions) describes typed reasons.
-A timeout while waiting behind another call leaves the session open; see the
-[protocol request lifecycle](../scenarios/protocol-session.md) for the admission boundary.
+Once a request starts its turn, a timeout or protocol failure closes the session. Replace the service before another
+call; a failed request may already have had an effect in the worker, so retry only when your operation allows it.
+A timeout while waiting behind another call leaves a healthy session open. See
+[protocol request failures](../scenarios/protocol-session.md#request-failures) for the boundary and
+[results and errors](../reference/results-and-errors.md#sessions) for exception reasons.
 
 Next: [use the same protocol configuration with a pool](reuse-workers.md) when requests are independent and concurrent.
 For another wire format, choose a [ready-made adapter](../scenarios/integrations.md) before writing custom framing.

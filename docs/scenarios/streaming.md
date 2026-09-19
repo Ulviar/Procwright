@@ -1,67 +1,40 @@
 # Streaming
 
-`listen()` delivers stdout and stderr chunks while the process runs without retaining complete output.
+`listen()` delivers stdout and stderr while the process runs, without collecting a complete result in memory.
+Start with [Follow live output](../how-to/follow-logs.md) for a runnable log and progress example.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ListenExample.java -->
-```java
-/* SPDX-License-Identifier: Apache-2.0 */
+## Output delivery
 
-package io.github.ulviar.procwright.examples;
+Register `onOutput` before `open()`. Each `StreamChunk` contains a source (`STDOUT` or `STDERR`) and decoded text.
+Chunks are fragments, not lines or individual writes: a line or progress update can span several callbacks. Procwright
+preserves control characters such as `\r`; it does not interpret terminal escape sequences.
 
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.session.StreamExit;
-import io.github.ulviar.procwright.session.StreamSession;
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+Within one session, callbacks are synchronous and serialized across stdout and stderr. A slow callback slows output
+reading instead of creating an unbounded queue. Delivery preserves each stream's order; do not rely on an ordering
+between stdout and stderr.
 
-public final class ListenExample {
+A Draft retains its listener. Concurrent opens can call that same listener from different sessions at once, so either
+make it thread-safe or give each Draft branch its own listener.
 
-    private ListenExample() {}
+## Completion and shutdown
 
-    public static void main(String[] args) {
-        AtomicInteger chunks = new AtomicInteger();
-        try (StreamSession stream = Procwright.command(ExampleSupport.workerCommand("listen"))
-                .listen()
-                .withTimeout(Duration.ofSeconds(2))
-                .onOutput(chunk -> chunks.incrementAndGet())
-                .open()) {
-            StreamExit exit = stream.onExit().orTimeout(5, TimeUnit.SECONDS).join();
-            if (!exit.timedOut() || chunks.get() == 0) {
-                throw new IllegalStateException("Expected bounded log streaming");
-            }
-        }
-    }
-}
-```
+`onExit()` returns a future with a `StreamExit`. Inspect `exitCode()` for the process status and `timedOut()` to detect
+deadline shutdown. A nonzero exit code is a result, not an exception.
 
-[Open `ListenExample.java`](../examples/java/io/github/ulviar/procwright/examples/ListenExample.java) and the
-[shared example sources](../examples.md#core).
+On natural completion, Procwright drains stdout and stderr. When `onExit()` completes, all callbacks have returned and
+no later callback can begin. A descendant that inherits an output pipe can keep it open after the root process exits.
+Set `withTimeout(...)` to bound the wait for both process exit and remaining output.
 
-Register `onOutput` before `open()`. The listener is the only output owner. Listener `RuntimeException`s, output I/O
-failures, and other ordinary callback failures terminate the scenario and complete `onExit()` exceptionally with
-`StreamException`. A fatal `Error` is not wrapped: `onExit()` fails with the same `Error` instance. `open()` reports only
-launch and construction failures.
+Closing the session stops the process. Close and timeout reject new output deliveries, but a callback admitted just
+before stopping may still start or finish after `onExit()` completes. Shutdown does not wait indefinitely for that
+callback.
 
-Within one stream session, stdout and stderr listener calls are synchronous and serialized. Concurrent opens of one Draft
-can invoke the same retained listener instance from different sessions, so a shared listener must be thread-safe. Use
-separate Draft branches with separate listener instances when it is not. Diagnostic recipients follow their asynchronous
-delivery contract and can also overlap across sessions.
+`withTimeout(...)` sets an absolute runtime limit; zero disables it. The [defaults reference](../reference/defaults.md#streaming)
+lists the timeout, shutdown, charset, and diagnostic settings.
 
-After natural process exit completes `onExit()`, all listener calls have returned and no later call can begin. This
-preserves output that Procwright has already read from the process. Explicit `close()` and the scenario timeout admit no
-further deliveries, but a delivery admitted immediately before stopping may invoke or remain inside the listener after
-`onExit()` completes. Application shutdown therefore is not held indefinitely by that callback.
+## Failures and input
 
-Natural completion also waits for stdout and stderr EOF. A descendant that inherits either pipe can keep it open after
-the root process exits. Use `withTimeout(...)` when that topology is possible; the same absolute timeout bounds the
-remaining output drain and then applies the configured shutdown policy.
+`open()` reports launch and construction failures. Later output I/O and ordinary callback failures stop the session
+and fail `onExit()` with a `StreamException`. A fatal `Error` fails the future with the same `Error` instance.
 
-`listen()` closes stdin when the process starts. Use [`interactive()`](interactive.md) when the caller needs to write
-stdin.
-
-`withTimeout` sets an absolute runtime limit; zero disables it. `StreamExit.timedOut()` distinguishes deadline shutdown
-from a normal exit. Closing the session stops its process.
-
-See [scenario defaults](../reference/defaults.md#streaming) for timeout, shutdown, charset, retained diagnostics, and
-listener values.
+`listen()` closes stdin when the process starts. Choose [`interactive()`](interactive.md) when you need to write input.

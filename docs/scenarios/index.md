@@ -3,7 +3,7 @@
 | Process contract | Reference | Task guide |
 | --- | --- | --- |
 | Finite command | [Run](run.md) | [Run a finite command](../how-to/run-finite-command.md) |
-| Direct live I/O | [Interactive](interactive.md) | [Interactive example](interactive.md#interactive-sessions) |
+| Direct live I/O | [Interactive](interactive.md) | [Interactive example](interactive.md) |
 | Prompt matching | [Expect](expect.md) | [Automate prompts](../how-to/automate-prompts.md) |
 | Line-oriented request/response | [Line session](line-session.md) | [Talk to a line worker](../how-to/talk-to-line-worker.md) |
 | Custom framed or typed messages | [Protocol session](protocol-session.md) | [Typed JSON Lines service](../how-to/wrap-cli-tool.md) |

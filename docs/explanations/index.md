@@ -1,5 +1,6 @@
 # Explanations
 
-- [Scenario-first design](scenario-first.md) explains how process behavior selects an API.
-- [Output ownership rationale](output-ownership.md) explains why each process selects one output consumer before launch.
-- [Process cleanup limits](process-cleanup-limits.md) explains when descendants can survive timeout or close.
+- [Why choose a scenario before launch?](scenario-first.md)
+- [What do timeout and close guarantee?](process-cleanup-limits.md)
+
+For settings and exact behavior, use the [reference](../reference/index.md).

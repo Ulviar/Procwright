@@ -1,32 +1,19 @@
 # Talk to a line worker
 
-Use `lineSession()` only when one request is one encoded line and one response is one stdout line.
+Keep one process open and send it repeated text requests with `lineSession()`. Each request must fit on one line. By
+default, the next stdout line is the response; a custom decoder can collect several response lines.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java -->
+The worker must flush each reply and reserve stdout for responses. Send logs to stderr.
+
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java#request -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.session.LineResponse;
-import io.github.ulviar.procwright.session.LineSession;
-import java.time.Duration;
-
-public final class LineSessionExample {
-
-    private LineSessionExample() {}
-
-    public static void main(String[] args) {
-        try (LineSession session = Procwright.command(ExampleSupport.workerCommand("line"))
-                .lineSession()
-                .withRequestTimeout(Duration.ofSeconds(5))
-                .open()) {
-            LineResponse response = session.request("Zażółć gęślą jaźń");
-            if (!response.text().equals("response:Zażółć gęślą jaźń")) {
-                throw new IllegalStateException("Unexpected line response");
-            }
-        }
+try (LineSession session = Procwright.command(ExampleSupport.workerCommand("line"))
+        .lineSession()
+        .withRequestTimeout(Duration.ofSeconds(5))
+        .open()) {
+    LineResponse response = session.request("Zażółć gęślą jaźń");
+    if (!response.text().equals("response:Zażółć gęślą jaźń")) {
+        throw new IllegalStateException("Unexpected line response");
     }
 }
 ```
@@ -34,15 +21,17 @@ public final class LineSessionExample {
 [Open `LineSessionExample.java`](../examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java) and the
 [shared example sources](../examples.md#core).
 
-This example uses the exact defaults: one exchange is capped at 1,024 response lines and 1,048,576 response characters,
-and unread stdout is capped at 1,024 lines and 1,048,576 characters. See
-[line-session defaults](../reference/defaults.md#line-sessions) for the request, line, transcript, and decoding limits.
+Replace `ExampleSupport.workerCommand("line")` with `CommandSpec.of("my-worker").withArgs("--line-mode")` for a worker
+with the same protocol. Import `io.github.ulviar.procwright.command.CommandSpec`. Pass request text without a line
+terminator; Procwright appends LF. The included worker replies with `response:<request>` followed by LF.
 
-One session permits one request at a time. Set a request timeout and close the session with try-with-resources. Local
-validation, request-size, encoding, and wait failures leave the direct session open when the request was not handed off
-for stdin writing and cannot write later. Once it is handed off, a timeout, interruption, or write failure closes the
-direct session because stream framing can no longer be trusted, even if no received byte can be confirmed. EOF, malformed
-output, oversized response, and other protocol failures are also terminal.
+Call `session.request(...)` again to reuse the same process. Concurrent calls are serialized. The default request timeout
+is five seconds, and try-with-resources closes the worker when you finish.
 
-Use [protocol sessions](../scenarios/protocol-session.md) when requests or responses can contain newlines or use custom
-framing.
+The default response limit is 1,024 lines and 1,048,576 characters per exchange. Unread stdout uses the same bounds. See
+[line-session contracts](../scenarios/line-session.md) for multiline decoding, limits, and when a failed request leaves
+the session reusable.
+
+For requests containing newlines or framing based on bytes rather than lines, use a
+[protocol session](../scenarios/protocol-session.md). For a JSON Lines worker with typed requests and responses, follow
+the [service walkthrough](wrap-cli-tool.md).

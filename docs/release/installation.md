@@ -1,11 +1,7 @@
-# Installation
+# Use Procwright in your application
 
-No public release exists yet. Use JDK 25 to build and run Procwright; all release artifacts target Java 25.
-
-!!! note "No public repository yet"
-    Install the planned `0.1.0` artifacts from the Procwright checkout with the exact command below. After the artifacts
-    are published to a public Maven repository, replace `mavenLocal()` with the repository configuration required by
-    that registry; the coordinates remain the same.
+Procwright requires JDK 25. There is no public artifact yet; to use this checkout from another application, install
+its artifacts into your local Maven repository:
 
 ```shell
 ./gradlew publishToMavenLocal \
@@ -52,20 +48,14 @@ Maven:
 </dependency>
 ```
 
-The six exported core packages are `@NullMarked` with JSpecify 1.0.1. Build tools receive JSpecify as published API
-metadata so Kotlin and other nullness-aware consumers can enforce the contract; the core runtime itself still has no
-dependency outside the JDK. On the module path, core declares `requires static transitive org.jspecify`.
-
 ## Optional modules
 
 Use `procwright-kotlin` for Kotlin duration, coroutine, Flow, and adapter-factory extensions. Use
-`procwright-integrations` for JSON and byte-framing protocol adapters.
-`procwright-integrations` exposes `tools.jackson.core:jackson-databind:3.2.2` transitively because Jackson 3 types (`tools.jackson.databind.JsonNode`) are part of its public
-adapter API. Check your dependency constraints before adding it to an application that manages a different Jackson version.
+`procwright-integrations` for JSON and byte-framing protocol adapters. Both depend on core, so you do not need to declare
+the core dependency separately when using either module. Add only the modules your application needs.
 
-The Kotlin artifact is the explicit JPMS module `io.github.ulviar.procwright.kotlin`. A named consumer needs only
-`requires io.github.ulviar.procwright.kotlin`; core, Kotlin stdlib, and coroutines are readable through transitive module
-requirements.
+`procwright-integrations` exposes Jackson Databind 3.2.2 transitively because Jackson 3 types
+(`tools.jackson.databind.JsonNode`) appear in its public adapter API. Check dependency constraints if your application manages a different Jackson version.
 
 Gradle Kotlin DSL:
 
@@ -100,3 +90,6 @@ Maven:
     <version>0.1.0</version>
 </dependency>
 ```
+
+See [Kotlin usage](../reference/kotlin-api.md) for coroutine imports and JPMS setup, or
+[protocol integrations](../scenarios/integrations.md) to choose a framing adapter.

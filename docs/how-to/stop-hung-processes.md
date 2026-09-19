@@ -1,35 +1,19 @@
 # Stop a hung command
 
-Set a timeout on the scenario Draft and choose a shutdown policy before the terminal call.
+Set an execution timeout and allow time for graceful shutdown before forcing the process to stop. This example starts
+a bundled worker that deliberately hangs; replace its command with your CLI.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/StopHungCommandExample.java -->
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/StopHungCommandExample.java#timeout -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
+CommandResult result = Procwright.command(ExampleSupport.workerCommand("hang"))
+        .run()
+        .withCapture(CapturePolicy.bounded(64 * 1024))
+        .withTimeout(Duration.ofMillis(250))
+        .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1)))
+        .execute();
 
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CapturePolicy;
-import io.github.ulviar.procwright.command.CommandResult;
-import io.github.ulviar.procwright.command.ShutdownPolicy;
-import java.time.Duration;
-
-public final class StopHungCommandExample {
-
-    private StopHungCommandExample() {}
-
-    public static void main(String[] args) {
-        CommandResult result = Procwright.command(ExampleSupport.workerCommand("hang"))
-                .run()
-                .withCapture(CapturePolicy.bounded(64 * 1024))
-                .withTimeout(Duration.ofMillis(250))
-                .withShutdown(ShutdownPolicy.interruptThenKill(Duration.ofMillis(250), Duration.ofSeconds(1)))
-                .execute();
-
-        if (!result.timedOut()) {
-            throw new IllegalStateException("Expected the worker to time out");
-        }
-    }
+if (!result.timedOut()) {
+    throw new IllegalStateException("Expected the worker to time out");
 }
 ```
 
@@ -40,8 +24,10 @@ The first duration limits command execution. The shutdown policy then allows 250
 using forceful termination, which gets its own one-second deadline. Inspect `CommandResult.timedOut()` to distinguish
 this outcome from a normal non-zero exit.
 
-For sessions, an admitted operation timeout or close shuts down the owned process. A line request that times out before
-stdin handoff, or a protocol request that times out while waiting for its serialized slot, leaves its direct session open
-because it cannot have changed wire state. Cleanup is not an OS sandbox; detached descendants can outlive the observed
-process tree. See
-[process cleanup limits](../explanations/process-cleanup-limits.md).
+Long-lived sessions have separate request, match, and idle timeouts. Their effect on session reuse depends on the
+scenario; see [timeouts and shutdown](../reference/policies.md#timeouts-and-shutdown) and
+[session failures](../reference/results-and-errors.md#decide-whether-the-session-can-be-reused).
+Close each session handle when finished.
+
+Detached or inaccessible descendants can survive process-tree cleanup. See
+[timeout and close guarantees](../explanations/process-cleanup-limits.md) when a command starts other processes.

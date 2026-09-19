@@ -1,197 +1,103 @@
 # Protocol sessions
 
-`protocolSession(adapterFactory)` models request/response protocols whose adapter owns framing and typed conversion.
+A protocol session keeps one worker alive and maps typed requests and responses to its wire format. Each request writes
+one message and reads one reply; concurrent requests on the session are serialized.
 
 ## Ready-made protocols
 
 For JSON Lines, delimiter-framed bytes, or Content-Length JSON, start with the
-[ready-made adapters](integrations.md). The [typed JSON Lines walkthrough](../how-to/wrap-cli-tool.md) turns one worker
-into a service without implementing a framing adapter.
+[ready-made adapters](integrations.md). The [typed JSON Lines walkthrough](../how-to/wrap-cli-tool.md) turns a worker into
+a service without implementing a framing adapter.
 
 ## Custom framing
 
-Implement an adapter when the worker uses another wire format. The following complete example uses byte-length requests
-and multi-line responses. Its adapter and worker sources are linked below.
+Implement `ProtocolAdapter<I, O>` when the worker uses another wire format. `writeRequest` encodes one request;
+`readResponse` consumes exactly one reply. This example sends a UTF-8 byte count followed by text, including embedded
+newlines:
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java -->
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java#request -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CharsetPolicy;
-import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentRequest;
-import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentResponse;
-import io.github.ulviar.procwright.session.ProtocolSession;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-
-public final class ProtocolSessionExample {
-
-    private ProtocolSessionExample() {}
-
-    public static void main(String[] args) {
-        try (ProtocolSession<DocumentRequest, DocumentResponse> session = Procwright.command(
-                        ExampleSupport.workerCommand("protocol"))
-                .protocolSession(LengthLineFrameAdapter::new)
-                .withRequestTimeout(Duration.ofSeconds(5))
-                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
-                .withMaxRequestBytes(16_384)
-                .withMaxRequestChars(8192)
-                .withMaxResponseBytes(16_384)
-                .withMaxResponseChars(8192)
-                .open()) {
-            DocumentResponse response = session.request(new DocumentRequest("first line\nПривет, 世界"));
-            if (!response.text().equals("first line\nПривет, 世界")) {
-                throw new IllegalStateException("Unexpected protocol response");
-            }
-        }
+try (ProtocolSession<DocumentRequest, DocumentResponse> session = Procwright.command(
+                ExampleSupport.workerCommand("protocol"))
+        .protocolSession(LengthLineFrameAdapter::new)
+        .withRequestTimeout(Duration.ofSeconds(5))
+        .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
+        .withMaxRequestBytes(16_384)
+        .withMaxRequestChars(8192)
+        .withMaxResponseBytes(16_384)
+        .withMaxResponseChars(8192)
+        .open()) {
+    DocumentResponse response = session.request(new DocumentRequest("first line\nПривет, 世界"));
+    if (!response.text().equals("first line\nПривет, 世界")) {
+        throw new IllegalStateException("Unexpected protocol response");
     }
 }
 ```
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/DocumentProtocol.java -->
-```java
-/* SPDX-License-Identifier: Apache-2.0 */
+[Client and imports](../examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java) ·
+[Request and response records](../examples/java/io/github/ulviar/procwright/examples/DocumentProtocol.java) ·
+[Adapter](../examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java) ·
+[Worker](../examples/java/io/github/ulviar/procwright/examples/ExampleWorker.java)
 
-package io.github.ulviar.procwright.examples;
+The adapter writes `<bytes>\n<body>` and reads `len:<bytes>\n<body>\nEND\n`. Lengths count UTF-8 bytes, not Java characters.
+It bounds the response header at 64 characters and the response body at 8,192 bytes and 4,096 decoded characters. The
+worker must flush each reply. Replace `ExampleSupport.workerCommand("protocol")` with a `CommandSpec` for your executable,
+and change the adapter to match its format. See [running the examples](../examples.md#core) for the shared support sources.
 
-public final class DocumentProtocol {
+## Adapter ownership
 
-    private DocumentProtocol() {}
+Pass an adapter factory, such as `LengthLineFrameAdapter::new`, that returns a fresh adapter for every session or pool
+worker. Factories may run concurrently. Create mutable adapter state inside the factory; captured mutable state remains
+shared. A factory exception or `null` result fails before a process starts.
 
-    public record DocumentRequest(String text) {}
+Within one session, writing finishes before response decoding starts, and adapter callbacks do not overlap across
+requests. Different sessions can run concurrently. Readiness, diagnostics recipients, and a custom PTY provider retain
+the instances supplied to the Draft, so make those callbacks thread-safe or use separate instances.
 
-    public record DocumentResponse(String text) {}
-}
-```
+`ProtocolWriter` and `ProtocolReader` are valid only inside their adapter callback, on its thread. Do not save them or
+pass them to another thread. A late or cross-thread call fails before touching process I/O.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java -->
-```java
-/* SPDX-License-Identifier: Apache-2.0 */
+## Read text and bytes
 
-package io.github.ulviar.procwright.examples;
+Choose the reader method that matches the wire format:
 
-import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentRequest;
-import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentResponse;
-import io.github.ulviar.procwright.session.ProtocolAdapter;
-import io.github.ulviar.procwright.session.ProtocolReader;
-import io.github.ulviar.procwright.session.ProtocolReaders;
-import io.github.ulviar.procwright.session.ProtocolWriter;
-import java.nio.charset.StandardCharsets;
+| Field | Reader method |
+| --- | --- |
+| LF-terminated text, with optional CR before LF | `readLine(maxChars)` |
+| A complete text field with a declared byte length | `readTextExactly(byteLength, maxChars)` |
+| Text through a single-byte delimiter, including that delimiter | `readTextUntil(delimiter, maxChars)` |
+| Raw bytes | `readExactly(length)`, `readUntil(delimiter, maxBytes)`, or `read(...)` |
 
-final class LengthLineFrameAdapter implements ProtocolAdapter<DocumentRequest, DocumentResponse> {
+Continuous text reads share decoder state. Exact text fields use a separate decoder; raw reads do not decode text or
+consume the character budget. Switch between these modes only at complete character boundaries. Procwright rejects a
+mode switch while continuous decoding has an incomplete character or unread line output. After arbitrary raw bytes,
+the adapter must establish the character boundary itself.
 
-    private static final int MAX_HEADER_CHARS = 64;
-    private static final int MAX_BODY_BYTES = 8192;
-    private static final int MAX_BODY_CHARS = 4096;
+Text methods apply the selected `CharsetPolicy`. Use strict decoding, as above, when malformed text should fail the
+protocol. A character-limit failure in `readTextExactly` stops reading and closes the session; it does not drain the
+remaining field.
 
-    @Override
-    public void writeRequest(DocumentRequest request, ProtocolWriter writer) {
-        byte[] body = request.text().getBytes(StandardCharsets.UTF_8);
-        if (body.length > MAX_BODY_BYTES) {
-            throw new IllegalArgumentException("Request body exceeds " + MAX_BODY_BYTES + " UTF-8 bytes");
-        }
-        writer.writeLine(Integer.toString(body.length));
-        writer.write(request.text());
-        writer.flush();
-    }
+## Limits and diagnostics
 
-    @Override
-    public DocumentResponse readResponse(ProtocolReaders readers) {
-        ProtocolReader stdout = readers.stdout();
-        int length = parseBodyLength(stdout.readLine(MAX_HEADER_CHARS));
-        String body = stdout.readTextExactly(length, MAX_BODY_CHARS);
-        if (!stdout.readLine(8).isEmpty() || !stdout.readLine(16).equals("END")) {
-            throw new IllegalStateException("Unexpected frame terminator");
-        }
-        return new DocumentResponse(body);
-    }
+Set `withMaxRequestBytes(...)` and `withMaxResponseBytes(...)` to fit complete messages, including headers and delimiters.
+Response reads share one byte budget across stdout and stderr. Text reads also count toward the response character
+budget; each reader call's local limit applies in addition. These limits bound I/O, not the total memory allocated by
+adapter code. See [protocol defaults](../reference/defaults.md#protocol-sessions).
 
-    static int parseBodyLength(String header) {
-        String prefix = "len:";
-        if (!header.startsWith(prefix) || header.length() == prefix.length()) {
-            throw invalidHeader(header);
-        }
-        if (header.length() > prefix.length() + 1 && header.charAt(prefix.length()) == '0') {
-            throw invalidHeader(header);
-        }
-        int length = 0;
-        for (int index = prefix.length(); index < header.length(); index++) {
-            char digit = header.charAt(index);
-            if (digit < '0' || digit > '9') {
-                throw invalidHeader(header);
-            }
-            int value = digit - '0';
-            if (length > (MAX_BODY_BYTES - value) / 10) {
-                throw invalidHeader(header);
-            }
-            length = length * 10 + value;
-        }
-        return length;
-    }
+Each unread stdout/stderr queue uses the response byte limit. Excess response or queued stdout produces
+`RESPONSE_TOO_LARGE` and closes the session. Keep worker logs on stderr: its overflow fails a request only if the adapter
+reads stderr, while the retained diagnostic transcript remains independently bounded.
 
-    private static IllegalStateException invalidHeader(String header) {
-        return new IllegalStateException("Invalid response length header: " + header);
-    }
-}
-```
+## Request failures
 
-[Open `ProtocolSessionExample.java`](../examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java),
-[the message types](../examples/java/io/github/ulviar/procwright/examples/DocumentProtocol.java),
-[the adapter](../examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java), and the
-[shared example sources](../examples.md#core).
+A timeout or interruption while waiting behind another request sends no bytes and leaves a healthy direct session open.
+If the session has already failed, its selected failure takes precedence.
 
-Pass a `Supplier<ProtocolAdapter<I, O>>`. Each `open()` and each pool worker receives a fresh adapter. Only mutable state
-created by or owned by that adapter is isolated. Factory calls may overlap during concurrent opens or pool startup; mutable
-state captured from outside remains shared and must be synchronized or avoided. Factory failure or `null` fails before a
-process starts.
+Once the request acquires its turn, any timeout, interruption, callback-start failure, or protocol failure closes the
+session. At that point, failure cannot prove that the worker received no input or performed no work. Reopen the session
+before further requests, and do not blindly retry work that may have side effects.
 
-One session serializes its adapter calls: request writing completes before response decoding, and no second request cycle
-overlaps them. Different factory-created adapters can run concurrently. Readiness, diagnostics recipients, and a custom
-PTY provider are retained separately from the adapters; concurrent direct opens and protocol-pool workers can invoke the
-same supplied instances concurrently. Make them thread-safe or use separate Draft branches with separate instances.
-
-A timeout or interruption while waiting for the serialized request slot happens before adapter admission, writes no
-request bytes and leaves the direct session open. The caller can retry after the active request completes. If the session
-has already selected a terminal failure or fatal error, that outcome wins instead. Once the serialized slot is acquired,
-the request owns the session; a timeout, interruption, callback-start failure, or protocol failure closes the direct
-session because the runtime can no longer prove that request processing did not begin. That selected
-`ProtocolSessionException` also completes a still-pending `onExit()` exceptionally. After a request timeout, an adapter
-callback that ignores interruption may keep running on its daemon thread. It does not delay `onExit()`, and its eventual
-return or failure cannot replace the timeout.
-
-`ProtocolWriter` and `ProtocolReader` are callback-scoped and thread-confined. Use them only on the thread executing the
-adapter callback and do not retain them after it returns. A late or cross-thread call fails before touching process I/O,
-so it cannot write during response decoding or consume output belonging to a later request.
-
-`DocumentRequest` and `DocumentResponse` keep the public session typed while `LengthLineFrameAdapter` owns wire framing.
-The adapter writes the UTF-8 byte length of `DocumentRequest.text()` and then its text. It reads
-`len:<bytes>\n<body>\nEND\n`; a body such as
-`first line\nsecond line` therefore ends with `second line\nEND\n`, not an extra blank line. `readTextExactly` treats
-the declared body bytes as one complete field, applies strict UTF-8 decoding, and enforces both its local character
-limit and the response-global character budget. The adapter bounds the header at 64 characters and accepts only an
-ASCII decimal body length from 0 through 8192 bytes.
-
-Set `withMaxResponseBytes(...)` to accept larger responses, including headers and delimiters. Each unread stdout/stderr
-queue follows this byte limit automatically; one complete allowed response fits before the adapter starts reading it.
-Unsolicited output or multiple unread responses share that capacity. The limit is not a total heap budget.
-
-Excess response or queued stdout produces `RESPONSE_TOO_LARGE` and fails the session. Stderr overflow discards its queued
-bytes and stores a failure marker; it produces `RESPONSE_TOO_LARGE` only if the adapter reads stderr. Adapters that never
-use stderr can continue while retained diagnostics remain independently bounded.
-
-Every `ProtocolReader` method enforces the session deadline, response-global byte budget, and the selected stream's
-unread backlog state. Text methods additionally apply the configured `CharsetPolicy` and response-global character
-budget. Raw methods such as
-`readExactly` return bytes without decoding and therefore do not count characters. Use `readTextExactly` for a
-length-framed complete text field; use `readLine` or `readTextUntil` for a continuous text stream. Switch modes only at
-complete character boundaries. Procwright rejects a raw or exact-field read before consumption when continuous decoding
-still holds an incomplete character. It cannot infer a boundary after arbitrary raw bytes, so the adapter must know its
-framing before returning to continuous text. `readTextExactly` reads and decodes bounded chunks. Once it detects a
-character-limit violation, it reads no further chunks. The number of input bytes consumed before that failure is
-unspecified. The failure is terminal; session close discards any unread field bytes.
-
-See [scenario defaults](../reference/defaults.md#protocol-sessions) for request, response, backlog, decoding, terminal,
-and readiness limits.
+The selected `ProtocolSessionException` completes a still-pending `onExit()` exceptionally. An adapter that ignores
+interruption may continue after a timeout; `onExit()` does not wait for it or a blocked physical stream close. Its eventual
+result cannot replace the selected failure. See [results and errors](../reference/results-and-errors.md#sessions) for
+reason codes and exit-code availability.

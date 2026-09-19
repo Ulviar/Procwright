@@ -15,6 +15,7 @@ public final class ProtocolSessionExample {
     private ProtocolSessionExample() {}
 
     public static void main(String[] args) {
+        // docs:start request
         try (ProtocolSession<DocumentRequest, DocumentResponse> session = Procwright.command(
                         ExampleSupport.workerCommand("protocol"))
                 .protocolSession(LengthLineFrameAdapter::new)
@@ -30,5 +31,6 @@ public final class ProtocolSessionExample {
                 throw new IllegalStateException("Unexpected protocol response");
             }
         }
+        // docs:end request
     }
 }

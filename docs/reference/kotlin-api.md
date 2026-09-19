@@ -22,26 +22,17 @@ kotlin {
 }
 ```
 
-The Kotlin artifact brings in Procwright core, Kotlin standard library, and coroutines transitively. It requires a
-compiler that can read Kotlin 2.4 metadata. The Java persistent Draft API remains the primary API; this module adds
-type-safe durations, coroutine terminals, Flow streaming, and a protocol adapter factory DSL.
+The Kotlin artifact includes core, the Kotlin standard library, and coroutines transitively. Use a compiler that can read
+Kotlin 2.4 metadata. You keep the Java scenario API and gain Kotlin durations, suspending calls, Flow, and a protocol
+adapter factory DSL.
 
-Use the [generated Kotlin API](../api/kotlin/index.html) for exact receivers and overloads. This page focuses on the
-contracts needed to choose and use those extensions safely.
+See the [generated Kotlin API](../api/kotlin/index.html) for exact receivers and overloads. Import extensions from
+`io.github.ulviar.procwright.kotlin`; the examples below link to source files with complete imports.
 
-Core's exported packages use JSpecify `@NullMarked`: Kotlin callers must pass non-null command arguments and vararg
-elements, and protocol request and response types are non-null (`I : Any`, `O : Any`).
+Command arguments and vararg elements must be non-null. Protocol request and response types are also non-null
+(`I : Any`, `O : Any`).
 
-For a named JPMS application, require only the Kotlin module:
-
-<!-- procwright-docs: build-configuration -->
-```java
-module example.application {
-    requires io.github.ulviar.procwright.kotlin;
-}
-```
-
-The module transitively requires core, Kotlin stdlib, and coroutines.
+## Run a command
 
 Inside a coroutine, execute a command and inspect its result. Here `javaExecutable()` selects the current JDK;
 the linked complete example includes this helper and the imports.
@@ -64,48 +55,95 @@ if (!version.succeeded()) {
 
 ## Durations
 
-Scenario Draft timeouts, request calls, `Expect`, pool acquisition, hooks, and `withCloseTimeout` accept
-`kotlin.time.Duration`. The extensions return the same Java Draft types. Pool `use` is safe because core `close()` performs
-a bounded synchronous drain.
+Timeout extensions accept `kotlin.time.Duration` and return the same immutable Java draft types. Retain the returned
+draft, as in `.withTimeout(5.seconds)` above. Use `use { ... }` to close opened sessions and pools; see the
+[pool lifecycle example](../examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinPoolExample.kt).
 
 ## Coroutines
 
-- `RunScenario.Draft.executeAwait()` executes on an interruptible I/O dispatcher. Cancellation interrupts the core call,
-  which applies the Draft's shutdown policy to its process.
-- Direct and pooled `requestAwait(...)` variants preserve core request and acquisition timeouts. Cancelling while waiting
-  for a direct line or protocol request slot abandons only that call; no request is handed to stdin and the session remains
-  reusable. A line request remains retryable until stdin handoff; a protocol request becomes terminal once it acquires the
-  serialized slot, even if callback scheduling has not written yet. Cancelling an active pooled request retires its worker,
-  while cancellation during worker acquisition abandons only that wait.
-- `awaitExit()` waits for Expect, interactive, line, protocol, or stream exit. Cancelling the waiter does not close the
-  handle or cancel its shared exit future.
+`executeAwait()` and `requestAwait(...)` run blocking core calls on an interruptible I/O dispatcher. Request and pool
+acquisition timeouts still apply. Cancellation has these effects:
 
-There is no suspending `openAwait()`. Resource-returning terminals remain explicit `open()` calls so ownership cannot be
-lost in a cancellation race.
+| Operation | Effect of cancellation |
+| --- | --- |
+| `executeAwait()` | Interrupt the call and stop its process using the configured shutdown policy. |
+| Direct `requestAwait(...)`, waiting behind another request | Abandon only this call; keep the session reusable. |
+| Active direct line request | Stop the session once stdin writing has been admitted. |
+| Active direct protocol request | Stop the session once it has acquired the request slot, even if no bytes have been written. |
+| Pooled request, waiting for a worker | Abandon only the acquisition wait. |
+| Active pooled request | Retire its worker. |
+| `awaitExit()` | Cancel only the wait; keep the handle and its shared exit state intact. |
+
+`awaitExit()` works with Expect, interactive, line, protocol, and stream handles. Open resource-owning handles explicitly
+with `open().use { ... }`; there is no `openAwait()`.
 
 ## Flow
 
-`StreamScenario.Draft.openFlow()` is cold. Calling it does not start a process. Every collection opens and owns a fresh
-`StreamSession`; cancellation closes only that collector's session. A rendezvous channel applies backpressure instead of
-silently dropping chunks.
+`listen().openFlow()` returns a cold Flow: it starts a new process for each collection and closes that process when the
+collection is cancelled. Slow collectors apply backpressure; chunks are not silently dropped.
 
-The Flow emits only `StreamChunk` values. It does not expose the normal `StreamExit` outcome: exit code, whether timeout or
-caller close terminated the process, duration, and diagnostic transcript are discarded after completion. When that outcome
-matters, use `listen().onOutput(...).open()` and inspect the session with `awaitExit()` or `onExit()`. `openFlow()` installs
-its own output callback and replaces any listener previously set with `onOutput` on that Draft.
+<!-- procwright-example: examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt#flow -->
+```kotlin
+Procwright.command(javaExecutable())
+    .listen()
+    .withArgs("--version")
+    .withTimeout(5.seconds)
+    .openFlow()
+    .collect { chunk ->
+        when (chunk.source()) {
+            StreamSource.STDOUT -> print(chunk.text())
+            StreamSource.STDERR -> System.err.print(chunk.text())
+        }
+    }
+```
 
-Launch and process failures fail collection. Cleanup always attempts to close the owned session once. A cleanup failure
-does not replace an existing failure or collector cancellation; when collection otherwise succeeds, cleanup failure
-fails collection. Cancelling the exit wait affects only that collector's future view.
+The Flow emits text chunks, not complete lines. It does **not** report the exit code, timeout status, duration, or exit
+transcript. Successful collection therefore does not prove that the command succeeded. When the outcome matters, use
+`listen().onOutput(...).open()` and inspect `awaitExit()` or `onExit()`. `openFlow()` replaces any listener previously set
+with `onOutput` on that draft.
+
+Launch and process I/O failures fail collection. A cleanup failure fails an otherwise successful collection, but does not
+replace an existing failure or cancellation.
 
 ## Protocol adapter factory
 
-`protocolAdapterFactory<I, O> { ... }` returns a `Supplier<ProtocolAdapter<I, O>>`. Its configuration block runs for every
-factory call, so each session and pool worker receives isolated adapter state. Both `writeRequest` and `readResponse` are
-required; omission fails before a process starts.
+`protocolAdapterFactory<I, O> { ... }` creates a fresh adapter for each session and pool worker. Define both
+`writeRequest` and `readResponse`; a missing handler fails before process startup. This example defines a line-based
+adapter and makes two suspending requests through one session:
 
-Concurrent session opens and pool startup may invoke the supplier and configuration block concurrently. They must be
-thread-safe and return a fresh adapter each time. Put mutable per-adapter state inside the configuration block or
-factory call. One adapter's `writeRequest` and `readResponse` handlers are serialized by its session, but handlers on
-different adapters can run concurrently. Mutable state captured from outside remains shared and must be synchronized or
-avoided.
+<!-- procwright-example: examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt#protocol -->
+```kotlin
+val service = Procwright.command(lineWorkerCommand())
+val adapters =
+    protocolAdapterFactory<String, String> {
+        writeRequest { request, writer ->
+            writer.writeLine(request)
+            writer.flush()
+        }
+        readResponse { readers -> readers.stdout().readLine(4096) }
+    }
+service.protocolSession(adapters).open().use { session ->
+    check(session.requestAwait("hello", 5.seconds) == "response:hello")
+    check(session.requestAwait("世界", 5.seconds) == "response:世界")
+}
+```
+
+The [complete example](../examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt) includes
+`lineWorkerCommand()` and its worker. Replace that helper with your CLI's `CommandSpec` in an application.
+
+Put mutable per-adapter state inside the configuration block. Concurrent opens can execute that block at the same time;
+handlers on separate adapters can also run concurrently. State captured from outside the block remains shared and must
+be thread-safe. One session serializes its own adapter's request and response handlers.
+
+## Named Java modules
+
+For a named JPMS application, require the Kotlin module:
+
+<!-- procwright-docs: build-configuration -->
+```java
+module example.application {
+    requires io.github.ulviar.procwright.kotlin;
+}
+```
+
+It transitively requires core, Kotlin stdlib, and coroutines.

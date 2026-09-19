@@ -35,9 +35,9 @@ and `--version`. Defaults are a 30-second timeout and at most 1 MiB of retained 
 | Your task | Start here |
 | --- | --- |
 | Run a tool and use its output or exit status | [Run a finite command](docs/how-to/run-finite-command.md) |
-| Save large output directly to files | [Run and capture policies](docs/scenarios/run.md) |
+| Read input from a file or save large output | [File input and output](docs/scenarios/run.md#files) |
 | Call a long-lived CLI as a typed service | [JSON Lines worker → service](docs/how-to/wrap-cli-tool.md) |
-| Consume logs or events as they arrive | [Follow live output](docs/how-to/follow-logs.md) |
+| Show logs and progress as they arrive | [Follow live output](docs/how-to/follow-logs.md) |
 
 A session already reuses one process. Add a [pool](docs/how-to/reuse-workers.md) for independent concurrent requests to
 interchangeable workers. For prompts, raw streams, or custom framing, use the [scenario chooser](docs/how-to/choose-process-scenario.md).
@@ -48,7 +48,7 @@ The API follows one sequence: **command → scenario → configuration → execu
 
 - A command stores the executable and shared launch context.
 - A scenario chooses how you interact with the process.
-- Each `with*` call returns a new immutable Draft; retain its return value.
+- Each `with*` call returns a new configuration (called a Draft); retain its return value.
 - `execute()` returns a result. `open()` returns a handle to close with try-with-resources or Kotlin `use`.
 
 For reusable workers, set request and response limits; output buffers follow the response limits automatically.
@@ -63,7 +63,6 @@ See [Getting started](docs/getting-started.md), [runnable examples](docs/example
 - `procwright-kotlin`: Kotlin durations, coroutine calls, Flow, and adapter factory DSL.
 - `procwright-integrations`: ready-made JSON and byte-framing adapters.
 
-All modules require Java 25. See [Kotlin usage](docs/reference/kotlin-api.md) and
-[process cleanup limits](docs/explanations/process-cleanup-limits.md) for the relevant contracts.
-Custom [PTY providers](docs/reference/platforms-and-pty.md) are trusted extensions and must honor their timing contracts.
+All modules require Java 25. See [Kotlin usage](docs/reference/kotlin-api.md),
+[platform support](docs/reference/platforms-and-pty.md), and [cleanup guarantees](docs/explanations/process-cleanup-limits.md).
 Report vulnerabilities through [SECURITY.md](SECURITY.md). Licensed under [Apache License 2.0](LICENSE).

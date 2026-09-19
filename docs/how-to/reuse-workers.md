@@ -1,8 +1,7 @@
 # Handle concurrent independent requests
 
-A [direct worker service](wrap-cli-tool.md) already reuses one process and serializes requests. Add a pool when calls are
-independent and multiple interchangeable workers should handle them concurrently. Keep one session when later calls
-rely on the state of a particular worker.
+A [worker service](wrap-cli-tool.md) already reuses one process and serializes requests. Add a pool when independent calls
+should run concurrently in interchangeable workers. Keep one session when later calls rely on a particular worker's state.
 
 ## Run the pool demo
 
@@ -33,8 +32,8 @@ try (var pool = TextWorkerService.draft(command).pooled().withMaxSize(2).open();
 ```
 
 [Complete pool client](../examples/integrations/io/github/ulviar/procwright/examples/integration/WorkerPoolExample.java).
-The executor here submits only these two requests. Each call acquires a worker, performs one exchange, and returns or
-retires it. The maximum is two workers; the pool creates them on demand and can reuse a worker for later requests.
+Each call gets a worker, performs one exchange, and returns the worker to the pool or retires it after failure. The pool
+creates at most two workers, on demand, and reuses them for later requests.
 
 The `command` still launches the bundled JSON Lines worker. To use a compatible worker of your own:
 
@@ -45,9 +44,11 @@ The `command` still launches the bundled JSON Lines worker. To use a compatible 
 ## Know the boundaries
 
 - Configure worker settings before `pooled()` and pool settings after it.
-- Acquisition, request, and reset have separate budgets; there is no single pooled-call deadline.
-- `close()` stops new requests and waits for logical worker drain, for at most 15 seconds by default.
-- Calls may use different workers. The pool supplies no affinity; configure reset/health hooks when your worker needs them.
+- Waiting for a worker, processing a request, and resetting the worker have separate timeouts.
+- `close()` stops new requests, lets active requests finish, and closes workers. It waits at most 15 seconds by default;
+  a timeout reports failure while cleanup continues.
+- Calls may use different workers. Configure reset or health hooks only when your worker needs them; a pool cannot preserve
+  state tied to one worker across calls.
 
-See [pooling contracts](../scenarios/pooling.md) for timeouts, readiness, hooks, metrics, and drain failure handling.
+See [pooling contracts](../scenarios/pooling.md) for readiness, hooks, metrics, and close failures.
 [Line pools](../examples/java/io/github/ulviar/procwright/examples/LinePoolExample.java) use the same lifecycle.

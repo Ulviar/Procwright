@@ -1,79 +1,51 @@
-# Process Cleanup Limits
+# What timeout and close guarantee
 
-Procwright owns timeout and close behavior for processes it starts, but it is not an operating-system sandbox.
+Procwright attempts to stop the processes it owns using the configured shutdown policy. It also tracks descendants
+through the JDK's `ProcessHandle` API. This handles ordinary command timeouts, closed sessions, failed workers, and
+listener failures, but it does not provide operating-system containment.
 
-The runtime uses the JDK process model, including `ProcessHandle` descendant tracking where available. This covers the
-ordinary failure modes that make process libraries useful: a command times out, a session is closed, a worker becomes
-unusable, or a listener fails. Procwright applies the configured shutdown policy in those cases. Natural helper
-completion waits for its required logical output drain. Close and timeout may instead abandon noncooperative work
-logically; physical pump, callback, and stream cleanup can continue independently.
+## Allow time for shutdown
 
-One topology gets explicit handling in `run`: a descendant that inherited the command's stdout or stderr pipe and
-outlives it. Output drain uses the same deadline as process waiting, so an inherited pipe that remains open produces a
-timed-out `CommandResult` even when the root process exited normally. Cleanup also targets descendants observed while
-the root was alive.
+An operation timeout selects the failed outcome and starts cleanup. Graceful shutdown and forceful termination have
+separate deadlines, so returning from a timed-out operation can take longer than its operation timeout.
 
-Helper scenarios also wait for their owned stdout/stderr pumps on natural completion. For `listen`, the configured
-absolute timeout continues to apply after the root exits. Set it when a descendant may inherit a pipe; the default
-disabled timeout preserves natural output drain for as long as the pipe remains open.
+Closing a handle does not wait indefinitely for a blocked stream close or application callback. Those operations may
+finish later. For lifecycle completion, observe the handle's `onExit()` or the pool's `closeAsync()`;
+see [lifecycle futures](../reference/policies.md#lifecycle-futures).
 
-Line, protocol, and Expect sessions have no absolute drain timeout. Request and match timeouts bound their respective
-operations; an idle timeout stops watching once the root process outcome is known. They do not bound a later wait for
-`onExit()` while an inherited output pipe remains open. Keep the handle in a resource scope, wait with
-`onExit().get(timeout, TimeUnit.SECONDS)`, and close the handle if that wait times out. The future wait timeout does not
-close the process by itself. Explicit close abandons the outstanding drain logically and applies bounded cleanup;
-physical stream close and a detached descendant may still require caller-side containment.
+## A child can keep output open
 
-During graceful and forceful shutdown, Procwright refreshes the descendant set and retains observed reparented
-descendants while they remain alive. Interactive-session close and pooled worker retirement use the same
-observed-descendant cleanup. If a security policy or platform restriction blocks process-handle access, Procwright
-still attempts to stop the root process, but it may be unable to stop an inaccessible descendant.
+A command can exit while a descendant still holds its stdout or stderr pipe. Until that pipe closes, Procwright cannot
+know that it has received all output.
 
-If a scan exhausts its remaining caller budget, a later complete refresh can still establish cleanup completion for the
-root and known descendants. The refresh must cover both and fit the shutdown deadline. Previously observed live
-descendants, access failures, and descendant-limit overflow are not forgotten by a later scan.
+- `run()` includes output draining in its absolute timeout. It can therefore return a timed-out result even if the main
+  process exited normally.
+- `listen()` keeps applying its configured absolute timeout during output draining. Its default timeout is disabled;
+  set `withTimeout(...)` if the wait must be limited.
+- Line, protocol, and Expect sessions wait for output draining on natural exit. Their request, match, and idle timeouts
+  do not bound a later wait for `onExit()` after the main process has exited.
 
-Descendant scans have bounded waiting and share at most 32 execution slots. A scan that outlives its caller's wait keeps
-its slot until it actually returns; repeated scans cannot create unlimited blocked scan tasks. A late scan result
-cannot replace the selected outcome. These slots do not limit ordinary `Process` or `ProcessHandle` calls.
+For the last case, keep the handle in try-with-resources and use `onExit().get(timeout, TimeUnit.SECONDS)` if you need a
+bounded wait. A timeout on the future does not close the handle; leaving the resource scope does.
 
-Custom `PtyProvider` implementations are trusted extensions. Their methods and returned process objects run without
-per-call timeout isolation: metadata and signals must return promptly, and timed waits must honor their timeout. A
-blocking custom implementation can exceed session and cleanup deadlines. The built-in system provider still bounds its
-own capability detection and startup; see [terminal support](../reference/platforms-and-pty.md). Bounded scans and the
-asynchronous process destroy fallback remain separate cleanup mechanisms.
+## Some descendants can survive
 
-Repeated observation failures do not grow the shutdown error report indefinitely. One cleanup retains at most 32 source
-failures, plus its first interruption if that occurs after the limit is reached. The original primary cause remains
-selected unless interruption takes priority; reaching the detail limit does not stop cleanup attempts. This bounds the
-number of retained failure sources, not the size of an exception graph supplied by application code.
+Procwright retains and attempts to stop descendants it observed while their parent was alive, including descendants
+that are later reparented. Process-tree observations are not atomic: a process that starts and fully detaches between
+observations may never be seen. Platform permissions can also prevent access to a descendant.
 
-JDK process-tree observations are not atomic. A child that is created and fully detaches between observations may never
-be seen and can survive cleanup. Detached descendants and processes that deliberately leave the parent tree can
-therefore require caller-side containment.
+Use an OS sandbox, container, job object, or service manager when processes must not escape their lifetime or resource
+limits. Procwright cleanup alone cannot enforce that boundary.
 
-User callbacks used for readiness, line or protocol response decoding, protocol request writing, and pool health/reset
-run on a task thread. A deadline can release the calling workflow, but Java cannot forcibly terminate
-callback code that ignores interruption. Such work may keep running on a daemon thread until it returns; the affected
-handle or worker becomes unusable instead of starting more callbacks. Independent handles do not share a callback
-admission quota.
+## Application code must cooperate
 
-Line-request encoding is synchronous and checks interruption and the request deadline between encoding steps. A custom
-`Charset` implementation that does not return from a JDK method can still block its caller; Procwright does not add a
-second execution subsystem solely to contain contract-violating charset implementations.
+Request adapters, response decoders, readiness probes, and pool hooks should return promptly and respond to interruption.
+A deadline can release their caller, but Java cannot forcibly stop a callback that ignores interruption. The affected
+session or worker is then closed instead of accepting more work.
 
-An explicit `Session.closeStdin()` is a requested operation, not terminal cleanup. Procwright first prevents later writes,
-then requires the bounded dispatcher to admit and start the physical close. Successful handoff returns without waiting
-for physical close. An admission or start failure performs bounded terminal cleanup before it is thrown. A later
-physical-close failure also becomes terminal while the public outcome is not yet selected; it cannot replace an outcome
-selected earlier.
+A streaming listener runs synchronously and slows the child through pipe backpressure. It can outlive explicit close
+or timeout if it does not return. Keep listeners short; use your own bounded queue for expensive processing.
 
-Physical closing of stream wrappers during terminal cleanup is best-effort. Live sessions do not reserve dispatcher
-slots. Each still-open wrapper gets one bounded close attempt; if the dispatcher is already full or cannot start the
-task, Procwright reports a cleanup failure and does not create an unbounded fallback thread. Process termination and the
-public result still complete. On natural exit, raw stdout and stderr remain caller-owned so unread output stays available.
-The operating system normally releases process pipe endpoints when the process exits, but a rejected Java wrapper may
-remain open until later JVM cleanup.
-
-Treat Procwright cleanup as the runtime-owned best effort inside the JDK process tree model. It is not a replacement for
-an OS sandbox, container, job object, service manager, or CI runner isolation.
+Custom `PtyProvider` implementations are trusted extensions. Their process and metadata methods must respect the
+[provider timing contract](../reference/platforms-and-pty.md#custom-providers). A blocked custom implementation can
+exceed the configured deadline.

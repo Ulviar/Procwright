@@ -16,16 +16,8 @@ launch when that interpreter is unavailable or unusable. Child `PATH` and the wo
 Inherited environment can expose credentials or alter executable and library lookup. Use a clean environment and explicit
 entries for hostile or reproducible workloads. Validate working directories and files before passing them to a child.
 
-The built-in Unix terminal provider does not expose the requested child environment to `script`, `/bin/sh`, `stty`, or
-its bounded bootstrap reader. Those absolute transport helpers run with a fixed minimal environment. After terminal echo
-is disabled, Java sends one bounded binary frame over the already-open terminal input; no pathname, temporary file, or
-control file carries child data. The wrapper consumes the complete frame before reporting `STARTED` and leaves the same
-input open for the target.
-
-The complete child environment is applied only by the final probed `env -i --` direct-argv launch. There is no
-child-environment shell or `arch` trampoline, so shell-control and dynamic-loader variables intended for the child cannot
-change the trusted wrapper. The system provider fails closed for an executable token containing `=` and redacts that token
-from the launch error. A custom `PtyProvider` is responsible for preserving equivalent boundaries.
+The built-in Unix terminal provider keeps child arguments and environment values separate from its helper commands.
+A custom provider must preserve those boundaries. See [platform and provider requirements](platforms-and-pty.md).
 
 ## Output and diagnostics
 
@@ -33,15 +25,19 @@ Treat stdout, stderr, protocol frames, and exit metadata as untrusted input. Bou
 transcript sizes; unread output buffers follow the response limits. Use strict charset decoding when replacement
 characters would hide corruption.
 
-Diagnostics and transcripts can contain arguments, environment values, request bodies, output, paths, and exception
-messages. Redact before exporting. Truncation limits memory; it does not remove secrets.
+Built-in diagnostic events omit argument values, environment values, and raw stdin/stdout/stderr. Their command metadata
+still includes the executable, working directory, and environment variable names. Scenario transcripts can contain
+process output and request data. Review and redact transcripts and exceptions before exporting them; truncation alone
+does not remove secrets. See [diagnostics](diagnostics.md).
+
+Use different paths for file input and output: opening an output redirect overwrites existing content.
 
 For separate file capture, Procwright checks immediately before launch that stdout and stderr do not resolve to the same
 file, including aliases reached through symlinked directories. It fails closed when filesystem identity cannot be read.
 Two existing files are compared by their filesystem identity, so distinct files may have names such as `Capture.log`
 and `capture.log`. If either target does not exist, names that differ only by case, canonical Unicode representation,
-or trailing dots and spaces are conservatively rejected. Do not replace or relink capture paths concurrently with launch: `ProcessBuilder` cannot
-atomically verify two path identities and open both redirects. Protect attacker-controlled output directories with
+or trailing dots and spaces are conservatively rejected. Do not replace or relink capture paths concurrently with launch:
+`ProcessBuilder` cannot atomically verify two path identities and open both redirects. Protect attacker-controlled output directories with
 operating-system permissions.
 
 ## Lifecycle boundary

@@ -1,64 +1,42 @@
-# Command model
+# Commands, arguments, and environment
 
-`Procwright.command(executable)` creates a reusable `CommandService`. Use `Procwright.command(CommandSpec)` when calls
-share base argv, a working directory, or environment changes.
+Pass the executable and arguments separately. `Procwright.command("git")` selects a program;
+`withArgs("status", "--short")` supplies two arguments. Do not add shell quotes around an argument containing spaces:
+those quotes would become part of the argument.
 
-`CommandSpec` is immutable:
+## Share launch settings
 
-- `CommandSpec.of(executable)` creates a direct command.
-- `withArg` and `withArgs` append argv entries without shell parsing.
-- `withWorkingDirectory` sets the child directory.
-- `withInheritedEnvironment` or `withCleanEnvironment` chooses the initial environment; `withEnvironment` then adds or
-  replaces one entry.
-- `CommandSpec.shell(commandLine)` explicitly delegates parsing and quoting to the operating-system shell and does not
-  accept argv additions.
+Use `CommandSpec` when several calls share a working directory, environment, or base arguments.
+Here, `executable` is your program and `directory` is its working directory:
 
-Scenario Drafts are also immutable. Configuration methods return a new Draft, and only `execute()` or `open()` starts a
-process.
-
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunOptionsExample.java#command -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CommandResult;
-import java.nio.file.Path;
-import java.util.Arrays;
-
-public final class RunExample {
-
-    private RunExample() {}
-
-    public static void main(String[] args) {
-        String executable = args.length == 0 ? javaExecutable() : args[0];
-        String[] arguments = args.length == 0 ? new String[] {"--version"} : Arrays.copyOfRange(args, 1, args.length);
-
-        // docs:start run
-        CommandResult result =
-                Procwright.command(executable).run().withArgs(arguments).execute();
-        // docs:end run
-
-        System.out.print(result.stdout());
-        System.err.print(result.stderr());
-        System.out.println("succeeded=" + result.succeeded());
-
-        // docs:start failure
-        if (!result.succeeded()) {
-            throw result.toException();
-        }
-        // docs:end failure
-    }
-
-    private static String javaExecutable() {
-        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", name).toString();
-    }
-}
+CommandSpec command =
+        CommandSpec.of(executable).withWorkingDirectory(directory).withEnvironment("APP_MODE", "batch");
+CommandService tool = Procwright.command(command);
 ```
 
-[Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
+Then choose a scenario on `tool`, such as `tool.run().withArgs(arguments).execute()`.
+[Complete source and imports](../examples/java/io/github/ulviar/procwright/examples/RunOptionsExample.java).
 
-Direct argv is the portable and injection-resistant default. Procwright does not normalize shell quoting or expand shell
-built-ins.
+| Setting | Effect |
+| --- | --- |
+| `withArg(...)` / `withArgs(...)` | Append arguments; scenario arguments follow the command's base arguments. |
+| `withWorkingDirectory(path)` | Set the child's working directory. |
+| `withEnvironment(name, value)` | Add or replace one child environment entry. |
+| `withCleanEnvironment()` | Start without the parent's environment, keeping explicitly configured entries. |
+| `withInheritedEnvironment()` | Inherit the parent's environment and apply explicitly configured entries; this is the default. |
+
+`CommandSpec` and scenario Drafts are immutable. Keep the object returned by each `with*` call. You can reuse a configured
+Draft: each `execute()` or `open()` starts an independent process. No configuration call launches a process.
+Shared callbacks have their own [thread-safety requirements](policies.md#persistent-callback-concurrency).
+
+## Use a shell deliberately
+
+Ordinary arguments do not expand `*`, `$VARIABLE`, pipes, or redirections. For shell syntax, use
+`Procwright.command(CommandSpec.shell(commandLine))`. Shell commands cannot also accept `withArgs(...)`:
+put the complete shell expression in `commandLine`.
+
+Shell syntax and escaping depend on the operating system. Never interpolate untrusted input without validating and
+escaping it for that shell. Prefer direct arguments when the task does not need a shell. Use an absolute executable
+path when you cannot trust `PATH`.

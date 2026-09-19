@@ -1,6 +1,7 @@
 # Output ownership
 
-Exactly one component may consume a process output stream.
+Each process output stream has one reader. Two readers would compete for bytes, so the scenario selects its reader
+before launch.
 
 | API | Output owner | Caller action |
 | --- | --- | --- |
@@ -12,5 +13,5 @@ Exactly one component may consume a process output stream.
 | `listen()` | Output listener | Handle delivered chunks; do not add raw readers. |
 | Pools | Active worker protocol | Use pool request methods; leases and streams stay internal. |
 
-The scenario selects the owner before process launch. A raw `Session` cannot be converted into Expect, line, protocol, or
+A raw `Session` cannot be converted into Expect, line, protocol, or
 listen mode later. Closing a scenario handle starts cleanup for its process.

@@ -3,27 +3,37 @@
 package io.github.ulviar.procwright.examples;
 
 import io.github.ulviar.procwright.Procwright;
+import io.github.ulviar.procwright.command.CommandSpec;
 import io.github.ulviar.procwright.session.StreamExit;
 import io.github.ulviar.procwright.session.StreamSession;
+import io.github.ulviar.procwright.session.StreamSource;
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Arrays;
 
 public final class ListenExample {
 
     private ListenExample() {}
 
     public static void main(String[] args) {
-        AtomicInteger chunks = new AtomicInteger();
-        try (StreamSession stream = Procwright.command(ExampleSupport.workerCommand("listen"))
+        CommandSpec command = args.length == 0
+                ? ExampleSupport.workerCommand("listen")
+                : CommandSpec.of(args[0]).withArgs(Arrays.copyOfRange(args, 1, args.length));
+
+        // docs:start listen
+        try (StreamSession stream = Procwright.command(command)
                 .listen()
-                .withTimeout(Duration.ofSeconds(2))
-                .onOutput(chunk -> chunks.incrementAndGet())
+                .withTimeout(Duration.ofSeconds(10))
+                .onOutput(chunk -> {
+                    var output = chunk.source() == StreamSource.STDOUT ? System.out : System.err;
+                    output.print(chunk.text());
+                    output.flush();
+                })
                 .open()) {
-            StreamExit exit = stream.onExit().orTimeout(5, TimeUnit.SECONDS).join();
-            if (!exit.timedOut() || chunks.get() == 0) {
-                throw new IllegalStateException("Expected bounded log streaming");
+            StreamExit exit = stream.onExit().join();
+            if (exit.timedOut() || exit.exitCode().orElse(-1) != 0) {
+                throw new IllegalStateException("Command did not complete successfully: " + exit);
             }
         }
+        // docs:end listen
     }
 }

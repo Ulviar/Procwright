@@ -6,10 +6,12 @@ you do not need to assemble source files to try them. On Windows, replace `./gra
 | Command | What you see | Walkthrough |
 | --- | --- | --- |
 | `./gradlew -q demoRun` | Current Java version and `succeeded=true` | [Use your own command](getting-started.md) |
+| `./gradlew -q demoListen --console=plain` | Live logs and progress from a finite worker | [Follow live output](how-to/follow-logs.md) |
 | `./gradlew -q demoWorker` | Two text metrics results from one long-lived session | [Worker as a service](how-to/wrap-cli-tool.md) |
 | `./gradlew -q demoPool` | The same results from concurrent independent requests | [Add a pool](how-to/reuse-workers.md) |
 
-`demoRun --args='git --version'` runs your executable and argv. `demoWorker` and `demoPool` also accept `--args`, but the
+`demoRun --args='git --version'` runs your executable and argv. `demoListen` accepts the same argument format for a
+command whose output you want to follow. `demoWorker` and `demoPool` also accept `--args`, but the
 replacement worker must implement the JSON contract in their walkthrough. Each example closes the resources it opens.
 
 ## Service example files
@@ -25,7 +27,8 @@ replacement worker must implement the JSON contract in their walkthrough. Each e
 
 ## Core
 
-The finite-command example is standalone. The other examples below share
+The finite-command example is standalone. [RunOptionsExample.java](examples/java/io/github/ulviar/procwright/examples/RunOptionsExample.java)
+contains methods to copy into an application for stdin, file capture, and launch settings. The session examples share
 [ExampleSupport.java](examples/java/io/github/ulviar/procwright/examples/ExampleSupport.java) and
 [ExampleWorker.java](examples/java/io/github/ulviar/procwright/examples/ExampleWorker.java). Protocol examples also use
 [LengthLineFrameAdapter.java](examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java) and
@@ -34,16 +37,19 @@ Those helpers launch the bundled worker on the consumer module's classpath. If y
 helpers into the same package or replace `ExampleSupport.workerCommand(...)` with a `CommandSpec` for your own CLI.
 
 - [Finite command](examples/java/io/github/ulviar/procwright/examples/RunExample.java)
+- [Text/file input and file output](examples/java/io/github/ulviar/procwright/examples/RunOptionsExample.java)
 - [Stop a hung command](examples/java/io/github/ulviar/procwright/examples/StopHungCommandExample.java)
 - [Raw interactive streams](examples/java/io/github/ulviar/procwright/examples/InteractiveExample.java)
 - [Prompt automation](examples/java/io/github/ulviar/procwright/examples/ExpectExample.java)
 - [ANSI-decorated prompt automation](examples/java/io/github/ulviar/procwright/examples/AnsiExpectExample.java)
 - [Streaming output](examples/java/io/github/ulviar/procwright/examples/ListenExample.java)
 - [Line session](examples/java/io/github/ulviar/procwright/examples/LineSessionExample.java)
+- [Multiline response](examples/java/io/github/ulviar/procwright/examples/MultilineResponseExample.java)
 - [Readiness probe](examples/java/io/github/ulviar/procwright/examples/ReadinessExample.java)
 - [Framed protocol session](examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java)
 - [Line worker pool](examples/java/io/github/ulviar/procwright/examples/LinePoolExample.java)
 - [Protocol worker pool](examples/java/io/github/ulviar/procwright/examples/ProtocolPoolExample.java)
+- [Observe pool cleanup after a close timeout](examples/java/io/github/ulviar/procwright/examples/PoolDrainTimeoutExample.java)
 - [Diagnostics](examples/java/io/github/ulviar/procwright/examples/DiagnosticsExample.java)
 - [Required terminal](examples/java/io/github/ulviar/procwright/examples/TerminalExample.java)
 

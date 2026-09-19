@@ -1,70 +1,73 @@
 # Run
 
-`run()` executes a finite command and returns `CommandResult`. Here, `executable` and `arguments` are the program and
-separate argv entries; [Getting started](../getting-started.md) runs the complete example.
+`run().execute()` starts one command and returns a `CommandResult`.
+[Run a command and use its result](../how-to/run-finite-command.md) covers the basic call, stdin, and error handling.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java#run -->
+The Draft is immutable and reusable. `withArg` and `withArgs` append arguments after any base arguments in the
+`CommandSpec`. Each `execute()` starts a new process.
+
+## Capture in memory
+
+Procwright drains stdout and stderr concurrently. The default capture retains the first 1 MiB from each stream;
+`withCapture(CapturePolicy.bounded(bytes))` changes that per-stream limit. Later bytes are drained and discarded, and
+`stdoutTruncated()` or `stderrTruncated()` identifies the affected stream.
+
+The result exposes captured bytes and decoded text. Output is decoded as UTF-8 by default;
+`withCharsetPolicy(...)` changes decoding. `withOutput(OutputMode.MERGED)` directs stderr into stdout, leaving
+`result.stderr()` empty.
+
+## Files
+
+Stream a file into stdin and send stdout and stderr to separate files:
+
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunOptionsExample.java#files -->
 ```java
-CommandResult result =
-        Procwright.command(executable).run().withArgs(arguments).execute();
+CommandResult result = Procwright.command(command)
+        .run()
+        .withInput(CommandInput.fromPath(input))
+        .withCapture(CapturePolicy.toPath(stdout, stderr))
+        .execute();
 ```
 
-[Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
+`command` is a `CommandSpec` for your CLI; `input`, `stdout`, and `stderr` are `Path` values. The input file must exist,
+and output directories must already exist. Existing output files are overwritten. Keep the input separate from both
+output files to avoid destroying it during redirection.
 
-The Draft is immutable and reusable. `withArg` and `withArgs` append scenario arguments after any base arguments in the
-`CommandSpec`. Only `execute()` starts a process.
+The operating system handles these redirects without retaining their contents in Procwright memory.
+`result.stdout()` and `result.stderr()` are empty, and truncation flags are false. Exit status, timeout, and elapsed
+time remain available.
 
-Procwright drains stdout and stderr, applies the configured timeout and shutdown policy, then returns captured bytes and
-decoded text. The default capture retains the first 1 MiB separately from each stream while continuing to drain later
-output. Use `withCapture(CapturePolicy.bounded(bytes))` to change that budget. `stdoutTruncated()` and `stderrTruncated()`
-identify streams whose later bytes were discarded. Redirected or discarded streams produce empty captured values.
+For one combined log file, pair the single-path capture with merged output:
 
-Use `withCapture(CapturePolicy.toPath(stdoutPath, stderrPath))` to write directly to separate files without retaining
-output in memory. Existing content is overwritten. The targets must be distinct files; existing files are compared by
-filesystem identity. See [file capture checks](../reference/security.md#output-and-diagnostics) for aliases and new paths.
-
-The timeout is one deadline for stdin writing, process waiting, and output drain. A child process that keeps an
-inherited output pipe open can therefore make the result timed out after the root process has already exited. Required
-process-tree cleanup starts after that outcome is selected and remains bounded by the shutdown policy.
-
-`CommandResult.succeeded()` requires a zero exit code and no timeout. Launch and supervision failures throw
-`CommandExecutionException`; a normal non-zero exit remains a result until the caller converts it with `toException()`.
-
-Handle launch failure from the exception reason, not from a presumed result:
-
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunFailureExample.java -->
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunOptionsExample.java#merged-file -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import static io.github.ulviar.procwright.command.CommandExecutionException.Reason.LAUNCH_FAILED;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CommandExecutionException;
-import io.github.ulviar.procwright.command.CommandResult;
-
-public final class RunFailureExample {
-
-    private RunFailureExample() {}
-
-    public static CommandResult execute(String executable) {
-        try {
-            return Procwright.command(executable).run().execute();
-        } catch (CommandExecutionException failure) {
-            if (failure.reason() == LAUNCH_FAILED) {
-                throw new IllegalStateException("Command could not be launched", failure);
-            }
-            throw failure;
-        }
-    }
-}
+CommandResult result = Procwright.command(command)
+        .run()
+        .withOutput(OutputMode.MERGED)
+        .withCapture(CapturePolicy.toPath(log))
+        .execute();
 ```
 
-[Open `RunFailureExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunFailureExample.java).
+[Complete source and imports](../examples/java/io/github/ulviar/procwright/examples/RunOptionsExample.java).
 
-`LAUNCH_FAILED` occurs before a `CommandResult` exists. The example maps that case and preserves every other
-`CommandExecutionException`; it does not assume that `failure.result()` is present.
+Separate stdout and stderr targets must refer to distinct files. See
+[file capture checks](../reference/security.md#output-and-diagnostics) for aliases and new paths.
+`CapturePolicy.discard()` instead drops both streams and also leaves captured result values empty.
 
-See [scenario defaults](../reference/defaults.md#run) before relying on the initial timeout, capture limit, decoding, or
-shutdown behavior.
+## Timeouts and errors
+
+The default 30-second timeout covers stdin writing, process waiting, and output draining. Change it with
+`withTimeout(...)`; `Duration.ZERO` disables it. Shutdown then uses its own deadlines, so the timeout is not a bound
+on the total duration of `execute()`.
+
+A descendant holding an inherited output pipe open can cause a timeout even after the main process exits. Procwright
+then attempts to stop observed descendants. See [cleanup limits](../explanations/process-cleanup-limits.md).
+
+`CommandResult.succeeded()` requires exit code zero and no timeout. A non-zero exit remains a result until you convert
+it with `toException()`. Launch, I/O, supervision, and decoding failures throw `CommandExecutionException`.
+Only a decoding failure carries a completed result with the captured bytes. The
+[launch-failure example](../examples/java/io/github/ulviar/procwright/examples/RunFailureExample.java) shows how to check
+`reason()` without assuming `result()` is present.
+
+See [defaults](../reference/defaults.md#run) for all initial settings and
+[results and errors](../reference/results-and-errors.md#finite-commands) for the result contract.

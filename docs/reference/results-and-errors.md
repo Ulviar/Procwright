@@ -1,65 +1,70 @@
 # Results and errors
 
-Procwright's ordinary runtime failures extend `ProcwrightException`. Catch the scenario-specific type when code needs a
-stable reason, transcript, or process result. Fatal `Error`s from application callbacks are not wrapped.
+Catch the scenario-specific exception when you need its reason or retained diagnostics. Ordinary runtime failures
+extend `ProcwrightException`; fatal `Error`s from application callbacks are not wrapped. Use reason enums in program
+logic. Exception messages are for diagnosis and can change.
 
 ## Finite commands
 
-`CommandResult` reports optional exit code, captured stdout/stderr bytes and text, truncation flags, timeout status, and
-elapsed time. `succeeded()` requires exit code zero and no timeout. A normal non-zero exit is a result; `toException()`
-creates `CommandException` while preserving it.
+`CommandResult` contains an optional exit code, stdout/stderr bytes and text, truncation flags, timeout status, and
+elapsed time. `succeeded()` requires exit code zero and no timeout.
 
-`CommandExecutionException` represents launch, supervision, or strict output-decoding failure and exposes a stable
-`Reason`, message, and cause. `result()` is present only for `DECODE_ERROR`, where the process completed but captured
-bytes could not be decoded under the selected policy. Launch and runtime failures do not promise a result or exit-code
-snapshot.
+| Outcome | What the caller receives |
+| --- | --- |
+| Exit code zero | A result; check truncation if complete output matters. |
+| Non-zero exit | A result with output available for inspection. |
+| Execution timeout | A result with `timedOut() == true`. |
+| Launch, I/O, or supervision failure | `CommandExecutionException`, without a completed result. |
+| Decoding failure | `CommandExecutionException` with reason `DECODE_ERROR` and a result containing captured bytes. |
+
+Call `result.toException()` when your application wants to throw for an unsuccessful result. It creates a
+`CommandException` that retains the result. Do not assume `CommandExecutionException.result()` is present: it is available
+only for `DECODE_ERROR`. See the [launch-failure example](../examples/java/io/github/ulviar/procwright/examples/RunFailureExample.java).
 
 ## Sessions
 
-- `LineSessionException` distinguishes request too large, timeout, EOF, closed, broken pipe, decode error, response too
-  large, process exit, decoder failure, and other runtime failure. It preserves a bounded line
-  transcript. Validation, request-size, encoding, and wait failures are retryable when the request was not handed off for
-  stdin writing and cannot write later. Once handed off, timeout, interruption, write failure, and every response/protocol
-  failure are terminal even if no received byte can be confirmed. Retryable failures leave `onExit()` incomplete.
-  Terminal failures close the process and complete a still-pending `onExit()` exceptionally with the selected session
-  failure. A late decoder result does not rewrite an exit already settled by the process and output transport.
-- `ProtocolSessionException` distinguishes timeout, closed, EOF, broken pipe, decode error, request or response too large,
-  adapter decoder failure, process exit, and other runtime failure. It preserves a bounded
-  protocol transcript. `exitCode()` is an `OptionalInt` snapshot and can be empty when the failure is selected.
-- `ExpectException` distinguishes timeout, EOF, closed, and process I/O, decoding, or input-write failure, with a bounded
-  transcript. Timeout while waiting for output or a matcher slot is retryable; abandonment of a regex evaluation is
-  terminal, so `TIMEOUT` alone does not establish regex retryability. Output and input failures close the process and complete `onExit()` exceptionally
-  with the selected failure when it is still pending. EOF reported before normal output drain also stops a process that
-  is still live; EOF materialized after normal drain does not rewrite the process result. A physical stdin-close failure that
-  arrives after `closeStdin()` returns can instead surface from `onExit()` as its original cause.
-- `StreamException` distinguishes ordinary listener, output-read, and process failures, with bounded diagnostics. A fatal
-  `Error` from listener or output processing completes `onExit()` with the same `Error` instance.
+| Exception | What it describes |
+| --- | --- |
+| `LineSessionException` | Request/response limits, timeout, EOF, closed session, broken pipe, decoding, worker exit, or decoder failure; includes a bounded line transcript. |
+| `ProtocolSessionException` | Request/response limits, timeout, EOF, closed session, broken pipe, decoding, worker exit, or adapter failure; includes a bounded protocol transcript and optional exit code. |
+| `ExpectException` | Match timeout, EOF, closed handle, or process I/O/decoding failure; includes a bounded transcript. |
+| `StreamException` | Listener, output-read, or process failure; includes bounded diagnostics. A fatal listener/output `Error` instead completes `onExit()` with that same error. |
 
-A framing, decode, EOF, or post-handoff failure closes a direct request session because subsequent protocol state cannot
-be trusted.
+### Decide whether the session can be reused
 
-For line and protocol sessions, `RESPONSE_TOO_LARGE` covers both a response exceeding its limits and pending output
-exceeding the same configured capacity. It can therefore also indicate excessive unsolicited worker output. Protocol
-stderr overflow is reported only if the adapter reads stderr.
+For line sessions, validation, request-size, encoding, and waiting failures leave the session usable only when the
+request has not been handed off for writing and cannot write later. After handoff, a timeout, interruption, write error,
+or response failure closes the session. The child may have received the request even if no reply was observed.
 
-Worker loss can surface as `EOF` or `PROCESS_EXITED` according to observation order. If output EOF is selected before a
-process-exit snapshot is published, the request reports `EOF`; if process exit is selected first, it reports
-`PROCESS_EXITED`. For protocol requests, `EOF` has an empty `exitCode()`, while `PROCESS_EXITED` carries the code only
-when known. `LineSessionException` has no exit-code accessor; a directly owned line session reports an optional code later
-through `onExit()`.
+For protocol sessions, a timeout while waiting for the serialized request slot leaves the session usable. Once the slot
+is acquired, request or response failure closes it. A retry after an uncertain write can repeat the command's side
+effects; retry only when your application protocol allows that.
+
+For Expect, waiting for output or the matcher slot can time out without closing the handle. A regex evaluation that
+cannot be stopped makes the handle terminal. `TIMEOUT` alone therefore does not establish whether another regex match
+is safe. See the [Expect contract](../scenarios/expect.md).
+
+### Interpret limits and worker exit
+
+`RESPONSE_TOO_LARGE` can mean that a response exceeded its limit or that unread output filled the same bounded buffer.
+It can therefore indicate excessive unsolicited worker output. Protocol stderr overflow is reported only if the adapter
+reads stderr.
+
+Worker loss can appear as `EOF` or `PROCESS_EXITED`, depending on whether output end or process exit was observed first.
+A protocol exception's `exitCode()` may be empty; `EOF` does not carry an exit code. Line exceptions have no exit-code
+accessor; the directly owned session reports its process outcome through `onExit()`.
+
+Terminal session failures close the process and complete a still-pending `onExit()` exceptionally. A failure discovered
+later does not replace a previously completed exit future. Always close the handle in a resource scope.
 
 ## Pools
 
-Pooled requests keep worker request failures separate from pool orchestration failures. Timeout, EOF or
-`PROCESS_EXITED`, broken pipe or write failure, decoding failure, and oversized response or pending output are
-thrown directly as `LineSessionException` or `ProtocolSessionException`; they are not wrapped in a pooled exception.
+A pooled request keeps the worker's `LineSessionException` or `ProtocolSessionException`. It is not wrapped in a pool
+exception. The failed worker is retired; the pool can serve a later request with another worker.
 
-`PooledSessionException` covers acquisition, pool construction, worker startup,
-surfaced hook or lifecycle failures, close, and unexpected local preparation failures. Its reason enum defines `ACQUIRE_TIMEOUT`, `CLOSED`, `STARTUP_FAILED`,
-`HOOK_TIMEOUT`, `INTERRUPTED`, `DRAIN_TIMEOUT`, and `WORKER_FAILED`. A pooled exception cause belongs to that pool phase,
-such as a worker factory, readiness, or startup-execution failure during warmup; it is not the wrapper for a normal worker
-request exception.
-`PooledSessionMetrics.retireReasons()` returns counts keyed by `PooledWorkerRetireReason`; the same snapshot exposes
-startup, request, acquire, and lifecycle counts.
+`PooledSessionException` covers acquisition, startup, hooks, and pool cleanup. Its reasons are `ACQUIRE_TIMEOUT`,
+`CLOSED`, `STARTUP_FAILED`, `HOOK_TIMEOUT`, `INTERRUPTED`, `DRAIN_TIMEOUT`, and `WORKER_FAILED`.
+Inspect the cause for the underlying failure in that pool phase.
 
-Use reason enums for program logic. Messages are for diagnostics and may change.
+A `DRAIN_TIMEOUT` from `close()` does not cancel cleanup. Observe `closeAsync()` for eventual completion.
+[Pooling](../scenarios/pooling.md) explains lifecycle and metrics, including worker retirement reasons.

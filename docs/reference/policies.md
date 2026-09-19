@@ -1,12 +1,13 @@
 # Policies and Draft settings
 
-Configure policies on the scenario Draft that owns their meaning. Every `with*` method validates its value and returns a
-new Draft; the original remains reusable.
+Configure policies on the scenario Draft that owns their meaning. Every `with*` method returns a new Draft; the original remains reusable.
+Invalid values and incompatible combinations are rejected before a process starts; some checks run when you
+configure the Draft and others when you call `execute()` or `open()`.
 
 ## Persistent callback concurrency
 
 Drafts and PoolDrafts are immutable, but configured callback and service-provider objects are retained by reference. If
-one Draft is reused for concurrent terminal calls, or one PoolDraft creates concurrent workers or multiple pools, the
+one Draft is reused for concurrent `execute()` or `open()` calls, or one PoolDraft creates concurrent workers or multiple pools, the
 same supplied instance may be invoked concurrently. Make every shared instance thread-safe, or use separate Draft
 branches with separate callback instances.
 
@@ -26,8 +27,7 @@ Readiness and pool hooks run on fresh task threads while the open, acquire, or r
 A terminal policy can call a retained `PtyProvider` concurrently when terminal-enabled sessions or workers start in
 parallel. Custom providers also follow the [trusted-provider timing contract](platforms-and-pty.md).
 
-The readers and writers passed into line decoders and protocol adapters are not retained callback objects. They are
-request capabilities: callback-scoped, confined to the callback thread, and invalid as soon as that invocation returns.
+The readers and writers passed into line decoders and protocol adapters are not retained callback objects. Use them only on the callback thread and only until the callback returns.
 Do not store them in adapter state or hand them to another thread.
 
 Diagnostic listener and transcript-sink delivery is asynchronous and best-effort. One lifecycle serializes calls to each
@@ -59,12 +59,10 @@ A pooled call has no single overall deadline. Acquisition uses `withAcquireTimeo
 selection occur inside that window, and a health check is capped by both the remaining acquire time and
 `withHookTimeout(...)`. Request encoding and response decoding consume the request deadline. Line-request encoding starts
 before acquisition but acquisition is not charged to that request deadline. After a successful response, reset has its
-own `withHookTimeout(...)` budget. Caller latency can therefore compose request preparation/request time, acquisition,
-and reset phases, depending on the path taken.
+own `withHookTimeout(...)` budget. A call can therefore take longer than its request timeout because it may also wait for acquisition and reset.
 
-The default pool close timeout is exactly 15 seconds: 5 seconds for a normal request, the default 2-second interrupt grace
-plus 5-second kill grace for worker shutdown, and a 3-second reserve for scheduling and stream cleanup. A close timeout
-does not cancel a healthy in-flight request or internal cleanup.
+The default pool close timeout is 15 seconds. It bounds the caller's wait, not the lifetime of cleanup.
+Use `closeAsync()` to observe completion after a close timeout; closing does not cancel a healthy in-flight request.
 
 Timeouts do not make arbitrary user callbacks interruptible. Request, readiness, and worker callbacks run on
 scenario-owned task threads, but Java cannot forcibly stop callback code that ignores interruption. The affected handle

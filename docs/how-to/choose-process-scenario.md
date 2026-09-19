@@ -12,7 +12,7 @@ Start with what the application needs from the process.
 
 | What the worker speaks | Start here |
 | --- | --- |
-| One request line and one response line | [Line session](talk-to-line-worker.md) |
+| One request line; one or more response lines | [Line session](talk-to-line-worker.md) |
 | JSON Lines with application request/response types | [Typed JSON Lines service](wrap-cli-tool.md) |
 | Delimiter-framed bytes or Content-Length JSON | [Ready-made adapters](../scenarios/integrations.md) |
 | Another framing or decoding convention | [Write a protocol adapter](../scenarios/protocol-session.md#custom-framing) |
@@ -28,4 +28,5 @@ provide caller-to-worker affinity.
 - [Require a terminal](require-terminal.md) only when the CLI needs terminal behavior.
 
 Choose the output mode before `open()`. Helpers own their output streams; a raw session gives that ownership to you.
-Close sessions and pools with try-with-resources or Kotlin `use`.
+Close sessions and pools with try-with-resources or Kotlin `use`. For file input and output, stay with
+[`run()`](../scenarios/run.md#files); it does not require a separate scenario.

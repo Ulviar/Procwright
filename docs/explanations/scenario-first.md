@@ -1,30 +1,20 @@
-# Why Scenarios Instead of Flags
+# Choose the interaction before starting the process
 
-Procwright is not a thin wrapper over `ProcessBuilder`. The public API starts with the workflow a caller is trying to run:
+A finite command needs output capture and an overall timeout. A long-lived worker needs request boundaries and a timeout
+for each exchange. An interactive prompt needs matching rules. Those settings mean different things, so Procwright
+keeps them on separate scenario builders.
 
-- finite command execution;
-- live interactive process control;
-- prompt automation;
-- line-oriented protocols;
-- framed or typed protocols;
-- streaming output;
-- reusable workers;
-- optional JSON and byte-framing protocol adapters.
+Choose a scenario before `execute()` or `open()`:
 
-Each workflow needs different behavior. A timeout in a one-shot command, a request timeout in a line worker, and an idle
-timeout in an interactive session are not the same concept. Procwright keeps those settings next to the workflow that uses
-them.
+- `run()` captures output and returns a result after one command finishes.
+- `listen()` delivers text while a process runs.
+- `lineSession()` and `protocolSession(...)` make repeated requests through one process.
+- `interactive().expect()` matches prompts and sends replies.
+- `interactive()` gives you raw streams when you need to manage the conversation yourself.
 
-## What this means for users
+The choice also decides [who reads output](../reference/output-ownership.md). Two readers on the same stream would
+compete for bytes, so an open raw session cannot later become an Expect or protocol session.
 
-Instead of building a large process helper with many optional flags, choose the scenario first:
-
-- use `run` when the process should finish and return a result;
-- use `listen` when output is an event stream;
-- use `interactive` when the caller needs raw process control;
-- add `Expect` when prompt matching owns the session output;
-- use `lineSession` or `protocolSession` when a long-lived worker speaks a request/response protocol;
-- add pooling only when the worker protocol can be reused.
-
-This keeps invalid combinations visible. For example, terminal controls belong to session-family workflows, while full
-captured stdout/stderr belongs to `run`.
+A direct worker session already reuses one process. Add a pool only when independent requests need concurrent workers
+and any worker can handle any request. Use the [scenario chooser](../how-to/choose-process-scenario.md) to find the
+walkthrough for your task.
