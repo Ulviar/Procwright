@@ -206,10 +206,8 @@ final class ProtocolSessionCallbackCapabilityAndFramingTest extends ProtocolSess
         };
         ControllableProcess process =
                 new ControllableProcess(stdin, new ByteArrayInputStream(new byte[] {1}), InputStream.nullInputStream());
-        ProtocolSessionSettings settings = options(new AtomicRequestLinesCharset())
-                .withOutputBacklogLimit(8)
-                .withMaxResponseBytes(1)
-                .withMaxResponseChars(2);
+        ProtocolSessionSettings settings =
+                options(new AtomicRequestLinesCharset()).withMaxResponseBytes(1).withMaxResponseChars(2);
 
         try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, settings)) {
             assertEquals("a", protocol.request("first"));

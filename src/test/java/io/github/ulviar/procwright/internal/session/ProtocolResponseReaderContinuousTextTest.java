@@ -132,8 +132,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults()
                 .withCharsetPolicy(policy)
                 .withMaxResponseBytes(1)
-                .withMaxResponseChars(characterBudget)
-                .withOutputBacklogLimit(1);
+                .withMaxResponseChars(characterBudget);
         ProtocolResponseReader reader = new ProtocolResponseReader(
                 queue,
                 options,
@@ -150,10 +149,8 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
 
     @Test
     void continuousDecoderOutputGuardComesOnlyFromTheCharacterBudget() {
-        ProtocolSessionSettings options = ProtocolSessionSettings.defaults()
-                .withMaxResponseBytes(1)
-                .withOutputBacklogLimit(1)
-                .withMaxResponseChars(2_000_000);
+        ProtocolSessionSettings options =
+                ProtocolSessionSettings.defaults().withMaxResponseBytes(1).withMaxResponseChars(2_000_000);
         ProtocolSessionSettings maximum = options.withMaxResponseChars(Integer.MAX_VALUE);
 
         assertEquals(2_000_001, ProtocolTextReader.outputWithoutInputLimit(options));
@@ -323,8 +320,7 @@ final class ProtocolResponseReaderContinuousTextTest extends ProtocolResponseRea
         AtomicInteger stagingAllocations = new AtomicInteger();
         ProtocolSessionSettings options = ProtocolSessionSettings.defaults()
                 .withMaxResponseBytes(frame.length)
-                .withMaxResponseChars(frame.length)
-                .withOutputBacklogLimit(frame.length);
+                .withMaxResponseChars(frame.length);
         ProtocolTextDecoderState decoder = new ProtocolTextDecoderState(
                 options.charsetPolicy(),
                 ProtocolTextReader.pendingByteLimit(options),

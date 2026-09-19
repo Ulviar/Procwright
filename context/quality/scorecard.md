@@ -27,6 +27,10 @@ Scorecard оценивает текущий MVP в пределах [бюдже�
 
 ## Состояние возможностей
 
+Line/protocol API задаёт размеры сообщений, а внутренние output buffers следуют response limits. Отдельных настроек
+очереди и незавершённой строки нет; превышение response или его pending output имеет один `RESPONSE_TOO_LARGE`.
+Transport tests доказывают полный burst выше стандартных defaults до начала чтения, а также overflow и framing boundaries.
+
 Первое знакомство начинается с checkout demos `demoRun`, `demoWorker` и `demoPool`. JSON Lines walkthrough показывает
 application-owned service, повторные вызовы одной session и переход к конкурентным независимым requests через тот же
 protocol Draft. Короткие Java/Kotlin фрагменты сверяются с именованными участками компилируемых examples; Markdown
@@ -46,7 +50,7 @@ Pool не создаёт timed tasks для отсутствующих hooks и 
 | One-shot | Готово | Input, bounded/file/discard capture, strict decoding, timeout, tree shutdown и typed result/failure. |
 | Interactive | Готово | Guarded stdin, raw output ownership, readiness, idle timeout, PTY и idempotent lifecycle. |
 | Expect | Готово | Explicit Draft/open, bounded matching/transcript, redaction и typed outcomes. |
-| Line session | Готово | Serialized requests, end-to-end deadline, independent limits/backlog и hostile-decoder protection. |
+| Line session | Готово | Serialized requests, end-to-end deadline, response-sized output bounds и hostile-decoder protection. |
 | Protocol session | Готово | Factory per session/worker, adapter-owned framing, strict decoding, global response budget и typed failures. |
 | Streaming | Готово | Backpressure, bounded diagnostics, fixed closed-stdin invariant и stable listener/read/process reasons. |
 | Pooling | Готово | Nested `PoolDraft`, no public lease, общий lifecycle metrics/failure API, per-pool `maxSize` 1..256, deadline-bound caller wait для startup/hooks, bounded retirement queue с caller-runs backpressure и одношаговый scheduled replenishment. |

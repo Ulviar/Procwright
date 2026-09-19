@@ -24,6 +24,8 @@ import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 final class ProtocolResponseFramingAndLimitsIntegrationTest {
@@ -43,6 +45,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
 
     @Test
     void protocolAdapterCannotSwallowResponseLimitFailure() throws Exception {
+        AtomicBoolean failureCaught = new AtomicBoolean();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {
@@ -55,6 +58,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                     readers.stdout().readExactly(2);
                     return "unexpected";
                 } catch (ProtocolSessionException ignored) {
+                    failureCaught.set(true);
                     return "fallback";
                 }
             }
@@ -62,12 +66,13 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
         ProtocolSession<String, String> session = openProtocolSession(
                 fixtureService(),
                 adapter,
-                call -> call.withArgs("partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
+                call -> call.withArgs("partial", "--stdout=a", "--stderr=", "--hold-millis=5000")
                         .withMaxResponseBytes(1));
         try {
             ProtocolSessionException exception =
                     assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
+            assertTrue(failureCaught.get(), "the adapter must attempt to swallow the reader budget failure");
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
             assertExitFailedWith(session, exception);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
@@ -79,6 +84,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
 
     @Test
     void protocolAdapterCannotRetryPastCumulativeByteBudget() throws Exception {
+        AtomicInteger rejectedRetries = new AtomicInteger();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {
@@ -95,6 +101,7 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
                         throw new AssertionError("response budget retry unexpectedly consumed a byte");
                     } catch (ProtocolSessionException exception) {
                         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
+                        rejectedRetries.incrementAndGet();
                     }
                 }
                 return "fallback";
@@ -103,12 +110,13 @@ final class ProtocolResponseFramingAndLimitsIntegrationTest {
         ProtocolSession<String, String> session = openProtocolSession(
                 fixtureService(),
                 adapter,
-                call -> call.withArgs("partial", "--stdout=abc", "--stderr=", "--hold-millis=5000")
+                call -> call.withArgs("partial", "--stdout=a", "--stderr=", "--hold-millis=5000")
                         .withMaxResponseBytes(1));
         try {
             ProtocolSessionException exception =
                     assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
+            assertEquals(2, rejectedRetries.get(), "both reads after the first consumed byte must be rejected");
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
             assertExitFailedWith(session, exception);
         } finally {

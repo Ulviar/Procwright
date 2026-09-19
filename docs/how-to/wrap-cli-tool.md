@@ -81,7 +81,7 @@ The worker reads a JSON value followed by LF, for example `{"text":"hello"}`, an
 send logs to stderr. JSON Lines uses strict UTF-8.
 
 The adapter caps a response line, including LF, at 64 KiB. Core defaults additionally bound request bytes, response bytes,
-backlog, and the five-second request wait. Change these only when the worker needs different budgets; see
+and the five-second request wait. Output buffers follow the response byte limit. Change these only when the worker needs different budgets; see
 [protocol defaults](../reference/defaults.md#protocol-sessions).
 
 ## Connect your worker

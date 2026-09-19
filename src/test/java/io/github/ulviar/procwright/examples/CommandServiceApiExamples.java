@@ -102,7 +102,6 @@ final class CommandServiceApiExamples {
                 .withArgs("repl")
                 .withMaxRequestBytes(64 * 1024)
                 .withMaxResponseChars(64 * 1024)
-                .withStdoutBacklogLines(128)
                 .withTranscriptLimit(16 * 1024)
                 .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
                 .open()) {
@@ -245,7 +244,6 @@ final class CommandServiceApiExamples {
         try (ProtocolSession<String, String> session = worker.protocolSession(LengthPrefixedTextAdapter::new)
                 .withArgs("worker")
                 .withRequestTimeout(Duration.ofSeconds(2))
-                .withOutputBacklogLimit(128 * 1024)
                 .withReadiness(ready -> ready.request("ready"))
                 .open()) {
             String response = session.request("first line\nsecond line");

@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.BlockingUntilClosedInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ControllableProcess;
+import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.ResponseInputStream;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.awaitUninterruptibly;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.captureFailure;
 import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtures.openLineSession;
@@ -101,7 +102,7 @@ final class DefaultLineSessionFatalOutputFailureTest {
     private static void assertResponseLimitAndFatalErrorAreArbitrated() throws Exception {
         AssertionError fatalError = new AssertionError("fatal stderr decoder failure");
         RacingLineDecoderCharset charset = new RacingLineDecoderCharset(fatalError);
-        GatedByteInputStream stdout = new GatedByteInputStream((byte) 'x');
+        ResponseInputStream stdout = new ResponseInputStream();
         GatedByteInputStream stderr = new GatedByteInputStream((byte) '!');
         CountingOutputStream stdin = new CountingOutputStream();
         AtomicReference<LineSessionException> observedResponseFailure = new AtomicReference<>();
@@ -111,6 +112,8 @@ final class DefaultLineSessionFatalOutputFailureTest {
                 .withMaxResponseChars(1)
                 .withResponseDecoder(reader -> {
                     try {
+                        assertEquals("o", reader.readLine());
+                        stdout.publish(new byte[] {'x'});
                         reader.readLine();
                         throw new AssertionError("response limit was not enforced");
                     } catch (LineSessionException failure) {
@@ -128,7 +131,7 @@ final class DefaultLineSessionFatalOutputFailureTest {
                     lineSession.requestEncoded("request\n".getBytes(StandardCharsets.UTF_8), Duration.ofSeconds(5))));
             assertTrue(stdin.awaitWrite(), "the request must be active before either output failure");
 
-            stdout.releaseByte();
+            stdout.publish(new byte[] {'x'});
             assertTrue(charset.awaitResponseDecoder(), "stdout decoder did not reach its controlled boundary");
             charset.releaseResponseDecoder();
             assertTrue(
@@ -159,7 +162,7 @@ final class DefaultLineSessionFatalOutputFailureTest {
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, followUpFailure.reason());
             assertEquals(writesAfterFailure, stdin.writeCalls());
         } finally {
-            stdout.releaseByte();
+            stdout.close();
             stderr.releaseByte();
             charset.releaseResponseDecoder();
             charset.releaseFatalDecoder();
@@ -256,19 +259,16 @@ final class DefaultLineSessionFatalOutputFailureTest {
         }
 
         CharsetDecoder delayedResponseDecoder() {
-            return new CharsetDecoder(this, 1, 3) {
-                boolean emitted;
-
+            return new CharsetDecoder(this, 1, 2) {
                 @Override
                 protected CoderResult decodeLoop(ByteBuffer input, CharBuffer output) {
-                    if (!input.hasRemaining() || emitted) {
+                    if (!input.hasRemaining()) {
                         return CoderResult.UNDERFLOW;
                     }
                     input.get();
                     responseDecoderEntered.countDown();
                     awaitUninterruptibly(releaseResponseDecoder);
-                    output.put('o').put('k').put('\n');
-                    emitted = true;
+                    output.put('o').put('\n');
                     return CoderResult.UNDERFLOW;
                 }
             };

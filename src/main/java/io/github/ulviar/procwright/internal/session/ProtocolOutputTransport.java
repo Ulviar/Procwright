@@ -113,7 +113,7 @@ final class ProtocolOutputTransport {
 
     private ProtocolOutputQueue queue(ProtocolOutputQueue.OverflowPolicy overflowPolicy, LongSupplier nanoTime) {
         return new ProtocolOutputQueue(
-                options.outputBacklogLimit(), overflowPolicy, nanoTime, () -> {}, () -> {}, exitCode, null);
+                options.maxResponseBytes(), overflowPolicy, nanoTime, () -> {}, () -> {}, exitCode, null);
     }
 
     void closeReaders() {
@@ -158,7 +158,7 @@ final class ProtocolOutputTransport {
                 consecutiveZeroReads = 0;
                 transcript.appendStream(streamName, buffer, count);
                 if (!output.offer(Arrays.copyOf(buffer, count))) {
-                    closeAfter(failOutputBacklogOverflow());
+                    closeAfter(failOutputLimit());
                     return;
                 }
             }
@@ -216,10 +216,12 @@ final class ProtocolOutputTransport {
         }
     }
 
-    private ProtocolSessionState.OutputSelection failOutputBacklogOverflow() {
-        CommandExecutionException failure = new CommandExecutionException("Protocol stdout backlog overflow");
+    private ProtocolSessionState.OutputSelection failOutputLimit() {
+        CommandExecutionException failure = new CommandExecutionException("Protocol stdout exceeds maxResponseBytes");
         return selectAndPublishOutputFailure(
-                ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "Protocol output backlog overflow", failure);
+                ProtocolSessionException.Reason.RESPONSE_TOO_LARGE,
+                "Protocol output exceeds maxResponseBytes",
+                failure);
     }
 
     private ProtocolSessionState.OutputSelection failTranscriptDecoding(

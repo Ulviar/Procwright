@@ -182,7 +182,7 @@ final class LineOutputTransport {
             decoder.end(sink);
             malformed.compareAndSet(false, decoder.malformed());
             if (responseStream && line.length() > 0) {
-                if (line.length() > options.maxLineChars()) {
+                if (line.length() > options.maxResponseChars()) {
                     failOversizedLine();
                     return;
                 }
@@ -214,9 +214,9 @@ final class LineOutputTransport {
                 currentLine.setLength(0);
             } else {
                 currentLine.append(value);
-                int maxLineChars = options.maxLineChars();
-                boolean pendingCarriageReturn = value == '\r' && currentLine.length() == maxLineChars + 1;
-                if (currentLine.length() > maxLineChars && !pendingCarriageReturn) {
+                int maxResponseChars = options.maxResponseChars();
+                boolean pendingCarriageReturn = value == '\r' && currentLine.length() == maxResponseChars + 1;
+                if (currentLine.length() > maxResponseChars && !pendingCarriageReturn) {
                     failOversizedLine();
                     return false;
                 }
@@ -227,7 +227,7 @@ final class LineOutputTransport {
 
     private void failOversizedLine() {
         CommandExecutionException failure =
-                new CommandExecutionException("Line-session stdout line exceeds maxLineChars");
+                new CommandExecutionException("Line-session stdout line exceeds maxResponseChars");
         closeAfter(offerFailure(
                 LineSessionException.Reason.RESPONSE_TOO_LARGE,
                 failureMessage("stdout", LineSessionException.Reason.RESPONSE_TOO_LARGE),
@@ -275,16 +275,16 @@ final class LineOutputTransport {
                 return false;
             }
             int lineCharacters = line.length();
-            if (pendingLines >= options.stdoutBacklogLines()
-                    || lineCharacters > options.stdoutBacklogChars() - pendingCharacters) {
+            if (pendingLines >= options.maxResponseLines()
+                    || lineCharacters > options.maxResponseChars() - pendingCharacters) {
                 CommandExecutionException overflowFailure =
-                        new CommandExecutionException("Line-session stdout backlog overflow");
+                        new CommandExecutionException("Line-session pending stdout exceeds response limits");
                 events.clear();
                 pendingLines = 0;
                 pendingCharacters = 0;
                 overflowSelection = state.selectOutputFailure(
-                        LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW,
-                        failureMessage("stdout", LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW),
+                        LineSessionException.Reason.RESPONSE_TOO_LARGE,
+                        failureMessage("stdout", LineSessionException.Reason.RESPONSE_TOO_LARGE),
                         overflowFailure);
                 if (!overflowSelection.rejectedAfterClose()) {
                     events.addLast(eventFor(Objects.requireNonNull(overflowSelection.selected(), "selected")));
@@ -329,10 +329,7 @@ final class LineOutputTransport {
             return "Could not decode line-session " + streamName;
         }
         if (reason == LineSessionException.Reason.RESPONSE_TOO_LARGE) {
-            return "Line-session response exceeded configured size limit";
-        }
-        if (reason == LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW) {
-            return "Line-session stdout backlog overflow";
+            return "Line-session response or pending stdout exceeded configured response limit";
         }
         return "Could not read line-session " + streamName;
     }

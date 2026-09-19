@@ -5,6 +5,7 @@ package io.github.ulviar.procwright;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.fixtureService;
 import static io.github.ulviar.procwright.ProtocolSessionIntegrationFixtures.openProtocolSession;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -177,6 +178,7 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
     @Test
     void caughtProtocolByteReaderFailurePrecedesSecondaryRuntimeException() throws Exception {
         IllegalArgumentException secondaryFailure = new IllegalArgumentException("secondary byte reader failure");
+        AtomicReference<ProtocolSessionException> caughtFailure = new AtomicReference<>();
         ProtocolAdapter<String, String> adapter = new ProtocolAdapter<>() {
             @Override
             public void writeRequest(String request, ProtocolWriter writer) {
@@ -188,7 +190,8 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
                 try {
                     readers.stdout().readExactly(2);
                     return "unexpected";
-                } catch (ProtocolSessionException ignored) {
+                } catch (ProtocolSessionException failure) {
+                    caughtFailure.set(failure);
                     throw secondaryFailure;
                 }
             }
@@ -196,11 +199,12 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
         ProtocolSession<String, String> session = openProtocolSession(
                 fixtureService(),
                 adapter,
-                call -> call.withArgs("partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
+                call -> call.withArgs("partial", "--stdout=a", "--stderr=", "--hold-millis=5000")
                         .withMaxResponseBytes(1));
         try {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
+            assertNotNull(caughtFailure.get(), "the adapter must catch the reader budget failure");
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
             assertExitFailedWith(session, failure);
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
@@ -234,13 +238,14 @@ final class ProtocolCallbackFailurePrecedenceIntegrationTest {
         ProtocolSession<String, String> session = openProtocolSession(
                 fixtureService(),
                 adapter,
-                call -> call.withArgs("partial", "--stdout=ab", "--stderr=", "--hold-millis=5000")
+                call -> call.withArgs("partial", "--stdout=a", "--stderr=", "--hold-millis=5000")
                         .withMaxResponseBytes(1));
         try {
             ProtocolSessionException failure = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
             ProtocolSessionException responseLimit = caughtFailure.get();
+            assertNotNull(responseLimit, "the adapter must catch the reader budget failure");
             assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, responseLimit.reason());
             assertSame(responseLimit, failure.getCause());
             assertExitFailedWith(session, failure);

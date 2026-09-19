@@ -161,7 +161,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
 
     @Test
     void requestScopedReadersChargeSharedDecodedLinesToTheirOwnBudgets() {
-        ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
+        ProtocolSessionSettings options = atomicLineOptions(2, AtomicLinesCharset.duringDecode("b"));
         ProtocolTextReader.StreamState textStream = streamText(options);
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         output.offer(new byte[] {1});
@@ -198,7 +198,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
 
     @Test
     void timeoutDoesNotConsumeSharedDecodedLineBuffer() {
-        ProtocolSessionSettings options = atomicLineOptions(2, 8, new SplitAtomicLineCharset());
+        ProtocolSessionSettings options = atomicLineOptions(2, new SplitAtomicLineCharset());
         ProtocolTextReader.StreamState textStream = streamText(options);
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         output.offer(new byte[] {1, 2});
@@ -222,7 +222,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
 
     @Test
     void closeDoesNotDiscardSharedDecodedLineBuffer() {
-        ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
+        ProtocolSessionSettings options = atomicLineOptions(2, AtomicLinesCharset.duringDecode("b"));
         ProtocolTextReader.StreamState textStream = streamText(options);
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         output.offer(new byte[] {1});
@@ -255,7 +255,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 reader -> reader.readTextUntil((byte) 'z', 1));
 
         for (Consumer<ProtocolResponseReader> incompatibleRead : incompatibleReads) {
-            ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
+            ProtocolSessionSettings options = atomicLineOptions(2, AtomicLinesCharset.duringDecode("b"));
             ProtocolTextReader.StreamState textStream = streamText(options);
             ProtocolOutputQueue output = atomicLineOutput(8);
             assertEquals(
@@ -279,7 +279,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     @Test
     void zeroLengthReadsPreserveBufferedDecodedLinesAndQueuedBytes() {
         for (Consumer<ProtocolResponseReader> zeroLengthRead : zeroLengthReads()) {
-            ProtocolSessionSettings options = atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("b"));
+            ProtocolSessionSettings options = atomicLineOptions(2, AtomicLinesCharset.duringDecode("b"));
             ProtocolTextReader.StreamState textStream = streamText(options);
             ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
             output.offer(new byte[] {1});
@@ -304,23 +304,20 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
     }
 
     @Test
-    void decodedLineBufferIsBoundedByBothResponseAndBacklogLimits() {
-        for (ProtocolSessionSettings options : List.of(
-                atomicLineOptions(2, 8, AtomicLinesCharset.duringDecode("bc")),
-                atomicLineOptions(4, 2, AtomicLinesCharset.duringDecode("bc")))) {
-            ProtocolTextReader.StreamState textStream = streamText(options);
-            ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
-            output.offer(new byte[] {1});
+    void decodedLineBufferIsBoundedByTheResponseCharacterLimit() {
+        ProtocolSessionSettings options = atomicLineOptions(2, AtomicLinesCharset.duringDecode("bc"));
+        ProtocolTextReader.StreamState textStream = streamText(options);
+        ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
+        output.offer(new byte[] {1});
 
-            ProtocolSessionException failure = assertThrows(
-                    ProtocolSessionException.class,
-                    () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
-                            .readLine(1));
+        ProtocolSessionException failure = assertThrows(
+                ProtocolSessionException.class,
+                () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
+                        .readLine(1));
 
-            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
-            assertEquals(0, output.pendingBytes());
-            assertFalse(textStream.hasPendingDecodedLines());
-        }
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
+        assertEquals(0, output.pendingBytes());
+        assertFalse(textStream.hasPendingDecodedLines());
     }
 
     @Test
@@ -328,8 +325,8 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
         ProtocolOutputQueue output = new ProtocolOutputQueue(8, ProtocolOutputQueue.OverflowPolicy.STRICT);
         IllegalStateException terminalCause = new IllegalStateException("terminal replaced decoded source");
         Charset charset = new AtomicLinesTerminalCharset(
-                () -> output.failAndClear(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, terminalCause));
-        ProtocolSessionSettings options = atomicLineOptions(4, 8, charset);
+                () -> output.failAndClear(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, terminalCause));
+        ProtocolSessionSettings options = atomicLineOptions(4, charset);
         ProtocolTextReader.StreamState textStream = streamText(options);
         output.offer(new byte[] {1});
 
@@ -338,7 +335,7 @@ final class ProtocolResponseReaderDecoderStateTest extends ProtocolResponseReade
                 () -> requestReader(output, options, textStream, Duration.ofSeconds(2))
                         .readLine(1));
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, failure.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
         assertSame(terminalCause, failure.getCause());
         assertFalse(textStream.hasPendingDecodedLines());
     }

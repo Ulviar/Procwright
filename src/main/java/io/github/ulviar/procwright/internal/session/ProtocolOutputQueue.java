@@ -133,8 +133,8 @@ final class ProtocolOutputQueue {
         pendingBytes = 0;
         headByteOffset = 0;
         events.addLast(ProtocolOutputEvent.failure(
-                ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW,
-                new IllegalStateException("Protocol output backlog overflow")));
+                ProtocolSessionException.Reason.RESPONSE_TOO_LARGE,
+                new IllegalStateException("Protocol output exceeds maxResponseBytes")));
         terminal = true;
         notifyAll();
     }

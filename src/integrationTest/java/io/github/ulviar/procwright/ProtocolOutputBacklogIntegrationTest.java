@@ -41,10 +41,10 @@ final class ProtocolOutputBacklogIntegrationTest {
                                                 "--stdout=" + "o".repeat(4096),
                                                 "--stderr=",
                                                 "--hold-millis=5000")
-                                        .withOutputBacklogLimit(128))
+                                        .withMaxResponseBytes(128))
                         .request(""));
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
 
     @Test
@@ -53,13 +53,13 @@ final class ProtocolOutputBacklogIntegrationTest {
                 fixtureService(),
                 new StderrLineAdapter(16),
                 call -> call.withArgs("partial", "--stdout=" + "o".repeat(4096), "--stderr=", "--hold-millis=5000")
-                        .withOutputBacklogLimit(128))) {
+                        .withMaxResponseBytes(128))) {
             ProtocolSessionException overflow = assertThrows(ProtocolSessionException.class, () -> session.request(""));
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, overflow.reason());
 
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, followUp.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
             assertTrue(followUp.getMessage().contains("closed by an earlier failure"));
         }
     }
@@ -72,17 +72,17 @@ final class ProtocolOutputBacklogIntegrationTest {
                 fixtureService(),
                 new StderrLineAdapter(64),
                 call -> call.withArgs("partial", "--stdout=", "--stderr=" + stderr, "--hold-millis=5000")
-                        .withOutputBacklogLimit(64)
+                        .withMaxResponseBytes(64)
                         .withTranscriptLimit(8192));
         try {
             ProtocolSessionException overflow = assertThrows(ProtocolSessionException.class, () -> session.request(""));
 
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, overflow.reason());
             assertTrue(overflow.transcript().text().contains(parseableSuffix));
             assertExitFailedWith(session, overflow);
 
             ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, () -> session.request(""));
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, followUp.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
             assertTrue(followUp.getMessage().contains("closed by an earlier failure"));
             assertTrue(followUp.exitCode().isPresent());
         } finally {
@@ -95,7 +95,7 @@ final class ProtocolOutputBacklogIntegrationTest {
         try (ProtocolSession<String, String> session = openProtocolSession(
                 fixtureService(),
                 new TextLineAdapter(),
-                call -> call.withArgs("controlled-line-repl").withOutputBacklogLimit(1024))) {
+                call -> call.withArgs("controlled-line-repl").withMaxResponseBytes(1024))) {
             for (int request = 0; request < 5; request++) {
                 assertEquals(
                         "response:stderr-burst",
@@ -111,7 +111,7 @@ final class ProtocolOutputBacklogIntegrationTest {
                 fixtureService(),
                 new StdoutLineAdapter(16),
                 call -> call.withArgs("partial", "--stdout=ok\n", "--stderr=" + "e".repeat(4096), "--hold-millis=0")
-                        .withOutputBacklogLimit(64))) {
+                        .withMaxResponseBytes(64))) {
             assertEquals("ok", session.request("", Duration.ofSeconds(2)));
             session.onExit().get(2, TimeUnit.SECONDS);
 
@@ -141,7 +141,7 @@ final class ProtocolOutputBacklogIntegrationTest {
                 fixtureService(),
                 adapter,
                 call -> call.withArgs("partial", "--stdout=", "--stderr=" + "e".repeat(4096), "--hold-millis=0")
-                        .withOutputBacklogLimit(64));
+                        .withMaxResponseBytes(64));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ProtocolSessionException> request = executor.submit(() ->
@@ -152,7 +152,7 @@ final class ProtocolOutputBacklogIntegrationTest {
             allowStderrRead.countDown();
             ProtocolSessionException overflow = request.get(2, TimeUnit.SECONDS);
 
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, overflow.reason());
             assertTrue(overflow.exitCode().isPresent());
         } finally {
             allowStderrRead.countDown();
@@ -167,7 +167,7 @@ final class ProtocolOutputBacklogIntegrationTest {
         try (ProtocolSession<String, String> session = openProtocolSession(
                 fixtureService(),
                 new StderrEchoAdapter(),
-                call -> call.withArgs("controlled-line-repl").withOutputBacklogLimit(1024))) {
+                call -> call.withArgs("controlled-line-repl").withMaxResponseBytes(1024))) {
             assertEquals("ping", session.request("ping", Duration.ofSeconds(2)));
         }
     }

@@ -25,8 +25,8 @@ public sealed interface LineSession extends AutoCloseable permits DefaultLineSes
      * retry. This includes line validation, request-size checks, encoding, and deadlines while waiting for an earlier
      * request or for stdin writing to become available.
      * Once the request is handed off for writing, a timeout, interruption, or write failure is terminal even when the
-     * caller cannot confirm that the process received a byte. EOF, decode error, response-size overflow, stdout backlog
-     * overflow, decoder failure, and other response/protocol failures are also terminal. A terminal failure closes the
+     * caller cannot confirm that the process received a byte. EOF, decode error, oversized response or pending stdout,
+     * decoder failure, and other response/protocol failures are also terminal. A terminal failure closes the
      * process and completes {@link #onExit()}; a pre-write failure leaves it incomplete unless the process exits
      * independently. The thrown {@link LineSessionException} contains a stable reason and bounded transcript snapshot.
      *

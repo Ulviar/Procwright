@@ -49,7 +49,6 @@ public final class TypedContentLengthJsonSessionExample {
                 .withRequestTimeout(Duration.ofSeconds(5))
                 .withMaxRequestBytes(MAX_REQUEST_WIRE_BYTES)
                 .withMaxResponseBytes(MAX_RESPONSE_WIRE_BYTES)
-                .withOutputBacklogLimit(MAX_RESPONSE_WIRE_BYTES)
                 .open()) {
             TextMetricsResponse response = session.request(new TextMetricsRequest("cafe\u0301 \uD83D\uDE80"));
             if (response.codePoints() != 7 || response.utf8Bytes() != 11) {

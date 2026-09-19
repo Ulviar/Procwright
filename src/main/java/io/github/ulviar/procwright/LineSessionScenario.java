@@ -170,30 +170,6 @@ public final class LineSessionScenario {
         Draft withTranscriptLimit(int transcriptLimit);
 
         /**
-         * Sets the queued stdout line limit.
-         *
-         * @param stdoutBacklogLines positive line limit
-         * @return updated draft
-         */
-        Draft withStdoutBacklogLines(int stdoutBacklogLines);
-
-        /**
-         * Sets the queued stdout character limit.
-         *
-         * @param stdoutBacklogChars positive character limit
-         * @return updated draft
-         */
-        Draft withStdoutBacklogChars(int stdoutBacklogChars);
-
-        /**
-         * Sets the maximum decoded line length.
-         *
-         * @param maxLineChars positive character limit
-         * @return updated draft
-         */
-        Draft withMaxLineChars(int maxLineChars);
-
-        /**
          * Sets the encoded request byte limit.
          *
          * @param maxRequestBytes positive byte limit
@@ -210,7 +186,7 @@ public final class LineSessionScenario {
         Draft withMaxRequestChars(int maxRequestChars);
 
         /**
-         * Sets the response line limit.
+         * Sets the response line limit, which also bounds unread stdout lines.
          *
          * @param maxResponseLines positive line limit
          * @return updated draft
@@ -218,7 +194,7 @@ public final class LineSessionScenario {
         Draft withMaxResponseLines(int maxResponseLines);
 
         /**
-         * Sets the response character limit.
+         * Sets the response character limit, which also bounds unread stdout and each partial line.
          *
          * @param maxResponseChars positive character limit
          * @return updated draft

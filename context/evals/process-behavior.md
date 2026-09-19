@@ -196,12 +196,18 @@
 - EOF до response отличается от timeout.
 - Stderr дренируется в transcript, чтобы line workflow не зависал на заполненном stderr.
 - Незавершенный partial output попадает в transcript с корректной привязкой к потоку.
-- `maxLineChars` применяется повторно к последней незавершенной строке при EOF, включая строку с одиноким завершающим
+- `maxResponseChars` ограничивает и последнюю незавершенную строку при EOF, включая строку с одиноким завершающим
   `\r`.
+- Увеличения `maxResponseChars` достаточно для line выше стандартного 1 MiB, а `maxResponseLines` — для burst более
+  1024 пустых lines. Полный допустимый ответ помещается в очередь до чтения decoder-ом.
 - `LineSession` запускается сразу в line output mode и не раскрывает underlying raw session.
 
 ## Протокольный workflow
 
+- Увеличения `maxResponseBytes` достаточно для полного wire response выше стандартного 1 MiB, даже если pump публикует
+  весь ответ до начала adapter reads. Очереди stdout/stderr независимы, consumed response budget общий.
+- Превышение pending stdout или consumed response даёт `RESPONSE_TOO_LARGE`; переполнение stderr не мешает adapter-у,
+  который его не читает. Decoded chars ограничены `maxResponseChars`, а не числовым значением byte limit.
 - Persistent text decoder сохраняет состояние между request-scoped reads, но pending undecoded bytes и output без
   input consumption ограничены независимо от response/transcript retention.
 - Decoder rewind, отсутствие progress и некорректная replacement error length дают `DECODE_ERROR`, bounded transcript,

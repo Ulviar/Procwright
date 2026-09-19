@@ -82,8 +82,8 @@ sequences. Text transcripts record malformed, truncated, or redacted state where
 Expect uses `withCharset(...)` for both input and output by default; `withOutputCharset(...)` is an explicit decoder-only
 override for commands whose two directions use different encodings.
 
-Line and protocol Drafts also bound request size, response size, and unread output backlog. These limits protect active
-protocol work; transcript limits only bound retained diagnostics.
+Line and protocol Drafts bound request and response sizes. Unread output buffers follow the response limits
+automatically; transcript limits only bound retained diagnostics.
 
 ## Readiness and pooling
 

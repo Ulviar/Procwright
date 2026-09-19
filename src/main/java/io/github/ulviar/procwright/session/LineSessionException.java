@@ -79,10 +79,8 @@ public final class LineSessionException extends ProcwrightException {
         BROKEN_PIPE,
         /** Output bytes could not be decoded according to the selected charset policy. */
         DECODE_ERROR,
-        /** Response exceeded a configured size limit. */
+        /** Response or pending stdout exceeded a configured response limit. */
         RESPONSE_TOO_LARGE,
-        /** Stdout produced more pending response data than the session allows. */
-        STDOUT_BACKLOG_OVERFLOW,
         /** Process exited before the request could be written. */
         PROCESS_EXITED,
         /** Custom response decoder failed. */

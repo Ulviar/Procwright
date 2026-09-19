@@ -42,14 +42,14 @@ final class ProtocolSessionStateTest {
         ProtocolSessionState state = state();
         IllegalStateException cause = new IllegalStateException("overflow");
 
-        state.recordTerminalFailure(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "overflow", cause);
+        state.recordTerminalFailure(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, "overflow", cause);
         assertTrue(state.claimClose());
 
         ProtocolSessionState.FailureSnapshot terminal =
                 assertInstanceOf(ProtocolSessionState.FailureSnapshot.class, state.terminal());
         assertSame(cause, terminal.primary());
         ProtocolSessionException followUp = assertThrows(ProtocolSessionException.class, state::ensureOpen);
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, followUp.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
         assertSame(cause, followUp.getCause());
     }
 
@@ -59,9 +59,7 @@ final class ProtocolSessionStateTest {
         ProtocolSessionState state =
                 new ProtocolSessionState(() -> new ProtocolTranscript("diagnostic", false, false), exitCode::get);
         state.recordTerminalFailure(
-                ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW,
-                "overflow",
-                new IllegalStateException("overflow"));
+                ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, "overflow", new IllegalStateException("overflow"));
 
         ProtocolSessionException beforeExit = assertThrows(ProtocolSessionException.class, state::ensureOpen);
         assertTrue(beforeExit.exitCode().isEmpty());
@@ -308,10 +306,10 @@ final class ProtocolSessionStateTest {
         request.close();
         assertNull(state.terminal());
 
-        state.recordTerminalFailure(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "overflow", overflow);
+        state.recordTerminalFailure(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, "overflow", overflow);
 
         ProtocolSessionException selected = state.selectProtocolFailure(request, staleClosed);
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, selected.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, selected.reason());
         assertSame(overflow, selected.getCause());
     }
 
@@ -368,11 +366,11 @@ final class ProtocolSessionStateTest {
 
         ProtocolSessionState failed = state();
         IllegalStateException cause = new IllegalStateException("overflow");
-        failed.recordTerminalFailure(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, "overflow", cause);
+        failed.recordTerminalFailure(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, "overflow", cause);
         ProtocolSessionException terminalFailure = assertThrows(
                 ProtocolSessionException.class,
                 () -> failed.arbitrateRequestAdmissionFailure(() -> failed.timeout(null)));
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, terminalFailure.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, terminalFailure.reason());
         assertSame(cause, terminalFailure.getCause());
 
         ProtocolSessionState fatal = state();

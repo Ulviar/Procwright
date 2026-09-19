@@ -24,11 +24,8 @@ public final class LinePoolExample {
                 .withRequestTimeout(Duration.ofSeconds(5))
                 .withMaxRequestBytes(16 * 1024)
                 .withMaxRequestChars(8 * 1024)
-                .withMaxLineChars(8 * 1024)
                 .withMaxResponseLines(1)
                 .withMaxResponseChars(8 * 1024)
-                .withStdoutBacklogLines(128)
-                .withStdoutBacklogChars(64 * 1024)
                 .pooled()
                 .withMaxSize(2)
                 .withWarmupSize(1)
@@ -77,7 +74,6 @@ public final class ProtocolPoolExample {
                 .withReadinessTimeout(Duration.ofSeconds(3))
                 .withRequestTimeout(Duration.ofSeconds(5))
                 .withTranscriptLimit(16 * 1024)
-                .withOutputBacklogLimit(128 * 1024)
                 .withMaxRequestBytes(64 * 1024)
                 .withMaxRequestChars(64 * 1024)
                 .withMaxResponseBytes(64 * 1024)
@@ -102,7 +98,7 @@ public final class ProtocolPoolExample {
 the [shared example sources](../examples.md#core).
 
 The line example permits at most 8,192 request characters and 16 KiB after UTF-8 encoding and line termination. It
-accepts one response line of at most 8,192 characters and bounds unread stdout at 128 lines and 65,536 characters.
+accepts one response line of at most 8,192 characters; unread stdout uses these same response limits.
 Its request, acquire, hook, and close timeouts are 5, 2, 1, and 15 seconds respectively.
 
 The pool owns acquisition, release, and retirement; leases are not public. One worker serves one request at a time.

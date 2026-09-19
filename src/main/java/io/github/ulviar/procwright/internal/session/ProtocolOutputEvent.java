@@ -110,8 +110,7 @@ final class ProtocolOutputEvent {
     private static String failureMessage(ProtocolSessionException.Reason reason) {
         return switch (reason) {
             case DECODE_ERROR -> "Could not decode protocol output";
-            case RESPONSE_TOO_LARGE -> "Protocol response exceeded configured size limit";
-            case OUTPUT_BACKLOG_OVERFLOW -> "Protocol output backlog overflow";
+            case RESPONSE_TOO_LARGE -> "Protocol output exceeded configured response size limit";
             default -> "Could not read protocol output";
         };
     }

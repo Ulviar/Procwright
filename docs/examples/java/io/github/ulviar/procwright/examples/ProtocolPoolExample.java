@@ -27,7 +27,6 @@ public final class ProtocolPoolExample {
                 .withReadinessTimeout(Duration.ofSeconds(3))
                 .withRequestTimeout(Duration.ofSeconds(5))
                 .withTranscriptLimit(16 * 1024)
-                .withOutputBacklogLimit(128 * 1024)
                 .withMaxRequestBytes(64 * 1024)
                 .withMaxRequestChars(64 * 1024)
                 .withMaxResponseBytes(64 * 1024)

@@ -53,7 +53,7 @@ public final class DefaultLineSession implements LineSession {
         IncrementalTextDecoder stdoutTextDecoder;
         IncrementalTextDecoder stderrTextDecoder;
         try {
-            stdoutTextDecoder = createDecoder(options.maxLineChars());
+            stdoutTextDecoder = createDecoder(options.maxResponseChars());
             stderrTextDecoder = createDecoder(options.transcriptLimit());
         } catch (RuntimeException | CoderMalfunctionError exception) {
             malformed.set(true);

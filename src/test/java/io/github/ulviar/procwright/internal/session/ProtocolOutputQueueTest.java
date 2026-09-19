@@ -94,7 +94,7 @@ final class ProtocolOutputQueueTest {
                 new Thread(() -> firstRead.set(captureFailure(() -> ProtocolOutputQueueTestAccess.readUnsignedByte(
                         queue, System.nanoTime() + Duration.ofSeconds(2).toNanos(), RECORDING_FAILURES))));
         Thread replacingReader = new Thread(() -> {
-            queue.failAndClear(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, replacementCause);
+            queue.failAndClear(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, replacementCause);
             replacement.set(captureFailure(() -> ProtocolOutputQueueTestAccess.readUnsignedByte(
                     queue, System.nanoTime() + Duration.ofSeconds(2).toNanos(), RECORDING_FAILURES)));
             replacementRead.countDown();
@@ -116,8 +116,8 @@ final class ProtocolOutputQueueTest {
         assertFalse(replacingReader.isAlive());
         ProtocolSessionException firstFailure = (ProtocolSessionException) firstRead.get();
         ProtocolSessionException replacementFailure = (ProtocolSessionException) replacement.get();
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, firstFailure.reason());
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, replacementFailure.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, firstFailure.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, replacementFailure.reason());
         assertSame(replacementCause, firstFailure.getCause());
         assertSame(replacementCause, replacementFailure.getCause());
     }
@@ -365,14 +365,14 @@ final class ProtocolOutputQueueTest {
         IllegalStateException overflow = new IllegalStateException("overflow");
         queue.eof();
 
-        queue.failAndClear(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow);
+        queue.failAndClear(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, overflow);
 
         ProtocolSessionException exception = assertThrows(
                 ProtocolSessionException.class,
                 () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
                         queue, System.nanoTime() + Duration.ofSeconds(1).toNanos(), RECORDING_FAILURES));
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         assertEquals(overflow, exception.getCause());
     }
 
@@ -427,8 +427,8 @@ final class ProtocolOutputQueueTest {
                 ProtocolSessionException.class,
                 () -> ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, first.reason());
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, second.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, first.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, second.reason());
         assertSame(first.getCause(), second.getCause());
         assertEquals(0, queue.pendingBytes());
     }
@@ -505,7 +505,7 @@ final class ProtocolOutputQueueTest {
                 () -> ProtocolOutputQueueTestAccess.readUnsignedByte(
                         queue, System.nanoTime() + Duration.ofSeconds(2).toNanos(), failures));
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         Thread observer = observerThread.get();
         assertTrue(observer != null);
         try {
@@ -557,7 +557,7 @@ final class ProtocolOutputQueueTest {
 
         assertFalse(reader.isAlive());
         ProtocolSessionException overflow = (ProtocolSessionException) readFailure.get();
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, overflow.reason());
         assertSame(overflow, claimedTerminal.get().terminalFailure(RECORDING_FAILURES));
         assertEquals(99, target[0]);
         assertEquals(0, queue.pendingBytes());

@@ -179,14 +179,6 @@ public final class ProtocolSessionScenario {
         Draft<I, O> withTranscriptLimit(int transcriptLimit);
 
         /**
-         * Sets the queued output byte limit.
-         *
-         * @param outputBacklogLimit positive queued-output byte limit
-         * @return updated draft
-         */
-        Draft<I, O> withOutputBacklogLimit(int outputBacklogLimit);
-
-        /**
          * Sets the encoded request byte limit.
          *
          * @param maxRequestBytes positive encoded request limit
@@ -203,9 +195,12 @@ public final class ProtocolSessionScenario {
         Draft<I, O> withMaxRequestChars(int maxRequestChars);
 
         /**
-         * Sets the consumed response byte limit.
+         * Sets the byte limit shared by reads of one response and the pending-output capacity of each stream.
          *
-         * @param maxResponseBytes positive consumed response byte limit
+         * <p>Stdout that exceeds the pending capacity fails the session immediately. Excess unread stderr remains
+         * nonfatal until the adapter reads it. Both paths use {@code RESPONSE_TOO_LARGE}.
+         *
+         * @param maxResponseBytes positive response and pending-output byte limit
          * @return updated draft
          */
         Draft<I, O> withMaxResponseBytes(int maxResponseBytes);

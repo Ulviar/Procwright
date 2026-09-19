@@ -41,7 +41,6 @@ public final class ProtocolSessionExample {
                 .withMaxRequestChars(8192)
                 .withMaxResponseBytes(16_384)
                 .withMaxResponseChars(8192)
-                .withOutputBacklogLimit(16_384)
                 .open()) {
             DocumentResponse response = session.request(new DocumentRequest("first line\nПривет, 世界"));
             if (!response.text().equals("first line\nПривет, 世界")) {
@@ -175,10 +174,13 @@ the declared body bytes as one complete field, applies strict UTF-8 decoding, an
 limit and the response-global character budget. The adapter bounds the header at 64 characters and accepts only an
 ASCII decimal body length from 0 through 8192 bytes.
 
-Stdout and stderr have separate bounded unread queues. Stdout overflow fails the session immediately because stdout is
-the normal response channel. Stderr overflow discards its queued bytes and stores an overflow marker; it becomes
-`OUTPUT_BACKLOG_OVERFLOW` if the adapter reads stderr. This lets adapters that never use stderr continue while retained
-diagnostics remain independently bounded.
+Set `withMaxResponseBytes(...)` to accept larger responses, including headers and delimiters. Each unread stdout/stderr
+queue follows this byte limit automatically; one complete allowed response fits before the adapter starts reading it.
+Unsolicited output or multiple unread responses share that capacity. The limit is not a total heap budget.
+
+Excess response or queued stdout produces `RESPONSE_TOO_LARGE` and fails the session. Stderr overflow discards its queued
+bytes and stores a failure marker; it produces `RESPONSE_TOO_LARGE` only if the adapter reads stderr. Adapters that never
+use stderr can continue while retained diagnostics remain independently bounded.
 
 Every `ProtocolReader` method enforces the session deadline, response-global byte budget, and the selected stream's
 unread backlog state. Text methods additionally apply the configured `CharsetPolicy` and response-global character

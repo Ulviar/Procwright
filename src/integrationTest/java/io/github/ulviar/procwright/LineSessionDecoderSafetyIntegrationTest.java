@@ -38,7 +38,7 @@ final class LineSessionDecoderSafetyIntegrationTest {
     void outputOnlyDecoderCannotGrowLineBeforeOuterLimitsApply() throws Exception {
         LineSessionScenario.Draft service = fixtureScenario()
                 .withTranscriptLimit(1024)
-                .withMaxLineChars(256)
+                .withMaxResponseChars(256)
                 .withCharsetPolicy(CharsetPolicy.report(new OutputOnlyOverflowCharset()));
         LineSession session = openLineSession(
                 service, call -> call.withArgs("partial", "--stdout=x", "--stderr=", "--hold-millis=5000"));
@@ -61,7 +61,7 @@ final class LineSessionDecoderSafetyIntegrationTest {
     void rewindingDecoderFailsBeforeRepeatedOutputAndClosesLineSession() throws Exception {
         LineSessionScenario.Draft service = fixtureScenario()
                 .withTranscriptLimit(1024)
-                .withMaxLineChars(1024)
+                .withMaxResponseChars(1024)
                 .withCharsetPolicy(CharsetPolicy.report(new FiniteRewindingCharset()));
         LineSession session = openLineSession(
                 service, call -> call.withArgs("partial", "--stdout=x", "--stderr=", "--hold-millis=5000"));
@@ -83,7 +83,7 @@ final class LineSessionDecoderSafetyIntegrationTest {
     private static void assertNoProgressDecoderClosesLineSession(String stdout, String stderr) throws Exception {
         LineSessionScenario.Draft service = fixtureScenario()
                 .withTranscriptLimit(32)
-                .withMaxLineChars(32)
+                .withMaxResponseChars(32)
                 .withCharsetPolicy(CharsetPolicy.report(new NoProgressCharset()));
         LineSession session = openLineSession(
                 service,

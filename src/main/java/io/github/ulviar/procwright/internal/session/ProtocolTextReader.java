@@ -405,8 +405,7 @@ final class ProtocolTextReader {
     }
 
     static int pendingByteLimit(ProtocolSessionSettings options) {
-        int configuredLimit = Math.min(options.maxResponseBytes(), options.outputBacklogLimit());
-        return IncrementalTextDecoder.pendingByteLimitFor(configuredLimit);
+        return IncrementalTextDecoder.pendingByteLimitFor(options.maxResponseBytes());
     }
 
     static int outputWithoutInputLimit(ProtocolSessionSettings options) {
@@ -414,7 +413,7 @@ final class ProtocolTextReader {
     }
 
     static int decodedLineBufferLimit(ProtocolSessionSettings options) {
-        return Math.min(options.outputBacklogLimit(), options.maxResponseChars());
+        return options.maxResponseChars();
     }
 
     private static int saturatedAdd(int left, int right) {

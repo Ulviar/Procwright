@@ -108,8 +108,8 @@ try (LineSession worker = Procwright.command("line-worker")
 ```
 
 `LineSessionScenario.Draft` предлагает request/idle timeout, readiness, charset policy, response decoder, request
-byte/char limits, response line/char limits, pending line/char backlog, maximum unfinished line, terminal capability и
-diagnostics. Request cycle сериализован. Validation, size, encoding и wait failure сохраняют session, если request не был
+byte/char limits, response line/char limits, terminal capability и diagnostics. Границы очереди и незавершённой строки
+следуют response limits без отдельных настроек. Request cycle сериализован. Validation, size, encoding и wait failure сохраняют session, если request не был
 передан writer-у и не сможет записаться позже. После передачи writer-у timeout, interruption или write failure закрывает
 session, даже если первый byte не подтвержден. EOF, decode и framing failure также закрывают session.
 

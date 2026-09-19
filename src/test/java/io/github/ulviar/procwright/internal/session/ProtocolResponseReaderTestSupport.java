@@ -62,11 +62,10 @@ abstract class ProtocolResponseReaderTestSupport {
         return reader(queue);
     }
 
-    static ProtocolSessionSettings atomicLineOptions(int maxResponseChars, int outputBacklogLimit, Charset charset) {
+    static ProtocolSessionSettings atomicLineOptions(int maxResponseChars, Charset charset) {
         return ProtocolSessionSettings.defaults()
                 .withMaxResponseBytes(1)
                 .withMaxResponseChars(maxResponseChars)
-                .withOutputBacklogLimit(outputBacklogLimit)
                 .withCharsetPolicy(CharsetPolicy.report(charset));
     }
 

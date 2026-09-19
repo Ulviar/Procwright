@@ -87,10 +87,10 @@ JSON value with no trailing content.
 | `contentLengthJson(maxFrameBytes)` | Declared response body bytes only; it does not include response headers or limit requests. |
 | `withMaxRequestBytes(...)` | The complete emitted request frame: generated header plus UTF-8 JSON body. |
 | `withMaxResponseBytes(...)` | All adapter-consumed response bytes: header block plus body. |
-| `withOutputBacklogLimit(...)` | Unread process output bytes; keep it large enough for the expected frame. |
 | `withMaxRequestChars(...)`, `withMaxResponseChars(...)` | Text API calls only. This adapter uses raw bytes, so these limits do not govern its JSON. |
 | `withCharsetPolicy(...)` | Text reads and transcripts only. The JSON body is always strict UTF-8, even if the scenario policy replaces malformed text. |
 
+The unread stdout/stderr queues follow `withMaxResponseBytes(...)` automatically.
 Set both byte layers. For a body limit `B`, allow request wire bytes for the generated header plus `B`, and response wire
 bytes for up to 8192 header bytes plus `B`. The example uses the conservative `8192 + B` bound for both directions.
 

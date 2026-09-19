@@ -57,6 +57,8 @@ ProtocolSessionScenario.Draft.pooled() -> ProtocolSessionScenario.PoolDraft -> o
 - process/resource создается только `execute()` или `open()`;
 - protocol entry point принимает factory, создающую adapter на каждый session/worker;
 - pooled configuration вложена в line/protocol scenario и не раскрывает lease;
+- line/protocol Draft задаёт request/response limits; размер output queues и незавершённой line не настраивается
+  отдельно, а следует response limits согласно [ADR-0027](../decisions/ADR-0027-response-sized-output-buffers.md);
 - line/protocol pool handles остаются разными сценариями, но возвращают общий `PooledSessionMetrics` и используют
   общий `PooledSessionException` для pool lifecycle; request-level exceptions остаются сценарными;
 - public scenario configuration carriers вне Draft, root pool shortcuts и второй protocol builder dialect отсутствуют;

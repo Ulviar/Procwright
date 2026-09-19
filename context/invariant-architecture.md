@@ -171,7 +171,8 @@ scenario flags.
 ### I/O и память
 
 - stdout/stderr дренируются без взаимной блокировки;
-- capture, transcript, line/protocol backlog и decoder pending state имеют независимые bounds;
+- capture и transcript имеют собственные bounds; line/protocol backlog и decoder pending state ограничены
+  соответствующими response limits без отдельных transport settings;
 - truncation, malformed decoding и redaction отражаются явно;
 - streaming применяет backpressure и не удерживает весь output;
 - request/response byte, char и line limits не подменяются transcript limit;
@@ -232,7 +233,8 @@ scenario flags.
 - adapter создается до process launch; `null` и factory failure не оставляют процесс;
 - deadline охватывает validation/encoding, serialized access, write и decode;
 - protocol failure закрывает session, потому что дальнейшее framing state неизвестно;
-- stable reason enum отделяет timeout, EOF, broken pipe, decode, oversize, backlog и adapter failure.
+- stable reason enum отделяет timeout, EOF, broken pipe, decode, oversize и adapter failure; pending output и
+  потреблённый response используют общий `RESPONSE_TOO_LARGE` при превышении соответствующего response limit.
 
 ### Pool
 

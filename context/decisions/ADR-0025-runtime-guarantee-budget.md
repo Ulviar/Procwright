@@ -59,6 +59,10 @@ Procwright сохраняет:
 - bounded Expect transcript/match window и изоляцию потенциально катастрофического regex;
 - Kotlin и protocol integrations как тонкие optional layers без второго process runtime.
 
+Границы line/protocol output buffers следуют response limits согласно
+[ADR-0027](ADR-0027-response-sized-output-buffers.md). Отдельные настройки транспортной очереди не являются гарантией;
+общий reason `RESPONSE_TOO_LARGE` не зависит от того, заметила превышение очередь или request reader.
+
 ## Гарантии, которые больше не являются целью
 
 Runtime не обязан гарантировать:

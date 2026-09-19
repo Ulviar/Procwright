@@ -119,7 +119,6 @@ final class ProtocolResponseDecodingFailureIntegrationTest {
                 new TextLineAdapter(),
                 call -> call.withArgs("controlled-line-repl")
                         .withTranscriptLimit(1024)
-                        .withOutputBacklogLimit(64)
                         .withMaxResponseBytes(64)
                         .withCharsetPolicy(CharsetPolicy.report(new NewlineWithoutConsumptionCharset())));
         try {

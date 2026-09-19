@@ -24,9 +24,9 @@ public sealed interface ProtocolSession<I extends Object, O extends Object> exte
      * takes precedence over the local wait failure.
      *
      * <p>After the serialized slot is acquired, the request owns the session. Timeout, interruption, failure to start or
-     * complete an adapter callback, EOF, closed session, broken pipe, charset decode error, request/response size
-     * overflow, output backlog overflow, protocol decoder failure, process exit, or another protocol failure then closes
-     * the session because protocol state is no longer trustworthy. The thrown {@link ProtocolSessionException} contains
+     * complete an adapter callback, EOF, closed session, broken pipe, charset decode error, oversized request, response
+     * or pending output, protocol decoder failure, process exit, or another protocol failure then closes the session
+     * because protocol state is no longer trustworthy. The thrown {@link ProtocolSessionException} contains
      * a stable reason, bounded transcript snapshot, and process exit code when known.
      *
      * @param request request value

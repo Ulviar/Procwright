@@ -24,7 +24,6 @@ public final class ProtocolSessionExample {
                 .withMaxRequestChars(8192)
                 .withMaxResponseBytes(16_384)
                 .withMaxResponseChars(8192)
-                .withOutputBacklogLimit(16_384)
                 .open()) {
             DocumentResponse response = session.request(new DocumentRequest("first line\nПривет, 世界"));
             if (!response.text().equals("first line\nПривет, 世界")) {

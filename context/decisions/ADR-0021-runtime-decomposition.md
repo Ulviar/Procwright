@@ -115,8 +115,8 @@ status. Итоговое решение о completion root и всего дер�
   failures сохраняется, а исходные `Throwable` не изменяются. После abandonment provider operation её поздний результат,
   включая embedded Error, игнорируется согласно ADR-0025; отдельного reporting settlement нет. Slot освобождается только
   после фактического возврата операции, поэтому повторные scans не создают неограниченное число зависших owners.
-- У каждого protocol limit есть один runtime-владелец: request limits у writer, response limits у reader/budget,
-  backlog limit у queue.
+- У каждого protocol budget есть один runtime-владелец: request consumption у writer, response consumption у
+  reader/budget, pending output у queue. Queue capacity следует response byte limit, а не отдельной настройке.
 - Failure taxonomy остается в публичных scenario-specific exceptions, а внутренние helpers только строят эти failures.
 - Декомпозиция допустима, если имя класса и Javadoc объясняют его инвариант без знания истории проекта.
 

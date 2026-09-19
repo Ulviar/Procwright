@@ -39,6 +39,11 @@ One session handles one request at a time. Request and response limits are globa
 transcript has its own bound. `CharsetPolicy.report(...)` rejects malformed text; `replace(...)` substitutes malformed
 input.
 
+Set `withMaxResponseChars(...)` and `withMaxResponseLines(...)` to accept larger responses. The unread stdout queue
+follows these limits automatically; an unfinished line is bounded by the same character limit. LF/CRLF separators do
+not count as content characters, but empty lines count toward the line limit. Excess response or pending stdout produces
+`RESPONSE_TOO_LARGE`. Unsolicited stdout shares this capacity, so keep worker logs on stderr.
+
 The Draft retains a custom response decoder. Decoder calls are serialized within one line session, but concurrent direct
 opens and line-pool workers can invoke that same decoder instance concurrently. The same cross-worker rule applies to
 readiness, diagnostics recipients, and a custom PTY provider. Make shared instances thread-safe or use separate Draft
@@ -106,5 +111,5 @@ public final class ReadinessExample {
 [Open `ReadinessExample.java`](../examples/java/io/github/ulviar/procwright/examples/ReadinessExample.java) and the
 [shared example sources](../examples.md#core).
 
-See [scenario defaults](../reference/defaults.md#line-sessions) for request, backlog, line, response, decoding, terminal,
+See [scenario defaults](../reference/defaults.md#line-sessions) for request, response, decoding, terminal,
 and readiness limits.

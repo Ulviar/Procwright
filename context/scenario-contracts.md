@@ -104,12 +104,13 @@ bounded cleanup, не ожидая физического возврата ка�
 Гарантии:
 
 - request deadline охватывает validation, bounded encoding, lock acquisition, write и decode;
-- request byte/char, response line/char, unfinished-line и pending backlog limits независимы;
+- request byte/char и response line/char limits независимы; pending stdout использует response line/char limits,
+  а незавершённая строка — response char limit;
 - LF/CRLF и unfinished EOF line учитываются по содержимому; trailing `\r` без `\n` является содержимым;
 - incremental decoder ограничивает undecoded input и output без input consumption;
 - custom `ResponseDecoder` единолично определяет завершение response;
 - stderr дренируется в bounded transcript;
-- timeout, EOF, broken pipe, decode, oversize и backlog overflow различаются;
+- timeout, EOF, broken pipe и decode различаются; oversize ответа, частичной строки или очереди даёт `RESPONSE_TOO_LARGE`;
 - validation, request-size, encoding и ожидание сохраняют session, если request не передан на stdin write и гарантированно
   не сможет записаться позже;
 - после передачи request writer-у timeout, interruption или write failure закрывает session, даже если факт получения
@@ -130,9 +131,11 @@ Caller выбирает decoder и limits, соответствующие worker
 - один request/response cycle выполняется одновременно;
 - `ProtocolWriter` и `ProtocolReaders` применяют единый request deadline;
 - request/response byte и char limits глобальны для всего response, даже если adapter делает несколько reads;
-- stdout/stderr backlog и transcript retention ограничены независимо;
+- каждая stdout/stderr queue ограничена `maxResponseBytes`, общий response budget суммирует bytes, прочитанные с обоих
+  streams; transcript retention остаётся независимым;
 - strict/replace charset behavior выбирается явно;
-- timeout, EOF, broken pipe, decode, oversized data, backlog overflow и adapter failure имеют стабильные reasons;
+- timeout, EOF, broken pipe, decode, oversized data и adapter failure имеют стабильные reasons; превышение response или
+  соответствующей output queue даёт `RESPONSE_TOO_LARGE`, stderr overflow становится ошибкой только при чтении adapter-ом;
 - protocol failure закрывает session.
 
 Adapter владеет framing и domain decoding. Runtime владеет процессом, readers/writer, deadline, bounds и diagnostics.

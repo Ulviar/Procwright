@@ -15,11 +15,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.internal.LineSessionSettings;
 import io.github.ulviar.procwright.session.LineSessionException;
 import io.github.ulviar.procwright.session.LineTranscript;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,8 +32,49 @@ import org.junit.jupiter.api.Test;
 final class LineOutputTransportTest {
 
     @Test
-    void backlogOverflowWakesAWaitingRequest() throws Exception {
-        LineSessionSettings options = LineSessionSettings.defaults().withStdoutBacklogChars(1);
+    void increasingOnlyResponseCharsAcceptsALineBeyondTheFormerTransportLimit() throws Exception {
+        int characters = 1024 * 1024 + 1;
+        String line = "x".repeat(characters);
+        LineSessionSettings options = LineSessionSettings.defaults().withMaxResponseChars(characters);
+
+        assertFullBurst(options, new CompletedBurstInputStream(line + "\r\n"), List.of(line));
+    }
+
+    @Test
+    void increasingOnlyResponseLinesAcceptsABurstBeyondTheFormerBacklogLimit() throws Exception {
+        int lines = 1025;
+        LineSessionSettings options = LineSessionSettings.defaults().withMaxResponseLines(lines);
+
+        assertFullBurst(options, new CompletedBurstInputStream("\n".repeat(lines)), Collections.nCopies(lines, ""));
+    }
+
+    @Test
+    void splitCrLfDoesNotChargeTheTerminatorToTheResponseCharacterLimit() throws Exception {
+        LineSessionSettings options = LineSessionSettings.defaults().withMaxResponseChars(1);
+
+        assertFullBurst(options, new CompletedBurstInputStream("x\r\n", 1), List.of("x"));
+    }
+
+    @Test
+    void pendingResponseBeyondEitherBudgetFailsBeforeAnyRead() throws Exception {
+        LineSessionSettings options =
+                LineSessionSettings.defaults().withMaxResponseChars(3).withMaxResponseLines(2);
+
+        assertBurstFailure(options, "abc\nx\n", LineSessionException.Reason.RESPONSE_TOO_LARGE);
+        assertBurstFailure(options, "a\n\n\n", LineSessionException.Reason.RESPONSE_TOO_LARGE);
+    }
+
+    @Test
+    void unterminatedLineAndTrailingCarriageReturnObeyTheResponseLimit() throws Exception {
+        LineSessionSettings options = LineSessionSettings.defaults().withMaxResponseChars(3);
+
+        assertBurstFailure(options, "xxxx", LineSessionException.Reason.RESPONSE_TOO_LARGE);
+        assertBurstFailure(options, "xxx\r", LineSessionException.Reason.RESPONSE_TOO_LARGE);
+    }
+
+    @Test
+    void responseLimitOverflowWakesAWaitingRequest() throws Exception {
+        LineSessionSettings options = LineSessionSettings.defaults().withMaxResponseChars(1);
         LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
         LineSessionState.Request request = state.beginRequest();
         ResponseInputStream stdout = new ResponseInputStream();
@@ -59,7 +104,7 @@ final class LineOutputTransportTest {
             assertNull(thrown.get());
             LineOutputTransport.FailureEvent failure =
                     assertInstanceOf(LineOutputTransport.FailureEvent.class, returned.get());
-            assertEquals(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW, failure.reason());
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
         } finally {
             waiter.interrupt();
             transport.closeReaders();
@@ -158,9 +203,62 @@ final class LineOutputTransportTest {
                 new NoOpFailureHandler());
     }
 
+    private static void assertFullBurst(
+            LineSessionSettings options, CompletedBurstInputStream stdout, List<String> expectedLines)
+            throws Exception {
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
+        LineSessionState.Request request = state.beginRequest();
+        ControllableProcess process =
+                new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
+        TransportHarness harness = openStartedTransport(process, options, state);
+        try {
+            assertTrue(
+                    harness.stdoutFinished().await(5, TimeUnit.SECONDS),
+                    "output pump did not finish the complete burst");
+            assertNull(state.terminal());
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            for (String expectedLine : expectedLines) {
+                assertEquals(
+                        expectedLine,
+                        assertInstanceOf(
+                                        LineOutputTransport.LineEvent.class,
+                                        harness.transport().take(deadline, request))
+                                .value());
+            }
+            assertSame(
+                    LineOutputTransport.EofEvent.INSTANCE, harness.transport().take(deadline, request));
+        } finally {
+            harness.transport().closeReaders();
+            process.complete(0);
+            harness.session().close();
+        }
+    }
+
+    private static void assertBurstFailure(
+            LineSessionSettings options, String output, LineSessionException.Reason reason) throws Exception {
+        LineSessionState state = new LineSessionState(() -> new LineTranscript("", false, false));
+        CompletedBurstInputStream stdout = new CompletedBurstInputStream(output);
+        ControllableProcess process =
+                new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
+        TransportHarness harness = openStartedTransport(process, options, state);
+        try {
+            assertTrue(
+                    harness.stdoutFinished().await(1, TimeUnit.SECONDS),
+                    "output pump did not stop at the response limit");
+            assertEquals(
+                    reason,
+                    assertInstanceOf(LineSessionState.FailureSnapshot.class, state.terminal())
+                            .reason());
+        } finally {
+            harness.transport().closeReaders();
+            process.complete(0);
+            harness.session().close();
+        }
+    }
+
     private static IncrementalTextDecoder decoder(LineSessionSettings options) {
         return new IncrementalTextDecoder(
-                options.charsetPolicy(), IncrementalTextDecoder.pendingByteLimitFor(options.maxLineChars()));
+                options.charsetPolicy(), IncrementalTextDecoder.pendingByteLimitFor(options.maxResponseChars()));
     }
 
     private static TransportHarness openStartedTransport(
@@ -178,8 +276,19 @@ final class LineOutputTransportTest {
                 session -> {
                     LineOutputTransport transport = transport(options, state);
                     OutputPumpCoordinator pumps = new OutputPumpCoordinator(session, SessionOutputMode.LINE);
-                    transport.start(PumpStarter.threading(), pumps);
-                    return new TransportHarness(session, transport);
+                    CountDownLatch stdoutFinished = new CountDownLatch(1);
+                    PumpStarter starter =
+                            (namePrefix, task) -> PumpStarter.threading().start(namePrefix, () -> {
+                                try {
+                                    task.run();
+                                } finally {
+                                    if (namePrefix.equals("procwright-line-stdout-")) {
+                                        stdoutFinished.countDown();
+                                    }
+                                }
+                            });
+                    transport.start(starter, pumps);
+                    return new TransportHarness(session, transport, stdoutFinished);
                 },
                 io.github.ulviar.procwright.internal.BoundedCloseDispatcher.shared(),
                 DefaultSession.WatcherStarter.threading());
@@ -214,5 +323,25 @@ final class LineOutputTransportTest {
         public void closeQuietly(Throwable failure) {}
     }
 
-    private record TransportHarness(DefaultSession session, LineOutputTransport transport) {}
+    private static final class CompletedBurstInputStream extends ByteArrayInputStream {
+
+        private final int chunkSize;
+
+        private CompletedBurstInputStream(String output) {
+            this(output, Integer.MAX_VALUE);
+        }
+
+        private CompletedBurstInputStream(String output, int chunkSize) {
+            super(output.getBytes(StandardCharsets.UTF_8));
+            this.chunkSize = chunkSize;
+        }
+
+        @Override
+        public synchronized int read(byte[] target, int offset, int length) {
+            return super.read(target, offset, Math.min(length, chunkSize));
+        }
+    }
+
+    private record TransportHarness(
+            DefaultSession session, LineOutputTransport transport, CountDownLatch stdoutFinished) {}
 }

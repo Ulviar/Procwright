@@ -326,7 +326,7 @@ final class ProtocolResponseReaderExactTextTest extends ProtocolResponseReaderTe
         ProtocolSessionException exception =
                 assertThrows(ProtocolSessionException.class, () -> reader.readTextExactly(Integer.MAX_VALUE, 1));
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
 
     @Test

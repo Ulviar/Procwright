@@ -13,9 +13,6 @@ import java.util.Objects;
 public record LineSessionSettings(
         Duration requestTimeout,
         int transcriptLimit,
-        int stdoutBacklogLines,
-        int stdoutBacklogChars,
-        int maxLineChars,
         int maxRequestBytes,
         int maxRequestChars,
         int maxResponseLines,
@@ -28,9 +25,6 @@ public record LineSessionSettings(
     public LineSessionSettings {
         requestTimeout = DurationSupport.requirePositive(requestTimeout, "requestTimeout");
         transcriptLimit = positive(transcriptLimit, "transcriptLimit");
-        stdoutBacklogLines = positive(stdoutBacklogLines, "stdoutBacklogLines");
-        stdoutBacklogChars = positive(stdoutBacklogChars, "stdoutBacklogChars");
-        maxLineChars = positive(maxLineChars, "maxLineChars");
         maxRequestBytes = positive(maxRequestBytes, "maxRequestBytes");
         maxRequestChars = positive(maxRequestChars, "maxRequestChars");
         maxResponseLines = positive(maxResponseLines, "maxResponseLines");
@@ -43,9 +37,6 @@ public record LineSessionSettings(
         return new LineSessionSettings(
                 Duration.ofSeconds(5),
                 64 * 1024,
-                1024,
-                ONE_MIB,
-                ONE_MIB,
                 ONE_MIB,
                 ONE_MIB,
                 1024,
@@ -62,9 +53,6 @@ public record LineSessionSettings(
         return copy(
                 value,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseLines,
@@ -76,54 +64,6 @@ public record LineSessionSettings(
     public LineSessionSettings withTranscriptLimit(int value) {
         return copy(
                 requestTimeout,
-                value,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
-                maxRequestBytes,
-                maxRequestChars,
-                maxResponseLines,
-                maxResponseChars,
-                charsetPolicy,
-                responseDecoder);
-    }
-
-    public LineSessionSettings withStdoutBacklogLines(int value) {
-        return copy(
-                requestTimeout,
-                transcriptLimit,
-                value,
-                stdoutBacklogChars,
-                maxLineChars,
-                maxRequestBytes,
-                maxRequestChars,
-                maxResponseLines,
-                maxResponseChars,
-                charsetPolicy,
-                responseDecoder);
-    }
-
-    public LineSessionSettings withStdoutBacklogChars(int value) {
-        return copy(
-                requestTimeout,
-                transcriptLimit,
-                stdoutBacklogLines,
-                value,
-                maxLineChars,
-                maxRequestBytes,
-                maxRequestChars,
-                maxResponseLines,
-                maxResponseChars,
-                charsetPolicy,
-                responseDecoder);
-    }
-
-    public LineSessionSettings withMaxLineChars(int value) {
-        return copy(
-                requestTimeout,
-                transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
                 value,
                 maxRequestBytes,
                 maxRequestChars,
@@ -137,9 +77,6 @@ public record LineSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 value,
                 maxRequestChars,
                 maxResponseLines,
@@ -152,9 +89,6 @@ public record LineSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 maxRequestBytes,
                 value,
                 maxResponseLines,
@@ -167,9 +101,6 @@ public record LineSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 maxRequestBytes,
                 maxRequestChars,
                 value,
@@ -182,9 +113,6 @@ public record LineSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseLines,
@@ -197,9 +125,6 @@ public record LineSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseLines,
@@ -212,9 +137,6 @@ public record LineSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseLines,
@@ -226,9 +148,6 @@ public record LineSessionSettings(
     private static LineSessionSettings copy(
             Duration requestTimeout,
             int transcriptLimit,
-            int stdoutBacklogLines,
-            int stdoutBacklogChars,
-            int maxLineChars,
             int maxRequestBytes,
             int maxRequestChars,
             int maxResponseLines,
@@ -238,9 +157,6 @@ public record LineSessionSettings(
         return new LineSessionSettings(
                 requestTimeout,
                 transcriptLimit,
-                stdoutBacklogLines,
-                stdoutBacklogChars,
-                maxLineChars,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseLines,

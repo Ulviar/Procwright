@@ -49,38 +49,38 @@ final class LineSessionBacklogAndTerminalIntegrationTest {
     }
 
     @Test
-    void stdoutBacklogOverflowIsDistinctFailure() {
+    void pendingStdoutCannotExceedResponseLineLimit() {
         ResponseDecoder delayedDecoder = reader -> {
             sleep(Duration.ofMillis(300));
             return List.of(reader.readLine());
         };
         LineSessionScenario.Draft service =
-                fixtureScenario().withStdoutBacklogLines(1).withResponseDecoder(delayedDecoder);
+                fixtureScenario().withMaxResponseLines(1).withResponseDecoder(delayedDecoder);
 
         try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("many", Duration.ofSeconds(2)));
 
-            assertEquals(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW, exception.reason());
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         }
     }
 
     @Test
-    void stdoutBacklogCharacterBudgetBoundsMultiplePendingLines() {
+    void responseCharacterLimitBoundsMultiplePendingLines() {
         ResponseDecoder delayedDecoder = reader -> {
             sleep(Duration.ofMillis(300));
             return List.of(reader.readLine());
         };
         LineSessionScenario.Draft service = fixtureScenario()
-                .withStdoutBacklogLines(100)
-                .withStdoutBacklogChars(40)
+                .withMaxResponseLines(100)
+                .withMaxResponseChars(40)
                 .withResponseDecoder(delayedDecoder);
 
         try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
             LineSessionException exception =
                     assertThrows(LineSessionException.class, () -> session.request("many", Duration.ofSeconds(2)));
 
-            assertEquals(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW, exception.reason());
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         }
     }
 
@@ -91,7 +91,7 @@ final class LineSessionBacklogAndTerminalIntegrationTest {
             return List.of(reader.readLine());
         };
         LineSessionScenario.Draft service =
-                fixtureScenario().withStdoutBacklogLines(1).withResponseDecoder(delayedDecoder);
+                fixtureScenario().withMaxResponseLines(1).withResponseDecoder(delayedDecoder);
 
         try (LineSession session =
                 openLineSession(service, call -> call.withArgs("exit-after-read", "--stdout=only-line"))) {
@@ -102,23 +102,23 @@ final class LineSessionBacklogAndTerminalIntegrationTest {
     }
 
     @Test
-    void requestAfterStdoutBacklogOverflowReportsOverflowReason() {
+    void requestAfterPendingOutputOverflowPreservesResponseLimitFailure() {
         ResponseDecoder delayedDecoder = reader -> {
             sleep(Duration.ofMillis(300));
             return List.of(reader.readLine());
         };
         LineSessionScenario.Draft service =
-                fixtureScenario().withStdoutBacklogLines(1).withResponseDecoder(delayedDecoder);
+                fixtureScenario().withMaxResponseLines(1).withResponseDecoder(delayedDecoder);
 
         try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
             LineSessionException overflow =
                     assertThrows(LineSessionException.class, () -> session.request("many", Duration.ofSeconds(2)));
-            assertEquals(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW, overflow.reason());
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, overflow.reason());
 
             LineSessionException followUp =
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(1)));
 
-            assertEquals(LineSessionException.Reason.STDOUT_BACKLOG_OVERFLOW, followUp.reason());
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
             assertTrue(followUp.getMessage().contains("closed by an earlier failure"));
         }
     }

@@ -138,21 +138,6 @@ final class LineSessionDrafts {
         }
 
         @Override
-        public LineSessionScenario.Draft withStdoutBacklogLines(int stdoutBacklogLines) {
-            return withProtocol(settings.protocol().withStdoutBacklogLines(stdoutBacklogLines));
-        }
-
-        @Override
-        public LineSessionScenario.Draft withStdoutBacklogChars(int stdoutBacklogChars) {
-            return withProtocol(settings.protocol().withStdoutBacklogChars(stdoutBacklogChars));
-        }
-
-        @Override
-        public LineSessionScenario.Draft withMaxLineChars(int maxLineChars) {
-            return withProtocol(settings.protocol().withMaxLineChars(maxLineChars));
-        }
-
-        @Override
         public LineSessionScenario.Draft withMaxRequestBytes(int maxRequestBytes) {
             return withProtocol(settings.protocol().withMaxRequestBytes(maxRequestBytes));
         }

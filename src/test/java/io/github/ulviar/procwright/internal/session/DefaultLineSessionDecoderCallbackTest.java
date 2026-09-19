@@ -12,6 +12,7 @@ import static io.github.ulviar.procwright.internal.session.LineSessionTestFixtur
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,6 +37,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -44,12 +46,105 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 final class DefaultLineSessionDecoderCallbackTest {
+
+    @Test
+    void responseLineLimitAppliesAcrossCustomDecoderReads() throws Exception {
+        assertConsumedResponseLimit(
+                LineSessionSettings.defaults().withMaxResponseLines(1), "maxResponseLines", failure -> {
+                    throw failure;
+                });
+    }
+
+    @Test
+    void responseCharacterLimitAppliesAcrossCustomDecoderReads() throws Exception {
+        assertConsumedResponseLimit(
+                LineSessionSettings.defaults().withMaxResponseChars(1), "maxResponseChars", failure -> {
+                    throw failure;
+                });
+    }
+
+    @Test
+    void customDecoderCannotSwallowResponseLimitFailure() throws Exception {
+        assertConsumedResponseLimit(
+                LineSessionSettings.defaults().withMaxResponseLines(1),
+                "maxResponseLines",
+                failure -> List.of("fallback"));
+    }
+
+    @Test
+    void caughtLineReaderFailurePrecedesSecondaryRuntimeException() throws Exception {
+        IllegalArgumentException secondary = new IllegalArgumentException("secondary line decoder failure");
+        assertConsumedResponseLimit(
+                LineSessionSettings.defaults().withMaxResponseLines(1), "maxResponseLines", failure -> {
+                    throw secondary;
+                });
+    }
+
+    @Test
+    void caughtLineReaderFailurePrecedesSecondaryError() throws Exception {
+        AssertionError secondary = new AssertionError("secondary line decoder error");
+        assertConsumedResponseLimit(
+                LineSessionSettings.defaults().withMaxResponseLines(1), "maxResponseLines", failure -> {
+                    throw secondary;
+                });
+    }
+
+    private static void assertConsumedResponseLimit(
+            LineSessionSettings limits, String limitName, Function<LineSessionException, List<String>> afterFailure)
+            throws Exception {
+        ResponseInputStream stdout = new ResponseInputStream();
+        ByteArrayOutputStream stdin = new ByteArrayOutputStream();
+        AtomicReference<LineSessionException> captured = new AtomicReference<>();
+        LineSessionSettings settings = limits.withResponseDecoder(reader -> {
+            stdout.publish("x\n".getBytes(StandardCharsets.UTF_8));
+            assertEquals("x", reader.readLine());
+            stdout.publish("x\n".getBytes(StandardCharsets.UTF_8));
+            try {
+                reader.readLine();
+                throw new AssertionError("response limit was not enforced across consumed lines");
+            } catch (LineSessionException failure) {
+                captured.set(failure);
+                return afterFailure.apply(failure);
+            }
+        });
+        ControllableProcess process = new ControllableProcess(stdin, stdout, InputStream.nullInputStream());
+        try (DefaultLineSession session = openLineSession(process, settings)) {
+            LineSessionException failure =
+                    assertThrows(LineSessionException.class, () -> session.request("request", Duration.ofSeconds(2)));
+
+            LineSessionException readerFailure = captured.get();
+            assertNotNull(readerFailure, "the callback must observe the cumulative reader failure");
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
+            assertEquals("Line response exceeds " + limitName, readerFailure.getMessage());
+            assertTrue(causeChainContains(failure, readerFailure), "the reader failure must remain observable");
+            ExecutionException exitFailure = assertThrows(
+                    ExecutionException.class, () -> session.onExit().get(1, TimeUnit.SECONDS));
+            assertSame(readerFailure, exitFailure.getCause());
+            assertFalse(process.isAlive());
+
+            LineSessionException followUp = assertThrows(LineSessionException.class, () -> session.request("again"));
+            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, followUp.reason());
+            assertEquals("request\n", stdin.toString(StandardCharsets.UTF_8));
+        } finally {
+            stdout.close();
+        }
+    }
+
+    private static boolean causeChainContains(Throwable failure, Throwable expected) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current == expected) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     @Test
     void abandonedDecoderFailureDoesNotChangeTimeout() throws Exception {

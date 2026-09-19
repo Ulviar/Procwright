@@ -11,7 +11,6 @@ import java.util.Objects;
 public record ProtocolSessionSettings(
         Duration requestTimeout,
         int transcriptLimit,
-        int outputBacklogLimit,
         int maxRequestBytes,
         int maxRequestChars,
         int maxResponseBytes,
@@ -21,7 +20,6 @@ public record ProtocolSessionSettings(
     public ProtocolSessionSettings {
         requestTimeout = DurationSupport.requirePositive(requestTimeout, "requestTimeout");
         transcriptLimit = positive(transcriptLimit, "transcriptLimit");
-        outputBacklogLimit = positive(outputBacklogLimit, "outputBacklogLimit");
         maxRequestBytes = positive(maxRequestBytes, "maxRequestBytes");
         maxRequestChars = positive(maxRequestChars, "maxRequestChars");
         maxResponseBytes = positive(maxResponseBytes, "maxResponseBytes");
@@ -34,7 +32,6 @@ public record ProtocolSessionSettings(
                 Duration.ofSeconds(5),
                 64 * 1024,
                 1024 * 1024,
-                1024 * 1024,
                 Integer.MAX_VALUE,
                 1024 * 1024,
                 Integer.MAX_VALUE,
@@ -45,7 +42,6 @@ public record ProtocolSessionSettings(
         return copy(
                 value,
                 transcriptLimit,
-                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -56,19 +52,6 @@ public record ProtocolSessionSettings(
     public ProtocolSessionSettings withTranscriptLimit(int value) {
         return copy(
                 requestTimeout,
-                value,
-                outputBacklogLimit,
-                maxRequestBytes,
-                maxRequestChars,
-                maxResponseBytes,
-                maxResponseChars,
-                charsetPolicy);
-    }
-
-    public ProtocolSessionSettings withOutputBacklogLimit(int value) {
-        return copy(
-                requestTimeout,
-                transcriptLimit,
                 value,
                 maxRequestBytes,
                 maxRequestChars,
@@ -81,7 +64,6 @@ public record ProtocolSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                outputBacklogLimit,
                 value,
                 maxRequestChars,
                 maxResponseBytes,
@@ -93,7 +75,6 @@ public record ProtocolSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                outputBacklogLimit,
                 maxRequestBytes,
                 value,
                 maxResponseBytes,
@@ -105,7 +86,6 @@ public record ProtocolSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 value,
@@ -117,7 +97,6 @@ public record ProtocolSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -129,7 +108,6 @@ public record ProtocolSessionSettings(
         return copy(
                 requestTimeout,
                 transcriptLimit,
-                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,
@@ -140,7 +118,6 @@ public record ProtocolSessionSettings(
     private static ProtocolSessionSettings copy(
             Duration requestTimeout,
             int transcriptLimit,
-            int outputBacklogLimit,
             int maxRequestBytes,
             int maxRequestChars,
             int maxResponseBytes,
@@ -149,7 +126,6 @@ public record ProtocolSessionSettings(
         return new ProtocolSessionSettings(
                 requestTimeout,
                 transcriptLimit,
-                outputBacklogLimit,
                 maxRequestBytes,
                 maxRequestChars,
                 maxResponseBytes,

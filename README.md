@@ -50,6 +50,8 @@ The API follows one sequence: **command → scenario → configuration → execu
 - Each `with*` call returns a new immutable Draft; retain its return value.
 - `execute()` returns a result. `open()` returns a handle to close with try-with-resources or Kotlin `use`.
 
+For reusable workers, set request and response limits; output buffers follow the response limits automatically.
+
 See [Getting started](docs/getting-started.md), [runnable examples](docs/examples.md), and the
 [API and policy reference](docs/reference/index.md). To use Procwright in a separate application, see
 [dependency setup](docs/release/installation.md).

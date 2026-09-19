@@ -148,11 +148,6 @@ final class ProtocolSessionDrafts {
         }
 
         @Override
-        public ProtocolSessionScenario.Draft<I, O> withOutputBacklogLimit(int outputBacklogLimit) {
-            return withProtocol(settings.protocol().withOutputBacklogLimit(outputBacklogLimit));
-        }
-
-        @Override
         public ProtocolSessionScenario.Draft<I, O> withMaxRequestBytes(int maxRequestBytes) {
             return withProtocol(settings.protocol().withMaxRequestBytes(maxRequestBytes));
         }

@@ -62,6 +62,25 @@ final class PublicApiSurfaceTest {
             Map.entry(ProtocolSessionScenario.PoolDraft.class, Set.of("open")));
 
     @Test
+    void requestResponseDraftsConfigureMessagesRatherThanTransportBuffers() throws Exception {
+        assertEntryPoint(
+                LineSessionScenario.Draft.class, "withMaxResponseLines", LineSessionScenario.Draft.class, int.class);
+        assertEntryPoint(
+                LineSessionScenario.Draft.class, "withMaxResponseChars", LineSessionScenario.Draft.class, int.class);
+        assertEntryPoint(
+                ProtocolSessionScenario.Draft.class,
+                "withMaxResponseBytes",
+                ProtocolSessionScenario.Draft.class,
+                int.class);
+
+        Set<String> transportSettings = Set.of(
+                "withStdoutBacklogLines", "withStdoutBacklogChars", "withMaxLineChars", "withOutputBacklogLimit");
+        for (Class<?> draft : Set.of(LineSessionScenario.Draft.class, ProtocolSessionScenario.Draft.class)) {
+            assertFalse(Stream.of(draft.getMethods()).map(Method::getName).anyMatch(transportSettings::contains));
+        }
+    }
+
+    @Test
     void corePublicTypesStayInsideTheApprovedPackages() throws Exception {
         Set<String> packages = new TreeSet<>();
         for (Class<?> type : publicApiTypes(CommandService.class)) {

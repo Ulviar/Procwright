@@ -49,14 +49,15 @@ Line sessions inherit the interactive-session defaults and add these request/res
 | --- | --- |
 | Request timeout | 5 seconds |
 | Retained transcript | 65,536 characters |
-| Unread stdout backlog | 1,024 lines and 1,048,576 characters |
-| Maximum line | 1,048,576 characters |
 | Maximum request | 1 MiB of encoded bytes and 1,048,576 characters |
 | Maximum response | 1,024 lines and 1,048,576 characters |
 | Charset policy | UTF-8 with malformed and unmappable input replaced |
 | Response decoder | first stdout line |
 
-Request and response limits apply to one exchange. The transcript limit only controls retained diagnostics.
+Request and response limits apply to one exchange. The unread stdout queue uses the response line and character limits;
+an unfinished line uses the response character limit. Set `withMaxResponseLines(...)` and `withMaxResponseChars(...)`
+when the worker returns larger responses. LF/CRLF separators do not count as content characters. The transcript limit
+only controls retained diagnostics.
 
 ## Protocol sessions
 
@@ -66,12 +67,13 @@ Protocol sessions inherit the interactive-session defaults and add these adapter
 | --- | --- |
 | Request timeout | 5 seconds |
 | Retained transcript | 65,536 characters |
-| Unread output backlog | 1 MiB |
 | Maximum request | 1 MiB of bytes and `Integer.MAX_VALUE` characters |
 | Maximum response | 1 MiB of bytes and `Integer.MAX_VALUE` characters |
 | Charset policy | UTF-8 with malformed and unmappable input replaced |
 
 Per-call limits passed to `ProtocolReader` methods apply in addition to these response-global limits.
+Each unread stdout/stderr queue uses `withMaxResponseBytes(...)` as its bound. Include framing bytes such as headers and
+delimiters in this limit. It also bounds the total bytes read across both streams for one response.
 
 ## Streaming
 

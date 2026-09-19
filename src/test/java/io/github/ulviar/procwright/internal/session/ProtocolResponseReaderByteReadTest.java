@@ -38,7 +38,7 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
 
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, () -> reader.readLine(4));
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         assertEquals(0, queue.pendingBytes());
     }
 
@@ -77,7 +77,7 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
             assertEquals(0, budget.remainingBytes());
             assertEquals(0, budget.remainingChars());
             ProtocolSessionException terminal = assertThrows(ProtocolSessionException.class, reader::readByte);
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, terminal.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, terminal.reason());
         }
     }
 
@@ -194,7 +194,7 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
 
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, stderrReader::readByte);
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
 
     @Test
@@ -218,7 +218,7 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
 
         ProtocolSessionException exception = assertThrows(ProtocolSessionException.class, reader::readByte);
 
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
 
     @Test
@@ -247,8 +247,7 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
     @Test
     void terminalQueueIgnoresLateOutputWithoutBreakingItsBound() {
         ProtocolOutputQueue queue = new ProtocolOutputQueue(4, ProtocolOutputQueue.OverflowPolicy.FAIL_ON_READ);
-        queue.failAndClear(
-                ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, new IllegalStateException("terminal"));
+        queue.failAndClear(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, new IllegalStateException("terminal"));
 
         assertDoesNotThrow(() -> {
             queue.offer(new byte[] {1, 2, 3, 4});
@@ -257,6 +256,6 @@ final class ProtocolResponseReaderByteReadTest extends ProtocolResponseReaderTes
 
         ProtocolSessionException exception =
                 assertThrows(ProtocolSessionException.class, () -> reader(queue).readByte());
-        assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, exception.reason());
+        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
     }
 }

@@ -39,8 +39,8 @@ final class LineSessionFramingAndLimitsIntegrationTest {
     }
 
     @Test
-    void lineOfExactlyMaxLineCharsWithLineFeedTerminatorSucceeds() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars("response:hello".length());
+    void lineOfExactlyMaxResponseCharsWithLineFeedTerminatorSucceeds() {
+        LineSessionScenario.Draft service = fixtureScenario().withMaxResponseChars("response:hello".length());
 
         try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
             assertEquals("response:hello", session.request("hello").text());
@@ -48,8 +48,8 @@ final class LineSessionFramingAndLimitsIntegrationTest {
     }
 
     @Test
-    void lineOfExactlyMaxLineCharsWithCrLfTerminatorSucceeds() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars("response:hello".length());
+    void lineOfExactlyMaxResponseCharsWithCrLfTerminatorSucceeds() {
+        LineSessionScenario.Draft service = fixtureScenario().withMaxResponseChars("response:hello".length());
 
         try (LineSession session =
                 openLineSession(service, call -> call.withArgs("controlled-line-repl", "--crlf=true"))) {
@@ -58,9 +58,9 @@ final class LineSessionFramingAndLimitsIntegrationTest {
     }
 
     @Test
-    void lineBeyondMaxLineCharsIsTypedFailureForBothTerminators() {
+    void lineBeyondMaxResponseCharsIsTypedFailureForBothTerminators() {
         for (String[] args : new String[][] {{"controlled-line-repl"}, {"controlled-line-repl", "--crlf=true"}}) {
-            LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars("response:hello".length() - 1);
+            LineSessionScenario.Draft service = fixtureScenario().withMaxResponseChars("response:hello".length() - 1);
 
             try (LineSession session = openLineSession(service, call -> call.withArgs(args))) {
                 LineSessionException exception =
@@ -68,41 +68,6 @@ final class LineSessionFramingAndLimitsIntegrationTest {
 
                 assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
             }
-        }
-    }
-
-    @Test
-    void responseLineLimitAppliesAcrossCustomDecoderReads() {
-        ResponseDecoder decoder = reader -> {
-            java.util.ArrayList<String> lines = new java.util.ArrayList<>();
-            while (true) {
-                String line = reader.readLine();
-                lines.add(line);
-                if (line.equals("done")) {
-                    return lines;
-                }
-            }
-        };
-        LineSessionScenario.Draft service =
-                fixtureScenario().withMaxResponseLines(2).withResponseDecoder(decoder);
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineSessionException exception = assertThrows(LineSessionException.class, () -> session.request("many"));
-
-            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-        }
-    }
-
-    @Test
-    void responseCharacterLimitAppliesAcrossCustomDecoderReads() {
-        ResponseDecoder decoder = reader -> List.of(reader.readLine(), reader.readLine());
-        LineSessionScenario.Draft service =
-                fixtureScenario().withMaxResponseChars(20).withResponseDecoder(decoder);
-
-        try (LineSession session = openLineSession(service, call -> call.withArgs("controlled-line-repl"))) {
-            LineSessionException exception = assertThrows(LineSessionException.class, () -> session.request("multi"));
-
-            assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
         }
     }
 
@@ -153,7 +118,7 @@ final class LineSessionFramingAndLimitsIntegrationTest {
 
     @Test
     void unterminatedStdoutLineIsBounded() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars(32);
+        LineSessionScenario.Draft service = fixtureScenario().withMaxResponseChars(32);
 
         try (LineSession session = openLineSession(
                 service,
@@ -162,13 +127,13 @@ final class LineSessionFramingAndLimitsIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
 
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            assertTrue(exception.getCause().getMessage().contains("maxLineChars"));
+            assertTrue(exception.getCause().getMessage().contains("maxResponseChars"));
         }
     }
 
     @Test
     void loneCarriageReturnAtEofCannotExceedLineLimit() {
-        LineSessionScenario.Draft service = fixtureScenario().withMaxLineChars(3);
+        LineSessionScenario.Draft service = fixtureScenario().withMaxResponseChars(3);
 
         try (LineSession session = openLineSession(
                 service,
@@ -178,7 +143,7 @@ final class LineSessionFramingAndLimitsIntegrationTest {
                     assertThrows(LineSessionException.class, () -> session.request("hello", Duration.ofSeconds(2)));
 
             assertEquals(LineSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-            assertTrue(exception.getCause().getMessage().contains("maxLineChars"));
+            assertTrue(exception.getCause().getMessage().contains("maxResponseChars"));
         }
     }
 }

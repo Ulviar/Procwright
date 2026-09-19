@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -14,11 +15,13 @@ import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
 import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +36,44 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupport {
+
+    @Test
+    void responseByteLimitAlsoAdmitsTheEntireBurstBeforeTheAdapterReads() throws Exception {
+        byte[] response = new byte[1024 * 1024 + 1];
+        Arrays.fill(response, (byte) 'x');
+        CountDownLatch outputQueued = new CountDownLatch(1);
+        InputStream stdout = new ByteArrayInputStream(response) {
+            @Override
+            public synchronized int read(byte[] bytes, int offset, int length) {
+                int count = super.read(bytes, offset, length);
+                if (count < 0) {
+                    outputQueued.countDown();
+                }
+                return count;
+            }
+        };
+        ControllableProcess process =
+                new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
+        ProtocolAdapter<String, byte[]> adapter = new ProtocolAdapter<>() {
+            @Override
+            public void writeRequest(String request, ProtocolWriter writer) {
+                writer.flush();
+            }
+
+            @Override
+            public byte[] readResponse(ProtocolReaders readers) {
+                return readers.stdout().readExactly(response.length);
+            }
+        };
+
+        try (DefaultProtocolSession<String, byte[]> protocol = protocolSession(
+                process, adapter, ProtocolSessionSettings.defaults().withMaxResponseBytes(response.length))) {
+            assertTrue(outputQueued.await(5, TimeUnit.SECONDS), "pump must queue the complete burst before reading");
+
+            assertArrayEquals(response, protocol.request("request"));
+            assertTrue(process.isAlive());
+        }
+    }
 
     @Test
     void idleStdoutIoFailureSettlesPublicExit() throws Exception {
@@ -171,7 +212,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
                 OutputStream.nullOutputStream(),
                 InputStream.nullInputStream(),
                 new java.io.ByteArrayInputStream(new byte[] {1, 2}));
-        ProtocolSessionSettings settings = ProtocolSessionSettings.defaults().withOutputBacklogLimit(1);
+        ProtocolSessionSettings settings = ProtocolSessionSettings.defaults().withMaxResponseBytes(1);
 
         try (DefaultProtocolSession<String, String> protocol = protocolSession(process, adapter, settings)) {
             ProtocolSessionException requestFailure =
@@ -179,7 +220,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
 
             assertEquals(10_000, observedReads.get());
             assertSame(firstObserved.get(), requestFailure);
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, requestFailure.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, requestFailure.reason());
             assertEquals(0, requestFailure.getSuppressed().length);
             assertEquals(0, requestFailure.getCause().getSuppressed().length);
         }
@@ -209,7 +250,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
         DefaultProtocolSession<String, Byte> protocol = protocolSession(
                 process,
                 adapter,
-                ProtocolSessionSettings.defaults().withOutputBacklogLimit(1).withRequestTimeout(Duration.ofSeconds(5)),
+                ProtocolSessionSettings.defaults().withMaxResponseBytes(1).withRequestTimeout(Duration.ofSeconds(5)),
                 rawSession::set);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -227,7 +268,7 @@ final class ProtocolSessionOutputFailureTest extends ProtocolSessionContractSupp
             ProtocolSessionException overflow =
                     assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
 
-            assertEquals(ProtocolSessionException.Reason.OUTPUT_BACKLOG_OVERFLOW, overflow.reason());
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, overflow.reason());
             assertEquals(23, overflow.exitCode().orElseThrow());
         } finally {
             allowRead.countDown();

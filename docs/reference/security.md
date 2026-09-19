@@ -29,8 +29,9 @@ from the launch error. A custom `PtyProvider` is responsible for preserving equi
 
 ## Output and diagnostics
 
-Treat stdout, stderr, protocol frames, and exit metadata as untrusted input. Bound capture, request, response, backlog, and
-transcript sizes. Use strict charset decoding when replacement characters would hide corruption.
+Treat stdout, stderr, protocol frames, and exit metadata as untrusted input. Bound capture, request, response, and
+transcript sizes; unread output buffers follow the response limits. Use strict charset decoding when replacement
+characters would hide corruption.
 
 Diagnostics and transcripts can contain arguments, environment values, request bodies, output, paths, and exception
 messages. Redact before exporting. Truncation limits memory; it does not remove secrets.

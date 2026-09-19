@@ -108,10 +108,8 @@ public final class ProtocolSessionException extends ProcwrightException {
         DECODE_ERROR,
         /** Request exceeded a configured size limit. */
         REQUEST_TOO_LARGE,
-        /** Response exceeded a configured size limit. */
+        /** Consumed response or pending output exceeded a configured response size limit. */
         RESPONSE_TOO_LARGE,
-        /** One output stream produced more pending data than the session allows. */
-        OUTPUT_BACKLOG_OVERFLOW,
         /** Protocol adapter failed while decoding a response. */
         PROTOCOL_DECODER_FAILED,
         /** Process exited while the session was in use. */

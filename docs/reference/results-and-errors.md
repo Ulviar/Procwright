@@ -17,14 +17,14 @@ snapshot.
 ## Sessions
 
 - `LineSessionException` distinguishes request too large, timeout, EOF, closed, broken pipe, decode error, response too
-  large, stdout backlog overflow, process exit, decoder failure, and other runtime failure. It preserves a bounded line
+  large, process exit, decoder failure, and other runtime failure. It preserves a bounded line
   transcript. Validation, request-size, encoding, and wait failures are retryable when the request was not handed off for
   stdin writing and cannot write later. Once handed off, timeout, interruption, write failure, and every response/protocol
   failure are terminal even if no received byte can be confirmed. Retryable failures leave `onExit()` incomplete.
   Terminal failures close the process and complete a still-pending `onExit()` exceptionally with the selected session
   failure. A late decoder result does not rewrite an exit already settled by the process and output transport.
 - `ProtocolSessionException` distinguishes timeout, closed, EOF, broken pipe, decode error, request or response too large,
-  output backlog overflow, adapter decoder failure, process exit, and other runtime failure. It preserves a bounded
+  adapter decoder failure, process exit, and other runtime failure. It preserves a bounded
   protocol transcript. `exitCode()` is an `OptionalInt` snapshot and can be empty when the failure is selected.
 - `ExpectException` distinguishes timeout, EOF, closed, and process I/O, decoding, or input-write failure, with a bounded
   transcript. Timeout while waiting for output or a matcher slot is retryable; abandonment of a regex evaluation is
@@ -38,6 +38,10 @@ snapshot.
 A framing, decode, EOF, or post-handoff failure closes a direct request session because subsequent protocol state cannot
 be trusted.
 
+For line and protocol sessions, `RESPONSE_TOO_LARGE` covers both a response exceeding its limits and pending output
+exceeding the same configured capacity. It can therefore also indicate excessive unsolicited worker output. Protocol
+stderr overflow is reported only if the adapter reads stderr.
+
 Worker loss can surface as `EOF` or `PROCESS_EXITED` according to observation order. If output EOF is selected before a
 process-exit snapshot is published, the request reports `EOF`; if process exit is selected first, it reports
 `PROCESS_EXITED`. For protocol requests, `EOF` has an empty `exitCode()`, while `PROCESS_EXITED` carries the code only
@@ -47,11 +51,11 @@ through `onExit()`.
 ## Pools
 
 Pooled requests keep worker request failures separate from pool orchestration failures. Timeout, EOF or
-`PROCESS_EXITED`, broken pipe or write failure, decoding failure, response overflow, and output-backlog overflow are
+`PROCESS_EXITED`, broken pipe or write failure, decoding failure, and oversized response or pending output are
 thrown directly as `LineSessionException` or `ProtocolSessionException`; they are not wrapped in a pooled exception.
 
 `PooledSessionException` covers acquisition, pool construction, worker startup,
-surfaced hook or lifecycle failures, and close. Its reason enum defines `ACQUIRE_TIMEOUT`, `CLOSED`, `STARTUP_FAILED`,
+surfaced hook or lifecycle failures, close, and unexpected local preparation failures. Its reason enum defines `ACQUIRE_TIMEOUT`, `CLOSED`, `STARTUP_FAILED`,
 `HOOK_TIMEOUT`, `INTERRUPTED`, `DRAIN_TIMEOUT`, and `WORKER_FAILED`. A pooled exception cause belongs to that pool phase,
 such as a worker factory, readiness, or startup-execution failure during warmup; it is not the wrapper for a normal worker
 request exception.

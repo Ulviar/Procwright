@@ -337,6 +337,16 @@ interruption или write failure становятся terminal из-за нео
 
 **Proof:** `TimedTaskRunnerTest`, `DefaultLineSessionWriterFailureTest`.
 
+### Line response budget
+
+**Инвариант:** все reads одного decoder расходуют общий line/char budget. Decoder не может скрыть уже выбранную
+reader failure, вернув fallback или бросив вторичную ошибку.
+
+**Владелец:** `LineResponseDecoder`.
+
+**Proof:** `DefaultLineSessionDecoderCallbackTest`; fixture выдаёт каждую следующую line только после чтения предыдущей,
+чтобы queue overflow не подменял проверку reader budget.
+
 ### Line terminal state
 
 **Инвариант:** active request, close и terminal failure имеют одного арбитра; позднее failure не меняет уже выбранный
@@ -351,11 +361,26 @@ output pump передают в cleanup одну выбранную первич
 
 ### Line backlog
 
-**Инвариант:** line backlog ограничен lines/chars и unfinished-line limit и корректно обрабатывает LF/CRLF.
+**Инвариант:** line backlog использует `maxResponseLines`/`maxResponseChars`, partial line — `maxResponseChars`;
+полный допустимый ответ помещается до начала чтения. LF/CRLF не расходуют content chars; одиночный CR при EOF расходует.
+Пустые lines расходуют line budget. Превышение очереди, partial line или consumed response даёт `RESPONSE_TOO_LARGE`.
 
 **Владелец:** `LineOutputTransport`.
 
 **Proof:** `LineOutputTransportTest`, `LineSessionBacklogAndTerminalIntegrationTest`.
+
+### Protocol pending output
+
+**Инвариант:** каждая stdout/stderr queue имеет byte bound из `maxResponseBytes`; response budget суммирует reads
+обоих streams. Полный допустимый wire response помещается до начала reads. Stdout overflow сразу даёт
+`RESPONSE_TOO_LARGE`, stderr сохраняет failure marker до чтения adapter-ом. Decoder bytes и chars используют лимиты
+соответствующих единиц.
+
+**Владелец:** `ProtocolOutputQueue` — pending bytes/overflow marker, `ProtocolOutputTransport` — выбор stream policy,
+`ProtocolTextReader` — decoder staging, `ProtocolResponseBudget` — consumed response.
+
+**Proof:** `ProtocolSessionOutputFailureTest`, `ProtocolOutputQueueTest`, `ProtocolOutputBacklogIntegrationTest`,
+`ProtocolResponseReaderDecoderStateTest`.
 
 ### Incremental text decoding
 
