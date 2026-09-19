@@ -18,6 +18,8 @@ release, поэтому способ загрузки в registry, signing и re
   `KotlinPoolExampleKt`, включая запуск вложенного worker с опубликованными runtime dependencies;
 - regression gate проверяет provider deadline/interruption, сохранение capacity до фактического возврата операции и
   неизменность выбранного timeout при позднем failure; отдельная доставка позднего provider failure не обещается;
+- cleanup proofs проверяют восстановление после временно неполного scan и сохранение известных descendants,
+  недоступности observation и overflow; последний combined refresh должен завершиться до phase deadline;
 - Public package/scenario surface, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
 
 Агрегирующая локальная проверка:

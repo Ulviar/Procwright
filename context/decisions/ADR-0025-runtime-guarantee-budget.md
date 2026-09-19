@@ -139,7 +139,9 @@ Runtime строится вокруг небольшого числа владе
 - `ProcessTreeShutdown` выполняет одну последовательность `scan -> graceful -> bounded rescan/wait -> force -> wait`;
   rescan выполняется во время graceful phase и непосредственно перед force по root и уже найденным handles, поэтому
   может обнаружить descendant, созданный shutdown hook, но не обещает доказать отсутствие мгновенно переподчинённого
-  процесса;
+  процесса. Временный incomplete из-за caller budget относится к последнему combined refresh; последующий полный
+  root + known-descendants refresh может разрешить completion. Известные живые handles, `UNAVAILABLE` и overflow
+  не забываются; финальный scan и observation должны уложиться в deadline текущей фазы;
 - `ProcessIoResources` и `ProcessStreamResource` обеспечивают stable stream identity и exact-once logical close;
 - `TimedTaskRunner` ограничивает время ожидания одной пользовательской или потенциально блокирующей операции;
   cancellable session owner делает handle terminal через abandonment handler до прерывания callback, а остальные

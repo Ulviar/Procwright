@@ -93,9 +93,10 @@ status. Итоговое решение о completion root и всего дер�
   исчерпания источника, следующий уникальный handle доказывает truncation, а unavailable или прерванный дедлайном scan
   остаётся incomplete. Operation owner сообщает deadline отдельно от unavailable provider state, а scanner сохраняет
   происхождение deadline: только фактически примененный caller budget дает `CALLER_DEADLINE`; внутренний
-  `scanTimeout` дает `UNAVAILABLE`, а caller interruption — `INTERRUPTED`. Любой incomplete scan внутри уже начатого
-  shutdown навсегда запрещает completion proof этого shutdown: следующий scan не может доказать отсутствие уже
-  reparented процесса. Overflow также постоянен.
+  `scanTimeout` дает `UNAVAILABLE`, а caller interruption — `INTERRUPTED`. Incomplete текущего combined refresh
+  запрещает completion: учитываются и root scan, и scan ранее известных descendants. Последующий полный refresh
+  снимает временный incomplete из-за caller budget. `UNAVAILABLE` и overflow остаются постоянными failures.
+  Это best-effort наблюдение текущего дерева, а не доказательство отсутствия когда-либо отделившегося процесса.
   Shutdown принимает known handles только как `KnownDescendants`: immutable insertion-ordered identity map, уже
   ограниченный общим descendant limit. Watcher сохраняет handles и sticky `LIMIT_REACHED`/`UNAVAILABLE`;
   `CALLER_DEADLINE` не отравляет следующий cleanup, а `INTERRUPTED` немедленно возвращается владельцу lifecycle.

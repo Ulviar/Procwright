@@ -5,10 +5,8 @@ package io.github.ulviar.procwright.internal;
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.command.ShutdownPolicy;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -62,18 +60,23 @@ final class ProcessLifecycleDynamicDescendantShutdownTest {
     }
 
     @Test
-    void forcefulPhaseCannotEraseAGracefulDynamicDiscoveryGapAfterReparenting() {
+    void forcefulPhaseCanCompleteAfterATemporaryDiscoveryGap() {
         ReparentingDeadlineProcess process = new ReparentingDeadlineProcess();
 
-        CommandExecutionException failure = assertThrows(
-                CommandExecutionException.class,
-                () -> ProcessLifecycle.stop(
-                        process, ShutdownPolicy.interruptThenKill(Duration.ofMillis(25), Duration.ofMillis(50))));
+        try {
+            assertEquals(
+                    0,
+                    ProcessLifecycle.stop(
+                                    process,
+                                    ShutdownPolicy.interruptThenKill(Duration.ofMillis(25), Duration.ofMillis(100)))
+                            .orElseThrow());
 
-        assertTrue(failure.getMessage().contains("did not exit after forceful termination"));
-        assertTrue(process.hiddenDescendant().isAlive());
-        assertEquals(0, process.hiddenDescendant().forceDestroyCalls());
-        process.hiddenDescendant().destroyForcibly();
+            assertTrue(process.discoveryGap.get());
+            assertTrue(process.hiddenDescendant().isAlive(), "an unobserved detached child is outside cleanup scope");
+            assertEquals(0, process.hiddenDescendant().forceDestroyCalls());
+        } finally {
+            process.hiddenDescendant().destroyForcibly();
+        }
     }
 
     @Test
@@ -106,6 +109,7 @@ final class ProcessLifecycleDynamicDescendantShutdownTest {
 
         private final AtomicBoolean alive = new AtomicBoolean(true);
         private final AtomicBoolean gracefulSignalled = new AtomicBoolean();
+        private final AtomicBoolean discoveryGap = new AtomicBoolean();
         private final AtomicInteger scans = new AtomicInteger();
         private final MutableProcessHandle hiddenDescendant = new MutableProcessHandle(38);
         private final ProcessHandle rootHandle = new MutableProcessHandle(37) {
@@ -181,6 +185,7 @@ final class ProcessLifecycleDynamicDescendantShutdownTest {
         public Stream<ProcessHandle> descendants() {
             int scan = scans.incrementAndGet();
             if (scan == 2 && gracefulSignalled.get()) {
+                discoveryGap.set(true);
                 alive.set(false);
                 try {
                     new CountDownLatch(1).await();

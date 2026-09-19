@@ -24,7 +24,7 @@ final class ShutdownTreeState {
     private final Set<ProcessTreeScanner.HandleIdentity> completionExcluded = new LinkedHashSet<>();
     private boolean descendantCapacityExceeded;
     private boolean discoveryUnavailable;
-    private boolean dynamicDiscoveryIncomplete;
+    private boolean latestDiscoveryIncomplete;
 
     ShutdownTreeState(Process process, ShutdownFailureLedger failures) {
         this.process = process;
@@ -38,7 +38,6 @@ final class ShutdownTreeState {
             recordDescendantCapacityExceeded();
         }
         if (knownDescendants.discoveryUnavailable()) {
-            dynamicDiscoveryIncomplete = true;
             recordUnavailableDiscovery();
         }
         addBounded(descendants, discoverNew(budget));
@@ -79,7 +78,7 @@ final class ShutdownTreeState {
         return descendants.isEmpty()
                 && !descendantCapacityExceeded
                 && !discoveryUnavailable
-                && !dynamicDiscoveryIncomplete;
+                && !latestDiscoveryIncomplete;
     }
 
     void excludeFromCompletion(ProcessHandle handle) {
@@ -120,7 +119,7 @@ final class ShutdownTreeState {
                 return DescendantState.LIVE;
             }
         }
-        return observable && !descendantCapacityExceeded && !discoveryUnavailable && !dynamicDiscoveryIncomplete
+        return observable && !descendantCapacityExceeded && !discoveryUnavailable && !latestDiscoveryIncomplete
                 ? DescendantState.EXITED
                 : DescendantState.UNOBSERVABLE;
     }
@@ -132,6 +131,7 @@ final class ShutdownTreeState {
     }
 
     private Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> discover(Duration budget) {
+        latestDiscoveryIncomplete = false;
         if (budget.isZero()) {
             recordDynamicScanStatus(
                     ProcessTreeScanner.DescendantScan.incomplete(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE));
@@ -144,6 +144,7 @@ final class ShutdownTreeState {
             discovered = new LinkedHashMap<>(rootScan.handlesByIdentity());
             recordDynamicScanStatus(rootScan);
         } catch (Error failure) {
+            latestDiscoveryIncomplete = true;
             failures.record(failure);
             discovered = new LinkedHashMap<>();
         }
@@ -155,6 +156,7 @@ final class ShutdownTreeState {
                 addBounded(discovered, descendantScan.handlesByIdentity());
                 recordDynamicScanStatus(descendantScan);
             } catch (Error failure) {
+                latestDiscoveryIncomplete = true;
                 failures.record(failure);
             }
             failures.interruptionBoundary();
@@ -204,7 +206,7 @@ final class ShutdownTreeState {
     }
 
     private void recordDynamicScanStatus(ProcessTreeScanner.DescendantScan scan) {
-        dynamicDiscoveryIncomplete |= scan.incomplete();
+        latestDiscoveryIncomplete |= scan.incomplete();
         if (scan.failure() != null) {
             failures.record(scan.failure());
         }

@@ -29,6 +29,10 @@ descendants while they remain alive. Interactive-session close and pooled worker
 observed-descendant cleanup. If a security policy or platform restriction blocks process-handle access, Procwright
 still attempts to stop the root process, but it may be unable to stop an inaccessible descendant.
 
+If a scan exhausts its remaining caller budget, a later complete refresh can still establish cleanup completion for the
+root and known descendants. The refresh must cover both and fit the shutdown deadline. Previously observed live
+descendants, access failures, and descendant-limit overflow are not forgotten by a later scan.
+
 Waiting for process-provider operations is bounded. If an operation outlives that wait, it keeps its execution slot until
 it returns; repeated scans cannot create unlimited blocked operations. Its late result cannot replace the selected
 timeout or interruption. Delivery of late provider failures through uncaught-exception handlers is not guaranteed.

@@ -6,6 +6,7 @@ import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSources;
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -18,6 +19,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -203,7 +207,7 @@ final class ShutdownTreeStateTest {
     }
 
     @Test
-    void incompleteDiscoveryRemainsStickyAfterLaterCompleteRefresh() {
+    void completeRefreshRecoversAfterAnEarlierCallerBudgetExpired() {
         EmptyDescendantProcess process = new EmptyDescendantProcess();
         ShutdownTreeState state = new ShutdownTreeState(process, new ShutdownFailureLedger());
         state.initialize(KnownDescendants.empty(), Duration.ofSeconds(1));
@@ -212,8 +216,99 @@ final class ShutdownTreeStateTest {
         state.discoverForForce(Duration.ofSeconds(1));
 
         assertSame(
+                ShutdownTreeState.DescendantState.EXITED,
+                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertTrue(state.hasNoDescendantsAndCompleteDiscovery());
+    }
+
+    @Test
+    void recoveredDiscoveryRetainsPreviouslyObservedLiveDescendants() {
+        MutableProcessHandle known = new MutableProcessHandle(406);
+        ShutdownFailureLedger failures = new ShutdownFailureLedger();
+        ShutdownTreeState state = new ShutdownTreeState(new EmptyDescendantProcess(), failures);
+        state.initialize(knownDescendants(known), Duration.ZERO);
+
+        state.discoverPending(Duration.ofSeconds(1));
+
+        assertEquals(List.of(known), state.takeAllDescendants());
+        assertFalse(state.hasNoDescendantsAndCompleteDiscovery());
+        assertSame(
+                ShutdownTreeState.DescendantState.LIVE,
+                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        known.destroyForcibly();
+        assertSame(
+                ShutdownTreeState.DescendantState.EXITED,
+                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        failures.rethrowIfPresent();
+    }
+
+    @Test
+    void completeRootScanCannotHideIncompleteKnownDescendantScan() throws Exception {
+        CountDownLatch knownScanEntered = new CountDownLatch(1);
+        CompletableFuture<Void> releaseKnownScan = new CompletableFuture<>();
+        MutableProcessHandle known = new MutableProcessHandle(407) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                knownScanEntered.countDown();
+                releaseKnownScan.join();
+                return Stream.empty();
+            }
+        };
+        known.destroyForcibly();
+        ShutdownFailureLedger failures = new ShutdownFailureLedger();
+        ShutdownTreeState state = new ShutdownTreeState(new EmptyDescendantProcess(), failures);
+        try {
+            state.initialize(knownDescendants(known), Duration.ofMillis(200));
+
+            assertTrue(knownScanEntered.await(1, TimeUnit.SECONDS));
+            assertSame(
+                    ShutdownTreeState.DescendantState.UNOBSERVABLE,
+                    state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        } finally {
+            releaseKnownScan.complete(null);
+        }
+
+        state.discoverPending(Duration.ofSeconds(1));
+        assertSame(
+                ShutdownTreeState.DescendantState.EXITED,
+                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        failures.rethrowIfPresent();
+    }
+
+    @Test
+    void completeKnownDescendantScanCannotHideUnavailableRootDiscovery() {
+        AtomicInteger rootScans = new AtomicInteger();
+        AtomicInteger knownScans = new AtomicInteger();
+        EmptyDescendantProcess process = new EmptyDescendantProcess() {
+            @Override
+            public Stream<ProcessHandle> descendants() {
+                if (rootScans.getAndIncrement() == 0) {
+                    throw new SecurityException("root discovery denied");
+                }
+                return Stream.empty();
+            }
+        };
+        MutableProcessHandle known = new MutableProcessHandle(408) {
+            @Override
+            public Stream<ProcessHandle> children() {
+                knownScans.incrementAndGet();
+                return Stream.empty();
+            }
+        };
+        known.destroyForcibly();
+        ShutdownFailureLedger failures = new ShutdownFailureLedger();
+        ShutdownTreeState state = new ShutdownTreeState(process, failures);
+        state.initialize(knownDescendants(known), Duration.ofSeconds(1));
+
+        assertTrue(knownScans.get() > 0);
+        assertSame(
                 ShutdownTreeState.DescendantState.UNOBSERVABLE,
                 state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        state.discoverPending(Duration.ofSeconds(1));
+        assertSame(
+                ShutdownTreeState.DescendantState.UNOBSERVABLE,
+                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertThrows(CommandExecutionException.class, failures::rethrowIfPresent);
     }
 
     @Test

@@ -148,7 +148,9 @@ interruption и provider failure; найденный prefix не теряетс�
 ### Process-tree shutdown
 
 **Инвариант:** graceful и forceful phases используют общее консервативное состояние; успех требует доказанного выхода
-root и известных descendants, а fatal traversal не лишает cleanup уже найденный prefix.
+root и известных descendants, а fatal traversal не лишает cleanup уже найденный prefix. Временный incomplete последнего
+combined refresh блокирует completion; следующий полный refresh может снять его. Access failures, overflow и известные
+handles сохраняются. Необнаруженный detached descendant остаётся за границей best-effort cleanup.
 
 **Владелец:** `ProcessTreeShutdown`.
 
