@@ -10,7 +10,6 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderMalfunctionError;
 import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
-import java.util.Arrays;
 import java.util.Objects;
 
 final class IncrementalTextDecoder {
@@ -22,6 +21,7 @@ final class IncrementalTextDecoder {
     private final CharsetDecoder decoder;
     private final int pendingByteLimit;
     private final OutputWithoutInputGuard outputGuard;
+    private final BoundedCharacterStaging staged = new BoundedCharacterStaging();
     private byte[] pending = EMPTY_BYTES;
     private int pendingCount;
     private boolean malformed;
@@ -52,7 +52,7 @@ final class IncrementalTextDecoder {
             throw new IllegalStateException("decoder has reached end of input");
         }
         ByteBuffer input = sourceBuffer(bytes, count);
-        StagedOutput staged = stagedOutputFor(decoder, input.remaining(), outputGuard.limit());
+        staged.reset(stagingCharacterLimit(decoder, input.remaining(), outputGuard.limit()));
         try {
             decode(input, false, staged);
             retainPending(input);
@@ -60,6 +60,8 @@ final class IncrementalTextDecoder {
         } catch (DecoderStateException exception) {
             malformed = true;
             throw exception;
+        } finally {
+            staged.finishOperation();
         }
     }
 
@@ -70,7 +72,7 @@ final class IncrementalTextDecoder {
         }
         ended = true;
         ByteBuffer input = sourceBuffer(EMPTY_BYTES, 0);
-        StagedOutput staged = stagedOutputFor(decoder, input.remaining(), outputGuard.limit());
+        staged.reset(stagingCharacterLimit(decoder, input.remaining(), outputGuard.limit()));
         try {
             decode(input, true, staged);
             if (input.hasRemaining()) {
@@ -98,6 +100,8 @@ final class IncrementalTextDecoder {
         } catch (DecoderStateException exception) {
             malformed = true;
             throw exception;
+        } finally {
+            staged.finishOperation();
         }
     }
 
@@ -223,7 +227,7 @@ final class IncrementalTextDecoder {
         return configuredLimit;
     }
 
-    static StagedOutput stagedOutputFor(CharsetDecoder decoder, int inputBytes, int outputWithoutInputLimit) {
+    static int stagingCharacterLimit(CharsetDecoder decoder, int inputBytes, int outputWithoutInputLimit) {
         Objects.requireNonNull(decoder, "decoder");
         if (inputBytes < 0) {
             throw new IllegalArgumentException("inputBytes must not be negative");
@@ -236,15 +240,7 @@ final class IncrementalTextDecoder {
                 ? Integer.MAX_VALUE
                 : (long) expectedOutput;
         long combinedLimit = boundedExpected + outputWithoutInputLimit;
-        int limit = (int) Math.max(1, Math.min(Integer.MAX_VALUE, combinedLimit));
-        return new StagedOutput(limit);
-    }
-
-    static StagedOutput stagedOutputFor(int characterLimit) {
-        if (characterLimit <= 0) {
-            throw new IllegalArgumentException("characterLimit must be positive");
-        }
-        return new StagedOutput(characterLimit);
+        return (int) Math.max(1, Math.min(Integer.MAX_VALUE, combinedLimit));
     }
 
     static boolean inputAdvanced(int previousPosition, int newPosition) throws DecoderStateException {
@@ -296,58 +292,6 @@ final class IncrementalTextDecoder {
     interface Sink {
 
         void accept(char[] chars, int count) throws CharacterCodingException;
-    }
-
-    static final class StagedOutput implements Sink {
-
-        private static final char[] EMPTY_CHARS = new char[0];
-
-        private final int limit;
-        private char[] chars = EMPTY_CHARS;
-        private int length;
-
-        private StagedOutput(int limit) {
-            this.limit = limit;
-        }
-
-        @Override
-        public void accept(char[] source, int count) throws DecoderStateException {
-            Objects.requireNonNull(source, "source");
-            Objects.checkFromIndexSize(0, count, source.length);
-            if (count > limit - length) {
-                throw new DecoderStateException(
-                        "Decoder produced more than " + limit + " chars in one decode operation");
-            }
-            ensureCapacity(length + count);
-            if (count > 0) {
-                System.arraycopy(source, 0, chars, length, count);
-                length += count;
-            }
-        }
-
-        void publishTo(Sink sink) throws CharacterCodingException {
-            Objects.requireNonNull(sink, "sink");
-            if (length > 0) {
-                sink.accept(chars, length);
-            }
-        }
-
-        int length() {
-            return length;
-        }
-
-        int remainingCapacity() {
-            return limit - length;
-        }
-
-        private void ensureCapacity(int required) {
-            if (required <= chars.length) {
-                return;
-            }
-            int doubled = chars.length > limit - chars.length ? limit : chars.length * 2;
-            int capacity = Math.max(required, Math.max(1, doubled));
-            chars = Arrays.copyOf(chars, capacity);
-        }
     }
 
     static final class DecoderStateException extends CharacterCodingException {

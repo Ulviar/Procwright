@@ -14,6 +14,12 @@ import io.github.ulviar.procwright.command.CommandExecutionException;
  * opening a line or protocol pool with multiple workers, can call {@link #available()}, {@link #description()}, and
  * {@link #start(PtyRequest)} concurrently on that instance. A retained provider must be thread-safe; otherwise, use
  * separate Draft branches with separate provider instances.
+ *
+ * <p>Providers are trusted extensions. The runtime does not wrap individual methods of the returned {@link Process}
+ * and {@link ProcessHandle} in timeout or thread isolation. Provider metadata and process signal operations must
+ * return promptly; timed waits must honor their timeout. A blocking custom implementation can delay session operations
+ * and cleanup beyond their configured deadlines. Descendant scans and asynchronous process-destroy fallback retain
+ * their own bounds. The system provider bounds its own capability detection and startup.
  */
 public interface PtyProvider {
 

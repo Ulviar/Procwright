@@ -21,10 +21,10 @@ final class IncrementalTextDecoderOutputProgressTest {
 
     @Test
     void stagedOutputLimitSaturatesWithoutAllocatingNearIntegerMaximum() {
-        IncrementalTextDecoder.StagedOutput staged = IncrementalTextDecoder.stagedOutputFor(
+        int limit = IncrementalTextDecoder.stagingCharacterLimit(
                 StandardCharsets.UTF_8.newDecoder(), Integer.MAX_VALUE, Integer.MAX_VALUE);
 
-        assertEquals(Integer.MAX_VALUE, staged.remainingCapacity());
+        assertEquals(Integer.MAX_VALUE, limit);
     }
 
     @Test

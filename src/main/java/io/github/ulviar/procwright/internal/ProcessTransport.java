@@ -32,12 +32,11 @@ public final class ProcessTransport {
 
     private static Process startPty(SessionExecutionPlan plan, PtyProvider provider) {
         LaunchPlan launch = plan.launchPlan();
-        Process process = provider.start(new PtyRequest(
+        return provider.start(new PtyRequest(
                 launch.command(),
                 launch.workingDirectory(),
                 launch.environmentPolicy(),
                 launch.environment(),
                 plan.terminalSize()));
-        return ProcessTreeScanner.shared().guard(process);
     }
 }

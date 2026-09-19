@@ -25,7 +25,7 @@ final class ProcessTreeScannerTraversalTest {
 
     @Test
     void descendantScanIsIncrementalCountBoundedAndClosesItsStream() {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 3, Duration.ofSeconds(1), Duration.ofMillis(50));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 3, Duration.ofSeconds(1));
         AtomicInteger produced = new AtomicInteger();
         AtomicInteger streamCloses = new AtomicInteger();
         Process process = new StubProcess() {
@@ -51,7 +51,7 @@ final class ProcessTreeScannerTraversalTest {
 
     @Test
     void exactDescendantLimitIsCompleteWithoutReadingPastTheStream() {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 3, Duration.ofSeconds(1), Duration.ofMillis(50));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 3, Duration.ofSeconds(1));
         AtomicInteger produced = new AtomicInteger();
         Process process = new StubProcess() {
             @Override
@@ -72,7 +72,7 @@ final class ProcessTreeScannerTraversalTest {
 
     @Test
     void handleTraversalBoundsUniqueRootsAndChildrenRatherThanWrapperCount() {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 1, Duration.ofSeconds(1), Duration.ofMillis(50));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 1, Duration.ofSeconds(1));
         ProcessHandle root = new StubHandle(710);
         ProcessHandle duplicateRoot = new StubHandle(710);
         ProcessHandle extraRoot = new StubHandle(711);
@@ -319,7 +319,7 @@ final class ProcessTreeScannerTraversalTest {
 
     @Test
     void provenRootOverflowSurvivesAChildScanTimeout() throws Exception {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 1, Duration.ofMillis(25), Duration.ofMillis(25));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 1, Duration.ofMillis(25));
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         ProcessHandle root = new StubHandle(726) {

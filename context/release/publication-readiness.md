@@ -16,8 +16,10 @@ release, поэтому способ загрузки в registry, signing и re
   consumers через Gradle metadata и принудительный Maven POM-only resolution;
 - Kotlin consumer `check` исполняет также обе канонические точки входа из документации: `KotlinExampleKt` и
   `KotlinPoolExampleKt`, включая запуск вложенного worker с опубликованными runtime dependencies;
-- regression gate проверяет provider deadline/interruption, сохранение capacity до фактического возврата операции и
-  неизменность выбранного timeout при позднем failure; отдельная доставка позднего provider failure не обещается;
+- regression gate проверяет scan deadline/interruption и сохранение scan capacity до фактического возврата операции;
+  per-call isolation для trusted PTY provider не обещается; bounded scan и asynchronous destroy fallback сохраняются;
+- protocol proofs проверяют bounded chunk decoding и ранний отказ oversized text field, не закрепляя точную byte
+  position после terminal failure;
 - cleanup proofs проверяют восстановление после временно неполного scan и сохранение известных descendants,
   недоступности observation и overflow; последний combined refresh должен завершиться до phase deadline. Повторные
   observation failures имеют ограниченный retained detail с сохранением primary и interruption;

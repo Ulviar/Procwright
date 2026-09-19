@@ -64,4 +64,5 @@ See [Getting started](docs/getting-started.md), [runnable examples](docs/example
 
 All modules require Java 25. See [Kotlin usage](docs/reference/kotlin-api.md) and
 [process cleanup limits](docs/explanations/process-cleanup-limits.md) for the relevant contracts.
+Custom [PTY providers](docs/reference/platforms-and-pty.md) are trusted extensions and must honor their timing contracts.
 Report vulnerabilities through [SECURITY.md](SECURITY.md). Licensed under [Apache License 2.0](LICENSE).

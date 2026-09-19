@@ -45,7 +45,8 @@ final class ProcessExitWaiterTest {
         AdvancingWaitClock clock = new AdvancingWaitClock();
         ExitDuringScanProcess process = new ExitDuringScanProcess(clock);
 
-        assertTrue(ProcessExitWaiter.waitFor(process, Duration.ofMillis(250), new LiveDescendantSnapshot(), clock));
+        assertTrue(ProcessExitWaiter.waitFor(
+                process, Duration.ofMillis(250), new LiveDescendantSnapshot(), clock::nanoTime));
     }
 
     @Test
@@ -58,7 +59,7 @@ final class ProcessExitWaiterTest {
             assertThrows(
                     InterruptedException.class,
                     () -> ProcessExitWaiter.waitFor(
-                            process, Duration.ofMillis(250), new LiveDescendantSnapshot(), clock));
+                            process, Duration.ofMillis(250), new LiveDescendantSnapshot(), clock::nanoTime));
         } finally {
             Thread.interrupted();
         }

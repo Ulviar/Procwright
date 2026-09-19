@@ -238,97 +238,16 @@ final class ProcessLifecycleTestFixtures {
         }
     }
 
-    static final class AdvancingWaitClock implements ProcessExitWaiter.PollClock {
+    static final class AdvancingWaitClock {
 
         private volatile long nanos;
 
-        @Override
         public long nanoTime() {
             return nanos;
         }
 
-        @Override
-        public void sleep(long durationNanos) {
-            nanos += durationNanos;
-        }
-
         void advanceTo(Duration elapsed) {
             nanos = elapsed.toNanos();
-        }
-    }
-
-    static final class BlockingLivenessProcess extends Process {
-
-        private final java.util.concurrent.CountDownLatch livenessEntered = new java.util.concurrent.CountDownLatch(1);
-        private final java.util.concurrent.CountDownLatch releaseLiveness = new java.util.concurrent.CountDownLatch(1);
-
-        @Override
-        public OutputStream getOutputStream() {
-            return OutputStream.nullOutputStream();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return InputStream.nullInputStream();
-        }
-
-        @Override
-        public int waitFor() {
-            return 137;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, java.util.concurrent.TimeUnit unit) {
-            return false;
-        }
-
-        @Override
-        public int exitValue() {
-            throw new IllegalThreadStateException("process is alive");
-        }
-
-        @Override
-        public void destroy() {}
-
-        @Override
-        public Process destroyForcibly() {
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            livenessEntered.countDown();
-            boolean restoreInterrupt = false;
-            while (true) {
-                try {
-                    releaseLiveness.await();
-                    break;
-                } catch (InterruptedException interruption) {
-                    restoreInterrupt = true;
-                }
-            }
-            if (restoreInterrupt) {
-                Thread.currentThread().interrupt();
-            }
-            return true;
-        }
-
-        @Override
-        public Stream<ProcessHandle> descendants() {
-            return Stream.empty();
-        }
-
-        boolean awaitLivenessEntry(long timeout, java.util.concurrent.TimeUnit unit) throws InterruptedException {
-            return livenessEntered.await(timeout, unit);
-        }
-
-        void releaseLiveness() {
-            releaseLiveness.countDown();
         }
     }
 

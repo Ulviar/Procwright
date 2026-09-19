@@ -3,6 +3,8 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,6 +17,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 final class WorkerRetirementCoordinatorTest {
 
@@ -112,13 +116,83 @@ final class WorkerRetirementCoordinatorTest {
                     throw new AssertionError(failure);
                 },
                 report -> {
-                    assertEquals(2, completed.get());
+                    assertEquals(2, initiated.get());
                     reported.incrementAndGet();
                 });
         coordinator.dispatch(List.of(worker(initiated), worker(initiated)));
 
         assertEquals(2, completed.get());
         assertEquals(2, reported.get());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void completedAndPendingOutcomesAreAccountedAndReportedOnce(boolean alreadyComplete) {
+        CompletableFuture<WorkerRetirement.Outcome> close = new CompletableFuture<>();
+        WorkerRetirement.Outcome outcome = WorkerRetirement.Outcome.success();
+        if (alreadyComplete) {
+            close.complete(outcome);
+        }
+        PoolWorker<String> worker = worker("worker", session -> close);
+        FailureReport report = new FailureReport(
+                BoundedFailureReporter.captureFailureTarget(), new IllegalStateException("retirement report"));
+        AtomicInteger completed = new AtomicInteger();
+        AtomicInteger reported = new AtomicInteger();
+        AtomicReference<Throwable> unexpected = new AtomicReference<>();
+        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
+                Runnable::run,
+                (completedWorker, completedOutcome) -> {
+                    assertSame(worker, completedWorker);
+                    assertSame(outcome, completedOutcome);
+                    completed.incrementAndGet();
+                    return report;
+                },
+                (failedWorker, failure) -> unexpected.set(failure),
+                observed -> {
+                    assertSame(report, observed);
+                    reported.incrementAndGet();
+                });
+
+        coordinator.dispatch(List.of(worker));
+        assertEquals(alreadyComplete ? 1 : 0, completed.get());
+        close.complete(outcome);
+        assertFalse(close.complete(WorkerRetirement.Outcome.failure(new IllegalStateException("late failure"))));
+
+        assertNull(unexpected.get());
+        assertEquals(1, completed.get());
+        assertEquals(1, reported.get());
+    }
+
+    @Test
+    void completionFailureDoesNotPreventAccountingForTheRestOfTheBatch() {
+        PoolWorker<String> first = worker(new AtomicInteger());
+        PoolWorker<String> second = worker(new AtomicInteger());
+        IllegalStateException expected = new IllegalStateException("first completion failed");
+        AtomicReference<Throwable> observedFailure = new AtomicReference<>();
+        AtomicReference<PoolWorker<String>> failedWorker = new AtomicReference<>();
+        AtomicReference<PoolWorker<String>> completedWorker = new AtomicReference<>();
+        WorkerRetirementCoordinator<String> coordinator = new WorkerRetirementCoordinator<>(
+                Runnable::run,
+                (worker, outcome) -> {
+                    if (worker == first) {
+                        throw expected;
+                    }
+                    completedWorker.set(worker);
+                    return null;
+                },
+                (worker, failure) -> {
+                    failedWorker.set(worker);
+                    observedFailure.set(failure);
+                },
+                report -> {
+                    throw new AssertionError("successful completion must not publish a report");
+                });
+
+        coordinator.dispatch(List.of(first, second));
+
+        assertSame(first, failedWorker.get());
+        assertSame(expected, observedFailure.get());
+        assertSame(second, completedWorker.get());
     }
 
     @Test

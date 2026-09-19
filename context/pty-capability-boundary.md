@@ -26,6 +26,13 @@ scenario-конфигурацию workers. Отдельного pool-level PTY r
 `PtyProvider` и `PtyRequest` — узкий SPI, а не основной пользовательский workflow. Core runtime передает provider только
 уже resolved direct argv, working directory, environment и `TerminalSize`.
 
+Custom provider является доверенным расширением: `available()`, `description()`, `start(...)` и методы возвращённых
+`Process`/`ProcessHandle` не имеют индивидуальной timeout/thread isolation. Metadata и signals
+должны возвращаться promptly, timed waits — соблюдать timeout. Зависшая реализация может задержать session и cleanup
+за их deadlines. Bounded descendant scanner и asynchronous destroy fallback остаются отдельными cleanup механизмами;
+32 scan slots не являются квотой обычных process calls. Граница зафиксирована в
+[ADR-0028](decisions/ADR-0028-trusted-extensions-and-bounded-decoding.md).
+
 Запрещено:
 
 - раскрывать Pty4J, ConPTY, `script(1)` или другую provider-specific модель в scenario Draft;

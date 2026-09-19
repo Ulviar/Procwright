@@ -215,37 +215,55 @@ final class ProtocolOutputQueue {
         if (readTransactionObserver != null) {
             readTransactionObserver.run();
         }
+        ProtocolOutputEvent terminal = acquire(window, length, buffer, offset, deadlineNanos, failures);
+        return terminal == null ? PeekResult.bytes(window.length) : PeekResult.terminal(terminal);
+    }
+
+    private ProtocolOutputEvent acquire(
+            ReadWindow window,
+            int length,
+            byte[] stagingBuffer,
+            int stagingOffset,
+            long deadlineNanos,
+            ProtocolRuntimeFailures failures) {
+        window.requireAvailable();
         ProtocolOutputEvent event = awaitHead(deadlineNanos, failures);
         if (event.kind() != ProtocolOutputEvent.Kind.BYTES) {
-            return PeekResult.terminal(event);
+            return event;
         }
         ProtocolOutputEvent initialHead;
-        int sourceOffset;
-        int count;
         synchronized (this) {
             initialHead = events.peekFirst();
             if (initialHead == event) {
-                sourceOffset = headByteOffset;
-                count = Math.min(length, event.bytes().length - sourceOffset);
-                System.arraycopy(event.bytes(), sourceOffset, buffer, offset, count);
+                int sourceOffset = headByteOffset;
+                int count = Math.min(length, event.bytes().length - sourceOffset);
+                if (stagingBuffer != null) {
+                    System.arraycopy(event.bytes(), sourceOffset, stagingBuffer, stagingOffset, count);
+                }
                 window.capture(event, sourceOffset, count);
-            } else {
-                sourceOffset = 0;
-                count = 0;
+                return null;
             }
         }
-        if (initialHead != event) {
-            if (initialHead != null && initialHead.kind() != ProtocolOutputEvent.Kind.BYTES) {
-                return PeekResult.terminal(initialHead);
-            }
-            throw changedHeadFailure(failures);
+        if (initialHead != null && initialHead.kind() != ProtocolOutputEvent.Kind.BYTES) {
+            return initialHead;
         }
-        return PeekResult.bytes(count);
+        throw changedHeadFailure(failures);
     }
 
     void commit(
             ReadWindow window,
             int count,
+            IntConsumer beforeMutation,
+            ProtocolRuntimeFailures failures,
+            UnaryOperator<ProtocolOutputEvent> terminalObserver) {
+        commit(window, count, null, 0, beforeMutation, failures, terminalObserver);
+    }
+
+    private void commit(
+            ReadWindow window,
+            int count,
+            byte[] destination,
+            int destinationOffset,
             IntConsumer beforeMutation,
             ProtocolRuntimeFailures failures,
             UnaryOperator<ProtocolOutputEvent> terminalObserver) {
@@ -264,6 +282,9 @@ final class ProtocolOutputQueue {
         synchronized (this) {
             changedHead = events.peekFirst();
             if (changedHead == window.event && headByteOffset == window.sourceOffset) {
+                if (destination != null) {
+                    System.arraycopy(window.event.bytes(), window.sourceOffset, destination, destinationOffset, count);
+                }
                 consumeHeadBytes(count, window.event.bytes().length);
                 window.discard();
                 return;
@@ -277,91 +298,46 @@ final class ProtocolOutputQueue {
             byte[] buffer,
             int offset,
             int length,
+            ReadWindow window,
             long deadlineNanos,
             ProtocolRuntimeFailures failures,
             IntConsumer beforeMutation,
             UnaryOperator<ProtocolOutputEvent> terminalObserver) {
         Objects.requireNonNull(buffer, "buffer");
         Objects.checkFromIndexSize(offset, length, buffer.length);
+        Objects.requireNonNull(window, "window");
         Objects.requireNonNull(failures, "failures");
         Objects.requireNonNull(beforeMutation, "beforeMutation");
         Objects.requireNonNull(terminalObserver, "terminalObserver");
         if (length == 0) {
             return 0;
         }
-        ProtocolOutputEvent event = awaitHead(deadlineNanos, failures);
-        if (event.kind() != ProtocolOutputEvent.Kind.BYTES) {
-            throwTerminal(event, failures, terminalObserver);
+        ProtocolOutputEvent terminal = acquire(window, length, null, 0, deadlineNanos, failures);
+        if (terminal != null) {
+            throwTerminal(terminal, failures, terminalObserver);
         }
-        int sourceOffset;
-        int count;
-        ProtocolOutputEvent initialHead;
-        synchronized (this) {
-            initialHead = events.peekFirst();
-            if (initialHead == event) {
-                sourceOffset = headByteOffset;
-                count = Math.min(length, event.bytes().length - sourceOffset);
-            } else {
-                sourceOffset = 0;
-                count = 0;
-            }
-        }
-        if (initialHead != event) {
-            throwChangedHead(initialHead, failures, terminalObserver);
-        }
-        beforeMutation.accept(count);
-        ProtocolOutputEvent changedHead;
-        synchronized (this) {
-            changedHead = events.peekFirst();
-            if (changedHead == event && headByteOffset == sourceOffset) {
-                System.arraycopy(event.bytes(), sourceOffset, buffer, offset, count);
-                consumeHeadBytes(count, event.bytes().length);
-                return count;
-            }
-        }
-        throwChangedHead(changedHead, failures, terminalObserver);
-        throw new AssertionError("unreachable");
+        int count = window.length;
+        commit(window, count, buffer, offset, beforeMutation, failures, terminalObserver);
+        return count;
     }
 
     int readUnsignedByte(
+            ReadWindow window,
             long deadlineNanos,
             ProtocolRuntimeFailures failures,
             IntConsumer beforeMutation,
             UnaryOperator<ProtocolOutputEvent> terminalObserver) {
+        Objects.requireNonNull(window, "window");
         Objects.requireNonNull(failures, "failures");
         Objects.requireNonNull(beforeMutation, "beforeMutation");
         Objects.requireNonNull(terminalObserver, "terminalObserver");
-        ProtocolOutputEvent event = awaitHead(deadlineNanos, failures);
-        if (event.kind() != ProtocolOutputEvent.Kind.BYTES) {
-            throwTerminal(event, failures, terminalObserver);
+        ProtocolOutputEvent terminal = acquire(window, 1, null, 0, deadlineNanos, failures);
+        if (terminal != null) {
+            throwTerminal(terminal, failures, terminalObserver);
         }
-        int sourceOffset;
-        int value;
-        ProtocolOutputEvent initialHead;
-        synchronized (this) {
-            initialHead = events.peekFirst();
-            if (initialHead == event) {
-                sourceOffset = headByteOffset;
-                value = event.bytes()[sourceOffset] & 0xff;
-            } else {
-                sourceOffset = 0;
-                value = 0;
-            }
-        }
-        if (initialHead != event) {
-            throwChangedHead(initialHead, failures, terminalObserver);
-        }
-        beforeMutation.accept(1);
-        ProtocolOutputEvent changedHead;
-        synchronized (this) {
-            changedHead = events.peekFirst();
-            if (changedHead == event && headByteOffset == sourceOffset) {
-                consumeHeadBytes(1, event.bytes().length);
-                return value;
-            }
-        }
-        throwChangedHead(changedHead, failures, terminalObserver);
-        throw new AssertionError("unreachable");
+        int value = window.event.bytes()[window.sourceOffset] & 0xff;
+        commit(window, 1, beforeMutation, failures, terminalObserver);
+        return value;
     }
 
     private ProtocolOutputEvent awaitHead(long deadlineNanos, ProtocolRuntimeFailures failures) {

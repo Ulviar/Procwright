@@ -12,7 +12,6 @@ import io.github.ulviar.procwright.diagnostics.CommandEcho;
 import io.github.ulviar.procwright.internal.BoundedCloseDispatcher;
 import io.github.ulviar.procwright.internal.DiagnosticEmitter;
 import io.github.ulviar.procwright.internal.DiagnosticsSettings;
-import io.github.ulviar.procwright.internal.ProcessTreeScannerTestSupport;
 import io.github.ulviar.procwright.internal.ProtocolSessionSettings;
 import io.github.ulviar.procwright.session.ProtocolAdapter;
 import io.github.ulviar.procwright.session.ProtocolReaders;
@@ -20,7 +19,6 @@ import io.github.ulviar.procwright.session.ProtocolSessionException;
 import io.github.ulviar.procwright.session.ProtocolWriter;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -232,46 +230,6 @@ final class ProtocolSessionEofProcessExitAndCleanupTest extends ProtocolSessionC
             assertEquals(17, processExited.exitCode().orElseThrow());
         } finally {
             stdout.releaseEof();
-            protocol.close();
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-        }
-    }
-
-    @Test
-    void scannerSaturationDuringEofEnrichmentRetainsEof() throws Exception {
-        GatedEofInputStream stdout = new GatedEofInputStream();
-        ControllableProcess process =
-                new ControllableProcess(OutputStream.nullOutputStream(), stdout, InputStream.nullInputStream());
-        process.blockLivenessQueries();
-        Process guarded = ProcessTreeScannerTestSupport.guard(process, 1, Duration.ofSeconds(2));
-        ProtocolAdapter<String, Byte> readOnlyAdapter = new ProtocolAdapter<>() {
-            @Override
-            public void writeRequest(String request, ProtocolWriter writer) {}
-
-            @Override
-            public Byte readResponse(ProtocolReaders readers) {
-                return readers.stdout().readByte();
-            }
-        };
-        DefaultProtocolSession<String, Byte> protocol =
-                protocolSession(guarded, readOnlyAdapter, ProtocolSessionSettings.defaults());
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            assertTrue(process.awaitLivenessQuery(), "exit watcher did not saturate the scanner");
-            Future<Throwable> request = executor.submit(() -> captureFailure(() -> protocol.request("request")));
-
-            stdout.releaseEof();
-            ProtocolSessionException eof =
-                    assertInstanceOf(ProtocolSessionException.class, request.get(2, TimeUnit.SECONDS));
-
-            assertEquals(ProtocolSessionException.Reason.EOF, eof.reason());
-            assertTrue(eof.exitCode().isEmpty());
-            assertEquals(0, process.exitValueCalls());
-        } finally {
-            stdout.releaseEof();
-            process.releaseLivenessQueries();
-            process.exitNaturally(143);
             protocol.close();
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));

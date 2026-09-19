@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal;
 
-import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -16,7 +15,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -30,42 +28,8 @@ final class ProcessTreeScannerOutcomeClassificationTest {
     }
 
     @Test
-    void knownSnapshotKeepsGuardedBoundaryAndCachedIdentity() {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(50));
-        AtomicInteger pidCalls = new AtomicInteger();
-        AtomicInteger infoCalls = new AtomicInteger();
-        ProcessHandle delegate = new StubHandle(721) {
-            @Override
-            public long pid() {
-                pidCalls.incrementAndGet();
-                return super.pid();
-            }
-
-            @Override
-            public Info info() {
-                infoCalls.incrementAndGet();
-                return super.info();
-            }
-        };
-        ProcessHandle guarded = scanner.guardObserved(delegate);
-        int identityPidCalls = pidCalls.get();
-        int identityInfoCalls = infoCalls.get();
-
-        KnownDescendants known = knownDescendants(guarded);
-
-        ProcessHandle indexed = known.handles().iterator().next();
-        assertTrue(indexed instanceof GuardedProcessHandle);
-        assertSame(guarded, indexed);
-        assertEquals(identityPidCalls, pidCalls.get());
-        assertEquals(identityInfoCalls, infoCalls.get());
-        assertEquals(ProcessTreeScanner.identity(guarded), ProcessTreeScanner.identity(indexed));
-        assertEquals(identityPidCalls, pidCalls.get());
-        assertEquals(identityInfoCalls, infoCalls.get());
-    }
-
-    @Test
     void hostileRootIdentityLookupIsDeadlineBounded() throws Exception {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         ProcessHandle root = new StubHandle(722) {
@@ -97,7 +61,7 @@ final class ProcessTreeScannerOutcomeClassificationTest {
 
     @Test
     void internalScanTimeoutIsUnavailableRatherThanCallerDeadline() throws Exception {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
         BlockingDescendantsProcess blocked = new BlockingDescendantsProcess();
         FutureTask<ProcessTreeScanner.DescendantScan> task =
                 new FutureTask<>(() -> scanner.scanDescendants(blocked, Duration.ofSeconds(1)));
@@ -148,7 +112,7 @@ final class ProcessTreeScannerOutcomeClassificationTest {
     }
 
     private static void assertDeadlineShortenedScanIsIncomplete(boolean streamTraversal) throws Exception {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25), Duration.ofMillis(25));
+        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         FutureTask<ProcessTreeScanner.DescendantScan> scan;

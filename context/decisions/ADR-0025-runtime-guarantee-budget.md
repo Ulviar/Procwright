@@ -62,12 +62,16 @@ Procwright сохраняет:
 Границы line/protocol output buffers следуют response limits согласно
 [ADR-0027](ADR-0027-response-sized-output-buffers.md). Отдельные настройки транспортной очереди не являются гарантией;
 общий reason `RESPONSE_TOO_LARGE` не зависит от того, заметила превышение очередь или request reader.
+Trusted PTY boundary и chunk-based complete-field decoding уточнены в
+[ADR-0028](ADR-0028-trusted-extensions-and-bounded-decoding.md).
 
 ## Гарантии, которые больше не являются целью
 
 Runtime не обязан гарантировать:
 
 - корректную работу с `Process`, `ProcessHandle`, `CharsetEncoder` или `CharsetDecoder`, нарушающими JDK contract;
+- per-call timeout или thread isolation custom `PtyProvider` и возвращённых им process objects;
+- точное число consumed bytes после terminal character-limit failure `readTextExactly`;
 - отдельный fresh non-inheriting thread и независимую process-global admission partition для каждого вида callback;
 - fairness или FIFO между внутренними cleanup, reporting и callback tasks разных handles;
 - восстановление служебного callback owner после его внутренней поломки;
@@ -127,10 +131,21 @@ API-контрактом и не должна создавать отдельн�
 retention после лимита и не прекращают попытки cleanup. Это предел числа сохранённых источников, а не размера
 переданного пользователем `Throwable` graph.
 
-Provider operation имеет bounded admission и deadline ожидания. После timeout/interruption caller прерывает уже
-запущенный disposable worker напрямую; bind/unbind и отдельный cancellation owner не нужны. Slot остаётся занят до
-физического возврата операции. Её поздний result, включая Error, игнорируется: он не переписывает выбранный outcome и
-не требует producer registration или reporting settlement. Своевременно полученный Error сохраняет identity.
+Custom `PtyProvider` является trusted SPI: `available()`, `description()`, `start(...)` и методы возвращённых
+`Process`/`ProcessHandle` не имеют индивидуальной timeout/thread isolation. Metadata и signals должны возвращаться
+promptly, timed waits — соблюдать
+timeout. Зависший custom call может задержать session и cleanup за configured deadline. System provider отдельно
+ограничивает собственные capability detection и bootstrap. Bounded scan и asynchronous destroy fallback сохраняются.
+
+Только descendant scan имеет общую bounded admission: не более 32 выполняющихся операций с deadline ожидания.
+`ProcessScanOperationOwner` после timeout/interruption прерывает уже запущенный disposable worker; slot остаётся занят
+до физического возврата scan. Поздний result, включая Error, не переписывает выбранный outcome и не требует reporting
+settlement. Своевременно полученный Error сохраняет identity. Это не квота на ordinary process calls.
+
+`readTextExactly` читает и декодирует complete field ограниченными chunks. После обнаружения превышения local/global
+character budget следующие chunks не читаются; предварительное чтение всего поля не требуется.
+Ни partial text, ни успешный response не публикуются. Ошибка terminal, поэтому точная byte position после неё не является
+гарантией. Успешное чтение по-прежнему расходует ровно объявленное число bytes и сохраняет следующий frame.
 
 ## Архитектура runtime
 

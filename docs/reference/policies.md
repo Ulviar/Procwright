@@ -24,7 +24,7 @@ branches with separate callback instances.
 
 Readiness and pool hooks run on fresh task threads while the open, acquire, or request operation waits for them.
 A terminal policy can call a retained `PtyProvider` concurrently when terminal-enabled sessions or workers start in
-parallel.
+parallel. Custom providers also follow the [trusted-provider timing contract](platforms-and-pty.md).
 
 The readers and writers passed into line decoders and protocol adapters are not retained callback objects. They are
 request capabilities: callback-scoped, confined to the callback thread, and invalid as soon as that invocation returns.

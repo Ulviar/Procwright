@@ -6,6 +6,7 @@ import static io.github.ulviar.procwright.internal.session.ProtocolResponseReade
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CharsetPolicy;
 import io.github.ulviar.procwright.internal.DurationSupport;
@@ -31,7 +32,7 @@ final class ProtocolResponseReaderExactTextTest extends ProtocolResponseReaderTe
     }
 
     @Test
-    void readTextExactlySaturatesFirstExcessArithmeticAtIntegerMaximum() {
+    void readTextExactlyAcceptsIntegerMaximumCharacterLimit() {
         ProtocolOutputQueue queue = new ProtocolOutputQueue(1, ProtocolOutputQueue.OverflowPolicy.STRICT);
         queue.offer(new byte[] {'a'});
         ProtocolResponseReader reader = reader(queue, 1, Integer.MAX_VALUE, Duration.ofSeconds(2));
@@ -69,7 +70,7 @@ final class ProtocolResponseReaderExactTextTest extends ProtocolResponseReaderTe
     }
 
     @Test
-    void readTextExactlyRejectsFirstCharacterBeyondConfiguredLimitWithoutHiddenDecoderFailure() {
+    void readTextExactlyRejectsCharacterOverflowWithoutHiddenDecoderFailure() {
         int fieldLength = FORMER_STAGED_OUTPUT_LIMIT + 1;
         byte[] ascii = new byte[fieldLength];
         Arrays.fill(ascii, (byte) 'a');
@@ -120,44 +121,9 @@ final class ProtocolResponseReaderExactTextTest extends ProtocolResponseReaderTe
     }
 
     @Test
-    void failedExactFieldChargesItsDecodedPrefixAndFirstExcessCharacter() {
-        ProtocolOutputQueue queue = new ProtocolOutputQueue(3, ProtocolOutputQueue.OverflowPolicy.STRICT);
-        queue.offer(new byte[] {'a', 'b', 'X'});
-        ProtocolResponseReader reader = reader(queue, 3, 1, Duration.ofSeconds(2));
-
-        ProtocolSessionException first =
-                assertThrows(ProtocolSessionException.class, () -> reader.readTextExactly(2, 1));
-        ProtocolSessionException retry =
-                assertThrows(ProtocolSessionException.class, () -> reader.readTextExactly(1, 1));
-
-        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, first.reason());
-        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, retry.reason());
-        assertEquals(1, queue.pendingBytes());
-    }
-
-    @Test
-    void failedLocalExactFieldChargesDecodedCharactersExactlyOnce() {
-        ProtocolOutputQueue queue = new ProtocolOutputQueue(5, ProtocolOutputQueue.OverflowPolicy.STRICT);
-        queue.offer(new byte[] {'a', 'b', 'X', 'Y', 'Z'});
-        ProtocolResponseReader reader = reader(queue, 5, 4, Duration.ofSeconds(2));
-
-        ProtocolSessionException localFailure =
-                assertThrows(ProtocolSessionException.class, () -> reader.readTextExactly(2, 1));
-        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, localFailure.reason());
-
-        assertEquals("X", reader.readTextExactly(1, 1));
-        assertEquals("Y", reader.readTextExactly(1, 1));
-        ProtocolSessionException globalFailure =
-                assertThrows(ProtocolSessionException.class, () -> reader.readTextExactly(1, 1));
-
-        assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, globalFailure.reason());
-        assertEquals(0, queue.pendingBytes());
-    }
-
-    @Test
-    void exactFieldStopsAfterTheFirstCharacterBeyondItsLimit() {
+    void oversizedExactFieldStopsBeforeDrainingTheRemainingInput() {
         int maxChars = 8192;
-        byte[] ascii = new byte[maxChars * 2];
+        byte[] ascii = new byte[maxChars * 16];
         Arrays.fill(ascii, (byte) 'a');
         ProtocolOutputQueue queue = new ProtocolOutputQueue(ascii.length, ProtocolOutputQueue.OverflowPolicy.STRICT);
         queue.offer(ascii);
@@ -167,7 +133,8 @@ final class ProtocolResponseReaderExactTextTest extends ProtocolResponseReaderTe
                 assertThrows(ProtocolSessionException.class, () -> reader.readTextExactly(ascii.length, maxChars));
 
         assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, exception.reason());
-        assertEquals(maxChars - 1, queue.pendingBytes());
+        assertTrue(queue.pendingBytes() >= ascii.length - maxChars - 8192);
+        assertTrue(queue.pendingBytes() < ascii.length - maxChars);
     }
 
     @Test

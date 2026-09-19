@@ -84,7 +84,7 @@ Runtime получает только согласованный plan и не у
 - session construction transaction — `SessionConstruction`;
 - выбор одного process terminal owner, process outcome, logical output-mode settlement и единый public exit
   raw/line/protocol handles — `SessionTerminal`;
-- pipe process launch — `ProcessLauncher`; ordinary и provider-bounded liveness — `ProcessLiveness`;
+- pipe process launch — `ProcessLauncher`; наблюдение trusted process liveness — `ProcessLiveness`;
 - ожидание natural exit — `ProcessExitWaiter`, накопление наблюдавшихся живых descendants —
   `LiveDescendantSnapshot`; process-tree shutdown state machine — `ProcessTreeShutdown`, bounded tree state —
   `ShutdownTreeState`, signals и JDK fallback — `ProcessShutdownSignals`, failure/interruption policy —
@@ -108,8 +108,8 @@ Runtime получает только согласованный plan и не у
 - выбор output consumer-а внутри resource owner — `SessionOutputOwnership`;
 - logical output-mode settlement и единственная передача stdout/stderr на physical close после process outcome —
   `OutputPumpCleanup`; закрытие wrapper-а отдельной pump не выбирает момент physical close;
-- bounded immutable cleanup snapshot — `KnownDescendants`; bounded process/provider traversal — `ProcessTreeScanner`;
-  admission, deadline и interrupt уже запущенного disposable worker — `ProcessProviderOperationOwner`. Slot занят до
+- bounded immutable cleanup snapshot — `KnownDescendants`; bounded descendant traversal — `ProcessTreeScanner`;
+  scan admission, deadline и interrupt уже запущенного disposable worker — `ProcessScanOperationOwner`. Slot занят до
   физического возврата операции; поздний result не участвует в lifecycle outcome и не требует reporting settlement;
 - line/protocol request serialization — `SerializedRequestGate`; active request и terminal arbitration —
   `LineSessionState` и `ProtocolSessionState`;
@@ -117,6 +117,8 @@ Runtime получает только согласованный plan и не у
   преобразованием canonical outcome в `StreamExit`;
 - protocol request write/read — `ProtocolRequestWriter`, `ProtocolResponseReader`, complete text fields —
   `ProtocolTextFieldDecoder`, global response limits — `ProtocolResponseBudget`;
+- bounded storage неопубликованного decode output — `BoundedCharacterStaging`; runtime decoders владеют operation
+  boundaries, но не дублируют алгоритм роста и освобождения staging buffer;
 - output backlog — bounded queue владельца сценария;
 - единый monitor, составные pool transitions и связанные с partition поля worker — `WorkerPoolState`; partition —
   `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
@@ -204,11 +206,14 @@ scenario flags.
   изолирует реализацию `Charset`, которая сама не возвращает управление из JDK method;
 - stream listener вызывается синхронно на output pump; вызовы stdout/stderr сериализуются локально для одной session,
   создают естественный backpressure и не используют отдельный поток или process-wide квоту;
-- process provider boundary принимает не более 32 operations одновременно; каждый accepted invocation выполняется на
+- descendant scanner принимает не более 32 scan operations одновременно; каждый accepted invocation выполняется на
   fresh disposable non-inheriting daemon owner-е, а permit удерживается до фактического возврата operation, включая
   abandoned call после timeout или interruption;
-- provider owners не переиспользуются, поэтому arbitrary `ThreadLocal` и mutable thread state не переносятся между
-  operations;
+- scan owners не переиспользуются, поэтому arbitrary `ThreadLocal` и mutable thread state не переносятся между scans;
+- custom `PtyProvider` и возвращённые `Process`/`ProcessHandle` являются trusted SPI без индивидуальной per-call isolation;
+  metadata/signals должны возвращаться promptly, timed waits — соблюдать timeout. Их блокировка может превысить
+  deadline session/cleanup. Bounded scan и asynchronous destroy fallback сохраняются; system provider самостоятельно
+  ограничивает capability detection и bootstrap;
 - один callback task не имеет внутренней очереди: новый fresh thread либо начинает callback до deadline, либо
   cancellation/timeout переводит его из `PENDING` в `ABANDONED` до входа в пользовательский код;
 - после abandonment поздний результат или failure уже начатого callback не меняет выбранный timeout/cancellation
@@ -233,6 +238,8 @@ scenario flags.
 - adapter создается до process launch; `null` и factory failure не оставляют процесс;
 - deadline охватывает validation/encoding, serialized access, write и decode;
 - protocol failure закрывает session, потому что дальнейшее framing state неизвестно;
+- `readTextExactly` читает bounded chunks, проверяет charset/character limits до следующего read и при terminal failure
+  не обещает exact consumed byte count; успешное чтение сохраняет byte-length framing;
 - stable reason enum отделяет timeout, EOF, broken pipe, decode, oversize и adapter failure; pending output и
   потреблённый response используют общий `RESPONSE_TOO_LARGE` при превышении соответствующего response limit.
 

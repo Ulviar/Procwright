@@ -68,9 +68,10 @@ public interface ProtocolReader {
      * decoder state with {@link #readLine(int)} or {@link #readTextUntil(byte, int)}. Both the response-global byte and
      * character budgets and the field-local {@code maxChars} limit apply. A zero-byte field is valid and returns an empty
      * string without creating or flushing a field decoder, inspecting continuous decoder state or process output,
-     * checking the deadline, or consulting response budgets. When decoded text exceeds a character limit, reading stops
-     * after the first excess character; bytes from the rest of the declared field may remain unread. Protocol sessions
-     * treat that failure as terminal and close the process.
+     * checking the deadline, or consulting response budgets. Nonempty fields are read and decoded incrementally. When a
+     * decoded chunk exceeds a character limit, reading stops without draining the rest of the field. The amount of
+     * input consumed before that failure is not specified. Protocol sessions treat the failure as terminal and close
+     * the process.
      *
      * @param byteLength exact encoded byte count, at least zero
      * @param maxChars maximum decoded characters, greater than zero

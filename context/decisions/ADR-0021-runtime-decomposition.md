@@ -34,9 +34,9 @@ cleanup ожидает обязательные I/O tasks и process-tree termin
 последний выполняется best effort и не изменяет уже готовый result или failure.
 
 Общий process runtime также разделен по наблюдаемым инвариантам. `ProcessLauncher` владеет launch обычного pipe process.
-`ProcessLiveness` консервативно определяет, доказан ли выход обычного процесса, а для guarded operations различает
-`LIVE`, `EXITED`, исчерпанный lifecycle budget `UNKNOWN` и недоступное OS/provider state `UNOBSERVABLE`. Два последних
-состояния не доказывают выход. `ProcessExitWaiter` владеет caller-thread polling и wait deadline, а
+`ProcessLiveness` консервативно различает `LIVE`, `EXITED` и недоступное OS/provider state `UNOBSERVABLE`; последнее не
+доказывает выход. `ProcessExitWaiter` владеет caller-thread polling и wait deadline. Custom PTY process objects
+доверенные и обязаны соблюдать timing contract, описанный в [ADR-0028](ADR-0028-trusted-extensions-and-bounded-decoding.md).
 `LiveDescendantSnapshot` накапливает bounded immutable snapshot живых либо временно недоступных для наблюдения
 descendants. `ProcessLifecycle` является внутренним facade для natural-exit wait и shutdown. Единый
 `ProcessTreeShutdown` оркестрирует graceful-to-forceful или force-only sequence; `ShutdownTreeState` владеет bounded
@@ -50,13 +50,18 @@ status. Итоговое решение о completion root и всего дер�
 и process exit snapshot. Внутренние детали чтения и записи разделены на маленькие владельцы:
 
 - `ProtocolRequestWriter` владеет stdin writes, request deadline и request byte/char limits.
-- `ProtocolOutputQueue` владеет bounded очередью между output pump и protocol reader.
+- `ProtocolOutputQueue` владеет bounded очередью между output pump и protocol reader. Raw single-byte, bulk и decoder
+  peek используют один `ReadWindow` transaction: snapshot, budget вне monitor, revalidation head/offset и commit.
+  Пользовательский bulk buffer изменяется только после успешной revalidation; peek buffer является staging.
 - `ProtocolResponseReader` является request-scoped facade над raw и text operations.
 - `ProtocolReadSource` владеет capability lifetime, deadline, terminal precedence и raw-byte access.
 - `ProtocolTextReader` владеет complete-field и continuous text operations, включая persistent decoder state и
   транзакцию peek/decode/commit/rollback.
 - `ProtocolTextFieldDecoder` владеет независимым декодированием byte-length-delimited text fields, decoder progress,
-  replacement policy и per-field character limit.
+  replacement policy и per-field character limit. Поле читается ограниченными chunks без whole-field pre-read;
+  terminal character-limit failure не обещает exact input position.
+- `BoundedCharacterStaging` хранит ограниченный неопубликованный output decode operation и освобождает большой
+  временный buffer после её завершения; incremental и continuous decoders используют одного владельца этого storage.
 - `ProtocolResponseBudget` владеет global response byte/char limits на один request.
 - `ProtocolRuntimeFailures` является внутренней границей создания failures с transcript/process snapshot владельца
   сессии.
@@ -75,17 +80,17 @@ status. Итоговое решение о completion root и всего дер�
 - Mutable state двух one-shot запусков не может пересекаться: каждый запуск получает отдельный `OneShotExecution`.
 - One-shot result decoding не зависит от process lifecycle и сохраняет исходные captured bytes в success и typed
   decode-failure results.
-- Provider operation timeout остается typed failure, а исчерпание внешнего lifecycle deadline становится `UNKNOWN`;
-  ни `UNKNOWN`, ни `UNOBSERVABLE` не считаются доказательством выхода процесса.
+- `UNOBSERVABLE` не считается доказательством выхода процесса. Direct liveness/signal calls доверенных process
+  objects не имеют отдельного timeout owner; descendant traversal сохраняет bounded scan admission и caller wait.
 - Наблюдавшиеся descendants переживают reparenting после выхода root и остаются доступны последующему cleanup.
 - Graceful и forceful shutdown остаются одной последовательностью фаз; tree state, signal policy и failure/interruption
   policy имеют разных владельцев.
 - Успешный shutdown требует доказанного `EXITED` для root и известных descendants. Фаза с положительным wait budget
   также требует финального discovery до дедлайна; zero-wait phase ничего не ожидает и принимает уже наблюдённый выход.
-  `UNKNOWN` и `UNOBSERVABLE` не доказывают завершение. В positive-wait фазах `stop()` один `WaitPhase` владеет
-  post-signal deadline и для completion observation, и для следующего за ним exit-code snapshot. Zero-wait не создаёт
-  окно ожидания, а force-only cleanup целиком остаётся внутри исходного operation deadline. Polling не начинает
-  provider operation в последнем 10 ms кванте, но успешный выход всё равно требует stabilization с любым положительным
+  `UNOBSERVABLE` не доказывает завершение. В positive-wait фазах `stop()` один `WaitPhase` владеет post-signal deadline
+  для polling и stabilization. Zero-wait не создаёт окно ожидания, а force-only cleanup сохраняет исходный operation
+  deadline. Это budget ожидания и scans, а не изоляция зависшего custom process call. Polling не начинает
+  scan в последнем 10 ms кванте, но успешный выход всё равно требует stabilization с любым положительным
   остатком. Если времени на stabilization уже нет, текущая фаза завершается без успеха; forceful phase выполняет
   собственный scan до сигнала root. Как и у самого `ProcessHandle`, descendant, успевший reparenting до любого
   наблюдения, остаётся вне доказуемых гарантий runtime.
@@ -107,12 +112,12 @@ status. Итоговое решение о completion root и всего дер�
   proof.
 - Scanner и shutdown state считают уникальные процессы по `pid + startInstant`, а не по identity wrapper-объекта:
   повторное представление того же handle между scans и phases не расходует limit и не создаёт ложный overflow.
-  `KnownDescendants` переносит уже вычисленную identity и исходный guarded owner в shutdown state без повторных
-  provider calls. Обычный сбой traversal сохраняет уже обнаруженный prefix как incomplete scan. Fatal traversal
+  `KnownDescendants` переносит уже вычисленную identity и исходный handle в shutdown state без повторного indexing.
+  Обычный сбой traversal сохраняет уже обнаруженный prefix как incomplete scan. Fatal traversal
   переносит тот же prefix вместе с исходным `Error` и немедленно прекращает дальнейший graph traversal: cleanup сначала
   принимает и сигналит handles, затем возвращает одиночный `Error` без замены identity. Если закрытие traversal stream
   также завершилось ошибкой, scanner возвращает новый detached aggregate: исходный fatal остаётся primary, порядок
-  failures сохраняется, а исходные `Throwable` не изменяются. После abandonment provider operation её поздний результат,
+  failures сохраняется, а исходные `Throwable` не изменяются. После abandonment scan operation её поздний результат,
   включая embedded Error, игнорируется согласно ADR-0025; отдельного reporting settlement нет. Slot освобождается только
   после фактического возврата операции, поэтому повторные scans не создают неограниченное число зависших owners.
 - У каждого protocol budget есть один runtime-владелец: request consumption у writer, response consumption у

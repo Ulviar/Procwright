@@ -189,8 +189,9 @@ budget. Raw methods such as
 length-framed complete text field; use `readLine` or `readTextUntil` for a continuous text stream. Switch modes only at
 complete character boundaries. Procwright rejects a raw or exact-field read before consumption when continuous decoding
 still holds an incomplete character. It cannot infer a boundary after arbitrary raw bytes, so the adapter must know its
-framing before returning to continuous text. A character-limit failure stops after the first excess decoded character
-instead of draining the rest of a declared text field; the terminal session close discards any unread field bytes.
+framing before returning to continuous text. `readTextExactly` reads and decodes bounded chunks. Once it detects a
+character-limit violation, it reads no further chunks. The number of input bytes consumed before that failure is
+unspecified. The failure is terminal; session close discards any unread field bytes.
 
 See [scenario defaults](../reference/defaults.md#protocol-sessions) for request, response, backlog, decoding, terminal,
 and readiness limits.

@@ -89,7 +89,7 @@ final class ShutdownTreeState {
         });
     }
 
-    DescendantState observeDescendants(long deadline) {
+    DescendantState observeDescendants() {
         boolean observable = true;
         for (Map.Entry<ProcessTreeScanner.HandleIdentity, ProcessHandle> descendant : descendants.entrySet()) {
             if (completionExcluded.contains(descendant.getKey())) {
@@ -98,18 +98,12 @@ final class ShutdownTreeState {
             ProcessHandle handle = descendant.getValue();
             boolean alive = false;
             try {
-                ProcessLiveness.Observation observation = ProcessLiveness.observe(handle, deadline);
-                if (observation == ProcessLiveness.Observation.UNKNOWN) {
-                    return DescendantState.LIVE;
-                }
+                ProcessLiveness.Observation observation = ProcessLiveness.observe(handle);
                 if (observation == ProcessLiveness.Observation.UNOBSERVABLE) {
                     observable = false;
                 } else {
                     alive = observation == ProcessLiveness.Observation.LIVE;
                 }
-            } catch (InterruptedException interruption) {
-                failures.interrupted(interruption);
-                observable = false;
             } catch (RuntimeException | Error failure) {
                 failures.record(failure);
                 observable = false;

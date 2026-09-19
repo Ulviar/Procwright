@@ -15,14 +15,11 @@ import java.util.function.IntFunction;
 /** Carries incremental charset-decoder state across readers of one process output stream. */
 final class ProtocolTextDecoderState {
 
-    private static final char[] EMPTY_CHARS = new char[0];
-    private static final int MAX_RETAINED_STAGING_CHARS = 8192;
-
     private final CharsetDecoder decoder;
     private final int pendingByteLimit;
     private final int outputWithoutInputLimit;
     private final IncrementalTextDecoder.OutputWithoutInputGuard outputGuard;
-    private final StagedText staged;
+    private final BoundedCharacterStaging staged;
     private ByteBuffer input;
     private final CharBuffer output = CharBuffer.allocate(128);
     private boolean pendingInput;
@@ -52,7 +49,7 @@ final class ProtocolTextDecoderState {
         this.pendingByteLimit = pendingByteLimit;
         this.outputWithoutInputLimit = outputWithoutInputLimit;
         this.outputGuard = new IncrementalTextDecoder.OutputWithoutInputGuard(outputWithoutInputLimit);
-        this.staged = new StagedText(stagingAllocator);
+        this.staged = new BoundedCharacterStaging(stagingAllocator);
         input = ByteBuffer.allocate(Math.min(16, pendingByteLimit));
         decoder = policy.charset()
                 .newDecoder()
@@ -195,13 +192,13 @@ final class ProtocolTextDecoderState {
         }
     }
 
-    private void appendOutput(StagedText staged) throws CharacterCodingException {
+    private void appendOutput(BoundedCharacterStaging staged) throws CharacterCodingException {
         output.flip();
         staged.accept(output.array(), output.remaining());
         output.clear();
     }
 
-    private void prepareOutput(StagedText staged, boolean bounded) throws OutputLimitExceededException {
+    private void prepareOutput(BoundedCharacterStaging staged, boolean bounded) throws OutputLimitExceededException {
         if (!bounded) {
             output.limit(output.capacity());
             return;
@@ -214,7 +211,7 @@ final class ProtocolTextDecoderState {
     }
 
     private void rejectBudgetLimitedOverflow(
-            CoderResult result, boolean inputAdvanced, int outputCount, StagedText staged, boolean bounded)
+            CoderResult result, boolean inputAdvanced, int outputCount, BoundedCharacterStaging staged, boolean bounded)
             throws OutputLimitExceededException {
         if (bounded
                 && result.isOverflow()
@@ -252,83 +249,7 @@ final class ProtocolTextDecoderState {
     }
 
     private int unboundedStagingLimit(int inputBytes) {
-        double expectedOutput = Math.ceil(inputBytes * (double) Math.max(1.0f, decoder.maxCharsPerByte()));
-        long boundedExpected = !Double.isFinite(expectedOutput) || expectedOutput >= Integer.MAX_VALUE
-                ? Integer.MAX_VALUE
-                : (long) expectedOutput;
-        long combinedLimit = boundedExpected + outputWithoutInputLimit;
-        return (int) Math.max(1, Math.min(Integer.MAX_VALUE, combinedLimit));
-    }
-
-    private static final class StagedText implements IncrementalTextDecoder.Sink {
-
-        private final IntFunction<char[]> allocator;
-        private char[] chars = EMPTY_CHARS;
-        private int limit;
-        private int length;
-
-        private StagedText(IntFunction<char[]> allocator) {
-            this.allocator = Objects.requireNonNull(allocator, "allocator");
-        }
-
-        private void reset(int limit) {
-            if (limit <= 0) {
-                throw new IllegalArgumentException("limit must be positive");
-            }
-            this.limit = limit;
-            length = 0;
-        }
-
-        @Override
-        public void accept(char[] source, int count) throws IncrementalTextDecoder.DecoderStateException {
-            Objects.requireNonNull(source, "source");
-            Objects.checkFromIndexSize(0, count, source.length);
-            if (count > limit - length) {
-                throw new IncrementalTextDecoder.DecoderStateException(
-                        "Decoder produced more than " + limit + " chars in one decode operation");
-            }
-            ensureCapacity(length + count);
-            if (count > 0) {
-                System.arraycopy(source, 0, chars, length, count);
-                length += count;
-            }
-        }
-
-        private void publishTo(IncrementalTextDecoder.Sink target) throws CharacterCodingException {
-            if (length > 0) {
-                target.accept(chars, length);
-            }
-        }
-
-        private int length() {
-            return length;
-        }
-
-        private int remainingCapacity() {
-            return limit - length;
-        }
-
-        private void finishOperation() {
-            length = 0;
-            if (chars.length > MAX_RETAINED_STAGING_CHARS) {
-                chars = EMPTY_CHARS;
-            }
-        }
-
-        private void ensureCapacity(int required) throws IncrementalTextDecoder.DecoderStateException {
-            if (required <= chars.length) {
-                return;
-            }
-            int doubled = chars.length > limit - chars.length ? limit : chars.length * 2;
-            int capacity = Math.max(required, Math.max(1, doubled));
-            char[] grown = Objects.requireNonNull(allocator.apply(capacity), "stagingAllocator returned null");
-            if (grown.length < capacity) {
-                throw new IncrementalTextDecoder.DecoderStateException(
-                        "Staging allocator returned " + grown.length + " chars for capacity " + capacity);
-            }
-            System.arraycopy(chars, 0, grown, 0, length);
-            chars = grown;
-        }
+        return IncrementalTextDecoder.stagingCharacterLimit(decoder, inputBytes, outputWithoutInputLimit);
     }
 
     static final class OutputLimitExceededException extends CharacterCodingException {

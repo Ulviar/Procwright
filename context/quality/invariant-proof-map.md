@@ -112,20 +112,20 @@ cleanup, а блокирующий physical close не переписывает 
 
 ### Process liveness
 
-**Инвариант:** `UNKNOWN` и `UNOBSERVABLE` не считаются доказательством выхода процесса.
+**Инвариант:** `UNOBSERVABLE` не считается доказательством выхода процесса; exit-value fallback может подтвердить exit.
 
 **Владелец:** `ProcessLiveness`.
 
-**Proof:** `ProcessLivenessTest`, `GuardedProcessExitWaiterTest`.
+**Proof:** `ProcessLivenessTest`.
 
 ### Natural exit wait
 
-**Инвариант:** natural wait выполняется на caller thread, соблюдает lifecycle deadline и не передаёт управление
-произвольному provider `waitFor`.
+**Инвариант:** natural wait выполняется на caller thread и ограничивает timed `Process.waitFor` оставшимся lifecycle
+budget. Custom process должен соблюдать переданный timeout; per-call isolation не обещается.
 
 **Владелец:** `ProcessExitWaiter`.
 
-**Proof:** `ProcessExitWaiterTest`, `GuardedProcessExitWaiterTest`.
+**Proof:** `ProcessExitWaiterTest`.
 
 ### Descendant knowledge
 
@@ -261,15 +261,15 @@ identity регистрации, чтобы старый callback не мог у
 
 **Proof:** `TimedTaskRunnerTest`.
 
-### Provider operations
+### Scan operations
 
-**Инвариант:** process-provider operations имеют общую ограниченную capacity, deadline и disposable daemon owner;
+**Инвариант:** descendant scans имеют общую capacity в 32 операции, deadline и disposable daemon owner;
 timeout не освобождает capacity до фактического завершения операции. Interruption достигает уже запущенного worker,
 в том числе до входа в callback. Поздний result не меняет выбранный outcome; reporting settlement не является gate.
 
-**Владелец:** `ProcessProviderOperationOwner`.
+**Владелец:** `ProcessScanOperationOwner`.
 
-**Proof:** `ProcessProviderOperationOwnerTest`, `ProcessTreeScannerOperationOwnershipTest`.
+**Proof:** `ProcessScanOperationOwnerTest`, `ProcessTreeScannerOperationOwnershipTest`.
 
 ### Timeout policy
 
@@ -292,11 +292,13 @@ bytes остаются доступны там, где сценарий их в�
 ### PTY boundary
 
 **Инвариант:** terminal policy выбирается явно; provider получает immutable `PtyRequest`, а system wrapper не
-раскрывается через SPI.
+раскрывается через SPI. Custom provider process принимается без индивидуальной per-call isolation как trusted extension;
+bounded scan и asynchronous destroy fallback сохраняются. System provider
+самостоятельно ограничивает capability detection и bootstrap.
 
 **Владелец:** `ProcessTransport`.
 
-**Proof:** `PtyRequestTest`, `SystemPtyLaunchBoundaryIntegrationTest`.
+**Proof:** `PtyRequestTest`, `ProcessTransportPtyTest`, `SystemPtyLaunchBoundaryIntegrationTest`.
 
 ## Session protocols
 
@@ -387,9 +389,20 @@ output pump передают в cleanup одну выбранную первич
 **Инвариант:** text decoding не допускает rewind, unbounded pending state или частичную публикацию результата после
 malformed input.
 
-**Владелец:** `IncrementalTextDecoder`.
+**Владелец:** `IncrementalTextDecoder`; bounded staging storage — `BoundedCharacterStaging`.
 
-**Proof:** `IncrementalTextDecoderFailureAtomicityTest`, `LineSessionDecoderSafetyIntegrationTest`.
+**Proof:** `IncrementalTextDecoderFailureAtomicityTest`, `BoundedCharacterStagingTest`,
+`LineSessionDecoderSafetyIntegrationTest`.
+
+### Protocol queue read transaction
+
+**Инвариант:** raw и decoder reads проверяют budget вне queue monitor, затем повторно проверяют identity и offset
+головного chunk перед commit. Неуспешный raw read не изменяет пользовательский bulk buffer; decoder peek использует
+staging. Commit расходует только прочитанный prefix и сохраняет suffix.
+
+**Владелец:** `ProtocolOutputQueue.ReadWindow` и acquire/commit в `ProtocolOutputQueue`.
+
+**Proof:** `ProtocolOutputQueueTest`.
 
 ### Protocol request transaction
 
@@ -418,6 +431,18 @@ adapter-у проглотить partial-write или limit failure.
 **Владелец:** `ProtocolResponseBudget`.
 
 **Proof:** `ProtocolResponseReaderExactTextTest`, `ProtocolResponseFramingAndLimitsIntegrationTest`.
+
+### Complete text fields
+
+**Инвариант:** `readTextExactly` декодирует объявленное число bytes ограниченными chunks; после обнаружения limit violation
+следующие chunks не читаются. Предварительно читать всё поле не требуется. Partial read декодируется до следующего input
+read. Local/global character limits,
+strict/replacement policy и отсутствие partial result сохраняются; exact input position после terminal failure
+не обещается.
+
+**Владелец:** `ProtocolTextFieldDecoder`.
+
+**Proof:** `ProtocolTextFieldDecoderTest`, `ProtocolResponseReaderExactTextTest`.
 
 ### Protocol terminal state
 

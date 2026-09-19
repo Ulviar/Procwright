@@ -18,7 +18,7 @@ import java.util.Objects;
  * Decodes independent, byte-length-delimited protocol text fields.
  *
  * <p>Each field gets a fresh charset decoder. Local field limits and the response-wide character budget are charged
- * as output is accepted, including the first character that proves a limit was exceeded. The byte source retains
+ * in bounded output chunks. A limit failure stops further input reads without draining the field. The byte source retains
  * ownership of capability, deadline, terminal ordering, and response-wide byte accounting.
  */
 final class ProtocolTextFieldDecoder {
@@ -53,7 +53,7 @@ final class ProtocolTextFieldDecoder {
         CharsetDecoder decoder = newDecoder();
         ByteBuffer inputBuffer = ByteBuffer.allocate(Math.min(byteLength, INPUT_BUFFER_SIZE));
         int initialEffectiveLimit = Math.min(characterLimit, budget.remainingChars());
-        CharBuffer output = CharBuffer.allocate(outputCapacity(initialEffectiveLimit));
+        CharBuffer output = CharBuffer.allocate(OUTPUT_BUFFER_SIZE);
         BoundedText text =
                 new BoundedText(characterLimit, initialCharacterCapacity(decoder, byteLength, initialEffectiveLimit));
         int unreadBytes = byteLength;
@@ -63,8 +63,7 @@ final class ProtocolTextFieldDecoder {
                     if (!inputBuffer.hasRemaining()) {
                         inputBuffer = growInput(inputBuffer, byteLength);
                     }
-                    int requested = Math.min(
-                            Math.min(inputBuffer.remaining(), unreadBytes), firstExcessLimit(effectiveRemaining(text)));
+                    int requested = Math.min(INPUT_BUFFER_SIZE, Math.min(inputBuffer.remaining(), unreadBytes));
                     int count = input.read(inputBuffer.array(), inputBuffer.position(), requested);
                     if (count <= 0 || count > requested) {
                         throw new IncrementalTextDecoder.DecoderStateException(
@@ -121,14 +120,12 @@ final class ProtocolTextFieldDecoder {
             CharsetDecoder decoder, ByteBuffer inputBuffer, CharBuffer output, boolean endOfInput, BoundedText text)
             throws CharacterCodingException {
         while (true) {
-            int remainingChars = effectiveRemaining(text);
-            prepareOutput(output, remainingChars);
+            output.clear();
             int previousInputPosition = inputBuffer.position();
             int previousOutputPosition = output.position();
             CoderResult result = decode(decoder, inputBuffer, output, endOfInput);
             boolean inputAdvanced = IncrementalTextDecoder.inputAdvanced(previousInputPosition, inputBuffer.position());
             int outputCount = output.position() - previousOutputPosition;
-            rejectBudgetLimitedOverflow(result, inputAdvanced, outputCount, output, remainingChars);
             ensureProgress(result, inputAdvanced, outputCount);
             appendOutput(output, text);
             if (result.isOverflow()) {
@@ -154,8 +151,7 @@ final class ProtocolTextFieldDecoder {
 
     private void flush(CharsetDecoder decoder, CharBuffer output, BoundedText text) throws CharacterCodingException {
         while (true) {
-            int remainingChars = effectiveRemaining(text);
-            prepareOutput(output, remainingChars);
+            output.clear();
             int previousOutputPosition = output.position();
             CoderResult result;
             try {
@@ -164,7 +160,6 @@ final class ProtocolTextFieldDecoder {
                 throw IncrementalTextDecoder.decoderFailure("flush", exception);
             }
             int outputCount = output.position() - previousOutputPosition;
-            rejectBudgetLimitedOverflow(result, false, outputCount, output, remainingChars);
             ensureProgress(result, false, outputCount);
             appendOutput(output, text);
             if (result.isError()) {
@@ -185,7 +180,7 @@ final class ProtocolTextFieldDecoder {
         }
         int replacementEndPosition = replacementEndPosition(result, inputBuffer);
         String replacement = decoder.replacement();
-        int count = Math.min(replacement.length(), firstExcessLimit(effectiveRemaining(text)));
+        int count = replacement.length();
         budget.addChars(count);
         text.append(replacement, count);
         inputBuffer.position(replacementEndPosition);
@@ -199,25 +194,6 @@ final class ProtocolTextFieldDecoder {
             text.append(output);
         }
         output.clear();
-    }
-
-    private int effectiveRemaining(BoundedText text) {
-        return Math.min(text.remaining(), budget.remainingChars());
-    }
-
-    private static void prepareOutput(CharBuffer output, int remainingChars) {
-        output.clear();
-        output.limit(Math.min(output.capacity(), firstExcessLimit(remainingChars)));
-    }
-
-    private void rejectBudgetLimitedOverflow(
-            CoderResult result, boolean inputAdvanced, int outputCount, CharBuffer output, int remainingChars)
-            throws TextTooLargeException {
-        int firstExcess = firstExcessLimit(remainingChars);
-        if (result.isOverflow() && !inputAdvanced && outputCount == 0 && firstExcess <= output.capacity()) {
-            budget.addChars(firstExcess);
-            throw new TextTooLargeException();
-        }
     }
 
     private static int replacementEndPosition(CoderResult result, ByteBuffer inputBuffer)
@@ -255,14 +231,6 @@ final class ProtocolTextFieldDecoder {
         ByteBuffer grown = ByteBuffer.allocate(grownCapacity);
         grown.put(inputBuffer);
         return grown;
-    }
-
-    private static int outputCapacity(int characterLimit) {
-        return Math.min(OUTPUT_BUFFER_SIZE, firstExcessLimit(characterLimit));
-    }
-
-    private static int firstExcessLimit(int remainingChars) {
-        return remainingChars == Integer.MAX_VALUE ? Integer.MAX_VALUE : remainingChars + 1;
     }
 
     private static int initialCharacterCapacity(CharsetDecoder decoder, int byteLength, int characterLimit) {
@@ -315,10 +283,6 @@ final class ProtocolTextFieldDecoder {
             ensureCapacity(length + count);
             value.getChars(0, count, chars, length);
             length += count;
-        }
-
-        private int remaining() {
-            return limit - length;
         }
 
         private void ensureCapacity(int required) {

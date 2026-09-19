@@ -3,6 +3,8 @@
 package io.github.ulviar.procwright.internal.session;
 
 import java.util.Objects;
+import java.util.function.IntConsumer;
+import java.util.function.UnaryOperator;
 
 /** Owns callback-confined capability, deadline, terminal precedence, and raw-byte access for one protocol reader. */
 final class ProtocolReadSource {
@@ -12,6 +14,9 @@ final class ProtocolReadSource {
     private final ProtocolResponseBudget budget;
     private final ProtocolRuntimeFailures failures;
     private final RequestCapabilityScope capabilityScope;
+    private final ProtocolOutputQueue.ReadWindow readWindow = new ProtocolOutputQueue.ReadWindow();
+    private final IntConsumer countBytes;
+    private final UnaryOperator<ProtocolOutputEvent> terminalObserver = this::claimTerminal;
     private boolean readStarted;
     private ProtocolOutputEvent claimedTerminal;
 
@@ -24,6 +29,7 @@ final class ProtocolReadSource {
         this.output = Objects.requireNonNull(output, "output");
         this.deadlineNanos = deadlineNanos;
         this.budget = Objects.requireNonNull(budget, "budget");
+        this.countBytes = budget::addBytes;
         this.failures = Objects.requireNonNull(failures, "failures");
         this.capabilityScope = Objects.requireNonNull(capabilityScope, "capabilityScope");
     }
@@ -31,13 +37,13 @@ final class ProtocolReadSource {
     int readOneUnsignedByte() {
         checkReadPreconditions();
         budget.ensureBytesAvailable(1);
-        return output.readUnsignedByte(deadlineNanos, failures, budget::addBytes, this::claimTerminal);
+        return output.readUnsignedByte(readWindow, deadlineNanos, failures, countBytes, terminalObserver);
     }
 
     int readAvailableBytes(byte[] buffer, int offset, int length) {
         checkReadPreconditions();
         budget.ensureBytesAvailable(1);
-        return output.read(buffer, offset, length, deadlineNanos, failures, budget::addBytes, this::claimTerminal);
+        return output.read(buffer, offset, length, readWindow, deadlineNanos, failures, countBytes, terminalObserver);
     }
 
     void checkReadPreconditions() {

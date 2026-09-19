@@ -14,7 +14,7 @@
 
 - Все модули используют JDK 25 toolchain и Java/Kotlin target 25. CI проверяет Java 25 на Linux, macOS и Windows.
   `publicationStructureCheck` проверяет major 69/minor 0 каждого опубликованного class и JVM 25 metadata всех library variants.
-- Lifecycle tasks используют прямые virtual-thread API без наследования caller thread-local state. Bounded provider,
+- Lifecycle tasks используют прямые virtual-thread API без наследования caller thread-local state. Bounded scan,
   notification и pool workers сохраняют отдельные лимиты и platform threads: зависшая операция удерживает свой slot.
   Автоматический `ExecutorService.close()` не заменяет bounded cleanup, поскольку может ждать бесконечно.
 - Notification context принадлежит лексическому `ScopedValue`; при переходе между потоками target передаётся явно.

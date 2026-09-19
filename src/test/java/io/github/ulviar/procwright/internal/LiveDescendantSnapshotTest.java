@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal;
 
-import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static io.github.ulviar.procwright.internal.ThrowableMonitorTestSupport.hold;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -38,14 +37,8 @@ final class LiveDescendantSnapshotTest {
         TestHandle secondLive = TestHandle.live(104);
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(exited, unobservable));
 
-        snapshot.refresh(
-                new DescendantProcess(firstLive),
-                Duration.ofSeconds(1),
-                DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
-        snapshot.refresh(
-                new DescendantProcess(secondLive),
-                Duration.ofSeconds(1),
-                DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        snapshot.refresh(new DescendantProcess(firstLive), Duration.ofSeconds(1));
+        snapshot.refresh(new DescendantProcess(secondLive), Duration.ofSeconds(1));
 
         assertFalse(snapshot.current().contains(exited));
         assertTrue(snapshot.current().contains(unobservable));
@@ -78,10 +71,7 @@ final class LiveDescendantSnapshotTest {
         TestHandle overflow = TestHandle.live(20_001);
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(initial));
 
-        snapshot.refresh(
-                new DescendantProcess(firstNew, overflow),
-                Duration.ofSeconds(1),
-                DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        snapshot.refresh(new DescendantProcess(firstNew, overflow), Duration.ofSeconds(1));
 
         List<ProcessHandle> retained = List.copyOf(snapshot.current());
         assertEquals(limit, retained.size());
@@ -92,46 +82,28 @@ final class LiveDescendantSnapshotTest {
     }
 
     @Test
-    void guardedUnknownIsRetainedWithoutInvokingTheProvider() throws Exception {
-        TestHandle delegate = TestHandle.live(301);
-        ProcessHandle guarded = new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guardObserved(delegate);
-        LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(guarded));
-
-        snapshot.refresh(new DescendantProcess(), Duration.ZERO, System.nanoTime() - 1);
-
-        assertTrue(snapshot.current().contains(guarded));
-        assertEquals(0, delegate.livenessCalls.get());
-    }
-
-    @Test
-    void guardedExitedHandleIsPruned() throws Exception {
+    void exitedHandleIsPruned() throws Exception {
         TestHandle delegate = TestHandle.live(302);
         delegate.alive.set(false);
-        ProcessHandle guarded = new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guardObserved(delegate);
-        LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(guarded));
+        ProcessHandle retained = delegate;
+        LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(retained));
 
-        snapshot.refresh(
-                new DescendantProcess(), Duration.ZERO, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        snapshot.refresh(new DescendantProcess(), Duration.ZERO);
 
         assertTrue(snapshot.current().isEmpty());
         assertEquals(1, delegate.livenessCalls.get());
     }
 
     @Test
-    void guardedProviderFailureLeavesThePreviousSnapshotUnchanged() {
+    void livenessFailureLeavesThePreviousSnapshotUnchanged() {
         IllegalStateException expected = new IllegalStateException("provider failed");
         TestHandle stable = TestHandle.live(303);
-        ProcessHandle failing =
-                new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guardObserved(TestHandle.failing(304, expected));
+        ProcessHandle failing = TestHandle.failing(304, expected);
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(stable, failing));
         Set<ProcessHandle> before = snapshot.current();
 
         IllegalStateException actual = assertThrows(
-                IllegalStateException.class,
-                () -> snapshot.refresh(
-                        new DescendantProcess(),
-                        Duration.ZERO,
-                        DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+                IllegalStateException.class, () -> snapshot.refresh(new DescendantProcess(), Duration.ZERO));
 
         assertSame(expected, actual);
         assertEquals(before, snapshot.current());
@@ -141,17 +113,13 @@ final class LiveDescendantSnapshotTest {
     void pruningFailureStillPublishesTheNewlyScannedPrefix() {
         IllegalStateException expected = new IllegalStateException("provider failed");
         TestHandle stable = TestHandle.live(307);
-        ProcessHandle failing =
-                new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guardObserved(TestHandle.failing(308, expected));
+        ProcessHandle failing = TestHandle.failing(308, expected);
         TestHandle newlyObserved = TestHandle.live(309);
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(stable, failing));
 
         IllegalStateException actual = assertThrows(
                 IllegalStateException.class,
-                () -> snapshot.refresh(
-                        new DescendantProcess(newlyObserved),
-                        Duration.ofSeconds(1),
-                        DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+                () -> snapshot.refresh(new DescendantProcess(newlyObserved), Duration.ofSeconds(1)));
 
         assertSame(expected, actual);
         assertTrue(snapshot.current().contains(stable));
@@ -160,29 +128,28 @@ final class LiveDescendantSnapshotTest {
     }
 
     @Test
-    void freshLivenessBudgetStartsAfterTheBoundedDescendantScan() throws Exception {
+    void timedOutScanStillPrunesRetainedHandles() throws Exception {
         TestHandle descendant = TestHandle.live(105);
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofMillis(25));
-        ProcessHandle guardedDescendant = scanner.guardObserved(descendant);
-        LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(guardedDescendant));
+        ProcessHandle retainedDescendant = descendant;
+        LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(retainedDescendant));
         BlockingDescendantScanProcess process = new BlockingDescendantScanProcess();
 
         try {
-            snapshot.refreshWithFreshLivenessBudget(process, Duration.ofMillis(25));
+            snapshot.refresh(process, Duration.ofMillis(25));
         } finally {
             process.releaseScan.countDown();
         }
 
         assertEquals(1, descendant.livenessCalls.get());
-        assertTrue(snapshot.current().contains(guardedDescendant));
+        assertTrue(snapshot.current().contains(retainedDescendant));
     }
 
     @Test
     void completeRefreshDoesNotEraseEarlierUnavailableObservation() throws Exception {
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot();
-        snapshot.refreshWithFreshLivenessBudget(new UnavailableDescendantProcess(), Duration.ofMillis(25));
+        snapshot.refresh(new UnavailableDescendantProcess(), Duration.ofMillis(25));
 
-        snapshot.refreshWithFreshLivenessBudget(new DescendantProcess(), Duration.ofSeconds(1));
+        snapshot.refresh(new DescendantProcess(), Duration.ofSeconds(1));
 
         assertTrue(snapshot.sealForCleanup().discoveryUnavailable());
     }
@@ -192,7 +159,7 @@ final class LiveDescendantSnapshotTest {
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot();
         BlockingDescendantScanProcess blocking = new BlockingDescendantScanProcess();
         try {
-            snapshot.refreshWithFreshLivenessBudget(blocking, Duration.ofMillis(25));
+            snapshot.refresh(blocking, Duration.ofMillis(25));
         } finally {
             blocking.releaseScan.countDown();
         }
@@ -204,13 +171,7 @@ final class LiveDescendantSnapshotTest {
     void cleanupSnapshotWaitsForAnActiveRefreshHandoff() throws Exception {
         LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot();
         BlockingUnavailableDescendantProcess process = new BlockingUnavailableDescendantProcess();
-        Thread watcher = new Thread(() -> {
-            try {
-                snapshot.refreshWithFreshLivenessBudget(process, Duration.ofSeconds(1));
-            } catch (InterruptedException failure) {
-                throw new AssertionError(failure);
-            }
-        });
+        Thread watcher = new Thread(() -> snapshot.refresh(process, Duration.ofSeconds(1)));
         CountDownLatch readerStarted = new CountDownLatch(1);
         AtomicReference<KnownDescendants> handedOff = new AtomicReference<>();
         Thread cleanup = new Thread(() -> {
@@ -263,51 +224,6 @@ final class LiveDescendantSnapshotTest {
     }
 
     @Test
-    void pruningInterruptionRemainsPrimaryWhenScanAlsoCarriesFatalFailure() throws Exception {
-        ProcessTreeScanner scanner = new ProcessTreeScanner(1, 4, Duration.ofSeconds(1));
-        BlockingLivenessHandle retainedDelegate = new BlockingLivenessHandle(310);
-        ProcessHandle retained = scanner.guardObserved(retainedDelegate);
-        TestHandle scannedPrefix = TestHandle.live(311);
-        AssertionError scanFailure = new AssertionError("fatal scan after prefix");
-        LiveDescendantSnapshot snapshot = new LiveDescendantSnapshot(knownDescendants(retained));
-        AtomicReference<Throwable> observed = new AtomicReference<>();
-        CountDownLatch reported = new CountDownLatch(1);
-        AtomicReference<Throwable> reportedFailure = new AtomicReference<>();
-        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
-            reportedFailure.set(failure);
-            reported.countDown();
-        });
-        Thread caller = new Thread(() -> {
-            try {
-                snapshot.refresh(
-                        new FatalPrefixDescendantProcess(scannedPrefix, scanFailure),
-                        Duration.ofSeconds(1),
-                        DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
-            } catch (Throwable failure) {
-                observed.set(failure);
-            }
-        });
-
-        try {
-            caller.start();
-            assertTrue(retainedDelegate.livenessEntered.await(1, TimeUnit.SECONDS));
-            caller.interrupt();
-            caller.join(TimeUnit.SECONDS.toMillis(1));
-
-            assertFalse(caller.isAlive());
-            assertTrue(observed.get() instanceof InterruptedException);
-            assertEquals(0, observed.get().getSuppressed().length);
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertSame(scanFailure, reportedFailure.get());
-            assertTrue(snapshot.current().contains(retained));
-            assertTrue(snapshot.current().contains(scannedPrefix));
-        } finally {
-            Thread.setDefaultUncaughtExceptionHandler(previous);
-        }
-    }
-
-    @Test
     void failureAggregationDoesNotDelayRefreshOrCleanupHandoff() throws Exception {
         AssertionError scanFailure = new AssertionError("fatal scan after prefix");
         IllegalStateException pruningFailure = new IllegalStateException("liveness failed");
@@ -318,10 +234,7 @@ final class LiveDescendantSnapshotTest {
         AtomicReference<KnownDescendants> handedOff = new AtomicReference<>();
         Thread refresh = new Thread(() -> {
             try {
-                snapshot.refresh(
-                        new FatalPrefixDescendantProcess(scannedPrefix, scanFailure),
-                        Duration.ofSeconds(1),
-                        DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+                snapshot.refresh(new FatalPrefixDescendantProcess(scannedPrefix, scanFailure), Duration.ofSeconds(1));
             } catch (Throwable failure) {
                 observed.set(failure);
             }
@@ -357,18 +270,14 @@ final class LiveDescendantSnapshotTest {
         TestHandle late = TestHandle.live(306);
 
         KnownDescendants handedOff = snapshot.sealForCleanup();
-        snapshot.refreshWithFreshLivenessBudget(new DescendantProcess(late), Duration.ofSeconds(1));
+        snapshot.refresh(new DescendantProcess(late), Duration.ofSeconds(1));
 
         assertTrue(handedOff.handles().isEmpty());
         assertTrue(snapshot.current().isEmpty());
     }
 
     private static void snapshotRefresh(LiveDescendantSnapshot snapshot, Process process) {
-        try {
-            snapshot.refreshWithFreshLivenessBudget(process, Duration.ofSeconds(1));
-        } catch (InterruptedException failure) {
-            throw new AssertionError(failure);
-        }
+        snapshot.refresh(process, Duration.ofSeconds(1));
     }
 
     private static List<TestHandle> handles(int count, long firstPid) {
@@ -505,26 +414,6 @@ final class LiveDescendantSnapshotTest {
             return Stream.concat(Stream.of(prefix), Stream.generate(() -> {
                 throw failure;
             }));
-        }
-    }
-
-    private static final class BlockingLivenessHandle extends MutableProcessHandle {
-
-        private final CountDownLatch livenessEntered = new CountDownLatch(1);
-
-        private BlockingLivenessHandle(long pid) {
-            super(pid);
-        }
-
-        @Override
-        public boolean isAlive() {
-            livenessEntered.countDown();
-            try {
-                new CountDownLatch(1).await();
-            } catch (InterruptedException expectedCancellation) {
-                Thread.currentThread().interrupt();
-            }
-            return true;
         }
     }
 

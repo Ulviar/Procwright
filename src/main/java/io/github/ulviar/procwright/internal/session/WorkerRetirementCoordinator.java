@@ -2,10 +2,8 @@
 
 package io.github.ulviar.procwright.internal.session;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -35,7 +33,7 @@ final class WorkerRetirementCoordinator<S> {
             throw new IllegalArgumentException("retirement batch must not be empty");
         }
         batch.forEach(PoolWorker::initiateClose);
-        Runnable outcomeProcessing = () -> processOutcomes(batch);
+        Runnable outcomeProcessing = () -> batch.forEach(this::observe);
         try {
             dispatcher.dispatch(outcomeProcessing);
         } catch (RuntimeException | Error dispatchFailure) {
@@ -44,39 +42,23 @@ final class WorkerRetirementCoordinator<S> {
         }
     }
 
-    private void processOutcomes(List<PoolWorker<S>> workers) {
-        List<FailureReport> immediateReports = new ArrayList<>(workers.size());
-        for (PoolWorker<S> worker : workers) {
-            FailureReport report = observeSafely(worker);
-            if (report != null) {
-                immediateReports.add(report);
-            }
-        }
-        immediateReports.forEach(reporter);
-    }
-
-    private FailureReport observeSafely(PoolWorker<S> worker) {
+    private void observe(PoolWorker<S> worker) {
         try {
-            return observe(worker);
+            worker.closeOutcome().thenAccept(outcome -> complete(worker, outcome));
         } catch (RuntimeException | Error failure) {
             unexpectedFailure.accept(worker, failure);
-            return null;
         }
     }
 
-    private FailureReport observe(PoolWorker<S> worker) {
-        CompletableFuture<WorkerRetirement.Outcome> closeOutcome = worker.closeOutcome();
-        if (closeOutcome.isDone()) {
-            return completion.apply(worker, closeOutcome.join());
-        }
-        closeOutcome.thenAccept(outcome -> {
-            try {
-                reporter.accept(completion.apply(worker, outcome));
-            } catch (RuntimeException | Error completionFailure) {
-                unexpectedFailure.accept(worker, completionFailure);
+    private void complete(PoolWorker<S> worker, WorkerRetirement.Outcome outcome) {
+        try {
+            FailureReport report = completion.apply(worker, outcome);
+            if (report != null) {
+                reporter.accept(report);
             }
-        });
-        return null;
+        } catch (RuntimeException | Error failure) {
+            unexpectedFailure.accept(worker, failure);
+        }
     }
 
     @FunctionalInterface

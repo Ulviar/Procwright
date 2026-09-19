@@ -32,7 +32,7 @@ final class ProcessShutdownSignalsTest {
         ProcessShutdownSignals signals = new ProcessShutdownSignals(
                 new RootProcess(new RecordingHandle(503, order)), tree, failures, (prefix, action) -> action.run());
 
-        signals.destroyDescendants(ShutdownPhase.FORCEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        signals.destroyDescendants(ShutdownPhase.FORCEFUL);
 
         assertEquals(List.of(502L, 501L), order);
     }
@@ -53,9 +53,8 @@ final class ProcessShutdownSignalsTest {
         ProcessShutdownSignals signals =
                 new ProcessShutdownSignals(process, tree, failures, (prefix, action) -> action.run());
 
-        signals.destroyDescendants(ShutdownPhase.FORCEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
-        signals.signalPendingDescendants(
-                ShutdownPhase.FORCEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        signals.destroyDescendants(ShutdownPhase.FORCEFUL);
+        signals.signalPendingDescendants(ShutdownPhase.FORCEFUL);
 
         assertEquals(1, descendant.forcefulCalls.get());
     }
@@ -70,7 +69,7 @@ final class ProcessShutdownSignalsTest {
         ProcessShutdownSignals signals = new ProcessShutdownSignals(
                 new RootProcess(rootHandle), tree, failures, (prefix, action) -> fallbackCalls.incrementAndGet());
 
-        signals.destroyRoot(ShutdownPhase.GRACEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        signals.destroyRoot(ShutdownPhase.GRACEFUL);
 
         assertEquals(0, fallbackCalls.get());
         assertEquals(1, rootHandle.gracefulCalls.get());
@@ -86,7 +85,7 @@ final class ProcessShutdownSignalsTest {
         ProcessShutdownSignals signals =
                 new ProcessShutdownSignals(process, tree, failures, (prefix, action) -> action.run());
 
-        signals.destroyRoot(ShutdownPhase.FORCEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        signals.destroyRoot(ShutdownPhase.FORCEFUL);
 
         assertEquals(1, rootHandle.forcefulCalls.get());
         assertEquals(1, process.forcefulFallbackCalls.get());
@@ -105,69 +104,15 @@ final class ProcessShutdownSignalsTest {
                 failures,
                 (prefix, action) -> action.run());
 
-        signals.destroyDescendants(ShutdownPhase.FORCEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        signals.destroyDescendants(ShutdownPhase.FORCEFUL);
 
         AssertionError actual = assertThrows(AssertionError.class, failures::rethrowIfPresent);
         assertSame(expected, actual);
-        assertSame(
-                ShutdownTreeState.DescendantState.EXITED,
-                tree.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.EXITED, tree.observeDescendants());
     }
 
     @Test
-    void expiredGuardedRootDeadlineDoesNotInvokeTheProvider() {
-        RootProcess delegate = new RootProcess(new RecordingHandle(510, new ArrayList<>()));
-        Process guarded = new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guard(delegate);
-        ShutdownFailureLedger failures = new ShutdownFailureLedger();
-        ShutdownTreeState tree = new ShutdownTreeState(guarded, failures);
-        ProcessShutdownSignals signals =
-                new ProcessShutdownSignals(guarded, tree, failures, (prefix, action) -> action.run());
-
-        signals.destroyRoot(ShutdownPhase.FORCEFUL, System.nanoTime() - 1);
-
-        assertEquals(0, delegate.toHandleCalls.get());
-        assertEquals(0, delegate.forcefulFallbackCalls.get());
-    }
-
-    @Test
-    void guardedUnknownDescendantIsNotSignalledPastTheDeadline() {
-        RecordingHandle delegate = new RecordingHandle(511, new ArrayList<>());
-        ProcessHandle guarded = new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guardObserved(delegate);
-        ShutdownFailureLedger failures = new ShutdownFailureLedger();
-        ShutdownTreeState tree = initializedTree(Set.of(guarded), failures);
-        ProcessShutdownSignals signals = new ProcessShutdownSignals(
-                new RootProcess(new RecordingHandle(512, new ArrayList<>())),
-                tree,
-                failures,
-                (prefix, action) -> action.run());
-
-        signals.destroyDescendants(ShutdownPhase.FORCEFUL, System.nanoTime() - 1);
-
-        assertEquals(0, delegate.forcefulCalls.get());
-    }
-
-    @Test
-    void guardedDestroyFailureRetainsProviderFailureIdentity() {
-        AssertionError expected = new AssertionError("guarded destroy failed");
-        RecordingHandle delegate = new RecordingHandle(513, new ArrayList<>());
-        delegate.signalFailure = expected;
-        ProcessHandle guarded = new ProcessTreeScanner(1, 4, Duration.ofMillis(25)).guardObserved(delegate);
-        ShutdownFailureLedger failures = new ShutdownFailureLedger();
-        ShutdownTreeState tree = initializedTree(Set.of(guarded), failures);
-        ProcessShutdownSignals signals = new ProcessShutdownSignals(
-                new RootProcess(new RecordingHandle(514, new ArrayList<>())),
-                tree,
-                failures,
-                (prefix, action) -> action.run());
-
-        signals.destroyDescendants(ShutdownPhase.FORCEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
-
-        AssertionError actual = assertThrows(AssertionError.class, failures::rethrowIfPresent);
-        assertSame(expected, actual);
-    }
-
-    @Test
-    void unavailableGuardedRootHandleUsesTheGuardedProcessFallback() {
+    void unavailableRootHandleUsesTheProcessFallback() {
         RootProcess delegate = new RootProcess(new RecordingHandle(515, new ArrayList<>())) {
             @Override
             public ProcessHandle toHandle() {
@@ -175,13 +120,13 @@ final class ProcessShutdownSignalsTest {
                 throw new SecurityException("handle unavailable");
             }
         };
-        Process guarded = new ProcessTreeScanner(2, 4, Duration.ofMillis(25)).guard(delegate);
+        Process process = delegate;
         ShutdownFailureLedger failures = new ShutdownFailureLedger();
-        ShutdownTreeState tree = new ShutdownTreeState(guarded, failures);
+        ShutdownTreeState tree = new ShutdownTreeState(process, failures);
         ProcessShutdownSignals signals =
-                new ProcessShutdownSignals(guarded, tree, failures, (prefix, action) -> action.run());
+                new ProcessShutdownSignals(process, tree, failures, (prefix, action) -> action.run());
 
-        signals.destroyRoot(ShutdownPhase.FORCEFUL, DurationSupport.deadlineFromNow(Duration.ofSeconds(1)));
+        signals.destroyRoot(ShutdownPhase.FORCEFUL);
 
         assertEquals(1, delegate.toHandleCalls.get());
         assertEquals(1, delegate.forcefulFallbackCalls.get());

@@ -54,15 +54,11 @@ final class ShutdownTreeStateTest {
         ShutdownTreeState state = new ShutdownTreeState(new EmptyDescendantProcess(), failures);
         state.initialize(knownDescendants(live), Duration.ofSeconds(1));
 
-        assertSame(
-                ShutdownTreeState.DescendantState.LIVE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.LIVE, state.observeDescendants());
 
         state.excludeFromCompletion(live);
 
-        assertSame(
-                ShutdownTreeState.DescendantState.EXITED,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.EXITED, state.observeDescendants());
     }
 
     @Test
@@ -129,9 +125,7 @@ final class ShutdownTreeStateTest {
         assertEquals(limit, state.takeAllDescendants().size());
         initial.forEach(ProcessHandle::destroyForcibly);
         accepted.destroyForcibly();
-        assertSame(
-                ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
         CommandExecutionException failure = assertThrows(CommandExecutionException.class, failures::rethrowIfPresent);
         assertTrue(failure.getMessage().contains("bounded descendant limit"));
     }
@@ -171,9 +165,7 @@ final class ShutdownTreeStateTest {
 
         state.initialize(KnownDescendants.empty(), Duration.ofSeconds(1));
 
-        assertSame(
-                ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
         CommandExecutionException failure = assertThrows(CommandExecutionException.class, failures::rethrowIfPresent);
         assertTrue(failure.getMessage().contains("discovery did not complete"));
     }
@@ -185,9 +177,7 @@ final class ShutdownTreeStateTest {
 
         state.initialize(KnownDescendants.empty(), Duration.ZERO);
 
-        assertSame(
-                ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
     }
 
     @Test
@@ -201,9 +191,7 @@ final class ShutdownTreeStateTest {
         state.discoverForForce(Duration.ZERO);
 
         assertEquals(1, process.scanCalls());
-        assertSame(
-                ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
     }
 
     @Test
@@ -215,9 +203,7 @@ final class ShutdownTreeStateTest {
 
         state.discoverForForce(Duration.ofSeconds(1));
 
-        assertSame(
-                ShutdownTreeState.DescendantState.EXITED,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.EXITED, state.observeDescendants());
         assertTrue(state.hasNoDescendantsAndCompleteDiscovery());
     }
 
@@ -232,13 +218,9 @@ final class ShutdownTreeStateTest {
 
         assertEquals(List.of(known), state.takeAllDescendants());
         assertFalse(state.hasNoDescendantsAndCompleteDiscovery());
-        assertSame(
-                ShutdownTreeState.DescendantState.LIVE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.LIVE, state.observeDescendants());
         known.destroyForcibly();
-        assertSame(
-                ShutdownTreeState.DescendantState.EXITED,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.EXITED, state.observeDescendants());
         failures.rethrowIfPresent();
     }
 
@@ -261,17 +243,13 @@ final class ShutdownTreeStateTest {
             state.initialize(knownDescendants(known), Duration.ofMillis(200));
 
             assertTrue(knownScanEntered.await(1, TimeUnit.SECONDS));
-            assertSame(
-                    ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                    state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+            assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
         } finally {
             releaseKnownScan.complete(null);
         }
 
         state.discoverPending(Duration.ofSeconds(1));
-        assertSame(
-                ShutdownTreeState.DescendantState.EXITED,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.EXITED, state.observeDescendants());
         failures.rethrowIfPresent();
     }
 
@@ -301,13 +279,9 @@ final class ShutdownTreeStateTest {
         state.initialize(knownDescendants(known), Duration.ofSeconds(1));
 
         assertTrue(knownScans.get() > 0);
-        assertSame(
-                ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
         state.discoverPending(Duration.ofSeconds(1));
-        assertSame(
-                ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
         assertThrows(CommandExecutionException.class, failures::rethrowIfPresent);
     }
 
@@ -318,9 +292,7 @@ final class ShutdownTreeStateTest {
         ShutdownTreeState state = new ShutdownTreeState(new EmptyDescendantProcess(), failures);
         state.initialize(unavailable, Duration.ofSeconds(1));
 
-        assertSame(
-                ShutdownTreeState.DescendantState.UNOBSERVABLE,
-                state.observeDescendants(DurationSupport.deadlineFromNow(Duration.ofSeconds(1))));
+        assertSame(ShutdownTreeState.DescendantState.UNOBSERVABLE, state.observeDescendants());
         CommandExecutionException failure = assertThrows(CommandExecutionException.class, failures::rethrowIfPresent);
         assertTrue(failure.getMessage().contains("discovery did not complete"));
     }

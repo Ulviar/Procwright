@@ -44,7 +44,7 @@ public final class LiveDescendantSnapshot {
         return observed;
     }
 
-    void refreshWithFreshLivenessBudget(Process process, Duration scanBudget) throws InterruptedException {
+    void refresh(Process process, Duration scanBudget) {
         RefreshFailure failure;
         synchronized (this) {
             if (sealed) {
@@ -55,23 +55,7 @@ public final class LiveDescendantSnapshot {
                 publishWithoutPruning(current);
                 return;
             }
-            failure = replaceWithMerged(current, DurationSupport.deadlineFromNow(scanBudget));
-        }
-        rethrow(failure);
-    }
-
-    void refresh(Process process, Duration scanBudget, long livenessDeadline) throws InterruptedException {
-        RefreshFailure failure;
-        synchronized (this) {
-            if (sealed) {
-                return;
-            }
-            ProcessTreeScanner.DescendantScan current = scan(process, scanBudget);
-            if (observationInterrupted(current)) {
-                publishWithoutPruning(current);
-                return;
-            }
-            failure = replaceWithMerged(current, livenessDeadline);
+            failure = replaceWithMerged(current);
         }
         rethrow(failure);
     }
@@ -82,15 +66,12 @@ public final class LiveDescendantSnapshot {
         return PROCESS_TREE_SCANNER.scanDescendants(process, scanBudget);
     }
 
-    private RefreshFailure replaceWithMerged(ProcessTreeScanner.DescendantScan current, long livenessDeadline) {
+    private RefreshFailure replaceWithMerged(ProcessTreeScanner.DescendantScan current) {
         try {
             Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> merged = new LinkedHashMap<>();
-            boolean mergeOverflow = addLiveBounded(merged, observed.handlesByIdentity(), livenessDeadline);
-            mergeOverflow |= addLiveBounded(merged, current.handlesByIdentity(), livenessDeadline);
+            boolean mergeOverflow = addLiveBounded(merged, observed.handlesByIdentity());
+            mergeOverflow |= addLiveBounded(merged, current.handlesByIdentity());
             publish(current, merged, mergeOverflow);
-        } catch (InterruptedException interruption) {
-            publishWithoutPruning(current);
-            return new RefreshFailure(interruption, current.failure());
         } catch (RuntimeException | Error failure) {
             publishWithoutPruning(current);
             if (current.failure() != null) {
@@ -101,15 +82,9 @@ public final class LiveDescendantSnapshot {
         return current.failure() == null ? null : new RefreshFailure(current.failure(), null);
     }
 
-    private static void rethrow(RefreshFailure failure) throws InterruptedException {
+    private static void rethrow(RefreshFailure failure) {
         if (failure == null) {
             return;
-        }
-        if (failure.primary() instanceof InterruptedException interruption) {
-            if (failure.secondary() != null) {
-                BoundedFailureReporter.reportBestEffort(failure.secondary());
-            }
-            throw interruption;
         }
         Throwable combined = FailureAggregation.combine(
                 failure.primary(), failure.secondary(), "Descendant scan and liveness pruning both failed");
@@ -163,9 +138,7 @@ public final class LiveDescendantSnapshot {
 
     private static boolean addLiveBounded(
             Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> target,
-            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> candidates,
-            long livenessDeadline)
-            throws InterruptedException {
+            Map<ProcessTreeScanner.HandleIdentity, ProcessHandle> candidates) {
         for (Map.Entry<ProcessTreeScanner.HandleIdentity, ProcessHandle> candidate : candidates.entrySet()) {
             if (target.containsKey(candidate.getKey())) {
                 continue;
@@ -173,14 +146,10 @@ public final class LiveDescendantSnapshot {
             if (target.size() == PROCESS_TREE_SCANNER.descendantLimit()) {
                 return true;
             }
-            if (mayStillBeAlive(candidate.getValue(), livenessDeadline)) {
+            if (ProcessLiveness.observe(candidate.getValue()) != ProcessLiveness.Observation.EXITED) {
                 target.put(candidate.getKey(), candidate.getValue());
             }
         }
         return false;
-    }
-
-    private static boolean mayStillBeAlive(ProcessHandle handle, long livenessDeadline) throws InterruptedException {
-        return ProcessLiveness.observe(handle, livenessDeadline) != ProcessLiveness.Observation.EXITED;
     }
 }

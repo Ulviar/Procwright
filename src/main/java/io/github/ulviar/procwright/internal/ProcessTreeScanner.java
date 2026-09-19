@@ -2,7 +2,6 @@
 
 package io.github.ulviar.procwright.internal;
 
-import io.github.ulviar.procwright.command.CommandExecutionException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -14,70 +13,40 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
-/**
- * Discovers bounded process trees and protects provider process objects returned to callers.
- *
- * <p>Potentially blocking provider calls are delegated to {@link ProcessProviderOperationOwner}; this class owns only
- * traversal limits, deduplication, and guarded views.
- */
+/** Discovers process trees with bounded traversal time, admission, and retained descendants. */
 final class ProcessTreeScanner {
 
     static final int SHARED_OPERATION_CAPACITY = 32;
     static final int SHARED_DESCENDANT_LIMIT = 4_096;
     static final Duration SHARED_SCAN_TIMEOUT = Duration.ofMillis(250);
-    static final Duration PROVIDER_OPERATION_TIMEOUT = Duration.ofSeconds(5);
 
     private static final ProcessTreeScanner SHARED =
             new ProcessTreeScanner(SHARED_OPERATION_CAPACITY, SHARED_DESCENDANT_LIMIT, SHARED_SCAN_TIMEOUT);
 
-    private final ProcessProviderOperationOwner operations;
+    private final ProcessScanOperationOwner operations;
     private final int descendantLimit;
     private final Duration scanTimeout;
-    private final Duration providerOperationTimeout;
 
     ProcessTreeScanner(int operationCapacity, int descendantLimit, Duration scanTimeout) {
-        this(operationCapacity, descendantLimit, scanTimeout, PROVIDER_OPERATION_TIMEOUT);
+        this(ProcessScanOperationOwner.production(operationCapacity), descendantLimit, scanTimeout);
     }
 
-    ProcessTreeScanner(
-            int operationCapacity, int descendantLimit, Duration scanTimeout, Duration providerOperationTimeout) {
-        this(
-                ProcessProviderOperationOwner.production(operationCapacity),
-                descendantLimit,
-                scanTimeout,
-                providerOperationTimeout);
-    }
-
-    ProcessTreeScanner(
-            ProcessProviderOperationOwner operations,
-            int descendantLimit,
-            Duration scanTimeout,
-            Duration providerOperationTimeout) {
+    ProcessTreeScanner(ProcessScanOperationOwner operations, int descendantLimit, Duration scanTimeout) {
         if (descendantLimit <= 0) {
             throw new IllegalArgumentException("descendantLimit must be positive");
         }
         this.operations = Objects.requireNonNull(operations, "operations");
         this.descendantLimit = descendantLimit;
         this.scanTimeout = Objects.requireNonNull(scanTimeout, "scanTimeout");
-        this.providerOperationTimeout = Objects.requireNonNull(providerOperationTimeout, "providerOperationTimeout");
         if (scanTimeout.isNegative() || scanTimeout.isZero()) {
             throw new IllegalArgumentException("scanTimeout must be positive");
-        }
-        if (providerOperationTimeout.isNegative() || providerOperationTimeout.isZero()) {
-            throw new IllegalArgumentException("providerOperationTimeout must be positive");
         }
     }
 
     static ProcessTreeScanner shared() {
         return SHARED;
-    }
-
-    Process guard(Process process) {
-        Objects.requireNonNull(process, "process");
-        return process instanceof GuardedProcess ? process : new GuardedProcess(process, this);
     }
 
     Set<ProcessHandle> descendants(Process process) {
@@ -96,13 +65,10 @@ final class ProcessTreeScanner {
         if (scanBudget.timeout().isZero()) {
             return DescendantScan.incomplete(scanBudget.deadlineReason());
         }
-        Process source = unwrap(process);
-        ProcessProviderOperationOwner.BestEffortResult<DescendantScan> scanned =
-                operations.bestEffortResult("procwright-process-scan-", scanBudget.timeout(), () -> {
-                    DescendantScan result =
-                            collectDescendants(source, scanBudget.timeout(), scanBudget.deadlineReason());
-                    return guardIfRequired(process, result);
-                });
+        ProcessScanOperationOwner.Result<DescendantScan> scanned = operations.scan(
+                "procwright-process-scan-",
+                scanBudget.timeout(),
+                () -> collectDescendants(process, scanBudget.timeout(), scanBudget.deadlineReason()));
         return scanned.completed()
                 ? scanned.value()
                 : DescendantScan.incomplete(incompleteReason(scanned.failure(), scanBudget));
@@ -125,8 +91,8 @@ final class ProcessTreeScanner {
             return DescendantScan.incomplete(scanBudget.deadlineReason());
         }
         long deadline = DurationSupport.deadlineFromNow(scanBudget.timeout());
-        ProcessProviderOperationOwner.BestEffortResult<RootHandles> observedRoots = operations.bestEffortResult(
-                "procwright-handle-roots-", scanBudget.timeout(), () -> collectRoots(handles));
+        ProcessScanOperationOwner.Result<RootHandles> observedRoots =
+                operations.scan("procwright-handle-roots-", scanBudget.timeout(), () -> collectRoots(handles));
         if (!observedRoots.completed()) {
             return DescendantScan.incomplete(incompleteReason(observedRoots.failure(), scanBudget));
         }
@@ -141,7 +107,7 @@ final class ProcessTreeScanner {
                     : DescendantScan.incomplete(
                             combine(roots.incompleteReason(), scanBudget.deadlineReason()), roots.failure());
         }
-        ProcessProviderOperationOwner.BestEffortResult<DescendantScan> scanned = operations.bestEffortResult(
+        ProcessScanOperationOwner.Result<DescendantScan> scanned = operations.scan(
                 "procwright-handle-scan-",
                 remaining,
                 () -> collectChildren(roots, remaining, scanBudget.deadlineReason()));
@@ -155,43 +121,12 @@ final class ProcessTreeScanner {
                         roots.failure());
     }
 
-    Set<ProcessHandle> childrenOfHandle(ProcessHandle handle) {
-        Objects.requireNonNull(handle, "handle");
-        ProcessHandle source = unwrap(handle);
-        boolean guardResults = handle instanceof GuardedProcessHandle;
-        ProcessProviderOperationOwner.BestEffortResult<DescendantScan> scanned =
-                operations.bestEffortResult("procwright-handle-children-scan-", scanTimeout, () -> {
-                    DescendantScan result = collectStream(source.children(), scanTimeout, IncompleteReason.UNAVAILABLE);
-                    return guardResults ? guardHandles(result) : result;
-                });
-        DescendantScan scan =
-                scanned.completed() ? scanned.value() : DescendantScan.incomplete(IncompleteReason.UNAVAILABLE);
-        scan.rethrowFailure();
-        return scan.handles();
-    }
-
-    <T> T required(String operationName, Duration timeout, Callable<T> operation) throws InterruptedException {
-        return operations.required(operationName, timeout, operation);
-    }
-
     int availableOperationPermits() {
         return operations.availablePermits();
     }
 
-    static boolean causedByOperationDeadline(CommandExecutionException failure) {
-        return ProcessProviderOperationOwner.causedByOperationDeadline(failure);
-    }
-
-    static CommandExecutionException operationDeadlineExceeded(String operation) {
-        return ProcessProviderOperationOwner.operationDeadlineExceeded(operation);
-    }
-
     int descendantLimit() {
         return descendantLimit;
-    }
-
-    Duration providerOperationTimeout() {
-        return providerOperationTimeout;
     }
 
     Duration scanTimeout() {
@@ -204,14 +139,12 @@ final class ProcessTreeScanner {
 
     private RootHandles collectRoots(Iterable<ProcessHandle> handles) {
         LinkedHashMap<HandleIdentity, ProcessHandle> roots = new LinkedHashMap<>();
-        boolean guarded = false;
         boolean truncated = false;
         IncompleteReason incompleteReason = null;
         Error failure = null;
         try {
             for (ProcessHandle handle : handles) {
                 Objects.requireNonNull(handle, "handle");
-                guarded |= handle instanceof GuardedProcessHandle;
                 HandleIdentity identity;
                 try {
                     identity = identity(handle);
@@ -238,14 +171,13 @@ final class ProcessTreeScanner {
             incompleteReason = IncompleteReason.UNAVAILABLE;
             failure = appendFailure(failure, fatal);
         }
-        return new RootHandles(roots, guarded, truncated, incompleteReason, failure);
+        return new RootHandles(roots, truncated, incompleteReason, failure);
     }
 
     private DescendantScan collectChildren(RootHandles roots, Duration timeout, IncompleteReason deadlineReason) {
         long deadline = DurationSupport.deadlineFromNow(timeout);
         ArrayDeque<IndexedHandle> pending = new ArrayDeque<>();
-        roots.handlesByIdentity()
-                .forEach((identity, handle) -> pending.addLast(new IndexedHandle(identity, unwrap(handle))));
+        roots.handlesByIdentity().forEach((identity, handle) -> pending.addLast(new IndexedHandle(identity, handle)));
         LinkedHashSet<HandleIdentity> expanded = new LinkedHashSet<>();
         LinkedHashMap<HandleIdentity, ProcessHandle> observed = new LinkedHashMap<>();
         boolean limitReached = roots.truncated();
@@ -294,8 +226,7 @@ final class ProcessTreeScanner {
         if (!pending.isEmpty()) {
             incompleteReason = combine(incompleteReason, deadlineReason);
         }
-        DescendantScan result = DescendantScan.observed(observed, limitReached, incompleteReason, failure);
-        return roots.guarded() ? guardHandles(result) : result;
+        return DescendantScan.observed(observed, limitReached, incompleteReason, failure);
     }
 
     private DescendantScan collectStream(
@@ -366,7 +297,7 @@ final class ProcessTreeScanner {
     }
 
     private static IncompleteReason incompleteReason(
-            ProcessProviderOperationOwner.BestEffortResult.Failure failure, ScanBudget budget) {
+            ProcessScanOperationOwner.Result.Failure failure, ScanBudget budget) {
         return switch (failure) {
             case DEADLINE -> budget.deadlineReason();
             case INTERRUPTED -> IncompleteReason.INTERRUPTED;
@@ -399,9 +330,6 @@ final class ProcessTreeScanner {
     }
 
     static HandleIdentity identity(ProcessHandle handle) {
-        if (handle instanceof GuardedProcessHandle guarded) {
-            return guarded.identity();
-        }
         long pid = handle.pid();
         Instant started = null;
         try {
@@ -412,38 +340,8 @@ final class ProcessTreeScanner {
         return new HandleIdentity(pid, started);
     }
 
-    private DescendantScan guardIfRequired(Process root, DescendantScan scan) {
-        return root instanceof GuardedProcess ? guardHandles(scan) : scan;
-    }
-
-    private DescendantScan guardHandles(DescendantScan scan) {
-        LinkedHashMap<HandleIdentity, ProcessHandle> guarded = new LinkedHashMap<>();
-        scan.handlesByIdentity()
-                .forEach((identity, handle) -> guarded.put(
-                        identity,
-                        handle instanceof GuardedProcessHandle
-                                ? handle
-                                : new GuardedProcessHandle(handle, this, identity)));
-        return new DescendantScan(guarded, scan.status(), scan.incompleteReason(), scan.failure());
-    }
-
-    ProcessHandle guardObserved(ProcessHandle handle) {
-        return handle instanceof GuardedProcessHandle
-                ? handle
-                : new GuardedProcessHandle(handle, this, identity(handle));
-    }
-
-    private static Process unwrap(Process process) {
-        return process instanceof GuardedProcess guarded ? guarded.delegate() : process;
-    }
-
-    private static ProcessHandle unwrap(ProcessHandle handle) {
-        return handle instanceof GuardedProcessHandle guarded ? guarded.delegate() : handle;
-    }
-
     private record RootHandles(
             Map<HandleIdentity, ProcessHandle> handlesByIdentity,
-            boolean guarded,
             boolean truncated,
             IncompleteReason incompleteReason,
             Error failure) {

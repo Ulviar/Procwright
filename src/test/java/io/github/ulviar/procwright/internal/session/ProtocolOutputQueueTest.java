@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntConsumer;
 import org.junit.jupiter.api.Test;
 
 final class ProtocolOutputQueueTest {
@@ -223,6 +224,128 @@ final class ProtocolOutputQueueTest {
         assertEquals(ProtocolSessionException.Reason.DECODE_ERROR, failure.reason());
         assertSame(fatal, failure.getCause());
         assertEquals(0, queue.pendingBytes());
+    }
+
+    @Test
+    void everyReadPathRevalidatesTheHeadOffsetAfterBudgetCheck() {
+        for (ReadPath path : ReadPath.values()) {
+            ProtocolOutputQueue queue = new ProtocolOutputQueue(4, ProtocolOutputQueue.OverflowPolicy.STRICT);
+            queue.offer(new byte[] {'a', 'b', 'c'});
+            ProtocolOutputQueue.ReadWindow window = new ProtocolOutputQueue.ReadWindow();
+            byte[] target = {99, 99};
+            long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+
+            ProtocolSessionException failure = assertThrows(
+                    ProtocolSessionException.class,
+                    () -> path.read(queue, window, target, deadline, count -> {
+                        assertFalse(Thread.holdsLock(queue), "budget checks must not retain the queue monitor");
+                        assertEquals(
+                                'a',
+                                ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
+                    }));
+
+            assertEquals(ProtocolSessionException.Reason.FAILURE, failure.reason());
+            assertEquals("Protocol output was consumed concurrently", failure.getMessage());
+            path.assertUnpublished(target);
+            assertEquals(2, queue.pendingBytes());
+            assertEquals('b', ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
+            assertEquals('c', ProtocolOutputQueueTestAccess.readUnsignedByte(queue, deadline, RECORDING_FAILURES));
+            queue.offer(new byte[] {'d', 'e'});
+            path.read(queue, window, target, deadline, ignored -> {});
+        }
+    }
+
+    @Test
+    void rejectedBudgetPreservesBytesAndReleasesEveryReadWindow() {
+        for (ReadPath path : ReadPath.values()) {
+            ProtocolOutputQueue queue = new ProtocolOutputQueue(4, ProtocolOutputQueue.OverflowPolicy.STRICT);
+            queue.offer(new byte[] {'a', 'b'});
+            ProtocolOutputQueue.ReadWindow window = new ProtocolOutputQueue.ReadWindow();
+            byte[] target = {99, 99};
+            long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+            IllegalStateException rejected = new IllegalStateException("budget rejected");
+
+            IllegalStateException observed = assertThrows(
+                    IllegalStateException.class,
+                    () -> path.read(queue, window, target, deadline, count -> {
+                        assertFalse(Thread.holdsLock(queue), "budget checks must not retain the queue monitor");
+                        throw rejected;
+                    }));
+
+            assertSame(rejected, observed);
+            path.assertUnpublished(target);
+            assertEquals(2, queue.pendingBytes());
+            path.read(queue, window, target, deadline, ignored -> {});
+            assertEquals(path == ReadPath.SINGLE_BYTE ? 1 : 0, queue.pendingBytes());
+        }
+    }
+
+    @Test
+    void overflowDuringBudgetCheckWinsEveryReadPath() {
+        for (ReadPath path : ReadPath.values()) {
+            ProtocolOutputQueue queue = new ProtocolOutputQueue(2, ProtocolOutputQueue.OverflowPolicy.FAIL_ON_READ);
+            queue.offer(new byte[] {'a', 'b'});
+            ProtocolOutputQueue.ReadWindow window = new ProtocolOutputQueue.ReadWindow();
+            byte[] target = {99, 99};
+            long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+
+            ProtocolSessionException failure = assertThrows(
+                    ProtocolSessionException.class,
+                    () -> path.read(queue, window, target, deadline, count -> {
+                        assertFalse(Thread.holdsLock(queue), "budget checks must not retain the queue monitor");
+                        assertTrue(queue.offer(new byte[] {'c'}));
+                    }));
+
+            assertEquals(ProtocolSessionException.Reason.RESPONSE_TOO_LARGE, failure.reason());
+            path.assertUnpublished(target);
+            assertEquals(0, queue.pendingBytes());
+            ProtocolSessionException repeated = assertThrows(
+                    ProtocolSessionException.class, () -> path.read(queue, window, target, deadline, ignored -> {}));
+            assertSame(failure, repeated);
+        }
+    }
+
+    private enum ReadPath {
+        SINGLE_BYTE,
+        BULK,
+        DECODER_PEEK;
+
+        void read(
+                ProtocolOutputQueue queue,
+                ProtocolOutputQueue.ReadWindow window,
+                byte[] target,
+                long deadline,
+                IntConsumer beforeMutation) {
+            switch (this) {
+                case SINGLE_BYTE ->
+                    queue.readUnsignedByte(window, deadline, RECORDING_FAILURES, beforeMutation, event -> event);
+                case BULK ->
+                    queue.read(
+                            target,
+                            0,
+                            target.length,
+                            window,
+                            deadline,
+                            RECORDING_FAILURES,
+                            beforeMutation,
+                            event -> event);
+                case DECODER_PEEK -> {
+                    ProtocolOutputQueue.PeekResult result =
+                            queue.peekResult(target, 0, target.length, window, deadline, RECORDING_FAILURES);
+                    if (result.terminalEvent() != null) {
+                        throw result.terminalEvent().terminalFailure(RECORDING_FAILURES);
+                    }
+                    queue.commit(window, result.count(), beforeMutation, RECORDING_FAILURES, event -> event);
+                }
+            }
+        }
+
+        void assertUnpublished(byte[] target) {
+            if (this != DECODER_PEEK) {
+                assertEquals(99, target[0], "failed raw reads must not change the caller's buffer");
+                assertEquals(99, target[1], "failed raw reads must not change the caller's buffer");
+            }
+        }
     }
 
     @Test
@@ -534,6 +657,7 @@ final class ProtocolOutputQueueTest {
                         target,
                         0,
                         1,
+                        new ProtocolOutputQueue.ReadWindow(),
                         deadline,
                         RECORDING_FAILURES,
                         ignored -> {

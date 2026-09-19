@@ -72,20 +72,19 @@ final class ProcessTreeShutdown {
         try {
             tree.initialize(knownDescendants, remainingBudget(gracefulOperationDeadline));
             failures.interruptionBoundary();
-            boolean rootAlive = mayStillBeAlive(gracefulOperationDeadline);
+            boolean rootAlive = mayStillBeAlive();
             failures.interruptionBoundary();
             if (rootAlive) {
-                signals.destroyRoot(ShutdownPhase.GRACEFUL, gracefulOperationDeadline);
+                signals.destroyRoot(ShutdownPhase.GRACEFUL);
             }
             failures.interruptionBoundary();
-            signals.destroyDescendants(ShutdownPhase.GRACEFUL, gracefulOperationDeadline);
+            signals.destroyDescendants(ShutdownPhase.GRACEFUL);
             failures.interruptionBoundary();
-            WaitPhase gracefulWait = WaitPhase.afterSignals(
-                    ShutdownPhase.GRACEFUL, shutdownPolicy.interruptGrace(), gracefulOperationDeadline);
+            WaitPhase gracefulWait = WaitPhase.afterSignals(ShutdownPhase.GRACEFUL, shutdownPolicy.interruptGrace());
             boolean exited = !failures.wasInterrupted() && waitForTree(gracefulWait);
             failures.interruptionBoundary();
             if (exited && !failures.hasFailure()) {
-                OptionalInt exitCode = exitCode(gracefulWait.providerDeadline());
+                OptionalInt exitCode = exitCode();
                 failures.interruptionBoundary();
                 if (!failures.hasFailure()) {
                     return exitCode;
@@ -96,16 +95,15 @@ final class ProcessTreeShutdown {
                     DurationSupport.deadlineFromNow(operationPhaseBudget(shutdownPolicy.killGrace()));
             tree.startForcePhase(remainingBudget(forcefulOperationDeadline));
             failures.interruptionBoundary();
-            destroyTreeForcibly(forcefulOperationDeadline);
+            destroyTreeForcibly();
             failures.interruptionBoundary();
-            WaitPhase forcefulWait = WaitPhase.afterSignals(
-                    ShutdownPhase.FORCEFUL, shutdownPolicy.killGrace(), forcefulOperationDeadline);
+            WaitPhase forcefulWait = WaitPhase.afterSignals(ShutdownPhase.FORCEFUL, shutdownPolicy.killGrace());
             exited = waitForTree(forcefulWait);
             failures.interruptionBoundary();
             if (!exited) {
                 failures.record(new CommandExecutionException("Command did not exit after forceful termination"));
             }
-            OptionalInt exitCode = exited ? exitCode(forcefulWait.providerDeadline()) : OptionalInt.empty();
+            OptionalInt exitCode = exited ? exitCode() : OptionalInt.empty();
             failures.rethrowIfPresent();
             return exitCode;
         } finally {
@@ -119,13 +117,13 @@ final class ProcessTreeShutdown {
         try {
             tree.initialize(knownDescendants, remainingBudget(operationDeadline));
             failures.interruptionBoundary();
-            boolean rootAlive = mayStillBeAlive(operationDeadline);
+            boolean rootAlive = mayStillBeAlive();
             failures.interruptionBoundary();
             if (!rootAlive && tree.hasNoDescendantsAndCompleteDiscovery() && !failures.hasFailure()) {
                 failures.rethrowIfPresent();
                 return;
             }
-            destroyTreeForcibly(operationDeadline);
+            destroyTreeForcibly();
             failures.interruptionBoundary();
             if (!waitForTree(WaitPhase.withinOperation(ShutdownPhase.FORCEFUL, timeout, operationDeadline))) {
                 failures.record(new CommandExecutionException("Command did not exit during forceful cleanup"));
@@ -136,13 +134,13 @@ final class ProcessTreeShutdown {
         }
     }
 
-    private void destroyTreeForcibly(long deadline) {
-        signals.destroyDescendants(ShutdownPhase.FORCEFUL, deadline);
+    private void destroyTreeForcibly() {
+        signals.destroyDescendants(ShutdownPhase.FORCEFUL);
         failures.interruptionBoundary();
-        boolean rootAlive = mayStillBeAlive(deadline);
+        boolean rootAlive = mayStillBeAlive();
         failures.interruptionBoundary();
         if (rootAlive) {
-            signals.destroyRoot(ShutdownPhase.FORCEFUL, deadline);
+            signals.destroyRoot(ShutdownPhase.FORCEFUL);
         }
     }
 
@@ -160,16 +158,16 @@ final class ProcessTreeShutdown {
             if (failures.wasInterrupted() && wait.phase() == ShutdownPhase.GRACEFUL) {
                 return false;
             }
-            ProcessLiveness.Observation rootObservation = observeRootExit(wait.providerDeadline());
+            ProcessLiveness.Observation rootObservation = observeRootExit();
             boolean rootExited = rootObservation == ProcessLiveness.Observation.EXITED;
             failures.interruptionBoundary();
             // A shutdown hook may still be inside ProcessBuilder.start when its child first becomes visible. Retain
             // that handle while the root is alive; signalling it in the spawn window can make the hook's start fail.
             if (wait.phase() == ShutdownPhase.FORCEFUL || rootExited) {
-                signals.signalPendingDescendants(wait.phase(), wait.providerDeadline());
+                signals.signalPendingDescendants(wait.phase());
             }
             failures.interruptionBoundary();
-            ShutdownTreeState.DescendantState descendantState = tree.observeDescendants(wait.providerDeadline());
+            ShutdownTreeState.DescendantState descendantState = tree.observeDescendants();
             boolean descendantsExited = descendantState == ShutdownTreeState.DescendantState.EXITED;
             failures.interruptionBoundary();
             if (failures.wasInterrupted() && wait.phase() == ShutdownPhase.GRACEFUL) {
@@ -190,12 +188,12 @@ final class ProcessTreeShutdown {
                 if (failures.wasInterrupted() && wait.phase() == ShutdownPhase.GRACEFUL) {
                     return false;
                 }
-                signals.signalPendingDescendants(wait.phase(), wait.providerDeadline());
+                signals.signalPendingDescendants(wait.phase());
                 failures.interruptionBoundary();
-                rootObservation = observeRootExit(wait.providerDeadline());
+                rootObservation = observeRootExit();
                 rootExited = rootObservation == ProcessLiveness.Observation.EXITED;
                 failures.interruptionBoundary();
-                descendantState = tree.observeDescendants(wait.providerDeadline());
+                descendantState = tree.observeDescendants();
                 descendantsExited = descendantState == ShutdownTreeState.DescendantState.EXITED;
                 failures.interruptionBoundary();
                 if (failures.wasInterrupted() && wait.phase() == ShutdownPhase.GRACEFUL) {
@@ -227,41 +225,32 @@ final class ProcessTreeShutdown {
                 if (wait.phase() == ShutdownPhase.GRACEFUL) {
                     return false;
                 }
-                destroyTreeForcibly(wait.providerDeadline());
+                destroyTreeForcibly();
             }
         }
     }
 
-    private boolean mayStillBeAlive(long deadline) {
+    private boolean mayStillBeAlive() {
         try {
-            ProcessLiveness.Observation observation = ProcessLiveness.observe(process, deadline);
+            ProcessLiveness.Observation observation = ProcessLiveness.observe(process);
             return observation != ProcessLiveness.Observation.EXITED;
-        } catch (InterruptedException interruption) {
-            failures.interrupted(interruption);
-            return true;
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
             return true;
         }
     }
 
-    private OptionalInt exitCode(long deadline) {
+    private OptionalInt exitCode() {
         try {
-            return OptionalInt.of(
-                    process instanceof GuardedProcess guarded
-                            ? guarded.exitValueWithin(operationBudget(deadline))
-                            : process.exitValue());
-        } catch (InterruptedException interruption) {
-            failures.interrupted(interruption);
-            return OptionalInt.empty();
+            return OptionalInt.of(process.exitValue());
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
             return OptionalInt.empty();
         }
     }
 
-    private ProcessLiveness.Observation observeRootExit(long deadline) {
-        ProcessLiveness.ExitObservation observation = ProcessLiveness.observeExitForCleanup(process, deadline);
+    private ProcessLiveness.Observation observeRootExit() {
+        ProcessLiveness.ExitObservation observation = ProcessLiveness.observeExitForCleanup(process);
         failures.recordObserved(observation.events());
         return observation.state();
     }
@@ -269,11 +258,6 @@ final class ProcessTreeShutdown {
     private static Duration remainingBudget(long deadline) {
         long remaining = deadline - System.nanoTime();
         return remaining <= 0 ? Duration.ZERO : Duration.ofNanos(remaining);
-    }
-
-    private static Duration operationBudget(long deadline) {
-        long remaining = deadline - System.nanoTime();
-        return Duration.ofNanos(Math.max(1, remaining));
     }
 
     private static Duration operationPhaseBudget(Duration waitBudget) {
@@ -289,22 +273,20 @@ final class ProcessTreeShutdown {
         return remaining.toNanos() >= POLL_INTERVAL_NANOS ? remaining : Duration.ZERO;
     }
 
-    private record WaitPhase(
-            ShutdownPhase phase, long waitDeadline, long providerDeadline, boolean requiresBudgetedRefresh) {
+    private record WaitPhase(ShutdownPhase phase, long waitDeadline, boolean requiresBudgetedRefresh) {
 
-        private static WaitPhase afterSignals(ShutdownPhase phase, Duration timeout, long operationDeadline) {
-            return create(phase, timeout, operationDeadline, DurationSupport.deadlineFromNow(timeout));
+        private static WaitPhase afterSignals(ShutdownPhase phase, Duration timeout) {
+            return create(phase, timeout, DurationSupport.deadlineFromNow(timeout));
         }
 
         private static WaitPhase withinOperation(ShutdownPhase phase, Duration timeout, long operationDeadline) {
-            return create(phase, timeout, operationDeadline, operationDeadline);
+            return create(phase, timeout, operationDeadline);
         }
 
-        private static WaitPhase create(
-                ShutdownPhase phase, Duration timeout, long operationDeadline, long positiveWaitDeadline) {
+        private static WaitPhase create(ShutdownPhase phase, Duration timeout, long positiveWaitDeadline) {
             boolean budgeted = !timeout.isZero();
             long waitDeadline = budgeted ? positiveWaitDeadline : DurationSupport.deadlineFromNow(Duration.ZERO);
-            return new WaitPhase(phase, waitDeadline, budgeted ? waitDeadline : operationDeadline, budgeted);
+            return new WaitPhase(phase, waitDeadline, budgeted);
         }
     }
 }

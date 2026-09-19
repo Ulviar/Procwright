@@ -15,11 +15,20 @@ final class ProtocolOutputQueueTestAccess {
             int length,
             long deadlineNanos,
             ProtocolRuntimeFailures failures) {
-        return queue.read(buffer, offset, length, deadlineNanos, failures, ignored -> {}, event -> event);
+        return queue.read(
+                buffer,
+                offset,
+                length,
+                new ProtocolOutputQueue.ReadWindow(),
+                deadlineNanos,
+                failures,
+                ignored -> {},
+                event -> event);
     }
 
     static int readUnsignedByte(ProtocolOutputQueue queue, long deadlineNanos, ProtocolRuntimeFailures failures) {
-        return queue.readUnsignedByte(deadlineNanos, failures, ignored -> {}, event -> event);
+        return queue.readUnsignedByte(
+                new ProtocolOutputQueue.ReadWindow(), deadlineNanos, failures, ignored -> {}, event -> event);
     }
 
     static int readUnsignedByte(
@@ -27,6 +36,7 @@ final class ProtocolOutputQueueTestAccess {
             long deadlineNanos,
             ProtocolRuntimeFailures failures,
             IntConsumer beforeMutation) {
-        return queue.readUnsignedByte(deadlineNanos, failures, beforeMutation, event -> event);
+        return queue.readUnsignedByte(
+                new ProtocolOutputQueue.ReadWindow(), deadlineNanos, failures, beforeMutation, event -> event);
     }
 }

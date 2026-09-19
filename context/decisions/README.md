@@ -22,3 +22,4 @@
 - [ADR-0025: runtime guarantee budget](ADR-0025-runtime-guarantee-budget.md)
 - [ADR-0026: Java 25 baseline](ADR-0026-java25-baseline.md)
 - [ADR-0027: response-sized output buffers](ADR-0027-response-sized-output-buffers.md)
+- [ADR-0028: trusted extensions and bounded decoding](ADR-0028-trusted-extensions-and-bounded-decoding.md)

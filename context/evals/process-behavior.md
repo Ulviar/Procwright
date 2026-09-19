@@ -210,6 +210,8 @@
   который его не читает. Decoded chars ограничены `maxResponseChars`, а не числовым значением byte limit.
 - Persistent text decoder сохраняет состояние между request-scoped reads, но pending undecoded bytes и output без
   input consumption ограничены независимо от response/transcript retention.
+- `readTextExactly` обрабатывает bounded chunks и при character-limit failure не читает оставшиеся chunks большого
+  поля. Partial read декодируется до следующего input read; exact consumed byte count после failure не проверяется.
 - Decoder rewind, отсутствие progress и некорректная replacement error length дают `DECODE_ERROR`, bounded transcript,
   закрывают process и сохраняют ту же terminal reason для следующего request.
 - Protocol request timeout после adapter admission дает `TIMEOUT`; `onExit()` завершается после process outcome и
@@ -242,6 +244,11 @@
 - Match buffer ограничен и не растет бесконечно.
 
 ## PTY
+
+Custom provider — trusted SPI без индивидуальной per-call isolation; metadata/signal calls должны возвращаться promptly,
+timed waits — соблюдать timeout. Scan capacity ограничивает только descendant traversal; asynchronous destroy fallback
+сохраняется. System provider отдельно
+проверяет bounded capability detection и bootstrap.
 
 Базовый PTY transport реализован для session-сценариев. Минимальные проверки:
 

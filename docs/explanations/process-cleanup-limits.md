@@ -33,9 +33,15 @@ If a scan exhausts its remaining caller budget, a later complete refresh can sti
 root and known descendants. The refresh must cover both and fit the shutdown deadline. Previously observed live
 descendants, access failures, and descendant-limit overflow are not forgotten by a later scan.
 
-Waiting for process-provider operations is bounded. If an operation outlives that wait, it keeps its execution slot until
-it returns; repeated scans cannot create unlimited blocked operations. Its late result cannot replace the selected
-timeout or interruption. Delivery of late provider failures through uncaught-exception handlers is not guaranteed.
+Descendant scans have bounded waiting and share at most 32 execution slots. A scan that outlives its caller's wait keeps
+its slot until it actually returns; repeated scans cannot create unlimited blocked scan tasks. A late scan result
+cannot replace the selected outcome. These slots do not limit ordinary `Process` or `ProcessHandle` calls.
+
+Custom `PtyProvider` implementations are trusted extensions. Their methods and returned process objects run without
+per-call timeout isolation: metadata and signals must return promptly, and timed waits must honor their timeout. A
+blocking custom implementation can exceed session and cleanup deadlines. The built-in system provider still bounds its
+own capability detection and startup; see [terminal support](../reference/platforms-and-pty.md). Bounded scans and the
+asynchronous process destroy fallback remain separate cleanup mechanisms.
 
 Repeated observation failures do not grow the shutdown error report indefinitely. One cleanup retains at most 32 source
 failures, plus its first interruption if that occurs after the limit is reached. The original primary cause remains

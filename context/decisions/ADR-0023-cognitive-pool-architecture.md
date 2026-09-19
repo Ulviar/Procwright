@@ -57,7 +57,8 @@ close и deadline через узкий port, запуск, ожидание и 
 После успешного factory result `PoolWorker` одной операцией принимает session и создаёт `WorkerRetirement`.
 `WorkerRetirement` поэтому не имеет состояния «ещё нет session» и владеет только exact-once запуском close action и
 стабильным outcome. `WorkerRetirementCoordinator` сначала инициирует весь выбранный batch, затем наблюдает outcomes вне
-pool monitor и возвращает их в state.
+pool monitor и возвращает их в state. Completed и pending futures проходят через одну continuation; accounting и
+непустой failure report выполняются ровно один раз без отдельного списка immediate reports.
 
 `WorkerCloseSupport` сразу представляет результат `close()` как retirement outcome и объединяет два события:
 возврат close и наблюдение terminal future session. Ошибка request в terminal future означает settlement, но не

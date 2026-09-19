@@ -1,7 +1,6 @@
 # Platforms and terminal support
 
-Published artifacts target and require Java 25. Lifecycle tasks use virtual threads. Bounded isolation workers use
-platform threads where blocked provider calls must retain their capacity until they actually finish.
+Published artifacts target and require Java 25.
 
 Ordinary direct-process scenarios use the JDK process API on macOS, Linux, and Windows. Shell commands remain platform
 specific.
@@ -11,6 +10,13 @@ Terminal sessions depend on the configured `PtyProvider`:
 - `TerminalPolicy.DISABLED` uses ordinary pipes.
 - `AUTO` uses a terminal when the provider is available and otherwise uses ordinary pipes.
 - `REQUIRED` fails when terminal capability is unavailable.
+
+Custom providers are trusted extensions. `available()`, `description()`, `start(...)`, and methods on the returned
+`Process` and `ProcessHandle` have no individual timeout or thread isolation. Metadata and signal operations must
+return promptly, and timed waits must honor their timeout. A blocking custom implementation can delay session
+operations and cleanup beyond their configured deadlines. Bounded descendant scans and the asynchronous process
+destroy fallback still apply; see [cleanup limits](../explanations/process-cleanup-limits.md). The built-in system
+provider bounds its own capability detection and startup, as described below.
 
 On Unix, the built-in system provider requires executable `script`, `stty`, `env`, and `dd` commands in `/usr/bin` or
 `/bin`, plus executable `/bin/sh`. It never searches `PATH` for transport helpers. A bounded startup probe verifies the

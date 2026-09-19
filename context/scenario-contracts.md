@@ -70,6 +70,12 @@ Caller выбирает timeout, capture budget, charset policy, input, output m
 Caller владеет parsing и ordering raw protocol. Для сериализованного line/typed workflow используются отдельные
 сценарии.
 
+Custom `PtyProvider` и возвращённые им process objects являются trusted SPI без индивидуальной per-call isolation.
+Metadata/signal calls должны
+возвращаться promptly, timed waits — соблюдать timeout; зависшая реализация может превысить session/cleanup deadline.
+Bounded descendant scans и asynchronous destroy fallback сохраняются. System provider сохраняет собственные bounded
+capability detection и bootstrap.
+
 У line/protocol/Expect natural `onExit()` дополнительно ждёт drain принадлежащих helper потоков вывода.
 Request/match timeout не является absolute drain timeout; idle watcher прекращает ожидание после process outcome.
 Если root завершился, но потомок удерживает pipe, caller ограничивает ожидание future и явно закрывает handle при
@@ -134,6 +140,8 @@ Caller выбирает decoder и limits, соответствующие worker
 - каждая stdout/stderr queue ограничена `maxResponseBytes`, общий response budget суммирует bytes, прочитанные с обоих
   streams; transcript retention остаётся независимым;
 - strict/replace charset behavior выбирается явно;
+- `readTextExactly` декодирует complete field ограниченными chunks и прекращает чтение при character-limit failure,
+  не дочитывая остаток поля; точная byte position после terminal failure не обещается;
 - timeout, EOF, broken pipe, decode, oversized data и adapter failure имеют стабильные reasons; превышение response или
   соответствующей output queue даёт `RESPONSE_TOO_LARGE`, stderr overflow становится ошибкой только при чтении adapter-ом;
 - protocol failure закрывает session.
