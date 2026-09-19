@@ -13,19 +13,29 @@ import org.jspecify.annotations.Nullable;
 /**
  * Completed one-shot command result.
  *
+ * <p>A nonzero exit code or an ordinary execution timeout is represented by a result rather than thrown as an
+ * exception. Use {@link #succeeded()} for the exit/timeout check and inspect truncation flags separately before parsing
+ * output that must be complete. Launch, I/O, supervision, and decoding failures use {@link CommandExecutionException}.
+ *
+ * <p>The result is immutable: byte arrays are copied on construction and access, and equality compares their contents.
+ * In results produced by Procwright, captured bytes preserve the original output and text uses the selected
+ * {@link CharsetPolicy} without newline
+ * normalization. If a capture limit cuts through a multibyte character, the text omits that incomplete trailing
+ * character while the byte view retains its captured bytes.
+ *
  * <p>For streams that were discarded or redirected to files through {@link CapturePolicy#discard()} or
  * {@link CapturePolicy#toPath}, the text and byte accessors return empty values and the truncation flags stay
  * {@code false}; exit code, {@link #timedOut()}, and {@link #elapsed()} are reported as usual.
  *
- * @param exitCode process exit code when available
+ * @param exitCode process exit code, or empty when no exit status is available
  * @param stdoutBytes captured standard output bytes
  * @param stderrBytes captured standard error bytes
  * @param stdout captured standard output
  * @param stderr captured standard error
  * @param stdoutTruncated whether stdout exceeded the capture limit
  * @param stderrTruncated whether stderr exceeded the capture limit
- * @param timedOut whether timeout supervision stopped the process
- * @param elapsed elapsed wall-clock time spent running and supervising the command
+ * @param timedOut whether the execution deadline triggered shutdown; does not imply an absent or nonzero exit code
+ * @param elapsed non-negative elapsed duration including launch, supervision, and synchronous cleanup
  */
 public record CommandResult(
         OptionalInt exitCode,
@@ -43,6 +53,7 @@ public record CommandResult(
      *
      * <p>The byte views are produced by encoding the provided text as UTF-8 regardless of the charset the command
      * actually produced. Use {@link #CommandResult(int, String, String, Charset)} when the output charset differs.
+     * The elapsed duration is zero, and timeout and truncation flags are false.
      *
      * @param exitCode process exit code
      * @param stdout captured standard output
@@ -55,6 +66,9 @@ public record CommandResult(
     /**
      * Creates a completed command result without truncation or timeout metadata, encoding the byte views with the
      * provided charset.
+     *
+     * <p>The elapsed duration is zero, and timeout and truncation flags are false. Encoding follows
+     * {@link String#getBytes(Charset)}, including replacement of malformed or unmappable input.
      *
      * @param exitCode process exit code
      * @param stdout captured standard output
@@ -79,17 +93,19 @@ public record CommandResult(
      *
      * <p>This advanced constructor accepts already decoded text alongside the captured bytes. Results produced by Procwright
      * keep those values aligned through the execution charset. Manually created snapshots are responsible for providing
-     * consistent text and byte views.
+     * consistent text and byte views. Both byte arrays are defensively copied. This constructor validates only
+     * non-null components and non-negative elapsed time; it does not infer or reconcile exit, timeout, or truncation flags.
      *
-     * @param exitCode process exit code when available
+     * @param exitCode process exit code, or empty when no exit status is available
      * @param stdoutBytes captured standard output bytes
      * @param stderrBytes captured standard error bytes
      * @param stdout captured standard output
      * @param stderr captured standard error
      * @param stdoutTruncated whether stdout exceeded the capture limit
      * @param stderrTruncated whether stderr exceeded the capture limit
-     * @param timedOut whether timeout supervision stopped the process
-     * @param elapsed elapsed wall-clock time spent running and supervising the command
+     * @param timedOut whether the execution deadline triggered shutdown
+     * @param elapsed non-negative elapsed duration including launch, supervision, and synchronous cleanup
+     * @throws IllegalArgumentException if {@code elapsed} is negative
      */
     public CommandResult {
         Objects.requireNonNull(exitCode, "exitCode");
@@ -132,6 +148,9 @@ public record CommandResult(
     /**
      * Returns whether the command exited successfully.
      *
+     * <p>Truncation does not make an otherwise successful result fail this check. When consuming complete output is
+     * required, also inspect {@link #stdoutTruncated()} and {@link #stderrTruncated()}.
+     *
      * @return {@code true} when this result did not time out and {@link #exitCode()} is zero
      */
     public boolean succeeded() {
@@ -140,6 +159,9 @@ public record CommandResult(
 
     /**
      * Converts this result into an exception that preserves the result.
+     *
+     * <p>This method creates an exception without throwing it and does not check {@link #succeeded()}. Callers normally
+     * use {@code throw result.toException()} only after deciding the result is unsuccessful.
      *
      * @return exception for this command result
      */

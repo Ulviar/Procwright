@@ -19,14 +19,16 @@ LLM-агентов.
   `docs/requirements.lock`.
 - CI/docs jobs явно выбирают Python 3.14.7 и uv 0.12.17; используемые GitHub Actions зафиксированы exact commit
   SHA.
-- Java reference генерируется Javadoc для core и integrations.
-- Kotlin имеет task-oriented reference; `javadocJar` использует официальный Dokka 2.2.0 как KDoc gate с
-  `reportUndocumented=true` и `failOnWarning=true`. Отдельный Dokka site не публикуется без доказанной
-  пользовательской пользы.
-- Публичные Java snippets должны быть скопированы из compile-tested example sources; ссылки проверяются strict docs
-  build и repository tests.
-- `preparePublicDocs` включает generated Javadocs во вход MkDocs, поэтому относительные API links проверяются strict
-  build; после сборки оригинальные Javadoc assets копируются без преобразования.
+- Java reference генерируется Javadoc для core и integrations с описаниями JPMS modules. Внутренние packages
+  доступны генератору для разрешения типов, но исключены из публичных страниц.
+- Kotlin имеет task-oriented reference и полный API reference, который генерирует Dokka 2.2.0 с
+  `reportUndocumented=true` и `failOnWarning=true`. Один HTML output используется сайтом и `javadocJar`.
+- Публичные Java snippets берутся из compile-tested example sources. Javadoc подключает их через `@snippet` regions;
+  `publicJavaJavadocCheck` также компилирует эти источники отдельным consumer module.
+- Integrations Javadoc и Kotlin API reference ссылаются на core API. Для разрешения ссылок оба генератора используют
+  локальный `element-list` текущей сборки; доступ к опубликованному сайту для этого не требуется.
+- `preparePublicDocs` включает generated Java/Kotlin API reference во вход MkDocs, поэтому относительные API links проверяются strict
+  build; после сборки оригинальные API reference assets копируются без преобразования.
 
 ## Инварианты
 

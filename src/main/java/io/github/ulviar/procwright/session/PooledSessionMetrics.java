@@ -13,6 +13,9 @@ import java.util.Objects;
  * current pool state. If its factory later returns a worker, {@code created} and {@code retired} advance together after
  * that worker is retired. The snapshot does not report workers owned by other pools or directly opened sessions.
  *
+ * <p>This immutable snapshot copies its retirement-reason map. Counters are cumulative over this pool's lifetime;
+ * polling does not reset them. Rejected calls that fail argument validation need not increment request counters.
+ *
  * @param size current workers known to the pool, including workers that are starting or retiring
  * @param idle current idle worker count
  * @param leased current leased worker count
@@ -20,14 +23,14 @@ import java.util.Objects;
  * @param retiring current workers being retired
  * @param created total workers created
  * @param retired total workers retired
- * @param completedRequests total public requests completed successfully
- * @param failedRequests total public requests completed with failure
+ * @param completedRequests requests with a successful response, including a subsequent reset failure
+ * @param failedRequests observed requests that failed before a successful response
  * @param failedStartups total worker startup attempts that failed; a successful result retired only because the pool
  *     closed is not a failed startup
  * @param failedWorkerCloses total completed worker retirements whose close reported a failure
- * @param totalAcquireWaitNanos accumulated worker acquire wait time
- * @param totalRequestDurationNanos accumulated request duration
- * @param totalWorkerStartupNanos accumulated successful worker startup duration
+ * @param totalAcquireWaitNanos accumulated worker acquisition time, including startup and health checks
+ * @param totalRequestDurationNanos accumulated request work time, including preparation and reset but excluding acquisition
+ * @param totalWorkerStartupNanos accumulated successful worker startup time, including readiness
  * @param retireReasons retired worker counts by reason
  */
 public record PooledSessionMetrics(
@@ -57,15 +60,17 @@ public record PooledSessionMetrics(
      * @param retiring current workers being retired
      * @param created total workers created
      * @param retired total workers retired
-     * @param completedRequests total public requests completed successfully
-     * @param failedRequests total public requests completed with failure
+     * @param completedRequests requests with a successful response, including a subsequent reset failure
+     * @param failedRequests observed requests that failed before a successful response
      * @param failedStartups total worker startup attempts that failed; a successful result retired only because the pool
      *     closed is not a failed startup
      * @param failedWorkerCloses total completed worker retirements whose close reported a failure
-     * @param totalAcquireWaitNanos accumulated worker acquire wait time
-     * @param totalRequestDurationNanos accumulated request duration
-     * @param totalWorkerStartupNanos accumulated successful worker startup duration
-     * @param retireReasons retired worker counts by reason
+     * @param totalAcquireWaitNanos accumulated worker acquisition time, including startup and health checks
+     * @param totalRequestDurationNanos accumulated request work time, including preparation and reset but excluding acquisition
+     * @param totalWorkerStartupNanos accumulated successful worker startup time, including readiness
+     * @param retireReasons retired worker counts by reason; copied into an unmodifiable map
+     * @throws IllegalArgumentException if a count or duration is negative, worker partitions do not sum to size,
+     *     created workers are not accounted for, close failures exceed retirements, or reason counts do not sum to retired
      */
     public PooledSessionMetrics {
         requireNonNegative(size, "size");

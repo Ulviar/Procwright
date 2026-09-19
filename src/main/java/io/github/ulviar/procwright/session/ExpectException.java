@@ -7,7 +7,11 @@ import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Signals an expect automation failure.
+ * Signals an Expect operation failure with a stable {@link Reason} and a bounded transcript snapshot.
+ *
+ * <p>A reason identifies what failed, not whether another operation is safe. In particular, {@link Reason#TIMEOUT}
+ * may leave the handle open or close it after an abandoned regex evaluation; see {@link Expect}. The transcript can
+ * contain unredacted child output even when action values use {@link ExpectTranscriptValues#REDACTED}.
  */
 @SuppressWarnings("serial")
 public final class ExpectException extends ProcwrightException {
@@ -67,13 +71,13 @@ public final class ExpectException extends ProcwrightException {
      * Distinct expect failure reasons.
      */
     public enum Reason {
-        /** Expected output did not appear before the deadline. */
+        /** Matcher access, output waiting, or regex evaluation exceeded the deadline; see {@link Expect} for retryability. */
         TIMEOUT,
         /** Process stdout reached EOF before expected output appeared. */
         EOF,
         /** Expect handle was closed before the operation could complete. */
         CLOSED,
-        /** Process output could not be read or decoded, or session input could not be written. */
+        /** I/O, decoding, or another operation failed, including interruption; the cause carries additional detail. */
         FAILURE
     }
 }

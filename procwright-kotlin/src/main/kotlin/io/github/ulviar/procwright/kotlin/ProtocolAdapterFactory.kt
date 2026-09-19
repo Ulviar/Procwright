@@ -10,15 +10,27 @@ import java.util.function.Supplier
 /**
  * Creates a factory for state-isolated protocol adapters.
  *
- * The configuration block runs on every [Supplier.get]. Missing request or response handlers fail
- * that factory call before an adapter is returned. Pass the resulting supplier to
- * `CommandService.protocolSession` so every opened session and pool worker receives a distinct
- * adapter wrapper.
+ * The configuration block runs on every [Supplier.get], not when this function is called. Pass the
+ * supplier to [io.github.ulviar.procwright.CommandService.protocolSession] so each opened session
+ * and pool worker receives a distinct adapter wrapper. Define both
+ * [ProtocolAdapterFactoryDsl.writeRequest] and [ProtocolAdapterFactoryDsl.readResponse]. A missing
+ * handler makes that supplier invocation throw [IllegalStateException] before process startup. An
+ * exception from configuration propagates from that invocation; a later invocation evaluates
+ * configuration again.
  *
  * Concurrent opens and pool worker startup may invoke the same configuration block concurrently, so
  * the block must be thread-safe. One session serializes the handlers on its adapter, but handlers
  * on different adapters can run concurrently. Keep mutable per-adapter state inside the block;
  * mutable state captured from outside remains shared and must be thread-safe.
+ *
+ * Handler I/O is synchronous and callback-scoped, as described by [ProtocolAdapterFactoryDsl]. The
+ * factory supplies no framing: handlers must write and flush one complete request, then read
+ * exactly one response using the child program's protocol.
+ *
+ * @param I non-null request type
+ * @param O non-null response type
+ * @param configure thread-safe block that installs both handlers and creates any per-adapter state
+ * @return reusable factory; this call invokes no handlers and starts no process
  */
 fun <I : Any, O : Any> protocolAdapterFactory(
     configure: ProtocolAdapterFactoryDsl<I, O>.() -> Unit

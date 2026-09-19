@@ -1,37 +1,34 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 /**
- * Scenario-first process control: pick a scenario, configure it with policies, and get typed results.
+ * Launches external programs through immutable command configuration and scenario-specific handles.
  *
- * <p>{@link io.github.ulviar.procwright.Procwright} and {@link io.github.ulviar.procwright.CommandService} are the
- * entry points. A service binds one base command to scenario defaults and exposes the scenario catalog:
- *
+ * <p>Start with {@link io.github.ulviar.procwright.Procwright#command(String)} and choose an interaction:
  * <ul>
- *   <li>{@code run()} — a finite process with a typed {@code CommandResult} (exit code, output, timeout,
- *       truncation);
- *   <li>{@code interactive()} — a raw long-lived session with stdin/stdout/stderr access;
- *   <li>{@code interactive().expect()} — prompt automation with output selected before launch;
- *   <li>{@code lineSession()} — serialized line-oriented request/response over stdin/stdout, optionally pooled;
- *   <li>{@code protocolSession(...)} — typed request/response through a caller-provided protocol adapter, optionally
- *       pooled;
- *   <li>{@code listen()} — listen-only streaming of process output chunks.
+ *   <li>{@link io.github.ulviar.procwright.CommandService#run()} captures the result of one finite command;
+ *   <li>{@link io.github.ulviar.procwright.CommandService#listen()} delivers live output chunks;
+ *   <li>{@link io.github.ulviar.procwright.CommandService#lineSession()} exchanges line-oriented requests;
+ *   <li>{@link io.github.ulviar.procwright.CommandService#protocolSession(java.util.function.Supplier)} uses a typed adapter;
+ *   <li>{@link io.github.ulviar.procwright.InteractiveScenario.Entry#expect()} matches prompts and sends replies;
+ *   <li>{@link io.github.ulviar.procwright.CommandService#interactive()} exposes raw streams for caller-managed I/O.
  * </ul>
  *
- * <pre>{@code
- * CommandResult result = Procwright.command("git")
- *         .run()
- *         .withArgs("status", "--short")
- *         .withTimeout(Duration.ofSeconds(10))
- *         .execute();
+ * <p>Commands and drafts are immutable: retain the value returned by each {@code with*} call. Configuration does not
+ * start a process. Each {@code execute()} or {@code open()} starts independent work. Handles returned by {@code open()}
+ * must be closed, normally with try-with-resources. A direct line or protocol session already reuses one process;
+ * use its pool draft only for concurrent requests to interchangeable workers.
  *
- * if (!result.succeeded()) {
- *     throw result.toException();
- * }
- * }</pre>
+ * <p>Draft documentation gives defaults, limits, and callback concurrency. Handle documentation defines I/O ownership,
+ * timeout, failure, and close behavior. Non-zero command exits are results, not automatically exceptions; see
+ * {@link io.github.ulviar.procwright.command.CommandResult} and {@link io.github.ulviar.procwright.ProcwrightException}.
  *
- * <p>Wide behavior is composed from small value objects and policies (capture, shutdown, charset, environment,
- * terminal) rather than low-level flags. Every {@code with*} operation returns a new immutable draft, and terminal
- * operations snapshot that draft once before launching a process.
+ * <p>Unless explicitly annotated {@code @Nullable}, reference parameters and results are non-null. Passing null to
+ * a non-null parameter is unsupported. Character limits count UTF-16 code units unless documented otherwise.
+ *
+ * @see io.github.ulviar.procwright.command
+ * @see io.github.ulviar.procwright.session
+ * @see io.github.ulviar.procwright.diagnostics
+ * @see io.github.ulviar.procwright.terminal
  */
 @NullMarked
 package io.github.ulviar.procwright;

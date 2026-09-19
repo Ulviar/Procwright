@@ -185,9 +185,10 @@ public final class DiagnosticEmitter {
     /**
      * Per-destination sequential asynchronous delivery.
      *
-     * <p>Events for one emitter are delivered to one destination in submission order without blocking the emitting
-     * thread. A single drainer runs at a time for a bounded turn, then releases the dispatcher for other accepted work.
-     * Ordering and fairness between different destinations are intentionally unspecified.
+     * <p>Retained events for one emitter are delivered to one destination in submission order without waiting for the
+     * callback on the emitting thread. Queue overflow drops the oldest pending event, and dispatch rejection drops the
+     * pending queue. A single drainer runs at a time for a bounded turn, then releases the dispatcher for other accepted
+     * work. Ordering and fairness between different destinations are intentionally unspecified.
      */
     private static final class SerialDelivery {
 

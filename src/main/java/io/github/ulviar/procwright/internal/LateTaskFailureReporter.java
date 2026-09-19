@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Reports a task failure exactly once when its caller has already abandoned the result. */
+/** Submits at most one best-effort failure notification after a caller abandons a task's result. */
 final class LateTaskFailureReporter {
 
     private final BoundedFailureReporter reporter;

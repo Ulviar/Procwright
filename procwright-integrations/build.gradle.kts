@@ -1,4 +1,5 @@
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.external.javadoc.StandardJavadocDocletOptions
 
 plugins {
     `java-library`
@@ -19,6 +20,16 @@ dependencies {
 java {
     withSourcesJar()
     withJavadocJar()
+}
+
+tasks.named<Javadoc>("javadoc") {
+    dependsOn(rootProject.tasks.named("javadoc"))
+    val coreJavadoc = rootProject.layout.buildDirectory.dir("docs/javadoc")
+    inputs.file(coreJavadoc.map { it.file("element-list") })
+    (options as StandardJavadocDocletOptions).linksOffline(
+        "https://ulviar.github.io/Procwright/api/java/core/",
+        coreJavadoc.get().asFile.absolutePath,
+    )
 }
 
 publishing {

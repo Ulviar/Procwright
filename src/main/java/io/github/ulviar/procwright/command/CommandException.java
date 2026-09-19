@@ -6,7 +6,11 @@ import io.github.ulviar.procwright.ProcwrightException;
 import java.util.Objects;
 
 /**
- * Exception view of an unsuccessful command result.
+ * Caller-requested exception view of a command result.
+ *
+ * <p>One-shot execution returns nonzero exits and ordinary timeouts as {@link CommandResult}s. It does not throw this
+ * exception automatically. Use {@link CommandResult#toException()} when the application chooses to treat a result as
+ * a failure. The exception retains the complete result; its message contains the exit/timeout summary, not output.
  */
 @SuppressWarnings("serial")
 public final class CommandException extends ProcwrightException {
@@ -16,6 +20,8 @@ public final class CommandException extends ProcwrightException {
 
     /**
      * Creates an exception for a command result.
+     *
+     * <p>The result is retained unchanged, including successful results; no success/failure validation is performed.
      *
      * @param result command result
      */

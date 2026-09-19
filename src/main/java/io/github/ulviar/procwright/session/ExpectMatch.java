@@ -8,9 +8,12 @@ import java.util.Objects;
 /**
  * Result of one successful expect match.
  *
- * <p>Unlike transcripts, a match result returns live process output to the caller: the values are not redacted by
- * {@link ExpectTranscriptValues} because the caller explicitly asked for them. Do not log match results verbatim when
- * the automated prompt may contain secrets.
+ * <p>A match result returns process output without redaction. {@link ExpectTranscriptValues} controls caller-provided
+ * action values in transcript entries only; it does not redact echoed secrets in output or in this result.
+ * The capture-group list is copied and unmodifiable. Results remain valid after the handle closes.
+ *
+ * <p>{@code before} starts at the previous match cursor or the oldest retained output, whichever is later. It is not
+ * necessarily all output since the previous match because the bounded match buffer may have discarded an older prefix.
  *
  * @param matched the full matched text
  * @param groups regex capture groups in declaration order; empty for literal matches. Groups that did not
@@ -23,7 +26,7 @@ public record ExpectMatch(String matched, List<String> groups, String before) {
      * Creates an expect match result.
      *
      * @param matched the full matched text
-     * @param groups regex capture groups in declaration order; empty for literal matches
+     * @param groups regex capture groups in declaration order; empty for literal matches and never containing null
      * @param before output consumed before the match within the bounded match buffer
      */
     public ExpectMatch {

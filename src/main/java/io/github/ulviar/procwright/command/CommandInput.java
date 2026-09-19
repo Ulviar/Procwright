@@ -11,13 +11,17 @@ import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Command stdin contents: either in-memory bytes written before stdin is closed, or a file the operating system
- * streams into stdin.
+ * Command stdin contents supplied as in-memory bytes or an operating-system file redirection.
  *
- * <p>In-memory inputs are written by Procwright and stdin is closed afterwards. Path-based inputs created through
+ * <p>One-shot runs write in-memory inputs and close stdin afterwards. Path-based inputs created through
  * {@link #fromPath(Path)} are redirected at the operating-system level, so arbitrarily large files stream into the
  * process without being loaded into memory. The file must exist when the command is launched; a missing file fails
  * the run with a typed {@link CommandExecutionException}.
+ *
+ * <p>Values are immutable and reusable. Byte-based input owns a defensive copy. File-based input retains only its
+ * path: it does not open, lock, or snapshot the file, and each execution reads the file's contents at that time.
+ * Raw session send helpers accept only in-memory input and leave stdin open after sending; file redirection is a
+ * one-shot run feature.
  */
 public final class CommandInput {
 
@@ -37,6 +41,8 @@ public final class CommandInput {
     /**
      * Encodes text as UTF-8 command input.
      *
+     * <p>No newline is appended. Unpaired UTF-16 surrogates use the charset's replacement bytes.
+     *
      * @param text input text
      * @return command input
      */
@@ -46,6 +52,9 @@ public final class CommandInput {
 
     /**
      * Encodes text with the provided charset.
+     *
+     * <p>No newline is appended. Encoding happens immediately through {@link String#getBytes(Charset)}, which replaces
+     * malformed or unmappable characters. Use {@link #bytes(byte[])} if the caller needs to control encoding explicitly.
      *
      * @param text input text
      * @param charset input charset
@@ -58,9 +67,9 @@ public final class CommandInput {
     }
 
     /**
-     * Creates command input from bytes.
+     * Creates command input by defensively copying bytes.
      *
-     * @param bytes input bytes
+     * @param bytes input bytes; an empty array supplies no data
      * @return command input
      */
     public static CommandInput bytes(byte[] bytes) {
@@ -73,6 +82,7 @@ public final class CommandInput {
      * <p>The file is redirected into stdin at the operating-system level, so it is never loaded into Procwright memory.
      * Existence is checked when the command is launched: a missing file fails the run with a typed
      * {@link CommandExecutionException}.
+     * The file must be readable by the child process launcher. This method itself performs no filesystem I/O.
      *
      * @param path stdin source file
      * @return command input

@@ -14,6 +14,12 @@ package io.github.ulviar.procwright.session;
  * bytes ended at a character boundary; the framing adapter must establish that boundary before resuming continuous text
  * reads.
  *
+ * <p>All reads use the current request deadline. Stdout and stderr share per-response byte and character budgets.
+ * Character counts are UTF-16 code units, as in {@link String#length()}. EOF is reported with
+ * {@link ProtocolSessionException.Reason#EOF} or {@link ProtocolSessionException.Reason#PROCESS_EXITED} when the exit
+ * code is known, not a null value or a negative byte count. Partial fields or lines are
+ * not returned as successful results at EOF.
+ *
  * <p>Method arguments are validated before callback access. A zero-length buffer, exact-byte, or complete-field read
  * still requires valid callback access, but returns an empty result without inspecting decoder state or process output,
  * checking the deadline, or consulting response budgets.
@@ -27,13 +33,13 @@ public interface ProtocolReader {
     /**
      * Reads one byte.
      *
-     * @return byte value
+     * @return signed Java byte; use {@link Byte#toUnsignedInt(byte)} for a value from 0 through 255
      * @throws ProtocolSessionException when the request times out, reaches EOF, or output cannot be read
      */
     byte readByte();
 
     /**
-     * Reads bytes into the provided buffer.
+     * Reads up to {@code length} bytes into the provided buffer, waiting for at least one byte when needed.
      *
      * <p>When {@code length} is zero, this method returns zero without reading output or checking the deadline or response
      * budgets.
@@ -41,7 +47,7 @@ public interface ProtocolReader {
      * @param buffer target buffer
      * @param offset target offset
      * @param length maximum bytes to read, at least zero
-     * @return bytes read
+     * @return bytes read, from 1 through length for a nonempty request, or zero for a zero-length request
      * @throws NullPointerException when {@code buffer} is {@code null}
      * @throws IndexOutOfBoundsException when {@code offset} and {@code length} do not identify a valid buffer range
      * @throws ProtocolSessionException when the request times out, reaches EOF, or output cannot be read
@@ -55,9 +61,9 @@ public interface ProtocolReader {
      * or response budgets.
      *
      * @param length byte count, at least zero
-     * @return bytes read
+     * @return a new array of exactly the requested length
      * @throws IllegalArgumentException when {@code length} is negative
-     * @throws ProtocolSessionException when EOF arrives before the requested bytes
+     * @throws ProtocolSessionException if the deadline expires, EOF arrives early, a limit is exceeded, or reading fails
      */
     byte[] readExactly(int length);
 
@@ -74,7 +80,7 @@ public interface ProtocolReader {
      * the process.
      *
      * @param byteLength exact encoded byte count, at least zero
-     * @param maxChars maximum decoded characters, greater than zero
+     * @param maxChars positive maximum decoded UTF-16 code units
      * @return decoded field
      * @throws IllegalArgumentException when {@code byteLength} is negative or {@code maxChars} is not positive
      * @throws ProtocolSessionException when a nonempty field reaches EOF early, the deadline expires, decoding fails,
@@ -86,18 +92,24 @@ public interface ProtocolReader {
      * Reads bytes through and including {@code delimiter}.
      *
      * @param delimiter delimiter byte
-     * @param maxBytes maximum bytes including delimiter
+     * @param maxBytes positive maximum bytes including the delimiter
      * @return bytes including delimiter
-     * @throws ProtocolSessionException when the delimiter is not found before timeout, EOF, or limit
+     * @throws IllegalArgumentException if maxBytes is zero or negative
+     * @throws ProtocolSessionException when the delimiter is not found before timeout, EOF, or limit, or reading fails
      */
     byte[] readUntil(byte delimiter, int maxBytes);
 
     /**
-     * Reads one LF-terminated text line.
+     * Reads one LF-terminated text line, accepting an optional CR immediately before LF.
      *
-     * @param maxChars maximum decoded characters
+     * <p>The local maxChars limit excludes that terminator. The shared response-character budget includes decoded
+     * terminator characters. A standalone CR is content, not a line boundary.
+     *
+     * @param maxChars positive maximum decoded UTF-16 code units
      * @return line without LF and optional preceding CR
-     * @throws ProtocolSessionException when decoding fails or the line exceeds the limit
+     * @throws IllegalArgumentException if maxChars is zero or negative
+     * @throws ProtocolSessionException if the deadline expires, EOF arrives before LF, decoding or reading fails,
+     *     or a local or shared response limit is exceeded
      */
     String readLine(int maxChars);
 
@@ -108,9 +120,11 @@ public interface ProtocolReader {
      * with more than one byte.
      *
      * @param delimiter delimiter byte
-     * @param maxChars maximum decoded characters
+     * @param maxChars positive maximum decoded UTF-16 code units
      * @return decoded text including delimiter
-     * @throws ProtocolSessionException when decoding fails or the text exceeds the limit
+     * @throws IllegalArgumentException if maxChars is zero or negative
+     * @throws ProtocolSessionException if the deadline expires, EOF arrives before the delimiter, decoding or reading
+     *     fails, or a local or shared response limit is exceeded
      */
     String readTextUntil(byte delimiter, int maxChars);
 }

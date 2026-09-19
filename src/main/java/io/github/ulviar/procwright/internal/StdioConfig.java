@@ -7,9 +7,9 @@ import java.util.Objects;
 /**
  * Operating-system level stdio redirections applied at process launch.
  *
- * <p>Defaults to pipes for every stream, which selects the pump-thread capture path. The one-shot
- * kernel derives redirections from the resolved {@code CapturePolicy} and {@code CommandInput}; session transports
- * always launch with pipes.
+ * <p>The one-shot kernel derives redirections from the resolved {@code CapturePolicy} and {@code CommandInput}.
+ * {@link #pipes()} selects pipes for every stream and is also used for ordinary session launches. A PTY provider
+ * constructs its own transport rather than using this redirect configuration for the terminal child.
  */
 public record StdioConfig(
         ProcessBuilder.Redirect stdin, ProcessBuilder.Redirect stdout, ProcessBuilder.Redirect stderr) {

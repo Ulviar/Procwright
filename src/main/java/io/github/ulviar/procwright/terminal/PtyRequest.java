@@ -12,7 +12,14 @@ import java.util.Optional;
 /**
  * Fully resolved request passed to a PTY provider.
  *
- * @param command direct argv command to run inside the terminal
+ * <p>The command and environment are immutable snapshots. The first command element is the executable and the
+ * remaining elements are literal arguments; the provider must preserve those boundaries. An explicit shell command
+ * has already been expanded to its shell executable and arguments before this request is created.
+ *
+ * <p>The environment contains configured overrides, not necessarily the full parent environment. The provider applies
+ * {@link #environmentPolicy()} before the overrides. File paths are retained without opening or validating them.
+ *
+ * @param command non-empty direct argv command to run inside the terminal
  * @param workingDirectory optional working directory for the terminal child
  * @param environmentPolicy child environment assembly policy
  * @param environment environment overrides for the terminal child; providers must not place these values in a
@@ -29,11 +36,15 @@ public record PtyRequest(
     /**
      * Validates and snapshots the request.
      *
-     * @param command direct argv command to run inside the terminal
+     * <p>Construction checks non-null components and a non-empty command. Provider-specific command, environment,
+     * encoding, and payload-size checks belong to {@link PtyProvider#start(PtyRequest)}.
+     *
+     * @param command non-empty direct argv command to run inside the terminal
      * @param workingDirectory optional working directory for the terminal child
      * @param environmentPolicy child environment assembly policy
      * @param environment environment overrides for the terminal child
      * @param terminalSize requested terminal dimensions
+     * @throws IllegalArgumentException if {@code command} is empty
      */
     public PtyRequest {
         command = List.copyOf(command);

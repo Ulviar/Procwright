@@ -24,14 +24,23 @@ private typealias StreamFlowLauncher =
  * Returns a cold stream of process output for this draft.
  *
  * No process is started until collection. Every collection, including concurrent collections, opens
- * and owns a fresh stream session. Delivery uses a rendezvous channel, so an active slow collector
- * applies backpressure instead of losing chunks. Cancelling a collector closes only its session.
+ * and owns a fresh stream session. By default, delivery uses a rendezvous channel, so an active
+ * slow collector applies backpressure instead of losing chunks. Cancelling a collector closes only
+ * its session.
  *
  * This terminal owns the draft's output listener: it replaces any listener previously set with
- * `onOutput`. It emits chunks only and discards [io.github.ulviar.procwright.session.StreamExit]
- * metadata on normal completion. Use `open()` when another listener or exit metadata is required.
- * Cleanup failures cannot replace an existing collection failure or cancellation. When collection
- * otherwise succeeds, a cleanup failure fails collection.
+ * [StreamScenario.Draft.onOutput]. Values are arbitrary decoded text chunks, not complete lines. It
+ * discards [StreamExit] metadata: a nonzero exit code or a process timeout can complete collection
+ * normally. Successful collection therefore does not prove command success. Use
+ * [StreamScenario.Draft.open] and [awaitExit] when another listener or exit metadata is required.
+ *
+ * Launch and process I/O failures fail collection. Normal process exit waits for output delivery;
+ * cancellation or a timeout can abandon pending delivery while closing the session. Cleanup
+ * failures cannot replace an existing collection failure or cancellation. When collection otherwise
+ * succeeds, a cleanup failure fails collection.
+ *
+ * @return a cold flow that owns one process per collection and leaves this immutable draft
+ *   unchanged
  */
 fun StreamScenario.Draft.openFlow(): Flow<StreamChunk> = openFlow { listener, own ->
     val session = onOutput(listener).open()

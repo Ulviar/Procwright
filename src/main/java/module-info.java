@@ -1,7 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 /**
- * Scenario-first command execution and interactive process workflows for JVM applications.
+ * Process execution, live output, prompt automation, and request/response sessions for Java 25 applications.
+ *
+ * <p>The core uses only the JDK at runtime. Start with {@link io.github.ulviar.procwright.Procwright}; optional
+ * Kotlin extensions and ready-made JSON/framing adapters are provided by separate modules. Application code should
+ * use the exported packages; internal process management is not an extension API.
  */
 module io.github.ulviar.procwright {
     requires static transitive org.jspecify;

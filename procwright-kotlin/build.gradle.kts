@@ -80,7 +80,27 @@ dokka {
         failOnWarning.set(true)
         offlineMode.set(true)
     }
-    dokkaSourceSets.configureEach { reportUndocumented.set(true) }
+    dokkaSourceSets.configureEach {
+        reportUndocumented.set(true)
+        jdkVersion.set(25)
+        includes.from(layout.projectDirectory.file("src/main/kotlin-api.md"))
+        externalDocumentationLinks.register("procwright-core") {
+            url("https://ulviar.github.io/Procwright/api/java/core/")
+            packageListUrl(
+                rootProject.layout.buildDirectory
+                    .file("docs/javadoc/element-list")
+                    .get()
+                    .asFile
+                    .toURI()
+                    .toString()
+            )
+        }
+    }
+}
+
+tasks.named("dokkaGeneratePublicationHtml") {
+    dependsOn(rootProject.tasks.named("javadoc"))
+    inputs.file(rootProject.layout.buildDirectory.file("docs/javadoc/element-list"))
 }
 
 val kotlinNullnessFixtureClasspath =

@@ -14,7 +14,16 @@ import java.util.Objects;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
-/** Immutable reusable base command value. */
+/**
+ * Immutable executable, arguments, working directory, and child environment shared by command scenarios.
+ *
+ * <p>Use {@link #of(String)} for direct argument passing or {@link #shell(String)} for an explicitly interpreted
+ * command line. Creating a specification does not start a process or check that an executable or directory exists.
+ * By default, a child inherits the current working directory and environment and has no arguments.
+ *
+ * <p>Each {@code with*} method returns an updated value without changing this instance. Argument collections and
+ * environment overrides are immutable snapshots, so a specification can be reused across threads and executions.
+ */
 public final class CommandSpec {
 
     private final String executable;
@@ -46,8 +55,13 @@ public final class CommandSpec {
     /**
      * Creates a direct command with no base arguments.
      *
-     * @param executable executable name or path
+     * <p>The executable is one token, not a command line. Pass each argument separately through {@link #withArg(String)}
+     * or {@link #withArgs(String...)}. Procwright does not split whitespace, remove quotes, expand wildcards or variables,
+     * or interpret pipes and redirections. Executable lookup follows the operating system and JDK process-launch rules.
+     *
+     * @param executable non-blank executable name or path without NUL characters
      * @return direct command specification
+     * @throws IllegalArgumentException if {@code executable} is blank or contains NUL
      */
     public static CommandSpec of(String executable) {
         return new CommandSpec(executable, List.of(), null, Map.of(), EnvironmentPolicy.INHERIT, false);
@@ -56,8 +70,16 @@ public final class CommandSpec {
     /**
      * Creates an explicit operating-system shell command.
      *
-     * @param commandLine command line interpreted by the operating-system shell
+     * <p>Unix systems use {@code /bin/sh -c}; Windows uses the trusted system {@code cmd.exe /d /s /c}. Syntax and
+     * quoting therefore depend on the platform. The whole string is interpreted: do not concatenate untrusted values
+     * into it. Prefer {@link #of(String)} with separate arguments when shell features are unnecessary.
+     *
+     * <p>A shell specification does not accept additional arguments, including arguments added through a scenario
+     * draft. Working-directory and environment settings remain available.
+     *
+     * @param commandLine non-blank shell command line without NUL characters
      * @return shell command specification
+     * @throws IllegalArgumentException if {@code commandLine} is blank or contains NUL
      */
     public static CommandSpec shell(String commandLine) {
         return new CommandSpec(commandLine, List.of(), null, Map.of(), EnvironmentPolicy.INHERIT, true);
@@ -66,8 +88,9 @@ public final class CommandSpec {
     /**
      * Appends one base argument.
      *
-     * @param argument argument to append
+     * @param argument literal argument to append; empty strings are allowed, NUL characters are not
      * @return updated command specification
+     * @throws IllegalArgumentException if this is a shell specification or {@code argument} contains NUL
      */
     public CommandSpec withArg(String argument) {
         if (shell) {
@@ -83,8 +106,10 @@ public final class CommandSpec {
     /**
      * Appends base arguments after copying the caller array.
      *
-     * @param arguments arguments to append
+     * @param arguments literal arguments to append; empty strings are allowed, NUL characters are not
      * @return updated command specification
+     * @throws IllegalArgumentException if any argument contains NUL, or a non-empty array is supplied to a shell
+     *     specification
      */
     public CommandSpec withArgs(String... arguments) {
         Objects.requireNonNull(arguments, "arguments");
@@ -94,8 +119,10 @@ public final class CommandSpec {
     /**
      * Appends base arguments after copying the caller collection.
      *
-     * @param arguments arguments to append
+     * @param arguments literal arguments to append in iteration order; empty strings are allowed, NUL characters are not
      * @return updated command specification
+     * @throws IllegalArgumentException if any argument contains NUL, or a non-empty collection is supplied to a shell
+     *     specification
      */
     public CommandSpec withArgs(Collection<String> arguments) {
         Objects.requireNonNull(arguments, "arguments");
@@ -118,6 +145,8 @@ public final class CommandSpec {
     /**
      * Sets the process working directory.
      *
+     * <p>The path is retained without checking existence. An unusable directory causes process launch to fail.
+     *
      * @param workingDirectory working directory
      * @return updated command specification
      */
@@ -132,9 +161,10 @@ public final class CommandSpec {
     /**
      * Adds or replaces one environment variable.
      *
-     * @param name variable name
-     * @param value variable value
+     * @param name non-blank variable name without NUL or {@code =}
+     * @param value variable value without NUL; an empty string sets an empty value rather than removing the variable
      * @return updated command specification
+     * @throws IllegalArgumentException if the name or value violates these restrictions
      */
     public CommandSpec withEnvironment(String name, String value) {
         LinkedHashMap<String, String> updated = new LinkedHashMap<>(environment);
@@ -153,6 +183,9 @@ public final class CommandSpec {
 
     /**
      * Starts the child with an empty environment before applying configured entries.
+     *
+     * <p>Previously configured overrides are retained. The platform or an explicitly selected shell may supply its
+     * own mandatory variables; this setting controls the environment Procwright gives to the process launcher.
      *
      * @return updated command specification
      */

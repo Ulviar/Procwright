@@ -14,7 +14,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Fully normalized immutable state for one-shot execution. */
+/** Immutable one-shot draft state; plan creation validates compatibility between settings. */
 public record RunSettings(
         CommandSpec launch,
         CapturePolicy capturePolicy,

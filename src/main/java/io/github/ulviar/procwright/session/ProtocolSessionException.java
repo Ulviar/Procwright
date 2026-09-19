@@ -8,7 +8,11 @@ import java.util.OptionalInt;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Signals a protocol request/response failure.
+ * Signals a typed protocol exchange failure with its reason, bounded transcript, and known exit code.
+ *
+ * <p>Use {@link #reason()} rather than parsing the message. A timeout while waiting for the serialized request slot
+ * may be retryable; failures after adapter admission are terminal under {@link ProtocolSession#request(Object)}.
+ * A failed exchange may already have performed effects in the child, so replay is not automatically safe.
  */
 @SuppressWarnings("serial")
 public final class ProtocolSessionException extends ProcwrightException {
@@ -96,7 +100,7 @@ public final class ProtocolSessionException extends ProcwrightException {
      * Stable protocol failure reasons.
      */
     public enum Reason {
-        /** Request did not complete before its deadline. */
+        /** The serialized request wait or an admitted adapter exchange exceeded its deadline. */
         TIMEOUT,
         /** Session was closed before the request could complete. */
         CLOSED,
@@ -110,11 +114,11 @@ public final class ProtocolSessionException extends ProcwrightException {
         REQUEST_TOO_LARGE,
         /** Consumed response or pending output exceeded a configured response size limit. */
         RESPONSE_TOO_LARGE,
-        /** Protocol adapter failed while decoding a response. */
+        /** The adapter failed while decoding, or mixed reader operations violated decoder-state boundaries. */
         PROTOCOL_DECODER_FAILED,
         /** Process exited while the session was in use. */
         PROCESS_EXITED,
-        /** Another protocol runtime path failed. */
+        /** Another runtime path failed, including request callback failure or interruption; inspect the cause. */
         FAILURE
     }
 }

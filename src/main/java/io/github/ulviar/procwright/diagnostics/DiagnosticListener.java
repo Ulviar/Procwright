@@ -7,6 +7,8 @@ package io.github.ulviar.procwright.diagnostics;
  *
  * <p>Listeners are invoked asynchronously on a best-effort basis. Listener failures are ignored by the runtime.
  * Diagnostics are observational and must not change command behavior.
+ * Events may be dropped when delivery capacity is exhausted. Completion of a command or session does not wait for
+ * outstanding diagnostic deliveries, so this callback is unsuitable for reliable auditing or process control.
  *
  * <p>One command or session lifecycle serializes calls to its listener in submission order. Separate lifecycles use
  * independent delivery queues, so reusing one listener in an immutable scenario {@code Draft} can invoke that same
@@ -28,6 +30,9 @@ public interface DiagnosticListener {
 
     /**
      * Handles one diagnostic event.
+     *
+     * <p>Keep delivery short. The event is immutable and may be retained, but retaining events is the listener's own
+     * responsibility and is not bounded by Procwright.
      *
      * @param event diagnostic event
      */

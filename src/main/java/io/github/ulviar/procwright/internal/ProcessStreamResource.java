@@ -10,7 +10,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * Owns one stable process stream reference and its exact-once best-effort physical close.
+ * Owns one stable process stream reference, one logical close claim, and at most one physical close attempt.
+ *
+ * <p>Async admission or thread-start failure settles the close outcome without invoking the physical close.
  *
  * @hidden
  */
@@ -216,6 +218,6 @@ public final class ProcessStreamResource<T extends Closeable> {
         });
     }
 
-    /** Immutable physical-close result; a {@code null} failure denotes success. */
+    /** Immutable close outcome, including dispatch failures before physical close; a {@code null} failure denotes success. */
     public record CloseOutcome(Throwable failure) {}
 }

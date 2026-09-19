@@ -9,6 +9,13 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Pool of reusable typed protocol-session workers.
  *
+ * <p>Concurrent requests lease different available workers. Requests have no affinity to a particular process; use
+ * a directly opened session for a stateful conversation. The pool owns every worker and returns or retires it after
+ * each request. Close the pool with try-with-resources when its work is complete.
+ *
+ * <p>A request failure retires its worker before that worker can be reused. Procwright does not retry the failed
+ * request automatically: the process may already have performed its effects. Later requests may start a replacement.
+ *
  * <p>The configured maximum belongs to this pool, accepts values from 1 through 256, and defaults to 1. Starting, idle,
  * leased, and retiring workers all occupy this pool's slots. Separate pools and directly opened sessions do not share a
  * worker quota; applications control their aggregate process count through the pools and sessions they create.
@@ -22,17 +29,30 @@ public sealed interface PooledProtocolSession<I extends Object, O extends Object
     /**
      * Sends one pooled request using the worker protocol-session default timeout.
      *
+     * <p>The request timeout covers the worker exchange after acquisition. Waiting for a worker and checking its
+     * health use the separate acquisition timeout and do not spend the request budget.
+     * The caller waits for reset completion or its separate hook timeout. An ordinary reset failure or timeout
+     * retires the worker but preserves the successful response; a fatal reset {@link Error} propagates. Shutdown
+     * after failure can add cleanup time. Consequently the request timeout is not a bound on this whole method call.
+     *
      * @param request request value
      * @return decoded response
+     * @throws ProtocolSessionException if request preparation or the worker exchange fails
+     * @throws PooledSessionException if the pool is closed, acquisition or worker startup fails, or a health hook fails
      */
     O request(I request);
 
     /**
      * Sends one pooled request using an explicit request timeout.
      *
+     * <p>Acquisition, reset, and failure handling follow {@link #request(Object)}.
+     *
      * @param request request value
-     * @param timeout request timeout
+     * @param timeout positive timeout for request work, excluding acquisition and reset
      * @return decoded response
+     * @throws IllegalArgumentException if the timeout is zero or negative
+     * @throws ProtocolSessionException if request preparation or the worker exchange fails
+     * @throws PooledSessionException if the pool is closed, acquisition or worker startup fails, or a health hook fails
      */
     O request(I request, Duration timeout);
 

@@ -16,25 +16,37 @@ import java.util.concurrent.CompletableFuture;
  * {@code protocolSession()}, {@code listen()}, or {@code interactive().expect()} before launch when Procwright should
  * consume output instead.
  *
+ * <p>The caller must consume stdout and stderr concurrently while the process runs. Procwright does not drain raw
+ * output; an unread pipe can fill and block the child, including while the caller is writing stdin or waiting for
+ * {@link #onExit()}. Close the session, normally with try-with-resources, even after natural process exit.
+ *
+ * <p>Raw I/O is blocking and has no per-call timeout. This handle does not make a sequence of writes and reads into an
+ * atomic request/response exchange; coordinate access in the application or use {@link LineSession} or
+ * {@link ProtocolSession}. The configured idle timeout observes successful stream reads and writes, not application
+ * work between them.
+ *
  * <p>This sealed interface is a Procwright-owned handle contract, not a service-provider interface. Applications receive
  * session instances from {@code CommandService}; custom implementations are not supported.
  */
 public sealed interface Session extends AutoCloseable permits DefaultSession {
 
     /**
-     * Returns raw process stdout.
+     * Returns caller-owned process stdout; consume it concurrently with {@link #stderr()}.
      * @return stdout stream
      */
     InputStream stdout();
 
     /**
-     * Returns raw process stderr.
+     * Returns caller-owned process stderr; consume it concurrently with {@link #stdout()}.
      * @return stderr stream
      */
     InputStream stderr();
 
     /**
-     * Returns raw process stdin guarded by the session lifecycle state.
+     * Returns process stdin guarded by the session lifecycle state.
+     *
+     * <p>Writes do not flush automatically. Call {@link OutputStream#flush()} after a complete request. Closing this
+     * stream has the same logical-close semantics as {@link #closeStdin()}.
      *
      * @return stdin stream
      */
@@ -43,21 +55,29 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
     /**
      * Writes text using the session charset and flushes stdin.
      *
-     * @param text text to write
+     * @param text text to write without an added separator
+     * @throws IllegalStateException if stdin is closed or the process has exited
+     * @throws io.github.ulviar.procwright.command.CommandExecutionException if writing or flushing fails
      */
     void send(String text);
 
     /**
      * Writes a line feed terminated text line using the session charset and flushes stdin.
      *
-     * @param line line text without the terminating line feed
+     * <p>Existing line separators are preserved; this method appends one LF even when the text already ends with one.
+     *
+     * @param line text to write before the added line feed
+     * @throws IllegalStateException if stdin is closed or the process has exited
+     * @throws io.github.ulviar.procwright.command.CommandExecutionException if writing or flushing fails
      */
     void sendLine(String line);
 
     /**
      * Writes explicit command input bytes and flushes stdin.
      *
-     * @param input input bytes
+     * @param input input bytes, written without an added separator
+     * @throws IllegalStateException if stdin is closed or the process has exited
+     * @throws io.github.ulviar.procwright.command.CommandExecutionException if writing or flushing fails
      */
     void send(CommandInput input);
 
@@ -68,6 +88,8 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
      * With ordinary pipes, this method only writes the byte to stdin; it does not signal the process.
      *
      * @param signal terminal signal
+     * @throws IllegalStateException if stdin is closed or the process has exited
+     * @throws io.github.ulviar.procwright.command.CommandExecutionException if writing or flushing fails
      */
     void sendSignal(TerminalSignal signal);
 
@@ -89,7 +111,8 @@ public sealed interface Session extends AutoCloseable permits DefaultSession {
      * by the caller until their streams or this session are explicitly closed. Potentially blocking physical stream
      * closes continue independently. A late stdin-close failure can complete a still-running session exceptionally as
      * described by {@link #closeStdin()}; it cannot change a public outcome that has already been selected. Cancelling
-     * the returned view cannot cancel the session.
+     * or completing the returned view cannot cancel the session or change its outcome. Each call returns an independent
+     * view. Keep synchronous completion actions short; use asynchronous continuations for blocking work.
      *
      * @return process exit future
      */

@@ -11,6 +11,10 @@ import org.jspecify.annotations.Nullable;
  * failures. It does not replace scenario-specific exceptions: callers should catch a more specific exception when they
  * need structured data such as a failure reason, transcript, diagnostics, or command result.
  *
+ * <p>Invalid arguments can instead throw standard exceptions such as {@link IllegalArgumentException}; fatal
+ * callback {@link Error}s are not converted into ordinary runtime failures. Exception messages are diagnostic text,
+ * not a stable parsing format. Use scenario-specific reason enums when branching on failures.
+ *
  * <p>Procwright exceptions are not a stable Java-serialization format. Scenario exceptions can retain immutable
  * diagnostic payloads whose API contract is intentionally independent of {@link java.io.Serializable}.
  */

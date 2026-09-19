@@ -196,13 +196,16 @@ dependencies {
 }
 
 tasks.named<Javadoc>("javadoc") {
-    modularity.inferModulePath.set(false)
-    source =
-        sourceSets.main.get().allJava.matching {
-            exclude("module-info.java")
-            exclude("**/internal/**")
-        }
-    classpath += sourceSets.main.get().output
+    source = sourceSets.main.get().allJava.matching { exclude("**/internal/**") }
+    (options as StandardJavadocDocletOptions).addStringOption(
+        "sourcepath",
+        sourceSets.main.get().allJava.srcDirs.joinToString(File.pathSeparator) { it.absolutePath },
+    )
+    inputs.dir(layout.projectDirectory.dir("docs/examples/java"))
+    (options as StandardJavadocDocletOptions).addStringOption(
+        "-snippet-path",
+        layout.projectDirectory.dir("docs/examples/java").asFile.absolutePath,
+    )
 }
 
 val integrationTest =
@@ -280,7 +283,11 @@ val publicJavaJavadocCheck =
     tasks.register("publicJavaJavadocCheck") {
         description = "Builds public Java Javadocs and fails on every Javadoc warning."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        dependsOn(tasks.named("javadoc"), ":procwright-integrations:javadoc")
+        dependsOn(
+            tasks.named("javadoc"),
+            ":procwright-integrations:javadoc",
+            ":procwright-consumer-examples:compileJava",
+        )
     }
 
 apply(from = "gradle/context-quality.gradle.kts")

@@ -4,6 +4,6 @@
 - [Integrations Java API](java/integrations/index.html)
 - [Kotlin API](kotlin/index.html)
 
-These generated references provide exact packages, symbols, and overloads. For usage and lifecycle contracts, use the
-[scenario reference](../scenarios/index.md), [policy reference](../reference/policies.md),
+Use these generated references for signatures, defaults, limits, exceptions, and resource ownership.
+For complete usage examples and help choosing settings, see the [scenario reference](../scenarios/index.md), [policy reference](../reference/policies.md),
 [results and errors](../reference/results-and-errors.md), and selective [Kotlin guide](../reference/kotlin-api.md).

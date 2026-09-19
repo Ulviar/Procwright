@@ -7,7 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Defines how command output is captured for diagnostics and results.
+ * Immutable output-retention policy for one-shot command results.
  *
  * <p>Three families are supported for one-shot runs:
  *
@@ -27,8 +27,14 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded, CapturePoli
     /**
      * Captures output up to a fixed byte limit.
      *
-     * @param byteLimit maximum number of bytes retained per stream
+     * <p>Retains the first {@code byteLimit} bytes of each stream and continues draining later bytes without retaining
+     * them. Reaching the limit does not stop the process. Excess output sets the corresponding
+     * {@link CommandResult#stdoutTruncated()} or {@link CommandResult#stderrTruncated()} flag. With
+     * {@link OutputMode#MERGED}, one limit applies to the combined stdout stream.
+     *
+     * @param byteLimit positive maximum number of bytes retained per stream
      * @return a bounded capture policy
+     * @throws IllegalArgumentException if {@code byteLimit} is zero or negative
      */
     static Bounded bounded(int byteLimit) {
         return new Bounded(byteLimit);
@@ -57,10 +63,12 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded, CapturePoli
      * exist, names that differ only by case, canonical Unicode representation, or trailing dots and spaces are
      * conservatively rejected. Do not replace or relink either path concurrently with process launch: the JDK redirect API does
      * not provide an atomic two-target identity check and open operation.
+     * Parent directories must already exist and targets must be writable when the command is launched.
      *
-     * @param stdout target file for standard output
-     * @param stderr target file for standard error, distinct from {@code stdout}
+     * @param stdout non-blank target path for standard output
+     * @param stderr non-blank target path for standard error, distinct from {@code stdout}
      * @return a file-redirecting capture policy
+     * @throws IllegalArgumentException if either path is blank or both normalize to the same absolute path
      */
     static ToPath toPath(Path stdout, Path stderr) {
         return new ToPath(stdout, Optional.of(Objects.requireNonNull(stderr, "stderr")));
@@ -73,25 +81,28 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded, CapturePoli
      * written to {@code merged}. Existing file content is overwritten. No output pump threads run.
      * {@link CommandResult#stdout()} and {@link CommandResult#stderr()} are empty and the truncation flags are
      * {@code false}.
+     * The parent directory must already exist and the target must be writable when the command is launched.
      *
-     * @param merged target file for the merged stdout and stderr stream
+     * @param merged non-blank target path for the merged stdout and stderr stream
      * @return a file-redirecting capture policy
+     * @throws IllegalArgumentException if {@code merged} is blank
      */
     static ToPath toPath(Path merged) {
         return new ToPath(merged, Optional.empty());
     }
 
     /**
-     * Capture policy that retains at most {@code byteLimit} bytes.
+     * Capture policy that retains the first {@code byteLimit} bytes of each stream while draining all output.
      *
-     * @param byteLimit maximum number of bytes retained per stream
+     * @param byteLimit positive maximum number of bytes retained per stream
      */
     record Bounded(int byteLimit) implements CapturePolicy {
 
         /**
          * Creates a bounded capture policy.
          *
-         * @param byteLimit maximum number of bytes retained per stream
+         * @param byteLimit positive maximum number of bytes retained per stream
+         * @throws IllegalArgumentException if {@code byteLimit} is zero or negative
          */
         public Bounded {
             if (byteLimit <= 0) {
@@ -111,6 +122,8 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded, CapturePoli
      * <p>When {@code stderr} is present the policy redirects the streams separately and requires
      * {@link OutputMode#SEPARATE}; when it is empty, {@code stdout} receives the merged stream and the policy
      * requires {@link OutputMode#MERGED}.
+     * Construction performs only lexical path checks. Filesystem alias checks and capture/output-mode compatibility
+     * checks occur before execution; see {@link CapturePolicy#toPath(Path, Path)} for overwrite and launch rules.
      *
      * @param stdout target file for standard output, or for the merged stream when {@code stderr} is empty
      * @param stderr target file for standard error, or empty for the merged single-file form
@@ -122,6 +135,7 @@ public sealed interface CapturePolicy permits CapturePolicy.Bounded, CapturePoli
          *
          * @param stdout target file for standard output, or for the merged stream when {@code stderr} is empty
          * @param stderr target file for standard error, or empty for the merged single-file form
+         * @throws IllegalArgumentException if either target path is blank or both normalize to the same absolute path
          */
         public ToPath {
             requirePath(stdout, "stdout");

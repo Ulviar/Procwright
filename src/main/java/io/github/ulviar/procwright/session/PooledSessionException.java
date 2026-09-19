@@ -6,7 +6,13 @@ import io.github.ulviar.procwright.ProcwrightException;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
-/** Signals a pooled-session lifecycle failure outside the underlying request itself. */
+/**
+ * Signals a pooled-session lifecycle failure outside the underlying request itself.
+ *
+ * <p>Worker request failures normally preserve {@link LineSessionException} or {@link ProtocolSessionException};
+ * this type distinguishes acquisition, startup, hooks, and pool shutdown. Use {@link #reason()} rather than parsing
+ * messages. A failure does not imply that a request is safe to retry or that the whole pool is closed.
+ */
 @SuppressWarnings("serial")
 public final class PooledSessionException extends ProcwrightException {
 
@@ -57,7 +63,7 @@ public final class PooledSessionException extends ProcwrightException {
         HOOK_TIMEOUT,
         /** Current thread was interrupted while waiting for pool work. */
         INTERRUPTED,
-        /** Pool close did not drain every worker within its configured timeout. */
+        /** The close wait expired; cleanup continues and can be observed through the pool closeAsync method. */
         DRAIN_TIMEOUT,
         /** Worker lifecycle hook or request handling failed outside the underlying request's normal errors. */
         WORKER_FAILED

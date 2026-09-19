@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.session;
 
+/** Stateless shared listener used by {@link StreamListener#noop()}. */
 enum NoopStreamListener implements StreamListener {
     INSTANCE;
 

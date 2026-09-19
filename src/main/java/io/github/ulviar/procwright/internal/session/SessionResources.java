@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-/** Owns session stream access, output ownership, and exact-once physical close. */
+/** Owns session stream access, output ownership, and logical close claims; physical closes are best effort. */
 final class SessionResources {
 
     private final Process process;

@@ -9,13 +9,20 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Pool of reusable line-oriented workers.
  *
- * <p>The pool reuses {@link LineSession} workers. It does not launch processes directly and does not expose worker
- * leases; returning a worker to the pool is owned by the pooled request lifecycle.
+ * <p>The pool reuses {@link LineSession} workers without exposing leases. Each request returns or retires its worker
+ * automatically.
  *
  * <p>Line validation and encoded-size checks complete before a worker is leased; the encoded byte array is created
  * after acquisition. Failure during this local preparation returns an acquired worker without resetting it or consuming
  * its request limit, subject to normal age and close rules. Once the worker's request starts, failure retires that
  * worker, including a pre-write failure that could leave a directly owned line session open.
+ *
+ * <p>Concurrent requests lease different available workers. Requests have no affinity to a particular process; use
+ * a directly opened session for a stateful conversation. The pool owns every worker and returns or retires it after
+ * each request. Close the pool with try-with-resources when its work is complete.
+ *
+ * <p>Procwright does not retry a failed request automatically: the process may already have performed its effects.
+ * Later requests may start a replacement for a retired worker.
  *
  * <p>The configured maximum belongs to this pool, accepts values from 1 through 256, and defaults to 1. Starting, idle,
  * leased, and retiring workers all occupy this pool's slots. Separate pools and directly opened sessions do not share a
@@ -29,21 +36,31 @@ public sealed interface PooledLineSession extends AutoCloseable permits DefaultP
     /**
      * Sends one pooled request using the worker line-session default timeout.
      *
-     * <p>Failure and worker-retirement handling follows the class contract.
+     * <p>Request preparation, encoding, and the worker exchange share the request timeout. Waiting for a worker and
+     * checking its health use the separate acquisition timeout; that wait does not spend the request budget.
+     * The caller waits for reset completion or its separate hook timeout. An ordinary reset failure or timeout
+     * retires the worker but preserves the successful response; a fatal reset {@link Error} propagates. Shutdown
+     * after failure can add cleanup time. Consequently the request timeout is not a bound on this whole method call.
      *
-     * @param line request line without the terminating line feed
+     * @param line request text containing neither CR nor LF; an empty line is allowed
      * @return decoded response
+     * @throws IllegalArgumentException if the line contains CR or LF
+     * @throws LineSessionException if request preparation or the worker exchange fails
+     * @throws PooledSessionException if the pool is closed, acquisition or worker startup fails, or a health hook fails
      */
     LineResponse request(String line);
 
     /**
      * Sends one pooled request using an explicit request timeout.
      *
-     * <p>Failure and worker-retirement handling follows the class contract.
+     * <p>Acquisition, reset, and failure handling follow {@link #request(String)}.
      *
-     * @param line request line without the terminating line feed
-     * @param timeout request timeout
+     * @param line request text containing neither CR nor LF; an empty line is allowed
+     * @param timeout positive timeout for request work, excluding acquisition and reset
      * @return decoded response
+     * @throws IllegalArgumentException if the line contains CR or LF or the timeout is zero or negative
+     * @throws LineSessionException if request preparation or the worker exchange fails
+     * @throws PooledSessionException if the pool is closed, acquisition or worker startup fails, or a health hook fails
      */
     LineResponse request(String line, Duration timeout);
 

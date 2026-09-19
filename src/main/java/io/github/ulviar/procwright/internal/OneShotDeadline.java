@@ -9,7 +9,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-/** One absolute deadline shared by every blocking phase of a one-shot execution. */
+/**
+ * One absolute deadline shared by process-supervision, stdin-writing, and output-capture waits.
+ *
+ * <p>Process launch is synchronous and cannot be interrupted by this deadline. Shutdown and post-shutdown draining
+ * use their own cleanup budgets.
+ */
 final class OneShotDeadline {
 
     private final boolean bounded;

@@ -14,7 +14,11 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Objects;
 
-/** Namespace for immutable listen-only stream drafts. */
+/**
+ * Configuration API for processes whose decoded output is consumed as it arrives.
+ *
+ * <p>Obtain a {@link Draft} from {@link CommandService#listen()} and register an output listener before opening it.
+ */
 public final class StreamScenario {
 
     private StreamScenario() {}
@@ -24,7 +28,11 @@ public final class StreamScenario {
     }
 
     /**
-     * Persistent write-only configuration for opening listen-only streams.
+     * Immutable configuration for live process output, obtained from {@link CommandService#listen()}.
+     *
+     * <p>Each {@code with*} call returns a new draft without changing this one or starting a process. Launch settings
+     * begin with the service's command specification. Defaults are no absolute timeout, UTF-8 output, 65,536 UTF-16
+     * code units of combined retained diagnostics, and a no-op output listener.
      *
      * <p>The scenario closes process stdin when it starts. Use {@link CommandService#interactive()} when the caller
      * needs to write stdin.
@@ -36,123 +44,154 @@ public final class StreamScenario {
      */
     public interface Draft {
         /**
-         * Appends one process argument.
+         * Appends one argument after the base command's arguments. The string is passed as one argv element;
+         * spaces, quotes, wildcard characters, and shell operators are not interpreted.
          *
-         * @param argument argument to append
-         * @return updated draft
+         * @param argument argument to append; may be empty, but must not contain NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if the argument contains NUL or the base command is a shell command
          */
         Draft withArg(String argument);
 
         /**
-         * Appends process arguments after copying the caller array.
+         * Appends arguments in array order, after copying the array. Each element is passed literally as one
+         * argv element. An empty array adds nothing.
          *
-         * @param arguments arguments to append
-         * @return updated draft
+         * @param arguments arguments to append; elements must be non-null and contain no NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if an argument contains NUL, or nonempty arguments are appended to a shell command
          */
         Draft withArgs(String... arguments);
 
         /**
-         * Appends process arguments after copying the caller collection.
+         * Appends arguments in iteration order, after copying the collection. Each element is passed literally
+         * as one argv element. An empty collection adds nothing.
          *
-         * @param arguments arguments to append
-         * @return updated draft
+         * @param arguments arguments to append; elements must be non-null and contain no NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if an argument contains NUL, or nonempty arguments are appended to a shell command
          */
         Draft withArgs(Collection<String> arguments);
 
         /**
-         * Sets the process working directory.
+         * Sets the child process's working directory. This does not change the application's working directory;
+         * the operating system validates the directory when the process starts.
          *
-         * @param workingDirectory working directory
-         * @return updated draft
+         * @param workingDirectory child working directory; otherwise inherited from the base command
+         * @return updated immutable draft
          */
         Draft withWorkingDirectory(Path workingDirectory);
 
         /**
-         * Adds or replaces one child environment variable.
+         * Adds or replaces a child environment entry. Explicit entries are applied after the selected inherited
+         * or clean environment, independently of the order of configuration calls.
          *
-         * @param name variable name
-         * @param value variable value
-         * @return updated draft
+         * @param name nonblank variable name containing neither NUL nor {@code =}
+         * @param value variable value; may be empty, but must not contain NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if the name or value violates these constraints
          */
         Draft withEnvironment(String name, String value);
 
         /**
-         * Selects parent environment inheritance.
+         * Inherits the parent environment and then applies all explicitly configured entries.
+         * This is the default for a new command specification.
          *
-         * @return updated draft
+         * @return updated immutable draft
          */
         Draft withInheritedEnvironment();
 
         /**
-         * Selects an initially empty child environment.
+         * Starts from an empty child environment and then applies all explicitly configured entries.
+         * This does not remove entries already configured on the command or draft.
          *
-         * @return updated draft
+         * @return updated immutable draft
          */
         Draft withCleanEnvironment();
 
         /**
-         * Sets process shutdown escalation.
+         * Sets the graceful and forceful shutdown waits. The default waits up to two seconds after requesting
+         * graceful termination, then up to five seconds after requesting forceful termination.
+         * Shutdown can extend the time taken to return from an operation whose own timeout has elapsed.
          *
-         * @param shutdownPolicy shutdown policy
-         * @return updated draft
+         * @param shutdownPolicy shutdown escalation and wait budgets
+         * @return updated immutable draft
          */
         Draft withShutdown(ShutdownPolicy shutdownPolicy);
 
         /**
-         * Sets the absolute stream timeout; zero disables it.
+         * Sets the absolute stream timeout; zero disables it. The default is zero (disabled).
+         * The deadline covers process work, including I/O, rather than an interval between output chunks.
+         * Shutdown has separate wait budgets and can delay completion beyond this timeout.
          *
-         * @param timeout non-negative timeout
-         * @return updated draft
+         * @param timeout non-negative stream timeout
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if {@code timeout} is negative
          */
         Draft withTimeout(Duration timeout);
 
         /**
-         * Sets the charset used to decode output chunks.
+         * Decodes stdout and stderr with the supplied charset, replacing malformed or unmappable input.
+         * The default is UTF-8. Chunks preserve text content, including line separators and terminal control sequences;
+         * a chunk is not necessarily one line.
          *
-         * @param charset output charset
-         * @return updated draft
+         * @param charset output decoding charset
+         * @return updated immutable draft
          */
         Draft withCharset(Charset charset);
 
         /**
-         * Sets the retained diagnostic character limit.
+         * Bounds the retained diagnostic tail shared by stdout and stderr, including stream labels.
+         * The default is 65,536 UTF-16 code units. Older diagnostic text is discarded when the limit is exceeded;
+         * this does not limit output delivered to the listener.
          *
-         * @param diagnosticLimit positive character limit
-         * @return updated draft
+         * @param diagnosticLimit positive number of UTF-16 code units
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if {@code diagnosticLimit} is not positive
          */
         Draft withDiagnosticLimit(int diagnosticLimit);
 
         /**
-         * Sets the callback that receives stdout and stderr chunks.
+         * Sets the listener for decoded stdout and stderr chunks. The default ignores output.
+         * A session serializes synchronous listener calls across both streams; a slow listener applies backpressure.
+         * Chunks can split lines and include carriage returns or terminal control sequences. See {@link StreamListener}
+         * for completion and failure behavior.
          *
-         * <p>The Draft retains the listener. Calls are serialized within one stream session, but concurrent opens can
-         * invoke the same listener instance concurrently.
+         * <p>The draft retains the listener. Concurrent opens can invoke the same listener from different sessions.
          *
-         * @param listener output listener
-         * @return updated draft
+         * @param listener retained output listener
+         * @return updated immutable draft
          */
         Draft onOutput(StreamListener listener);
 
         /**
-         * Observes lifecycle diagnostics.
+         * Observes structured lifecycle events through an asynchronous, best-effort listener.
+         * Events contain command metadata, not stdout or stderr. Delivery need not finish before the operation returns.
+         * See {@link DiagnosticListener} for concurrency and failure isolation.
          *
-         * @param listener diagnostic listener
-         * @return updated draft
+         * @param listener retained event listener; the default ignores events
+         * @return updated immutable draft
          */
         Draft withDiagnosticListener(DiagnosticListener listener);
 
         /**
-         * Receives bounded diagnostic transcript snapshots.
+         * Records structured lifecycle events through an asynchronous, best-effort sink.
+         * The sink receives {@link io.github.ulviar.procwright.diagnostics.DiagnosticEvent} values, not captured process
+         * output. Delivery is independent of the diagnostic listener and need not finish before the operation returns.
          *
-         * @param transcriptSink transcript sink
-         * @return updated draft
+         * @param transcriptSink retained event sink; the default ignores events
+         * @return updated immutable draft
          */
         Draft withDiagnosticTranscriptSink(DiagnosticTranscriptSink transcriptSink);
 
         /**
-         * Starts a new process and returns its live output stream handle.
+         * Starts a process, closes its stdin, and begins delivering output to the configured listener.
+         * Callbacks may run before this method returns. The caller owns the returned handle and must close it,
+         * preferably with try-with-resources. Natural completion and asynchronous failures are observed through
+         * {@link StreamSession#onExit()}; see {@link StreamSession} for output delivery and close guarantees.
          *
          * @return newly opened stream session
+         * @throws io.github.ulviar.procwright.command.CommandExecutionException if process launch or setup fails
          */
         StreamSession open();
     }

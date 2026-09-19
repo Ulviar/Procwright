@@ -11,8 +11,9 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Lifecycle state, resource futures, and capacity permits must be settled before work is submitted here. A hostile
  * uncaught-exception handler or completion callback can then consume only this owner's fixed active slots and bounded
- * pending queue; it cannot retain the resource owner that produced the notification. Every active notification uses a
- * fresh non-inheriting daemon thread, so arbitrary callback thread-local state cannot cross notification ownership.
+ * pending queue; it cannot keep the producing owner's capacity reserved or postpone its logical settlement. A callback
+ * can still retain objects it captures. Every active notification uses a fresh non-inheriting daemon thread, so
+ * arbitrary callback thread-local state cannot cross notification ownership.
  * Uncaught-exception handlers receive a detached thread identity containing a snapshot of useful source metadata,
  * never the physical source thread that may already have returned to a reusable owner.
  *

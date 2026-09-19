@@ -45,7 +45,11 @@ public final class InteractiveScenario {
     }
 
     /**
-     * Persistent write-only configuration for opening raw interactive sessions.
+     * Immutable configuration for raw interactive sessions, obtained from {@link CommandService#interactive()}.
+     *
+     * <p>Each {@code with*} call returns a new draft without changing this one or starting a process. Launch settings
+     * begin with the service's command specification. Defaults are UTF-8 text input, no idle timeout, no readiness
+     * probe, and terminal transport disabled. The caller owns reading both stdout and stderr; see {@link Session}.
      *
      * <p>The Draft retains its PTY provider, readiness probe, diagnostic listener, and transcript sink. Concurrent
      * {@link #open()} calls can invoke each supplied instance concurrently from independent sessions. Retained instances
@@ -53,147 +57,186 @@ public final class InteractiveScenario {
      */
     public interface Draft {
         /**
-         * Appends one process argument.
+         * Appends one argument after the base command's arguments. The string is passed as one argv element;
+         * spaces, quotes, wildcard characters, and shell operators are not interpreted.
          *
-         * @param argument argument to append
-         * @return updated draft
+         * @param argument argument to append; may be empty, but must not contain NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if the argument contains NUL or the base command is a shell command
          */
         Draft withArg(String argument);
 
         /**
-         * Appends process arguments after copying the caller array.
+         * Appends arguments in array order, after copying the array. Each element is passed literally as one
+         * argv element. An empty array adds nothing.
          *
-         * @param arguments arguments to append
-         * @return updated draft
+         * @param arguments arguments to append; elements must be non-null and contain no NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if an argument contains NUL, or nonempty arguments are appended to a shell command
          */
         Draft withArgs(String... arguments);
 
         /**
-         * Appends process arguments after copying the caller collection.
+         * Appends arguments in iteration order, after copying the collection. Each element is passed literally
+         * as one argv element. An empty collection adds nothing.
          *
-         * @param arguments arguments to append
-         * @return updated draft
+         * @param arguments arguments to append; elements must be non-null and contain no NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if an argument contains NUL, or nonempty arguments are appended to a shell command
          */
         Draft withArgs(Collection<String> arguments);
 
         /**
-         * Sets the process working directory.
+         * Sets the child process's working directory. This does not change the application's working directory;
+         * the operating system validates the directory when the process starts.
          *
-         * @param workingDirectory working directory
-         * @return updated draft
+         * @param workingDirectory child working directory; otherwise inherited from the base command
+         * @return updated immutable draft
          */
         Draft withWorkingDirectory(Path workingDirectory);
 
         /**
-         * Adds or replaces one child environment variable.
+         * Adds or replaces a child environment entry. Explicit entries are applied after the selected inherited
+         * or clean environment, independently of the order of configuration calls.
          *
-         * @param name variable name
-         * @param value variable value
-         * @return updated draft
+         * @param name nonblank variable name containing neither NUL nor {@code =}
+         * @param value variable value; may be empty, but must not contain NUL
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if the name or value violates these constraints
          */
         Draft withEnvironment(String name, String value);
 
         /**
-         * Selects parent environment inheritance.
+         * Inherits the parent environment and then applies all explicitly configured entries.
+         * This is the default for a new command specification.
          *
-         * @return updated draft
+         * @return updated immutable draft
          */
         Draft withInheritedEnvironment();
 
         /**
-         * Selects an initially empty child environment.
+         * Starts from an empty child environment and then applies all explicitly configured entries.
+         * This does not remove entries already configured on the command or draft.
          *
-         * @return updated draft
+         * @return updated immutable draft
          */
         Draft withCleanEnvironment();
 
         /**
-         * Sets process shutdown escalation.
+         * Sets the graceful and forceful shutdown waits. The default waits up to two seconds after requesting
+         * graceful termination, then up to five seconds after requesting forceful termination.
+         * Shutdown can extend the time taken to return from an operation whose own timeout has elapsed.
          *
-         * @param shutdownPolicy shutdown policy
-         * @return updated draft
+         * @param shutdownPolicy shutdown escalation and wait budgets
+         * @return updated immutable draft
          */
         Draft withShutdown(ShutdownPolicy shutdownPolicy);
 
         /**
-         * Sets the caller-visible idle timeout; zero disables it.
+         * Sets the inactivity timeout for the underlying process session. Zero disables it, which is the default.
+         * Successful reads and writes through the session's streams refresh activity; this is not a total process
+         * lifetime or request deadline. Expiry starts process shutdown.
          *
-         * @param idleTimeout non-negative idle timeout
-         * @return updated draft
+         * @param idleTimeout non-negative inactivity timeout
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if {@code idleTimeout} is negative
          */
         Draft withIdleTimeout(Duration idleTimeout);
 
         /**
-         * Sets the charset used by text send helpers.
+         * Sets the charset used by the session's text send helpers. The default is UTF-8.
+         * Raw stdout and stderr remain byte streams; the caller chooses how to decode them.
          *
-         * @param charset text charset
-         * @return updated draft
+         * @param charset input encoding charset
+         * @return updated immutable draft
          */
         Draft withCharset(Charset charset);
 
         /**
-         * Selects whether a terminal is disabled, preferred, or required.
+         * Selects pipe transport or a pseudo-terminal. The default is {@link TerminalPolicy#DISABLED}.
+         * {@link TerminalPolicy#AUTO} permits pipe fallback when the provider is unavailable;
+         * {@link TerminalPolicy#REQUIRED} fails the open instead. See {@link PtyProvider} for platform requirements.
          *
-         * @param terminalPolicy terminal policy
-         * @return updated draft
+         * @param terminalPolicy terminal requirement
+         * @return updated immutable draft
          */
         Draft withTerminal(TerminalPolicy terminalPolicy);
 
         /**
-         * Sets the PTY provider used when a terminal is requested.
+         * Sets the provider consulted for {@link TerminalPolicy#AUTO} or {@link TerminalPolicy#REQUIRED}.
+         * The default is {@link PtyProvider#system()}. Setting a provider does not itself enable terminal transport.
+         * A shared provider must support concurrent opens and follow the timing contract of {@link PtyProvider}.
          *
-         * @param ptyProvider PTY provider
-         * @return updated draft
+         * @param ptyProvider retained terminal provider
+         * @return updated immutable draft
          */
         Draft withPtyProvider(PtyProvider ptyProvider);
 
         /**
-         * Sets the requested terminal dimensions.
+         * Sets the dimensions requested when a pseudo-terminal is opened. The default is 80 columns by 24 rows.
+         * This is an initial size request, not a resize operation on an existing session; pipe transport ignores it.
          *
-         * @param terminalSize terminal size
-         * @return updated draft
+         * @param terminalSize requested terminal dimensions
+         * @return updated immutable draft
          */
         Draft withTerminalSize(TerminalSize terminalSize);
 
         /**
-         * Sets a probe that must complete before {@link #open()} returns.
+         * Sets the probe that must succeed before {@link #open()} returns. No probe is configured by default.
+         * The probe receives the new handle and may perform its startup conversation. Its I/O consumes real output;
+         * use the handle's normal protocol operations. Failure closes the new process. Configure its wait with
+         * {@link #withReadinessTimeout(Duration)}.
          *
-         * <p>The Draft retains the probe. Each open invokes it once for its new session and waits for completion;
-         * concurrent opens can invoke the same probe instance concurrently.
+         * <p>The retained probe runs once per session or pool worker on a task thread. Concurrent launches may
+         * invoke it concurrently; state shared between invocations must be thread-safe.
          *
-         * @param readinessProbe readiness probe
-         * @return updated draft
+         * @param readinessProbe probe operating on the newly opened handle
+         * @return updated immutable draft
          */
         Draft withReadiness(Consumer<Session> readinessProbe);
 
         /**
-         * Sets the readiness probe timeout.
+         * Sets the wait for a configured readiness probe. The default is five seconds.
+         * This setting has no effect without a probe and does not bound process launch itself. Timeout closes the
+         * new session; a probe that ignores interruption may continue after the open fails.
          *
-         * @param readinessTimeout positive timeout
-         * @return updated draft
+         * @param readinessTimeout strictly positive probe timeout
+         * @return updated immutable draft
+         * @throws IllegalArgumentException if {@code readinessTimeout} is zero or negative
          */
         Draft withReadinessTimeout(Duration readinessTimeout);
 
         /**
-         * Observes lifecycle diagnostics.
+         * Observes structured lifecycle events through an asynchronous, best-effort listener.
+         * Events contain command metadata, not stdout or stderr. Delivery need not finish before the operation returns.
+         * See {@link DiagnosticListener} for concurrency and failure isolation.
          *
-         * @param listener diagnostic listener
-         * @return updated draft
+         * @param listener retained event listener; the default ignores events
+         * @return updated immutable draft
          */
         Draft withDiagnosticListener(DiagnosticListener listener);
 
         /**
-         * Receives bounded diagnostic transcript snapshots.
+         * Records structured lifecycle events through an asynchronous, best-effort sink.
+         * The sink receives {@link io.github.ulviar.procwright.diagnostics.DiagnosticEvent} values, not captured process
+         * output. Delivery is independent of the diagnostic listener and need not finish before the operation returns.
          *
-         * @param transcriptSink transcript sink
-         * @return updated draft
+         * @param transcriptSink retained event sink; the default ignores events
+         * @return updated immutable draft
          */
         Draft withDiagnosticTranscriptSink(DiagnosticTranscriptSink transcriptSink);
 
         /**
-         * Starts a new process, runs readiness, and returns its live session.
+         * Starts an independent process and returns its handle after the configured readiness probe succeeds.
+         * The caller must consume both stdout and stderr; Procwright does not drain raw output. The caller must close the handle, preferably with try-with-resources.
          *
-         * @return newly opened session
+         * <p>Readiness runs once on a task thread. Failure or timeout closes the newly opened process before the
+         * failure is reported; a probe that ignores interruption can outlive the failed open. The readiness
+         * timeout does not bound process launch. See {@link Session} for operation and close semantics.
+         *
+         * @return newly opened handle owned by the caller
+         * @throws io.github.ulviar.procwright.command.CommandExecutionException if launch or setup fails, or readiness
+         *     fails ({@code READINESS_FAILED}) or times out ({@code READINESS_TIMEOUT})
          */
         Session open();
     }

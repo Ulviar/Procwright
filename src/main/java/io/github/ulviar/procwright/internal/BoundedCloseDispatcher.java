@@ -14,8 +14,9 @@ import java.util.function.Consumer;
  * Runs potentially blocking process-stream closes with a bounded active set and backlog.
  *
  * <p>Admission owns only work that is already ready to run. Live process resources do not reserve dispatcher capacity.
- * A rejected close remains a best-effort cleanup failure and cannot delay a public process outcome. Physical close and
- * callbacks always run outside the dispatcher monitor.
+ * Admission failure is returned to the lifecycle owner without waiting for capacity; that owner decides whether it
+ * requires terminal cleanup or best-effort reporting. Physical close and callbacks always run outside the dispatcher
+ * monitor.
  *
  * @hidden
  */

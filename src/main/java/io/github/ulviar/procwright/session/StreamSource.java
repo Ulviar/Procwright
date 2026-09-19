@@ -25,7 +25,7 @@ public enum StreamSource {
     /**
      * Returns a stable lowercase diagnostic label.
      *
-     * @return stream label
+     * @return {@code "stdout"} or {@code "stderr"}
      */
     public String label() {
         return label;

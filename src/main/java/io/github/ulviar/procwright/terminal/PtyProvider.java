@@ -26,9 +26,24 @@ public interface PtyProvider {
     /**
      * Returns the best system PTY provider for the current platform.
      *
+     * <p>The built-in provider supports compatible Unix systems, including macOS and Linux. It requires working
+     * {@code script}, {@code stty}, {@code env}, and {@code dd} helpers in standard {@code /usr/bin} or {@code /bin}
+     * locations and {@code /bin/sh}. Windows ConPTY is not implemented. Use {@link #available()} and
+     * {@link #description()} to check the detected capability.
+     *
      * <p>Capability detection is bounded, cached, and verifies the exact absolute transport helpers before this provider
-     * reports itself as available. The Unix provider fails closed when the executable token contains {@code =}, because
-     * portable {@code env} operand syntax cannot represent that token unambiguously.
+     * reports itself as available. Availability is not a guarantee that every later launch will succeed. The returned
+     * provider is shared and supports concurrent use.
+     *
+     * <p>The child receives the requested environment policy and overrides. The provider adds {@code TERM=xterm-256color}
+     * only when {@code TERM} is absent and sets {@code COLUMNS} and {@code LINES} from the requested terminal dimensions.
+     * Target environment values are supplied only to the final child, not to the transport wrapper.
+     *
+     * <p>System-provider launch limits are 256 command tokens including the executable, 256 final environment entries,
+     * 32 KiB per encoded token/name/value, and 128 KiB total encoded payload. Text must be representable in the native
+     * process charset. The executable token must not contain {@code =}, because portable {@code env} operand syntax
+     * cannot represent it unambiguously. Exceeding these limits fails launch with {@link CommandExecutionException}.
+     * These transport limits do not apply to ordinary pipe-based process execution.
      *
      * @return system PTY provider
      */
@@ -39,6 +54,8 @@ public interface PtyProvider {
     /**
      * Returns an unavailable provider with a generic reason.
      *
+     * <p>{@link TerminalPolicy#AUTO} can use pipes with this provider; {@link TerminalPolicy#REQUIRED} fails to open.
+     *
      * @return unavailable provider
      */
     static PtyProvider unavailable() {
@@ -48,8 +65,9 @@ public interface PtyProvider {
     /**
      * Returns an unavailable provider with an explicit reason.
      *
-     * @param reason unavailable reason
+     * @param reason non-blank unavailable reason without NUL characters
      * @return unavailable provider
+     * @throws IllegalArgumentException if {@code reason} is blank or contains NUL
      */
     static PtyProvider unavailable(String reason) {
         return new UnavailablePtyProvider(reason);
@@ -58,7 +76,9 @@ public interface PtyProvider {
     /**
      * Reports whether this provider can start PTY-backed processes in the current runtime.
      *
-     * @return true when available
+     * <p>This is a capability check, not a reservation or a promise that the next launch will succeed.
+     *
+     * @return {@code true} when terminal capability is available
      */
     boolean available();
 
@@ -71,6 +91,14 @@ public interface PtyProvider {
 
     /**
      * Starts the requested command inside a terminal.
+     *
+     * <p>On successful return, process and stream ownership passes to the calling runtime, which reads output, writes
+     * input, observes exit, and performs shutdown. The returned {@link Process} must support those ordinary JDK
+     * operations. A provider is responsible for cleaning up processes it started if it throws before returning them.
+     *
+     * <p>A terminal can alter echo, line endings, buffering, and stdout/stderr routing. Provider implementations should
+     * document their transport behavior. The system provider exposes the child's terminal output through process
+     * stdout; process stderr remains available for transport diagnostics rather than a separate child stderr stream.
      *
      * @param request resolved PTY request
      * @return started provider process

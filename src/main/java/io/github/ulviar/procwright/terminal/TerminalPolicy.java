@@ -3,7 +3,10 @@
 package io.github.ulviar.procwright.terminal;
 
 /**
- * Describes terminal preference for a command scenario.
+ * Selects terminal transport for a session scenario before process launch.
+ *
+ * <p>A terminal may change buffering, echo, line endings, and output routing. Prefer ordinary pipes for machine
+ * protocols unless the child requires a terminal. The policy does not turn a session into a terminal emulator.
  */
 public enum TerminalPolicy {
     /**
@@ -12,12 +15,15 @@ public enum TerminalPolicy {
     DISABLED,
 
     /**
-     * Lets a scenario choose a terminal when a terminal-capable transport exists.
+     * Uses the configured PTY provider when it reports available; otherwise starts with ordinary pipes. If an available
+     * provider fails during launch, that failure propagates instead of retrying the command with pipes.
      */
     AUTO,
 
     /**
-     * Requires a terminal-capable transport and fails instead of silently falling back to pipes.
+     * Requires a terminal-capable transport. Opening fails with
+     * {@link io.github.ulviar.procwright.command.CommandExecutionException} if the provider is unavailable or cannot
+     * start the terminal process; it never falls back to pipes.
      */
     REQUIRED
 }

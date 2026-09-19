@@ -1,7 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 /**
- * Optional integration helpers built on top of the scenario-first Procwright core module.
+ * JSON and byte-framing adapters for Procwright protocol sessions.
+ *
+ * <p>The entry point is {@link io.github.ulviar.procwright.integration.ProtocolAdapters}. This module transitively
+ * requires Procwright core and Jackson databind, so named consumer modules need only
+ * {@code requires io.github.ulviar.procwright.integrations;} to use these adapters. It adds no process runtime;
+ * sessions and pools retain the lifecycle and concurrency contracts of core.
  */
 module io.github.ulviar.procwright.integrations {
     requires transitive io.github.ulviar.procwright;

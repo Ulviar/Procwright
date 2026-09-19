@@ -10,10 +10,12 @@ import java.util.concurrent.CompletableFuture;
  *
  * <p>A stream session owns stdout/stderr pumps and dispatches chunks to the configured listener. It does not retain all
  * output; only a bounded diagnostic window is kept for exit and failure signals. Process stdin is already closed when
- * the handle is returned.
+ * the handle is returned. Close the handle with try-with-resources when finished, even after natural process exit.
  *
  * <p>This sealed interface is a Procwright-owned handle contract, not a service-provider interface. Applications receive
  * stream sessions from {@code CommandService}.
+ *
+ * @see io.github.ulviar.procwright.CommandService#listen()
  */
 public sealed interface StreamSession extends AutoCloseable permits DefaultStreamSession {
 
@@ -29,7 +31,11 @@ public sealed interface StreamSession extends AutoCloseable permits DefaultStrea
      * exceptionally with {@link StreamException}. A fatal {@link Error} is not wrapped: the future completes
      * exceptionally with the same {@code Error} instance.
      *
-     * @return stream exit future
+     * <p>Each call returns an independent view. Cancelling or completing it does not stop the process or affect other
+     * views. Use {@link #close()} to stop the command. Keep synchronous completion actions short; use asynchronous
+     * continuations for blocking work.
+     *
+     * @return cancellation-isolated stream exit future
      */
     CompletableFuture<StreamExit> onExit();
 

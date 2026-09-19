@@ -7,7 +7,13 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Generic request/response workflow over an interactive process.
+ * Typed request/response workflow over a process that accepts repeated requests while remaining alive.
+ *
+ * <p>The session owns process input and output; its {@link ProtocolAdapter} defines request framing and response
+ * boundaries. Concurrent callers are supported and each exchange is serialized; order across calling threads is not
+ * specified. Close the handle with try-with-resources when its work is complete.
+ *
+ * @see io.github.ulviar.procwright.CommandService#protocolSession(java.util.function.Supplier)
  *
  * @param <I> request type
  * @param <O> response type
@@ -16,7 +22,10 @@ public sealed interface ProtocolSession<I extends Object, O extends Object> exte
         permits DefaultProtocolSession {
 
     /**
-     * Sends one request and decodes one response with the default request timeout.
+     * Sends one request and decodes one response with the configured request timeout, initially five seconds.
+     *
+     * <p>The timeout covers the serialized wait and both adapter callbacks. Cleanup after a terminal timeout uses the
+     * separate shutdown policy and can extend the time before this call returns.
      *
      * <p>Only one request can be admitted to its adapter at a time. A timeout or interruption while waiting for that
      * serialized request slot occurs before adapter admission, writes no bytes for the waiting request, and leaves the
@@ -41,8 +50,9 @@ public sealed interface ProtocolSession<I extends Object, O extends Object> exte
      * <p>Failure handling is the same as {@link #request(Object)}.
      *
      * @param request request value
-     * @param timeout request timeout
+     * @param timeout positive timeout for this entire exchange, including its serialized wait
      * @return decoded response
+     * @throws IllegalArgumentException if the timeout is zero or negative
      * @throws ProtocolSessionException when the request cannot be completed safely
      */
     O request(I request, Duration timeout);
@@ -64,12 +74,18 @@ public sealed interface ProtocolSession<I extends Object, O extends Object> exte
      * the process streams. A terminal protocol-session failure accepted before the public outcome is selected completes
      * it exceptionally.
      *
-     * @return process exit future
+     * <p>Each call returns an independent view. Cancelling or completing it does not affect the process or other views.
+     * Keep synchronous completion actions short; use asynchronous continuations for blocking work.
+     *
+     * @return cancellation-isolated process exit future
      */
     CompletableFuture<SessionExit> onExit();
 
     /**
-     * Closes the underlying interactive session.
+     * Stops accepting requests and closes the process through its configured shutdown policy.
+     *
+     * <p>Calling this method more than once has no effect. A concurrent terminal action may already own cleanup;
+     * use {@link #onExit()} to await the logical outcome. Physical stream closes can continue after that outcome.
      */
     @Override
     void close();

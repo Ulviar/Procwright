@@ -8,6 +8,10 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Signals a streaming-session failure with bounded diagnostics.
+ *
+ * <p>Reported as exceptional completion of {@link StreamSession#onExit()}; joining that future wraps this failure
+ * in {@link java.util.concurrent.CompletionException}. Ordinary nonzero process exit, timeout, and caller close are
+ * represented by {@link StreamExit} instead. Fatal {@link Error}s are not wrapped in this type.
  */
 @SuppressWarnings("serial")
 public final class StreamException extends ProcwrightException {

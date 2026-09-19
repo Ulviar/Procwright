@@ -10,7 +10,8 @@ package io.github.ulviar.procwright.session;
  * workers is unsupported.
  *
  * <p>One protocol session serializes request cycles. Its adapter completes {@link #writeRequest(Object, ProtocolWriter)}
- * before {@link #readResponse(ProtocolReaders)}, and adapter calls do not overlap within that session. Different
+ * before {@link #readResponse(ProtocolReaders)}, and adapter calls do not overlap within that session. Neither callback
+ * has a stable thread identity across requests. Different
  * factory-created adapters can run concurrently. Mutable state captured outside those adapter instances remains shared
  * and must be thread-safe.
  *
@@ -27,13 +28,21 @@ package io.github.ulviar.procwright.session;
  * <p>A callback-thrown {@link Error} remains fatal when it wins arbitration; otherwise it does not replace an
  * already-selected terminal or fatal session outcome.
  *
+ * <p>For a worker whose requests and responses are each one line (prefer the dedicated line-session scenario
+ * when no custom protocol is needed), a minimal adapter is:
+ * {@snippet file="io/github/ulviar/procwright/examples/ApiUsageExamples.java" region="adapter"}
+ *
  * @param <I> request type
  * @param <O> response type
  */
 public interface ProtocolAdapter<I extends Object, O extends Object> {
 
     /**
-     * Writes one request to process stdin.
+     * Writes one complete request to process stdin and flushes it before returning.
+     *
+     * <p>The adapter owns framing and must call {@link ProtocolWriter#flush()} after writing the request. Returning
+     * from this method, including after {@link ProtocolWriter#writeLine(String)}, does not flush automatically. The
+     * response callback starts only after this method returns; do not wait here for a response from the process.
      *
      * @param request request value
      * @param writer deadline-aware, callback-scoped stdin writer
@@ -43,7 +52,10 @@ public interface ProtocolAdapter<I extends Object, O extends Object> {
     void writeRequest(I request, ProtocolWriter writer);
 
     /**
-     * Reads one response from process output streams.
+     * Reads exactly one logical response from process output streams.
+     *
+     * <p>Consume all framing that belongs to this response before returning, leaving later responses unread. Stdout
+     * and stderr readers share this request's byte and decoded-character budgets. A callback must not return null.
      *
      * @param readers deadline-aware, callback-scoped stdout/stderr readers
      * @return decoded response

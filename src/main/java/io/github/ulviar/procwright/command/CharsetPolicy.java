@@ -14,6 +14,8 @@ import java.util.Objects;
  * <p>{@link CodingErrorAction#REPLACE} uses the forgiving JDK replacement behavior. {@link
  * CodingErrorAction#REPORT} turns malformed or unmappable bytes into typed Procwright failures instead of silently inserting
  * replacement characters.
+ * {@link CodingErrorAction#IGNORE} is not supported. These error actions apply only to decoding.
+ * Line and protocol sessions also use {@link #charset()} for stdin text, with replacement during encoding.
  *
  * @param charset text charset
  * @param malformedInputAction action for malformed byte sequences
@@ -26,8 +28,9 @@ public record CharsetPolicy(
      * Creates a charset policy.
      *
      * @param charset text charset
-     * @param malformedInputAction action for malformed byte sequences
-     * @param unmappableCharacterAction action for unmappable byte sequences
+     * @param malformedInputAction {@link CodingErrorAction#REPORT} or {@link CodingErrorAction#REPLACE}
+     * @param unmappableCharacterAction {@link CodingErrorAction#REPORT} or {@link CodingErrorAction#REPLACE}
+     * @throws IllegalArgumentException if either action is neither {@code REPORT} nor {@code REPLACE}
      */
     public CharsetPolicy {
         Objects.requireNonNull(charset, "charset");
@@ -57,6 +60,10 @@ public record CharsetPolicy(
 
     /**
      * Decodes bytes according to this policy.
+     *
+     * <p>Each call creates a new decoder and treats the array as complete input. The array is read without being
+     * modified and must not be changed concurrently. Unlike a command run, this method reports JDK coding exceptions
+     * directly and does not produce a {@link CommandExecutionException} or diagnostic result.
      *
      * @param bytes bytes to decode
      * @return decoded text

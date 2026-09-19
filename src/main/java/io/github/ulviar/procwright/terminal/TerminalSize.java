@@ -5,6 +5,9 @@ package io.github.ulviar.procwright.terminal;
 /**
  * Requested terminal dimensions for PTY-backed sessions.
  *
+ * <p>Dimensions are character-cell counts, not pixels. This immutable value configures initial terminal size; it does
+ * not resize an already opened session.
+ *
  * @param columns terminal columns, from 1 through 65535
  * @param rows terminal rows, from 1 through 65535
  */
@@ -17,6 +20,7 @@ public record TerminalSize(int columns, int rows) {
      *
      * @param columns terminal columns, from 1 through 65535
      * @param rows terminal rows, from 1 through 65535
+     * @throws IllegalArgumentException if either dimension lies outside the inclusive range 1–65535
      */
     public TerminalSize {
         if (columns <= 0 || columns > 65_535) {
@@ -28,7 +32,7 @@ public record TerminalSize(int columns, int rows) {
     }
 
     /**
-     * Returns the default terminal size used by PTY sessions.
+     * Returns the default terminal size of 80 columns and 24 rows.
      *
      * @return default terminal size
      */

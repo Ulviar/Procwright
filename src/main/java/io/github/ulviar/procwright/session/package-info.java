@@ -14,9 +14,20 @@
  * {@link io.github.ulviar.procwright.session.Expect} automates prompts in its own pre-launch output mode with literal
  * and regex matching.
  *
- * <p>Session configuration is exposed through immutable nested scenario {@code Draft} interfaces and each live handle
- * has a typed exception with a stable reason enum, so failures can be mapped to domain errors without parsing
- * messages.
+ * <p>Open handles through {@link io.github.ulviar.procwright.CommandService}; immutable scenario drafts configure
+ * future processes and may be reused. Live handles own resources: use try-with-resources, including after natural
+ * process exit. Concurrent requests are serialized within one line or protocol session; pools distribute independent
+ * requests across workers without affinity.
+ *
+ * <p>Completion futures are independent views: cancelling or completing a view does not stop its process. Close the
+ * owning handle to request shutdown. Protocol adapter, response decoder, and stream listener callbacks run on
+ * Procwright threads and should cooperate with interruption. Callback-specific thread confinement is documented on
+ * {@link ProtocolReader}, {@link ProtocolWriter},
+ * {@link ResponseDecoder}, and {@link StreamListener}.
+ *
+ * <p>Reference values are non-null unless explicitly marked otherwise. Transcript and result records are immutable
+ * snapshots; transcript limits measure UTF-16 code units and do not make process output safe to log. Exceptions expose
+ * stable reason enums, but retryability follows the operation contract rather than the reason alone.
  */
 @NullMarked
 package io.github.ulviar.procwright.session;

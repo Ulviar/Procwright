@@ -12,6 +12,11 @@ import java.util.List;
  * same instance concurrently. A decoder shared this way must be thread-safe; otherwise, use separate Draft branches
  * with separate decoder instances.
  *
+ * <p>Consume exactly the lines belonging to one response, including any terminator line, and return the lines the
+ * caller should receive. The returned list must be non-null and contain no null elements; Procwright copies it.
+ * Configured response limits count lines read and their UTF-16 code units, including lines omitted from the returned
+ * list. A decoder may return an empty list when that is a complete response for its protocol.
+ *
  * <p>An untyped {@link RuntimeException} thrown by {@link #decode(Reader)} is exposed as a
  * {@link LineSessionException} with reason {@link LineSessionException.Reason#DECODER_FAILED}. A callback-thrown
  * {@code LineSessionException} keeps its reason. The mapping applies when the callback failure wins request
@@ -29,7 +34,7 @@ public interface ResponseDecoder {
      * process output is consumed.
      *
      * @param reader deadline-aware stdout reader
-     * @return response lines
+     * @return non-null response lines, with no null elements; the list is copied before publication
      * @throws LineSessionException when response decoding reaches timeout, EOF, or a closed session; an untyped
      *     callback {@code RuntimeException} maps to reason {@link LineSessionException.Reason#DECODER_FAILED}
      */
@@ -52,8 +57,14 @@ public interface ResponseDecoder {
         /**
          * Reads the next stdout line within the current request deadline.
          *
+         * <p>LF terminates a line; an immediately preceding CR is removed. EOF also completes a final nonempty line
+         * without a separator. A standalone CR is content. This consumes the current response's line and UTF-16
+         * character budgets even if the decoder does not include the line in its returned response.
+         *
          * @return next stdout line without the line separator
-         * @throws LineSessionException when the request times out, reaches EOF, or the session is closed
+         * @throws IllegalStateException if used outside this callback's thread or lifetime
+         * @throws LineSessionException if the request times out, reaches EOF, the session closes, output decoding fails,
+         *     or a response limit is exceeded
          */
         String readLine();
     }

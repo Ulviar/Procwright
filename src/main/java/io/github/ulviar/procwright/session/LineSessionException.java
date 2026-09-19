@@ -7,7 +7,11 @@ import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Signals a line-oriented request/response failure.
+ * Signals a line-oriented request/response failure with a stable reason and bounded transcript.
+ *
+ * <p>Use {@link #reason()} rather than parsing the message. The reason alone does not establish retryability:
+ * {@link LineSession#request(String)} distinguishes failures before writing from terminal failures. A request may
+ * have reached the child before failure, so replay can repeat its effects.
  */
 @SuppressWarnings("serial")
 public final class LineSessionException extends ProcwrightException {
@@ -69,7 +73,7 @@ public final class LineSessionException extends ProcwrightException {
     public enum Reason {
         /** Request exceeded the configured byte or character limit. */
         REQUEST_TOO_LARGE,
-        /** Request did not produce a complete response before its deadline. */
+        /** Request preparation, admission, writing, or response decoding exceeded the deadline. */
         TIMEOUT,
         /** Process stdout reached EOF before a complete response was decoded. */
         EOF,
@@ -85,7 +89,7 @@ public final class LineSessionException extends ProcwrightException {
         PROCESS_EXITED,
         /** Custom response decoder failed. */
         DECODER_FAILED,
-        /** Output could not be read or another runtime path failed. */
+        /** I/O or another runtime path failed, including interruption; inspect the cause for detail. */
         FAILURE
     }
 }

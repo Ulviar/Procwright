@@ -3,7 +3,7 @@
 package io.github.ulviar.procwright.session;
 
 /**
- * Receives streaming output chunks.
+ * Receives decoded streaming output fragments; see {@link StreamChunk} for chunk boundaries and stream ordering.
  *
  * <p>Within one stream session, listener calls are synchronous and serialized across stdout and stderr, one chunk at a
  * time. A slow listener therefore applies backpressure to that process output instead of causing unbounded in-memory
@@ -28,7 +28,11 @@ public interface StreamListener {
     }
 
     /**
-     * Handles one output chunk.
+     * Handles one output chunk synchronously on a Procwright output-delivery thread.
+     *
+     * <p>Return promptly to allow output draining. An ordinary callback exception fails the stream with
+     * {@link StreamException.Reason#LISTENER_FAILED}; a fatal {@link Error} remains unwrapped. No thread-local state or
+     * fixed thread identity should be assumed across calls.
      *
      * @param chunk output chunk
      */

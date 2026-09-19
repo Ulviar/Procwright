@@ -7,11 +7,15 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Completed line-oriented request response.
+ * Immutable result of a completed line-session exchange.
+ *
+ * <p>The response lines are copied into an unmodifiable list. They are the decoder's returned values, which may omit
+ * framing lines it consumed. The transcript is a diagnostic snapshot of the session, not just this response, and may
+ * be truncated or contain sensitive output. Use {@link #lines()} or {@link #text()} for application data.
  *
  * @param lines decoded response lines
  * @param transcript bounded transcript snapshot captured after decoding
- * @param elapsed elapsed request/response time
+ * @param elapsed non-negative elapsed worker request time; pool acquisition and reset are excluded
  */
 public record LineResponse(List<String> lines, LineTranscript transcript, Duration elapsed) {
 
@@ -20,7 +24,8 @@ public record LineResponse(List<String> lines, LineTranscript transcript, Durati
      *
      * @param lines decoded response lines
      * @param transcript bounded transcript snapshot captured after decoding
-     * @param elapsed elapsed request/response time
+     * @param elapsed non-negative elapsed worker request time; pool acquisition and reset are excluded
+     * @throws IllegalArgumentException if elapsed is negative
      */
     public LineResponse {
         lines = List.copyOf(lines);
@@ -32,7 +37,7 @@ public record LineResponse(List<String> lines, LineTranscript transcript, Durati
     }
 
     /**
-     * Returns response lines joined with line feeds.
+     * Returns response lines joined with LF, with no added trailing separator; an empty response produces empty text.
      *
      * @return response text
      */
