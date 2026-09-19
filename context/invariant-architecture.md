@@ -91,7 +91,8 @@ Runtime получает только согласованный plan и не у
   `ShutdownFailureLedger`; facade — `ProcessLifecycle`, exact-once session cleanup — `SessionProcessCleanup`;
 - wall-clock containment потенциально блокирующего callback — `TimedTaskRunner`; сериализация и запрет повторного
   callback после abandonment принадлежат конкретному scenario owner (`SerializedRequestGate`, session state или
-  worker lifecycle), поэтому независимые handles не делят глобальную admission capacity;
+  worker lifecycle), поэтому независимые handles не делят глобальную admission capacity. Cancellation signal содержит
+  одну активную регистрацию; её identity защищает следующий callback от позднего unregister предыдущего;
 - стабильные one-shot process streams — `OwnedStreams`, exact-once logical close одного stream — `OwnedStream`;
   physical close выполняется best effort и не входит в `CommandResult` publication;
 - транзакционное приобретение session streams — `ProcessIoAcquisition`, exact-once claim и outcome best-effort close
@@ -105,6 +106,8 @@ Runtime получает только согласованный plan и не у
   выбран; natural process success остаётся fallback. Пользовательский matcher/decoder не является дополнительным gate и
   не переписывает выбранный exit;
 - выбор output consumer-а внутри resource owner — `SessionOutputOwnership`;
+- logical output-mode settlement и единственная передача stdout/stderr на physical close после process outcome —
+  `OutputPumpCleanup`; закрытие wrapper-а отдельной pump не выбирает момент physical close;
 - bounded immutable cleanup snapshot — `KnownDescendants`; bounded process/provider traversal — `ProcessTreeScanner`;
   fresh owner каждой provider operation —
   `ProcessProviderOperationOwner`, cancellation — `ProcessProviderOperationCancellation`, reporting settlement —
@@ -118,16 +121,18 @@ Runtime получает только согласованный plan и не у
 - output backlog — bounded queue владельца сценария;
 - единый monitor, составные pool transitions и связанные с partition поля worker — `WorkerPoolState`; partition —
   `PoolPartition`, immutable policy — `WorkerPoolPolicy`;
-- startup winner — `WorkerStartup`, temporal startup — `WorkerStartupCoordinator`;
+- startup winner и его typed outcome — `WorkerStartup`, запуск и отображение результата без повторной arbitration —
+  `WorkerStartupCoordinator`;
 - exact-once retirement — `WorkerRetirement`, post-monitor retirement batch — `WorkerRetirementCoordinator`;
 - обязательные post-monitor retirement и terminal publication выбирает одна транзакция `WorkerPoolState`;
 - pool commit — созданный до регистрации `PoolWorker`, bounded capacity `PoolPartition` и lease, создаваемый только
   после успешного `STARTING -> LEASED`;
-- pool replenishment — `PoolReplenisher`, request lifecycle — `PooledRequestRunner`;
+- pool replenishment, единственная pending/running attempt и её cancellation handle под одним monitor —
+  `PoolReplenisher`; request lifecycle — `PooledRequestRunner`;
 - construction/closing/failure/drain decision внутри state owner — `PoolTermination`, terminal outcome и
   cancellation-isolated views — его publication token;
 - bounded retirement/report domains — `PoolLifecycleDispatcher`, delayed replenishment — `PoolReplenishmentScheduler`,
-  cancellable scheduled turn — `PoolScheduledAttempt`, late failures — `PoolFailurePublisher`;
+  late failures — `PoolFailurePublisher`;
 - transcript retention — bounded transcript owner;
 - diagnostics delivery — diagnostic emitter/dispatcher.
 

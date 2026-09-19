@@ -58,47 +58,26 @@ final class WorkerStartup<S> {
         }
     }
 
-    CreatedWorker<S> await(long deadlineNanos) throws TimeoutException, InterruptedException, ExecutionException {
-        Outcome<S> observed;
-        boolean restoreInterrupted = false;
+    Outcome<S> await(long deadlineNanos) {
         try {
-            observed = awaitOutcome(deadlineNanos);
+            return awaitOutcome(deadlineNanos);
         } catch (TimeoutException failure) {
-            observed = decide(TerminalDecision.TIMED_OUT);
-            if (observed.decision() != TerminalDecision.FACTORY_COMPLETED) {
-                throw failure;
-            }
+            return decide(StopReason.TIMED_OUT);
         } catch (InterruptedException failure) {
-            observed = decide(TerminalDecision.INTERRUPTED);
-            if (observed.decision() != TerminalDecision.FACTORY_COMPLETED) {
-                throw failure;
-            }
-            restoreInterrupted = true;
-        }
-        try {
-            return createdWorker(observed);
-        } finally {
-            if (restoreInterrupted) {
+            try {
+                return decide(StopReason.INTERRUPTED);
+            } finally {
                 Thread.currentThread().interrupt();
             }
         }
     }
 
-    TerminalDecision signalTimeout() {
-        return decide(TerminalDecision.TIMED_OUT).decision();
+    Outcome<S> signalTimeout() {
+        return decide(StopReason.TIMED_OUT);
     }
 
-    TerminalDecision signalClosed() {
-        return decide(TerminalDecision.CLOSED).decision();
-    }
-
-    TerminalDecision signalInterrupted() {
-        return decide(TerminalDecision.INTERRUPTED).decision();
-    }
-
-    TerminalDecision terminalDecision() {
-        Outcome<S> selected = outcome.getNow(null);
-        return selected == null ? TerminalDecision.UNDECIDED : selected.decision();
+    Outcome<S> signalClosed() {
+        return decide(StopReason.CLOSED);
     }
 
     private void run() {
@@ -116,21 +95,18 @@ final class WorkerStartup<S> {
         }
         if (beforeFactory != null) {
             lateCompletion.accept(new LateCompletion<>(
-                    null, System.nanoTime() - startedAtNanos, retireReason(beforeFactory.decision()), null, null));
+                    null, System.nanoTime() - startedAtNanos, retireReason(beforeFactory), null, null));
             return;
         }
-        if (session == null && failure == null) {
-            return;
-        }
-
         long startupNanos = System.nanoTime() - startedAtNanos;
-        Outcome<S> factoryOutcome = Outcome.factoryCompleted(session, startupNanos, failure);
+        Outcome<S> factoryOutcome =
+                failure == null ? new CreatedWorker<>(session, startupNanos) : new Failed<>(failure);
         if (outcome.complete(factoryOutcome)) {
             return;
         }
         Outcome<S> selected = outcome.join();
         lateCompletion.accept(
-                new LateCompletion<>(session, startupNanos, retireReason(selected.decision()), failure, failureTarget));
+                new LateCompletion<>(session, startupNanos, retireReason(selected), failure, failureTarget));
     }
 
     private Outcome<S> awaitOutcome(long deadlineNanos) throws TimeoutException, InterruptedException {
@@ -145,12 +121,9 @@ final class WorkerStartup<S> {
         }
     }
 
-    private Outcome<S> decide(TerminalDecision candidate) {
+    private Outcome<S> decide(StopReason candidate) {
         Objects.requireNonNull(candidate, "candidate");
-        if (candidate == TerminalDecision.FACTORY_COMPLETED || candidate == TerminalDecision.UNDECIDED) {
-            throw new IllegalArgumentException("external decision must stop worker startup");
-        }
-        Outcome<S> selected = Outcome.stopped(candidate);
+        Outcome<S> selected = new Stopped<>(candidate);
         if (outcome.complete(selected)) {
             Thread running = thread;
             if (running != null) {
@@ -161,29 +134,14 @@ final class WorkerStartup<S> {
         return outcome.join();
     }
 
-    private static <S> CreatedWorker<S> createdWorker(Outcome<S> outcome)
-            throws TimeoutException, InterruptedException, ExecutionException {
-        return switch (outcome.decision()) {
-            case FACTORY_COMPLETED -> {
-                if (outcome.failure() != null) {
-                    throw new ExecutionException(outcome.failure());
-                }
-                yield new CreatedWorker<>(outcome.session(), outcome.startupNanos());
-            }
-            case CLOSED -> throw new TimeoutException("worker startup was closed");
-            case TIMED_OUT -> throw new TimeoutException("worker startup deadline elapsed");
-            case INTERRUPTED -> throw new InterruptedException("worker startup was interrupted");
-            case UNDECIDED -> throw new AssertionError("worker startup has no terminal outcome");
-        };
-    }
-
-    private static PooledWorkerRetireReason retireReason(TerminalDecision decision) {
-        return switch (decision) {
+    private static PooledWorkerRetireReason retireReason(Outcome<?> outcome) {
+        if (!(outcome instanceof Stopped<?> stopped)) {
+            throw new IllegalStateException("late startup must have a selected stop reason");
+        }
+        return switch (stopped.reason()) {
             case CLOSED -> PooledWorkerRetireReason.CLOSED;
             case TIMED_OUT -> PooledWorkerRetireReason.STARTUP_TIMEOUT;
             case INTERRUPTED -> PooledWorkerRetireReason.STARTUP_INTERRUPTED;
-            case FACTORY_COMPLETED, UNDECIDED ->
-                throw new IllegalStateException("late startup has incompatible terminal decision: " + decision);
         };
     }
 
@@ -195,44 +153,32 @@ final class WorkerStartup<S> {
         }
     }
 
-    enum TerminalDecision {
-        UNDECIDED,
-        FACTORY_COMPLETED,
+    enum StopReason {
         TIMED_OUT,
         INTERRUPTED,
         CLOSED
     }
 
-    private record Outcome<S>(TerminalDecision decision, S session, long startupNanos, Throwable failure) {
+    sealed interface Outcome<S> permits CreatedWorker, Failed, Stopped {}
 
-        private Outcome {
-            Objects.requireNonNull(decision, "decision");
-            if (decision == TerminalDecision.FACTORY_COMPLETED) {
-                if ((session == null) == (failure == null)) {
-                    throw new IllegalArgumentException(
-                            "factory outcome must contain exactly one of session or failure");
-                }
-            } else if (decision == TerminalDecision.UNDECIDED
-                    || session != null
-                    || startupNanos != 0
-                    || failure != null) {
-                throw new IllegalArgumentException("stopped outcome must contain only its terminal decision");
-            }
-        }
-
-        private static <S> Outcome<S> stopped(TerminalDecision decision) {
-            return new Outcome<>(decision, null, 0, null);
-        }
-
-        private static <S> Outcome<S> factoryCompleted(S session, long startupNanos, Throwable failure) {
-            return new Outcome<>(TerminalDecision.FACTORY_COMPLETED, session, startupNanos, failure);
-        }
-    }
-
-    record CreatedWorker<S>(S session, long startupNanos) {
+    record CreatedWorker<S>(S session, long startupNanos) implements Outcome<S> {
 
         CreatedWorker {
             Objects.requireNonNull(session, "session");
+        }
+    }
+
+    record Failed<S>(Throwable failure) implements Outcome<S> {
+
+        Failed {
+            Objects.requireNonNull(failure, "failure");
+        }
+    }
+
+    record Stopped<S>(StopReason reason) implements Outcome<S> {
+
+        Stopped {
+            Objects.requireNonNull(reason, "reason");
         }
     }
 

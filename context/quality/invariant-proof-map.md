@@ -244,7 +244,8 @@ primary owner отдельно claims единственный post-outcome clea
 **Инвариант:** один task атомарно переходит из `PENDING` в `RUNNING` или `ABANDONED`. Timeout или cancellation,
 выигравшие до `RUNNING`, не допускают входа в callback; после abandonment caller не ждёт поздний outcome.
 
-**Владелец:** `TimedTaskRunner`.
+**Владелец:** `TimedTaskRunner`; cancellation signal допускает одну активную регистрацию. Её снятие проверяет
+identity регистрации, чтобы старый callback не мог удалить новую подписку.
 
 **Proof:** `TimedTaskRunnerTest`.
 
@@ -294,6 +295,16 @@ logical settlement выбранного output mode, но не блокирую�
 **Владелец:** `SessionTerminal`.
 
 **Proof:** `SessionTerminalTest`, `DefaultLineSessionExitContractTest`.
+
+### Output cleanup ordering
+
+**Инвариант:** после process outcome и mode settlement output owner передаёт пару stdout/stderr на physical close
+ровно один раз. Ни ранний EOF одной pump, ни закрытие её wrapper-а не разрешают premature close. Завершение обеих
+pump tasks либо logical abandonment достаточно; отдельные per-stream уведомления не нужны.
+
+**Владелец:** `OutputPumpCleanup`; pair admission и single physical close принадлежат `ProcessStreamResource`.
+
+**Proof:** `OutputPumpCleanupCoordinationTest`, `OutputPumpStartupTransactionTest`, `SessionOutputOwnerLifecycleTest`.
 
 ### Line request transaction
 
@@ -483,12 +494,13 @@ public lease API.
 
 ### Worker startup
 
-**Инвариант:** один `WorkerStartup` запускает не более одного factory callback, выбирает один terminal winner и
-передаёт проигравший late result ровно один раз.
+**Инвариант:** один `WorkerStartup` запускает не более одного factory callback, выбирает один typed terminal outcome и
+передаёт проигравший late result ровно один раз. Последующие close, deadline или interruption не переписывают outcome;
+interruption вызывающего потока сохраняет interrupt flag. Coordinator отображает выбранный outcome без второго выбора.
 
 **Владелец:** `WorkerStartup`.
 
-**Proof:** `WorkerStartupTest`, `WorkerPoolControllerStartupRaceTest`.
+**Proof:** `WorkerStartupTest`, `WorkerStartupCoordinatorTest`, `WorkerPoolControllerStartupRaceTest`.
 
 ### Worker retirement
 
@@ -504,7 +516,8 @@ public lease API.
 **Инвариант:** положительный `minIdle` поддерживается одной pending attempt с bounded backoff; close отменяет
 незавершённую работу пополнения.
 
-**Владелец:** `PoolReplenisher`.
+**Владелец:** `PoolReplenisher`: один monitor для pending/running attempt, позднего cancellation handle и stop.
+Fatal failure закрывает admission до внешнего failure handler и не допускает повторного запуска.
 
 **Proof:** `PoolReplenisherTest`, `WorkerPoolControllerReplenishmentTest`.
 

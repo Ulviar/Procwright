@@ -187,7 +187,7 @@ final class PooledWorkerRetirementCoordinationTest {
                 new WorkerPoolController.Dependencies(
                         (task, delay) -> {
                             Threading.start("test-delayed-terminal-replenish-", task);
-                            return PoolScheduledAttempt.Cancellation.NONE;
+                            return PoolReplenisher.Cancellation.NONE;
                         },
                         (thread, failure) -> {},
                         System::nanoTime));

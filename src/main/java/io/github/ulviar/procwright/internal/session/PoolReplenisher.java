@@ -19,9 +19,8 @@ final class PoolReplenisher {
     private final BooleanSupplier needed;
     private final Supplier<Step> step;
     private final Consumer<Throwable> fatalFailure;
-    private boolean active;
     private boolean stopped;
-    private PoolScheduledAttempt pending;
+    private Attempt active;
 
     PoolReplenisher(
             Scheduler scheduler, BooleanSupplier needed, Supplier<Step> step, Consumer<Throwable> fatalFailure) {
@@ -35,53 +34,57 @@ final class PoolReplenisher {
         if (!needed.getAsBoolean()) {
             return;
         }
+        Attempt attempt;
         synchronized (this) {
-            if (active || stopped) {
+            if (active != null || stopped) {
                 return;
             }
-            active = true;
+            active = attempt = new Attempt(Duration.ZERO);
         }
-        start(Duration.ZERO);
+        schedule(attempt);
     }
 
-    private void start(Duration backoff) {
-        PoolScheduledAttempt attempt;
-        synchronized (this) {
-            if (stopped) {
-                active = false;
-                return;
-            }
-            attempt = new PoolScheduledAttempt(selected -> run(selected, backoff));
-            pending = attempt;
-        }
+    private void schedule(Attempt attempt) {
         try {
-            attempt.attach(scheduler.schedule(attempt, backoff));
+            Cancellation cancellation = Objects.requireNonNull(
+                    scheduler.schedule(() -> run(attempt), attempt.backoff), "scheduler returned null cancellation");
+            boolean cancelNow;
+            synchronized (this) {
+                cancelNow = active != attempt && !attempt.started;
+                if (active == attempt && !attempt.started) {
+                    attempt.cancellation = cancellation;
+                }
+            }
+            if (cancelNow) {
+                cancellation.cancel();
+            }
         } catch (RuntimeException schedulingFailure) {
-            discard(attempt);
             fail(schedulingFailure);
         } catch (Error schedulingFailure) {
-            discard(attempt);
             fail(schedulingFailure);
             throw schedulingFailure;
         }
     }
 
     void stop() {
-        PoolScheduledAttempt attempt;
+        Cancellation cancellation;
         synchronized (this) {
             stopped = true;
-            active = false;
-            attempt = pending;
-            pending = null;
+            cancellation = active == null ? null : active.cancellation;
+            active = null;
         }
-        if (attempt != null) {
-            attempt.cancel();
+        if (cancellation != null) {
+            cancellation.cancel();
         }
     }
 
-    private void run(PoolScheduledAttempt attempt, Duration initialBackoff) {
-        if (!claim(attempt)) {
-            return;
+    private void run(Attempt attempt) {
+        synchronized (this) {
+            if (active != attempt || attempt.started) {
+                return;
+            }
+            attempt.started = true;
+            attempt.cancellation = null;
         }
         Duration nextDelay;
         try {
@@ -90,7 +93,7 @@ final class PoolReplenisher {
             } else {
                 nextDelay = switch (step.get()) {
                     case SUCCESS -> Duration.ZERO;
-                    case RETRY -> nextBackoff(initialBackoff);
+                    case RETRY -> nextBackoff(attempt.backoff);
                     case STOP -> null;
                 };
                 if (nextDelay != null && !needed.getAsBoolean()) {
@@ -110,10 +113,17 @@ final class PoolReplenisher {
             rethrow(terminalFailure);
             throw new AssertionError("unreachable");
         }
-        if (nextDelay == null) {
-            restartIfNeeded();
+        Attempt next;
+        synchronized (this) {
+            if (active != attempt) {
+                return;
+            }
+            active = next = nextDelay == null ? null : new Attempt(nextDelay);
+        }
+        if (next != null) {
+            schedule(next);
         } else {
-            start(nextDelay);
+            ensureStarted();
         }
     }
 
@@ -124,42 +134,9 @@ final class PoolReplenisher {
         throw (Error) failure;
     }
 
-    private void deactivate() {
-        synchronized (this) {
-            active = false;
-        }
-    }
-
-    private boolean claim(PoolScheduledAttempt attempt) {
-        synchronized (this) {
-            if (pending != attempt) {
-                return false;
-            }
-            pending = null;
-            return !stopped;
-        }
-    }
-
-    private void discard(PoolScheduledAttempt attempt) {
-        synchronized (this) {
-            if (pending == attempt) {
-                pending = null;
-            }
-        }
-        attempt.cancel();
-    }
-
-    private void restartIfNeeded() {
-        deactivate();
-        ensureStarted();
-    }
-
     private void fail(Throwable failure) {
-        try {
-            fatalFailure.accept(failure);
-        } finally {
-            deactivate();
-        }
+        stop();
+        fatalFailure.accept(failure);
     }
 
     private static Duration nextBackoff(Duration current) {
@@ -179,6 +156,26 @@ final class PoolReplenisher {
     @FunctionalInterface
     interface Scheduler {
 
-        PoolScheduledAttempt.Cancellation schedule(Runnable task, Duration delay);
+        Cancellation schedule(Runnable task, Duration delay);
+    }
+
+    @FunctionalInterface
+    interface Cancellation {
+
+        Cancellation NONE = () -> {};
+
+        void cancel();
+    }
+
+    /** All mutable fields belong to the replenisher monitor, including attachment after execution or stop. */
+    private static final class Attempt {
+
+        private final Duration backoff;
+        private boolean started;
+        private Cancellation cancellation;
+
+        private Attempt(Duration backoff) {
+            this.backoff = backoff;
+        }
     }
 }

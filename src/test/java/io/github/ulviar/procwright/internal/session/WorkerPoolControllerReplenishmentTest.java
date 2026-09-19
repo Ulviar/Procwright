@@ -319,7 +319,7 @@ final class WorkerPoolControllerReplenishmentTest extends WorkerPoolControllerTe
                 (task, delay) -> {
                     if (delay.isZero()) {
                         Threading.start("test-replenish-", task);
-                        return PoolScheduledAttempt.Cancellation.NONE;
+                        return PoolReplenisher.Cancellation.NONE;
                     }
                     retrySchedulingEntered.countDown();
                     awaitIgnoringInterrupt(releaseRetryScheduling);

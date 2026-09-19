@@ -84,6 +84,10 @@ readiness, health/reset hook, regex или listener в зависимости о
 остаться до фактического возврата callback. Это per-handle containment, а не глобальный memory bound, который невозможно
 честно гарантировать без общей admission-зависимости, в том числе при использовании virtual threads.
 
+Отмена последовательных callback использует одну активную регистрацию, а не общий реестр подписчиков. Регистрация
+снимается до возврата caller-у; позднее закрытие старой регистрации не может снять новую. Uncancellable операции не
+создают cancellation signal.
+
 Abandonment после deadline является logical settlement request callback и не ожидает его физического возврата. Выбранная
 request failure может быть возвращена после такого settlement; terminal future всего scenario публикуется только после
 bounded process termination и logical output-mode settlement. `ModeSettlement` line/protocol/Expect принадлежит
@@ -125,7 +129,8 @@ Runtime строится вокруг небольшого числа владе
   `ModeSettlement` и publication flag; поздняя регистрация gates запрещена;
 - `OutputPumpCoordinator` и `OutputPumpCleanup` являются mode-specific transport owner: они владеют pumps, transport
   drain и memory bounds и передают `SessionTerminal` один `ModeSettlement`; request callback владеет только
-  синхронным request outcome;
+  синхронным request outcome. После process outcome и mode settlement output owner ровно один раз передаёт пару
+  stdout/stderr на physical close; отдельных per-stream состояний готовности и pump-close callbacks нет;
 - `ProcessTreeShutdown` выполняет одну последовательность `scan -> graceful -> bounded rescan/wait -> force -> wait`;
   rescan выполняется во время graceful phase и непосредственно перед force по root и уже найденным handles, поэтому
   может обнаружить descendant, созданный shutdown hook, но не обещает доказать отсутствие мгновенно переподчинённого

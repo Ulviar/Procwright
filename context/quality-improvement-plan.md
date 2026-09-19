@@ -26,8 +26,11 @@ ADR, tests и scorecard.
 ## Последовательность
 
 - [x] Независимая исходная ревизия API, runtime, tests и документации; подтвердить конкретные разрывы кодом.
-- [ ] Pool startup/retirement/replenishment и callback cancellation: устранить найденные defects и лишнюю координацию.
-- [ ] Session terminal state и output ownership: один outcome и объяснимые границы settlement.
+- [x] Pool startup/replenishment и callback cancellation: typed startup outcome, один monitor replenishment и одна
+  identity-registration отмены; defects и лишняя координация устранены.
+- [ ] Pool retirement: проверить полезность промежуточных futures и отдельного dispatch bookkeeping.
+- [x] Session terminal state и output ownership: один outcome, объяснимые границы settlement и один pair close после
+  process outcome и logical mode settlement.
 - [ ] Process-tree cleanup и provider boundary: завершить бюджет гарантий ADR-0025, сохранив полезную очистку.
 - [ ] Согласовать deadlines, отмену, limits, failure reasons и выбор session/pool в API, tests и документации.
 - [ ] Проверить весь MVP по шести критериям; исправить все существенные замечания, выполнить итоговые gates и аудит.
@@ -36,7 +39,5 @@ ADR, tests и scorecard.
 живут в текущем рабочем diff и сообщениях аудита; отдельный архив отчётов не создаётся. Публикация нового artifact,
 выбор remote registry и новые возможности вне MVP не требуются для этого этапа.
 
-Ближайшие структурные проверки: убрать промежуточные futures и dispatch в retirement после доказательства их
-избыточности; возвращать один typed startup outcome вместо кодирования close через timeout; проверить объединение
-состояний replenishment attempt и одиночную callback cancellation registration. Эти кандидаты не считаются defects
-без подтверждения и не оправдывают ослабление поддерживаемых lifecycle guarantees.
+Следующие структурные проверки — retirement и process-provider/tree boundary. Кандидаты на удаление не считаются
+defects без подтверждения и не оправдывают ослабление поддерживаемых lifecycle guarantees.

@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -121,6 +122,86 @@ final class TimedTaskRunnerTest {
                         }));
 
         assertFalse(started.get());
+    }
+
+    @Test
+    void cancellationSignalRejectsOverlappingCallbacksWithoutLosingTheFirst() {
+        TimedTaskRunner.CancellationSignal cancellation = new TimedTaskRunner.CancellationSignal();
+        AtomicInteger first = new AtomicInteger();
+        AtomicInteger second = new AtomicInteger();
+        var registration = cancellation.register(first::incrementAndGet);
+        try (registration) {
+            assertThrows(IllegalStateException.class, () -> cancellation.register(second::incrementAndGet));
+            assertTrue(cancellation.cancel());
+            assertFalse(cancellation.cancel());
+        }
+
+        assertEquals(1, first.get());
+        assertEquals(0, second.get());
+    }
+
+    @Test
+    void closingOldRegistrationCannotRemoveItsReplacement() {
+        TimedTaskRunner.CancellationSignal cancellation = new TimedTaskRunner.CancellationSignal();
+        AtomicInteger first = new AtomicInteger();
+        AtomicInteger second = new AtomicInteger();
+        var old = cancellation.register(first::incrementAndGet);
+        old.close();
+        var replacement = cancellation.register(second::incrementAndGet);
+        try (replacement) {
+            old.close();
+            cancellation.cancel();
+        }
+
+        assertEquals(0, first.get());
+        assertEquals(1, second.get());
+    }
+
+    @Test
+    void registrationAfterCancellationIsDeliveredOnce() {
+        TimedTaskRunner.CancellationSignal cancellation = new TimedTaskRunner.CancellationSignal();
+        AtomicInteger calls = new AtomicInteger();
+        cancellation.cancel();
+
+        var registration = cancellation.register(calls::incrementAndGet);
+        try (registration) {
+            assertEquals(1, calls.get());
+            assertFalse(cancellation.cancel());
+        }
+
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void staleRegistrationCannotRemoveTheSameListenerRegisteredAgain() {
+        TimedTaskRunner.CancellationSignal cancellation = new TimedTaskRunner.CancellationSignal();
+        AtomicInteger calls = new AtomicInteger();
+        Runnable listener = calls::incrementAndGet;
+        var old = cancellation.register(listener);
+        old.close();
+        var replacement = cancellation.register(listener);
+        try (replacement) {
+            old.close();
+            cancellation.cancel();
+        }
+
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void completedCallbackUnregistersBeforeTheNextCallback() throws Exception {
+        TimedTaskRunner.CancellationSignal cancellation = new TimedTaskRunner.CancellationSignal();
+        for (int i = 0; i < 2; i++) {
+            assertEquals(
+                    "completed",
+                    TimedTaskRunner.runCancellable(
+                            "timed-task-sequential-", deadline(), cancellation, ignored -> {}, () -> "completed"));
+        }
+        assertTrue(cancellation.cancel());
+        assertThrows(
+                TimedTaskRunner.TaskCancelledException.class,
+                () -> TimedTaskRunner.runCancellable(
+                        "timed-task-after-cancel-", deadline(), cancellation, ignored -> {}, () -> "unexpected"));
     }
 
     @Test

@@ -111,10 +111,9 @@ final class SessionResources {
         return stderr;
     }
 
-    OutputCloseReservation.Reservation reserveOutputClose(
-            SessionOutputMode mode, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
+    OutputCloseReservation.Reservation reserveOutputClose(SessionOutputMode mode) {
         outputOwnership.ensureOwnedBy(mode);
-        return outputCloseReservation.reserve(stdoutClose, stderrClose, pumpCloseObserver);
+        return outputCloseReservation.reserve(stdoutClose, stderrClose);
     }
 
     Throwable rollbackConstruction() {

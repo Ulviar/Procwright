@@ -25,7 +25,7 @@ final class PoolReplenishmentScheduler {
 
     private PoolReplenishmentScheduler() {}
 
-    static PoolScheduledAttempt.Cancellation schedule(Runnable task, Duration delay) {
+    static PoolReplenisher.Cancellation schedule(Runnable task, Duration delay) {
         Duration selectedDelay = DurationSupport.requireNonNegative(delay, "delay");
         EXECUTOR.prestartAllCoreThreads();
         var scheduled = EXECUTOR.schedule(

@@ -39,7 +39,7 @@ final class OutputPumpCoordinator {
 
         PumpSlot stdoutSlot = new PumpSlot();
         PumpSlot stderrSlot = new PumpSlot();
-        cleanup.installCloseReservation(session.reserveOwnedOutputClose(outputMode, cleanup::pumpClosed));
+        cleanup.installCloseReservation(session.reserveOwnedOutputClose(outputMode));
         InputStream stdout = session.ownedStdout(outputMode);
         InputStream stderr = session.ownedStderr(outputMode);
         cleanup.observeProcessCleanup();

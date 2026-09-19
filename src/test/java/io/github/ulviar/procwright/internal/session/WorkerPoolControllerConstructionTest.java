@@ -65,7 +65,7 @@ final class WorkerPoolControllerConstructionTest extends WorkerPoolControllerTes
                             ownerFinished.countDown();
                         }
                     });
-                    return PoolScheduledAttempt.Cancellation.NONE;
+                    return PoolReplenisher.Cancellation.NONE;
                 },
                 (thread, failure) -> {},
                 System::nanoTime);

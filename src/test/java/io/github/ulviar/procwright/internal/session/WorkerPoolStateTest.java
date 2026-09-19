@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -105,8 +106,18 @@ final class WorkerPoolStateTest {
         PoolTermination.FailureDisposition disposition = state.beginClose(null);
 
         assertSame(PoolTermination.FailureDisposition.NONE, disposition);
-        assertSame(WorkerStartup.TerminalDecision.CLOSED, queued.startup().terminalDecision());
-        assertSame(WorkerStartup.TerminalDecision.CLOSED, running.startup().terminalDecision());
+        assertSame(
+                WorkerStartup.StopReason.CLOSED,
+                assertInstanceOf(
+                                WorkerStartup.Stopped.class,
+                                queued.startup().await(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)))
+                        .reason());
+        assertSame(
+                WorkerStartup.StopReason.CLOSED,
+                assertInstanceOf(
+                                WorkerStartup.Stopped.class,
+                                running.startup().await(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)))
+                        .reason());
         assertMetrics(state.metrics(), 2, 0, 1, 0, 1, 2, 0);
         assertSame("leased", activeLease.session());
         assertEquals(1, fixture.closeCount());
@@ -154,11 +165,11 @@ final class WorkerPoolStateTest {
         preflightStartup(fixture, worker);
         WorkerStartup<String> startup = startupRef.get();
         startup.start();
-        ExecutionException startupFailure = assertThrows(
-                ExecutionException.class, () -> startup.await(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
-        assertSame(fatal, startupFailure.getCause());
+        WorkerStartup.Failed<?> startupFailure = assertInstanceOf(
+                WorkerStartup.Failed.class, startup.await(System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
+        assertSame(fatal, startupFailure.failure());
 
-        assertFalse(state.factoryFailed(worker, fatal));
+        state.factoryFailed(worker, fatal);
 
         assertEquals(1, state.metrics().failedStartups());
         assertMetrics(state.metrics(), 0, 0, 0, 0, 0, 0, 0);

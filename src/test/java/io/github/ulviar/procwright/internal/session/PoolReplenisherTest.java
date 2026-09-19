@@ -137,6 +137,144 @@ final class PoolReplenisherTest {
     }
 
     @Test
+    void fatalFailurePermanentlyStopsReplenishmentEvenIfDemandRemains() {
+        IllegalStateException failure = new IllegalStateException("scheduler unavailable");
+        AtomicInteger schedules = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
+        PoolReplenisher replenisher = new PoolReplenisher(
+                (task, delay) -> {
+                    schedules.incrementAndGet();
+                    throw failure;
+                },
+                () -> true,
+                () -> PoolReplenisher.Step.RETRY,
+                observed -> {
+                    assertSame(failure, observed);
+                    failures.incrementAndGet();
+                });
+
+        replenisher.ensureStarted();
+        replenisher.ensureStarted();
+
+        assertEquals(1, schedules.get());
+        assertEquals(1, failures.get());
+    }
+
+    @Test
+    void stopBeforeHandleAttachmentCancelsTheLateHandleAndPreventsExecution() {
+        AtomicReference<PoolReplenisher> owner = new AtomicReference<>();
+        AtomicReference<Runnable> scheduled = new AtomicReference<>();
+        AtomicInteger cancellations = new AtomicInteger();
+        AtomicInteger steps = new AtomicInteger();
+        PoolReplenisher replenisher = replenisher(
+                (task, delay) -> {
+                    scheduled.set(task);
+                    owner.get().stop();
+                    return cancellations::incrementAndGet;
+                },
+                () -> true,
+                () -> {
+                    steps.incrementAndGet();
+                    return PoolReplenisher.Step.RETRY;
+                });
+        owner.set(replenisher);
+
+        replenisher.ensureStarted();
+        scheduled.get().run();
+        replenisher.stop();
+        replenisher.ensureStarted();
+
+        assertEquals(1, cancellations.get());
+        assertEquals(0, steps.get());
+    }
+
+    @Test
+    void executionBeforeHandleAttachmentRunsOnceAndDoesNotCancelCompletedWork() {
+        AtomicBoolean needed = new AtomicBoolean(true);
+        AtomicInteger cancellations = new AtomicInteger();
+        AtomicInteger steps = new AtomicInteger();
+        PoolReplenisher replenisher = replenisher(
+                (task, delay) -> {
+                    task.run();
+                    task.run();
+                    return cancellations::incrementAndGet;
+                },
+                needed::get,
+                () -> {
+                    steps.incrementAndGet();
+                    needed.set(false);
+                    return PoolReplenisher.Step.STOP;
+                });
+
+        replenisher.ensureStarted();
+        replenisher.stop();
+
+        assertEquals(1, steps.get());
+        assertEquals(0, cancellations.get());
+    }
+
+    @Test
+    void stoppedPendingTaskCannotRunEvenIfSchedulerDeliversIt() {
+        AtomicReference<Runnable> scheduled = new AtomicReference<>();
+        AtomicInteger cancellations = new AtomicInteger();
+        AtomicInteger steps = new AtomicInteger();
+        PoolReplenisher replenisher = replenisher(
+                (task, delay) -> {
+                    scheduled.set(task);
+                    return cancellations::incrementAndGet;
+                },
+                () -> true,
+                () -> {
+                    steps.incrementAndGet();
+                    return PoolReplenisher.Step.RETRY;
+                });
+
+        replenisher.ensureStarted();
+        replenisher.stop();
+        replenisher.stop();
+        scheduled.get().run();
+
+        assertEquals(1, cancellations.get());
+        assertEquals(0, steps.get());
+    }
+
+    @Test
+    void stopDuringRunningAttemptPreventsRetryWithoutCancellingTheRunningTask() throws Exception {
+        AtomicReference<Runnable> scheduled = new AtomicReference<>();
+        AtomicInteger schedules = new AtomicInteger();
+        AtomicInteger cancellations = new AtomicInteger();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        PoolReplenisher replenisher = replenisher(
+                (task, delay) -> {
+                    schedules.incrementAndGet();
+                    scheduled.set(task);
+                    return cancellations::incrementAndGet;
+                },
+                () -> true,
+                () -> {
+                    entered.countDown();
+                    await(release);
+                    return PoolReplenisher.Step.RETRY;
+                });
+        replenisher.ensureStarted();
+        Thread runner = Threading.start("test-replenisher-stop-", scheduled.get());
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            replenisher.ensureStarted();
+            replenisher.stop();
+            replenisher.ensureStarted();
+        } finally {
+            release.countDown();
+            runner.join(TimeUnit.SECONDS.toMillis(1));
+        }
+
+        assertFalse(runner.isAlive());
+        assertEquals(1, schedules.get());
+        assertEquals(0, cancellations.get());
+    }
+
+    @Test
     void fatalHandlingKeepsAdmissionClosedUntilPoolStateBecomesTerminal() throws Exception {
         IllegalStateException schedulingFailure = new IllegalStateException("scheduler unavailable");
         AtomicBoolean needed = new AtomicBoolean(true);
@@ -148,7 +286,7 @@ final class PoolReplenisherTest {
                 (task, delay) -> {
                     if (schedules.incrementAndGet() == 1) {
                         firstAttempt.set(task);
-                        return PoolScheduledAttempt.Cancellation.NONE;
+                        return PoolReplenisher.Cancellation.NONE;
                     }
                     throw schedulingFailure;
                 },
@@ -217,7 +355,7 @@ final class PoolReplenisherTest {
         private int maximumSize;
 
         @Override
-        public PoolScheduledAttempt.Cancellation schedule(Runnable task, Duration delay) {
+        public PoolReplenisher.Cancellation schedule(Runnable task, Duration delay) {
             attempts.addLast(task);
             delays.addLast(delay);
             maximumSize = Math.max(maximumSize, attempts.size());

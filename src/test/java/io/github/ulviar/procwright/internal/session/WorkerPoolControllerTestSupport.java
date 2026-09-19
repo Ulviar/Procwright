@@ -99,14 +99,14 @@ abstract class WorkerPoolControllerTestSupport {
     static PoolReplenisher.Scheduler threadedScheduler(String threadPrefix) {
         return (task, delay) -> {
             Threading.start(threadPrefix, task);
-            return PoolScheduledAttempt.Cancellation.NONE;
+            return PoolReplenisher.Cancellation.NONE;
         };
     }
 
     static PoolReplenisher.Scheduler inlineScheduler() {
         return (task, delay) -> {
             task.run();
-            return PoolScheduledAttempt.Cancellation.NONE;
+            return PoolReplenisher.Cancellation.NONE;
         };
     }
 

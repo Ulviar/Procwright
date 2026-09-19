@@ -21,6 +21,40 @@ import org.junit.jupiter.api.Test;
 final class OutputPumpCleanupCoordinationTest {
 
     @Test
+    void completedPumpTasksReleaseOutputWithoutPerStreamCloseNotifications() throws Exception {
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2);
+        CloseTrackingInputStream stdout = new CloseTrackingInputStream(closeDispatcher);
+        CloseTrackingInputStream stderr = new CloseTrackingInputStream(closeDispatcher);
+        ControllableProcess process = new ControllableProcess(stdout, stderr);
+        CountDownLatch tasksFinished = new CountDownLatch(2);
+        OutputPumpTestFixtures.CoordinatorHarness harness = startCoordinator(
+                process,
+                closeDispatcher,
+                SessionOutputMode.LINE,
+                PumpStarter.threading(),
+                "procwright-owner-stdout-pump-",
+                stream -> tasksFinished.countDown(),
+                "procwright-owner-stderr-pump-",
+                stream -> tasksFinished.countDown());
+        try {
+            assertTrue(tasksFinished.await(1, TimeUnit.SECONDS));
+            assertEquals(0, stdout.closeCalls());
+            assertEquals(0, stderr.closeCalls());
+
+            process.exitNaturally(0);
+            harness.session().onExit().get(1, TimeUnit.SECONDS);
+
+            assertTrue(stdout.awaitClose());
+            assertTrue(stderr.awaitClose());
+            assertEquals(1, stdout.closeCalls());
+            assertEquals(1, stderr.closeCalls());
+        } finally {
+            harness.coordinator().closeSession();
+            harness.session().close();
+        }
+    }
+
+    @Test
     void physicalOutputCloseWaitsForLogicalModeSettlement() throws Exception {
         BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(2, 2);
         CloseTrackingInputStream stdout = new CloseTrackingInputStream(closeDispatcher);

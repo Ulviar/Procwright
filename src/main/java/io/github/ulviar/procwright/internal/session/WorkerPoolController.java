@@ -419,10 +419,9 @@ final class WorkerPoolController<S> implements WorkerStartupCoordinator.PoolStat
     }
 
     @Override
-    public boolean factoryFailed(PoolWorker<S> worker, Throwable failure) {
-        boolean closedStartup = state.factoryFailed(worker, failure);
+    public void factoryFailed(PoolWorker<S> worker, Throwable failure) {
+        state.factoryFailed(worker, failure);
         ensureReplenishment();
-        return closedStartup;
     }
 
     @Override

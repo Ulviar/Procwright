@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -11,9 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,8 +27,10 @@ final class WorkerStartupTest {
 
         startup.start();
 
-        assertEquals("worker", startup.await(deadline()).session());
-        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
+        assertEquals(
+                "worker",
+                assertInstanceOf(WorkerStartup.CreatedWorker.class, startup.await(deadline()))
+                        .session());
         assertNull(late.get());
     }
 
@@ -49,13 +50,13 @@ final class WorkerStartupTest {
         startup.start();
         assertTrue(factoryStarted.await(1, TimeUnit.SECONDS));
 
-        assertThrows(TimeoutException.class, () -> startup.await(System.nanoTime()));
+        assertStopped(WorkerStartup.StopReason.TIMED_OUT, startup.await(System.nanoTime()));
         releaseFactory.countDown();
 
         WorkerStartup.LateCompletion<String> completion = awaitLate(late);
         assertEquals("late-worker", completion.session());
         assertEquals(PooledWorkerRetireReason.STARTUP_TIMEOUT, completion.reason());
-        assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, startup.terminalDecision());
+        assertStopped(WorkerStartup.StopReason.TIMED_OUT, startup.await(deadline()));
     }
 
     @Test
@@ -63,11 +64,14 @@ final class WorkerStartupTest {
         WorkerStartup<String> startup =
                 new WorkerStartup<>(() -> "worker", "startup-factory-winner-test-", ignored -> {});
         startup.start();
-        awaitDecision(startup, WorkerStartup.TerminalDecision.FACTORY_COMPLETED);
+        assertInstanceOf(WorkerStartup.CreatedWorker.class, startup.await(deadline()));
 
-        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.signalClosed());
+        assertInstanceOf(WorkerStartup.CreatedWorker.class, startup.signalClosed());
 
-        assertEquals("worker", startup.await(deadline()).session());
+        assertEquals(
+                "worker",
+                assertInstanceOf(WorkerStartup.CreatedWorker.class, startup.await(deadline()))
+                        .session());
     }
 
     @Test
@@ -99,7 +103,7 @@ final class WorkerStartupTest {
         launcher.start();
         assertTrue(startEntered.await(1, TimeUnit.SECONDS));
 
-        assertEquals(WorkerStartup.TerminalDecision.CLOSED, startup.signalClosed());
+        assertStopped(WorkerStartup.StopReason.CLOSED, startup.signalClosed());
         releaseStart.countDown();
         launcher.join(1_000);
         workerThread.get().join(1_000);
@@ -127,7 +131,10 @@ final class WorkerStartupTest {
         assertThrows(IllegalStateException.class, startup::start);
 
         releaseFactory.countDown();
-        assertEquals("worker", startup.await(deadline()).session());
+        assertEquals(
+                "worker",
+                assertInstanceOf(WorkerStartup.CreatedWorker.class, startup.await(deadline()))
+                        .session());
         assertEquals(1, factoryCalls.get());
     }
 
@@ -161,7 +168,7 @@ final class WorkerStartupTest {
         launcher.start();
         assertTrue(startEntered.await(1, TimeUnit.SECONDS));
 
-        assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, startup.signalTimeout());
+        assertStopped(WorkerStartup.StopReason.TIMED_OUT, startup.signalTimeout());
         releaseStart.countDown();
         launcher.join(1_000);
         workerThread.get().join(1_000);
@@ -184,10 +191,9 @@ final class WorkerStartupTest {
                 ignored -> {});
         startup.start();
 
-        ExecutionException observed = assertThrows(ExecutionException.class, () -> startup.await(deadline()));
+        WorkerStartup.Failed<?> observed = assertInstanceOf(WorkerStartup.Failed.class, startup.await(deadline()));
 
-        assertSame(expected, observed.getCause());
-        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
+        assertSame(expected, observed.failure());
     }
 
     @Test
@@ -208,10 +214,9 @@ final class WorkerStartupTest {
                 });
         startup.start();
 
-        ExecutionException observed = assertThrows(ExecutionException.class, () -> startup.await(deadline()));
+        WorkerStartup.Failed<?> observed = assertInstanceOf(WorkerStartup.Failed.class, startup.await(deadline()));
 
-        assertSame(expected, observed.getCause());
-        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
+        assertSame(expected, observed.failure());
     }
 
     @Test
@@ -222,11 +227,12 @@ final class WorkerStartupTest {
         WorkerStartup<String> startup =
                 new WorkerStartup<>(() -> "worker", "startup-factory-interrupt-test-", ignored -> {});
         startup.start();
-        awaitDecision(startup, WorkerStartup.TerminalDecision.FACTORY_COMPLETED);
+        assertInstanceOf(WorkerStartup.CreatedWorker.class, startup.await(deadline()));
         Thread waiter = new Thread(() -> {
             Thread.currentThread().interrupt();
             try {
-                result.set(startup.await(deadline()).session());
+                result.set((String) assertInstanceOf(WorkerStartup.CreatedWorker.class, startup.await(deadline()))
+                        .session());
             } catch (Throwable observed) {
                 failure.set(observed);
             } finally {
@@ -239,7 +245,6 @@ final class WorkerStartupTest {
         assertEquals("worker", result.get());
         assertNull(failure.get());
         assertTrue(interrupted.get());
-        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
     }
 
     @Test
@@ -247,7 +252,7 @@ final class WorkerStartupTest {
         CountDownLatch factoryStarted = new CountDownLatch(1);
         CountDownLatch releaseFactory = new CountDownLatch(1);
         CountDownLatch waiterStarted = new CountDownLatch(1);
-        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<WorkerStartup.Outcome<String>> outcome = new AtomicReference<>();
         AtomicReference<WorkerStartup.LateCompletion<String>> late = new AtomicReference<>();
         WorkerStartup<String> startup = new WorkerStartup<>(
                 () -> {
@@ -260,11 +265,7 @@ final class WorkerStartupTest {
         startup.start();
         Thread waiter = new Thread(() -> {
             waiterStarted.countDown();
-            try {
-                startup.await(deadline());
-            } catch (Throwable observed) {
-                failure.set(observed);
-            }
+            outcome.set(startup.await(deadline()));
         });
         waiter.start();
         assertTrue(factoryStarted.await(1, TimeUnit.SECONDS));
@@ -274,17 +275,17 @@ final class WorkerStartupTest {
         waiter.join(TimeUnit.SECONDS.toMillis(1));
         releaseFactory.countDown();
 
-        assertTrue(failure.get() instanceof InterruptedException);
+        assertStopped(WorkerStartup.StopReason.INTERRUPTED, outcome.get());
         WorkerStartup.LateCompletion<String> completion = awaitLate(late);
         assertEquals("late-worker", completion.session());
         assertEquals(PooledWorkerRetireReason.STARTUP_INTERRUPTED, completion.reason());
-        assertEquals(WorkerStartup.TerminalDecision.INTERRUPTED, startup.terminalDecision());
+        assertStopped(WorkerStartup.StopReason.INTERRUPTED, startup.await(deadline()));
     }
 
     @Test
     void factoryErrorWinnerSurvivesCallerInterruption() throws Exception {
         AssertionError expected = new AssertionError("factory failed");
-        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<WorkerStartup.Outcome<String>> outcome = new AtomicReference<>();
         AtomicBoolean interrupted = new AtomicBoolean();
         WorkerStartup<String> startup = new WorkerStartup<>(
                 () -> {
@@ -293,13 +294,11 @@ final class WorkerStartupTest {
                 "startup-error-interrupt-test-",
                 ignored -> {});
         startup.start();
-        awaitDecision(startup, WorkerStartup.TerminalDecision.FACTORY_COMPLETED);
+        assertInstanceOf(WorkerStartup.Failed.class, startup.await(deadline()));
         Thread waiter = new Thread(() -> {
             Thread.currentThread().interrupt();
             try {
-                startup.await(deadline());
-            } catch (Throwable observed) {
-                failure.set(observed);
+                outcome.set(startup.await(deadline()));
             } finally {
                 interrupted.set(Thread.currentThread().isInterrupted());
             }
@@ -307,23 +306,45 @@ final class WorkerStartupTest {
         waiter.start();
         waiter.join(TimeUnit.SECONDS.toMillis(1));
 
-        assertTrue(failure.get() instanceof ExecutionException);
-        assertSame(expected, failure.get().getCause());
+        assertSame(
+                expected,
+                assertInstanceOf(WorkerStartup.Failed.class, outcome.get()).failure());
         assertTrue(interrupted.get());
-        assertEquals(WorkerStartup.TerminalDecision.FACTORY_COMPLETED, startup.terminalDecision());
+    }
+
+    @Test
+    void selectedCloseAndTimeoutSurviveLaterCallerInterruption() throws Exception {
+        for (WorkerStartup.StopReason selected :
+                new WorkerStartup.StopReason[] {WorkerStartup.StopReason.CLOSED, WorkerStartup.StopReason.TIMED_OUT}) {
+            WorkerStartup<String> startup = new WorkerStartup<>(() -> "unused", "selected-startup-", ignored -> {});
+            if (selected == WorkerStartup.StopReason.CLOSED) {
+                startup.signalClosed();
+            } else {
+                startup.signalTimeout();
+            }
+            AtomicReference<WorkerStartup.Outcome<String>> observed = new AtomicReference<>();
+            AtomicBoolean interrupted = new AtomicBoolean();
+            Thread waiter = new Thread(() -> {
+                Thread.currentThread().interrupt();
+                observed.set(startup.await(deadline()));
+                interrupted.set(Thread.currentThread().isInterrupted());
+            });
+            waiter.start();
+            waiter.join(1_000);
+
+            assertStopped(selected, observed.get());
+            assertTrue(interrupted.get());
+            assertSame(observed.get(), startup.await(deadline()), "a second wait must return the same winner");
+        }
     }
 
     private static long deadline() {
         return System.nanoTime() + Duration.ofSeconds(1).toNanos();
     }
 
-    private static void awaitDecision(WorkerStartup<?> startup, WorkerStartup.TerminalDecision expected)
-            throws InterruptedException {
-        long deadlineNanos = deadline();
-        while (startup.terminalDecision() != expected && System.nanoTime() < deadlineNanos) {
-            Thread.sleep(1);
-        }
-        assertEquals(expected, startup.terminalDecision());
+    private static void assertStopped(WorkerStartup.StopReason reason, WorkerStartup.Outcome<?> outcome) {
+        assertEquals(
+                reason, assertInstanceOf(WorkerStartup.Stopped.class, outcome).reason());
     }
 
     private static <S> WorkerStartup.LateCompletion<S> awaitLate(

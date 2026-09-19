@@ -3,8 +3,6 @@
 package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.Threading;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -27,8 +25,7 @@ final class TimedTaskRunner {
     static <T> T run(String threadPrefix, long deadlineNanos, Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException {
         try {
-            return execute(
-                    threadPrefix, deadlineNanos, new CancellationSignal(), NO_OP_ABANDONMENT, new TaskStart(), task);
+            return execute(threadPrefix, deadlineNanos, null, NO_OP_ABANDONMENT, new TaskStart(), task);
         } catch (TaskCancelledException impossible) {
             throw new AssertionError("uncancellable task was cancelled", impossible);
         }
@@ -37,7 +34,7 @@ final class TimedTaskRunner {
     static <T> T runTracked(String threadPrefix, long deadlineNanos, TaskStart start, Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException {
         try {
-            return execute(threadPrefix, deadlineNanos, new CancellationSignal(), NO_OP_ABANDONMENT, start, task);
+            return execute(threadPrefix, deadlineNanos, null, NO_OP_ABANDONMENT, start, task);
         } catch (TaskCancelledException impossible) {
             throw new AssertionError("uncancellable task was cancelled", impossible);
         }
@@ -50,7 +47,13 @@ final class TimedTaskRunner {
             AbandonmentHandler abandonmentHandler,
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
-        return execute(threadPrefix, deadlineNanos, cancellation, abandonmentHandler, new TaskStart(), task);
+        return execute(
+                threadPrefix,
+                deadlineNanos,
+                Objects.requireNonNull(cancellation, "cancellation"),
+                abandonmentHandler,
+                new TaskStart(),
+                task);
     }
 
     private static <T> T execute(
@@ -62,19 +65,22 @@ final class TimedTaskRunner {
             Task<T> task)
             throws TimeoutException, InterruptedException, ExecutionException, TaskCancelledException {
         Objects.requireNonNull(threadPrefix, "threadPrefix");
-        Objects.requireNonNull(cancellation, "cancellation");
         Objects.requireNonNull(abandonmentHandler, "abandonmentHandler");
         Objects.requireNonNull(start, "start");
         Objects.requireNonNull(task, "task");
 
         CompletableFuture<Outcome<T>> outcome = new CompletableFuture<>();
         TaskControl control = new TaskControl();
-        CancellationSignal.Registration registration = cancellation.register(() -> {
-            control.abandon();
-            outcome.complete(Outcome.cancelledOutcome());
-        });
-        try {
-            cancellation.throwIfCancelled();
+        CancellationSignal.Registration registration = cancellation == null
+                ? null
+                : cancellation.register(() -> {
+                    control.abandon();
+                    outcome.complete(Outcome.cancelledOutcome());
+                });
+        try (registration) {
+            if (cancellation != null) {
+                cancellation.throwIfCancelled();
+            }
             ensureBeforeDeadline(deadlineNanos, "operation deadline elapsed before task start");
 
             Thread thread;
@@ -84,7 +90,9 @@ final class TimedTaskRunner {
                 throw new ExecutionException("Could not create timed task thread", failure);
             }
             control.bind(thread);
-            cancellation.throwIfCancelled();
+            if (cancellation != null) {
+                cancellation.throwIfCancelled();
+            }
             ensureBeforeDeadline(deadlineNanos, "operation deadline elapsed before task start");
             try {
                 thread.start();
@@ -93,8 +101,6 @@ final class TimedTaskRunner {
             }
             start.markStarted();
             return await(deadlineNanos, outcome, abandonmentHandler, control);
-        } finally {
-            registration.close();
         }
     }
 
@@ -166,39 +172,44 @@ final class TimedTaskRunner {
         void beforeInterrupt(Throwable failure);
     }
 
+    /** One terminal cancellation signal for sequential callbacks owned by a scenario. */
     static final class CancellationSignal {
 
-        private final Object monitor = new Object();
-        private final ArrayList<Runnable> listeners = new ArrayList<>();
+        private Registration active;
         private volatile boolean cancelled;
 
         boolean cancel() {
-            List<Runnable> pending;
-            synchronized (monitor) {
+            Registration pending;
+            synchronized (this) {
                 if (cancelled) {
                     return false;
                 }
                 cancelled = true;
-                pending = List.copyOf(listeners);
-                listeners.clear();
+                pending = active;
+                active = null;
             }
-            pending.forEach(Runnable::run);
+            if (pending != null) {
+                pending.listener.run();
+            }
             return true;
         }
 
         Registration register(Runnable listener) {
-            Objects.requireNonNull(listener, "listener");
+            Registration registration = new Registration(Objects.requireNonNull(listener, "listener"));
             boolean runImmediately;
-            synchronized (monitor) {
+            synchronized (this) {
                 runImmediately = cancelled;
                 if (!runImmediately) {
-                    listeners.add(listener);
+                    if (active != null) {
+                        throw new IllegalStateException("A callback is already registered for cancellation");
+                    }
+                    active = registration;
                 }
             }
             if (runImmediately) {
                 listener.run();
             }
-            return runImmediately ? () -> {} : () -> unregister(listener);
+            return registration;
         }
 
         void throwIfCancelled() throws TaskCancelledException {
@@ -207,17 +218,22 @@ final class TimedTaskRunner {
             }
         }
 
-        private void unregister(Runnable listener) {
-            synchronized (monitor) {
-                listeners.remove(listener);
-            }
-        }
+        final class Registration implements AutoCloseable {
 
-        @FunctionalInterface
-        interface Registration extends AutoCloseable {
+            private final Runnable listener;
+
+            private Registration(Runnable listener) {
+                this.listener = listener;
+            }
 
             @Override
-            void close();
+            public void close() {
+                synchronized (CancellationSignal.this) {
+                    if (active == this) {
+                        active = null;
+                    }
+                }
+            }
         }
     }
 

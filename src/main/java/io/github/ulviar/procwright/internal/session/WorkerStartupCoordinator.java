@@ -4,7 +4,6 @@ package io.github.ulviar.procwright.internal.session;
 
 import io.github.ulviar.procwright.internal.FailureAggregation;
 import java.util.Objects;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 /** Owns pool-state preflight, launch, waiting, and failure mapping for one worker startup. */
@@ -63,43 +62,26 @@ final class WorkerStartupCoordinator<S> {
 
     private WorkerStartup.CreatedWorker<S> await(
             WorkerStartup<S> owner, PoolWorker<S> worker, long deadlineNanos, PoolWorker.StartupPurpose purpose) {
-        try {
-            return owner.await(deadlineNanos);
-        } catch (TimeoutException failure) {
-            WorkerStartup.TerminalDecision decision = owner.terminalDecision();
-            if (decision == WorkerStartup.TerminalDecision.CLOSED) {
-                throw failures.closed("Pool is closed");
+        return switch (owner.await(deadlineNanos)) {
+            case WorkerStartup.CreatedWorker<S> created -> created;
+            case WorkerStartup.Failed<S> failed -> {
+                Throwable cause = failed.failure();
+                poolState.factoryFailed(worker, cause);
+                if (cause instanceof Error error) {
+                    throw error;
+                }
+                throw failures.startupFailed("Could not start " + workerLabel, cause);
             }
-            if (decision != WorkerStartup.TerminalDecision.TIMED_OUT) {
-                throw new IllegalStateException("worker startup timeout has incompatible decision: " + decision);
-            }
-            throw startupTimeout(purpose, failure);
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            WorkerStartup.TerminalDecision decision = owner.terminalDecision();
-            if (decision == WorkerStartup.TerminalDecision.CLOSED) {
-                throw failures.closed("Pool is closed");
-            }
-            if (decision == WorkerStartup.TerminalDecision.TIMED_OUT) {
-                throw startupTimeout(purpose, new TimeoutException("worker startup deadline elapsed"));
-            }
-            if (decision != WorkerStartup.TerminalDecision.INTERRUPTED) {
-                throw new IllegalStateException("worker startup interruption has incompatible decision: " + decision);
-            }
-            throw failures.acquireInterrupted("Interrupted while starting " + workerLabel, failure);
-        } catch (ExecutionException failure) {
-            Throwable cause = failure.getCause();
-            boolean closed = poolState.factoryFailed(worker, cause);
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            if (closed) {
-                RuntimeException closedFailure = failures.closed("Pool is closed");
-                throw (RuntimeException) failures.expose(FailureAggregation.combine(
-                        closedFailure, cause, "Pool closed while its worker factory failed"));
-            }
-            throw failures.startupFailed("Could not start " + workerLabel, cause);
-        }
+            case WorkerStartup.Stopped<S> stopped ->
+                throw switch (stopped.reason()) {
+                    case CLOSED -> failures.closed("Pool is closed");
+                    case TIMED_OUT -> startupTimeout(purpose, new TimeoutException("worker startup deadline elapsed"));
+                    case INTERRUPTED ->
+                        failures.acquireInterrupted(
+                                "Interrupted while starting " + workerLabel,
+                                new InterruptedException("worker startup was interrupted"));
+                };
+        };
     }
 
     private RuntimeException startupTimeout(PoolWorker.StartupPurpose purpose, TimeoutException cause) {
@@ -148,7 +130,7 @@ final class WorkerStartupCoordinator<S> {
 
         StartupDecision preflight(PoolWorker<S> worker, long deadlineNanos);
 
-        boolean factoryFailed(PoolWorker<S> worker, Throwable failure);
+        void factoryFailed(PoolWorker<S> worker, Throwable failure);
 
         void discardStartingWorker(PoolWorker<S> worker);
     }

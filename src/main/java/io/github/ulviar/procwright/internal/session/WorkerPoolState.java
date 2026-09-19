@@ -165,17 +165,10 @@ final class WorkerPoolState<S> {
         });
     }
 
-    boolean factoryFailed(PoolWorker<S> worker, Throwable failure) {
+    void factoryFailed(PoolWorker<S> worker, Throwable failure) {
         Objects.requireNonNull(worker, "worker");
         Objects.requireNonNull(failure, "failure");
-        return transition(effects -> {
-            boolean closedStartup =
-                    switch (worker.startup().terminalDecision()) {
-                        case CLOSED -> true;
-                        case FACTORY_COMPLETED -> false;
-                        case TIMED_OUT, INTERRUPTED, UNDECIDED ->
-                            throw new IllegalStateException("worker factory failure has no completion decision");
-                    };
+        runTransition(effects -> {
             if (failure instanceof Error && worker.startupPurpose() == PoolWorker.StartupPurpose.REPLENISHMENT) {
                 enterClosingLocked(failure, effects);
             }
@@ -183,7 +176,6 @@ final class WorkerPoolState<S> {
             metrics.startupFailed();
             signalWaitersLocked();
             effects.publish(claimDrainLocked());
-            return closedStartup;
         });
     }
 

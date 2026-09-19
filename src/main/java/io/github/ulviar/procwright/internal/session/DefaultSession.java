@@ -524,9 +524,8 @@ public final class DefaultSession implements Session {
         return resources.ownedStderr(mode);
     }
 
-    OutputCloseReservation.Reservation reserveOwnedOutputClose(
-            SessionOutputMode mode, Consumer<OutputCloseReservation.Stream> pumpCloseObserver) {
-        return resources.reserveOutputClose(mode, pumpCloseObserver);
+    OutputCloseReservation.Reservation reserveOwnedOutputClose(SessionOutputMode mode) {
+        return resources.reserveOutputClose(mode);
     }
 
     Charset charset() {

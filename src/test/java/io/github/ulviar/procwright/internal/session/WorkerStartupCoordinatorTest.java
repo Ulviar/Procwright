@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,9 +30,7 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1));
 
         assertEquals("ready", created.session());
-        assertEquals(
-                WorkerStartup.TerminalDecision.FACTORY_COMPLETED,
-                worker.startup().terminalDecision());
+        assertSame(created, worker.startup().await(System.nanoTime()));
     }
 
     @Test
@@ -146,7 +145,10 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 () -> coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.CLOSED, observed.kind);
-        assertEquals(WorkerStartup.TerminalDecision.CLOSED, worker.startup().terminalDecision());
+        assertEquals(
+                WorkerStartup.StopReason.CLOSED,
+                assertInstanceOf(WorkerStartup.Stopped.class, worker.startup().await(System.nanoTime()))
+                        .reason());
         assertEquals(0, factoryCalls.get());
         assertEquals(1, state.discards.get());
     }
@@ -166,7 +168,10 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
                 () -> coordinator(state).start(worker, System.nanoTime() + TimeUnit.SECONDS.toNanos(1)));
 
         assertEquals(FailureKind.ACQUIRE_TIMEOUT, observed.kind);
-        assertEquals(WorkerStartup.TerminalDecision.TIMED_OUT, worker.startup().terminalDecision());
+        assertEquals(
+                WorkerStartup.StopReason.TIMED_OUT,
+                assertInstanceOf(WorkerStartup.Stopped.class, worker.startup().await(System.nanoTime()))
+                        .reason());
         assertEquals(0, factoryCalls.get());
         assertEquals(1, state.discards.get());
     }
@@ -210,9 +215,8 @@ final class WorkerStartupCoordinatorTest extends WorkerPoolControllerTestSupport
         }
 
         @Override
-        public boolean factoryFailed(PoolWorker<String> worker, Throwable failure) {
+        public void factoryFailed(PoolWorker<String> worker, Throwable failure) {
             factoryFailures.incrementAndGet();
-            return false;
         }
 
         @Override

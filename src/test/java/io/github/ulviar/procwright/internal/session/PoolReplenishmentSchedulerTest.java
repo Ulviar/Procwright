@@ -33,7 +33,7 @@ final class PoolReplenishmentSchedulerTest {
             }
             assertTrue(ownersEntered.await(1, TimeUnit.SECONDS));
 
-            PoolScheduledAttempt.Cancellation cancellation =
+            PoolReplenisher.Cancellation cancellation =
                     PoolReplenishmentScheduler.schedule(cancelledRuns::incrementAndGet, Duration.ZERO);
             cancellation.cancel();
         } finally {

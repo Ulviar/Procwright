@@ -42,7 +42,9 @@ worker, отделённый от logical pool при close, не возвращ
 request count, startup duration и retire reason. Отдельной reservation и заранее подготовленного lease нет.
 
 `WorkerStartup` владеет одним terminal race между factory completion, timeout, interruption и close. Он также владеет
-factory thread и одним outcome future, который атомарно содержит terminal decision и результат factory. Проигравший
+factory thread и одним outcome future с тремя вариантами: созданный worker, исходная ошибка factory или причина остановки.
+Coordinator отображает этот результат в public failure без промежуточных исключений и повторного чтения winner.
+Поздняя отмена не меняет выбранный результат; interruption вызывающего потока восстанавливает его flag. Проигравший
 поздний factory result передаётся ровно один раз в late-completion callback. Число одновременных startups ограничивает
 `maxSize` конкретного pool; независимые pools не делят process-global startup admission.
 
@@ -76,7 +78,9 @@ drain claim и cancellation-isolated future views. Publication token выбир�
 `WorkerPoolConstruction` владеет warmup, commit и bounded rollback. Один `PoolReplenisher` на pool поддерживает
 `minIdle` цепочкой одношаговых попыток с backoff. Между попытками он хранит не более одной scheduled task в общем
 fixed-parallelism `PoolReplenishmentScheduler`; размер его очереди зависит от числа live pools, а не от частоты failures.
-`PoolScheduledAttempt` изолирует гонку между немедленным запуском, attachment cancellation handle и close; закрытие
+`PoolReplenisher` хранит pending/running attempt и cancellation handle под одним monitor; отдельного автомата
+запланированной задачи нет. Позднее получение handle после close отменяет задачу, после начала выполнения — не
+прерывает её. Fatal failure запрещает новые attempts до вызова внешнего failure handler. Закрытие
 pool удаляет pending task из scheduler. Backoff не занимает worker thread, поэтому failing pool не удерживает lifecycle
 owner бесконечным retry-loop. `PooledRequestRunner` владеет request observation и exact-once возвратом lease.
 
