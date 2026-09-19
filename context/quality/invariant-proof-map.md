@@ -252,7 +252,8 @@ identity регистрации, чтобы старый callback не мог у
 ### Provider operations
 
 **Инвариант:** process-provider operations имеют общую ограниченную capacity, deadline и disposable daemon owner;
-timeout не освобождает capacity до фактического завершения операции.
+timeout не освобождает capacity до фактического завершения операции. Interruption достигает уже запущенного worker,
+в том числе до входа в callback. Поздний result не меняет выбранный outcome; reporting settlement не является gate.
 
 **Владелец:** `ProcessProviderOperationOwner`.
 
@@ -507,9 +508,11 @@ interruption вызывающего потока сохраняет interrupt fl
 **Инвариант:** retirement создаётся только для принятой session, запускает close ровно один раз и освобождает capacity
 только после logical settlement.
 
-**Владелец:** `WorkerRetirementCoordinator`.
+**Владелец:** `WorkerRetirement` — exact-once initiation и стабильный outcome; `WorkerCloseSupport` — совместное
+ожидание возврата close и terminal observation; `WorkerRetirementCoordinator` — batch orchestration вне pool monitor.
 
-**Proof:** `WorkerRetirementCoordinatorTest`, `PooledWorkerRetirementCoordinationTest`.
+**Proof:** `WorkerRetirementTest`, `WorkerCloseSupportTest`, `WorkerRetirementCoordinatorTest`,
+`PooledWorkerRetirementCoordinationTest`.
 
 ### Replenishment
 

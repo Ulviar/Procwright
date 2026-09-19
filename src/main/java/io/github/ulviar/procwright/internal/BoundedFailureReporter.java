@@ -29,7 +29,6 @@ public final class BoundedFailureReporter {
 
     private final BoundedIsolatedTaskDispatcher dispatcher;
     private final Object settlementMonitor = new Object();
-    private long unsettledProducers;
     private long unsettledSubmissions;
 
     public BoundedFailureReporter(int workerCapacity, int queueCapacity) {
@@ -119,12 +118,12 @@ public final class BoundedFailureReporter {
         }
     }
 
-    /** Waits up to the supplied bound for all producers, dispatching, queued, and active submissions to settle. */
+    /** Waits up to the supplied bound for all dispatching, queued, and active submissions to settle. */
     boolean awaitSettlement(Duration timeout) throws InterruptedException {
         DurationSupport.requireNonNegative(timeout, "timeout");
         long deadline = DurationSupport.deadlineFromNow(timeout);
         synchronized (settlementMonitor) {
-            while (unsettledProducers != 0 || unsettledSubmissions != 0) {
+            while (unsettledSubmissions != 0) {
                 long remainingNanos = deadline - System.nanoTime();
                 if (remainingNanos <= 0) {
                     return false;
@@ -135,14 +134,6 @@ public final class BoundedFailureReporter {
             }
             return true;
         }
-    }
-
-    ProducerRegistration registerProducer() {
-        ProducerRegistration registration = new ProducerRegistration();
-        synchronized (settlementMonitor) {
-            unsettledProducers++;
-        }
-        return registration;
     }
 
     private SubmissionSettlement beginSubmission() {
@@ -185,26 +176,6 @@ public final class BoundedFailureReporter {
         return dispatcher.queuedCount();
     }
 
-    final class ProducerRegistration {
-
-        private boolean complete;
-
-        private ProducerRegistration() {}
-
-        void complete() {
-            synchronized (this) {
-                if (complete) {
-                    return;
-                }
-                complete = true;
-            }
-            synchronized (settlementMonitor) {
-                unsettledProducers--;
-                notifyIfSettled();
-            }
-        }
-    }
-
     private final class SubmissionSettlement {
 
         private boolean complete;
@@ -224,7 +195,7 @@ public final class BoundedFailureReporter {
     }
 
     private void notifyIfSettled() {
-        if (unsettledProducers == 0 && unsettledSubmissions == 0) {
+        if (unsettledSubmissions == 0) {
             settlementMonitor.notifyAll();
         }
     }

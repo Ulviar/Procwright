@@ -109,9 +109,8 @@ Runtime получает только согласованный plan и не у
 - logical output-mode settlement и единственная передача stdout/stderr на physical close после process outcome —
   `OutputPumpCleanup`; закрытие wrapper-а отдельной pump не выбирает момент physical close;
 - bounded immutable cleanup snapshot — `KnownDescendants`; bounded process/provider traversal — `ProcessTreeScanner`;
-  fresh owner каждой provider operation —
-  `ProcessProviderOperationOwner`, cancellation — `ProcessProviderOperationCancellation`, reporting settlement —
-  `ProcessProviderOperationSettlement`;
+  admission, deadline и interrupt уже запущенного disposable worker — `ProcessProviderOperationOwner`. Slot занят до
+  физического возврата операции; поздний result не участвует в lifecycle outcome и не требует reporting settlement;
 - line/protocol request serialization — `SerializedRequestGate`; active request и terminal arbitration —
   `LineSessionState` и `ProtocolSessionState`;
 - stream использует canonical outcome `SessionTerminal`; `DefaultStreamSession` владеет только stopping admission и

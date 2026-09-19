@@ -4,6 +4,7 @@ package io.github.ulviar.procwright.internal;
 
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.CompletedProcess;
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.eventually;
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.failureSourceContaining;
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.knownDescendants;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -72,7 +73,8 @@ final class ProcessLifecycleCompletionProofTest {
 
         assertTrue(failure.getMessage().contains("did not exit during forceful cleanup"));
         assertTrue(process.scanCalls() >= 3);
-        assertTrue(ProcessTreeScanner.shared().awaitReportingSettlement(Duration.ofSeconds(1)));
+        assertTrue(eventually(() -> ProcessTreeScanner.shared().availableOperationPermits()
+                == ProcessTreeScanner.SHARED_OPERATION_CAPACITY));
     }
 
     @Test
@@ -101,7 +103,8 @@ final class ProcessLifecycleCompletionProofTest {
             caller.join(TimeUnit.SECONDS.toMillis(1));
         }
         assertFalse(caller.isAlive());
-        assertTrue(ProcessTreeScanner.shared().awaitReportingSettlement(Duration.ofSeconds(1)));
+        assertTrue(eventually(() -> ProcessTreeScanner.shared().availableOperationPermits()
+                == ProcessTreeScanner.SHARED_OPERATION_CAPACITY));
     }
 
     @Test

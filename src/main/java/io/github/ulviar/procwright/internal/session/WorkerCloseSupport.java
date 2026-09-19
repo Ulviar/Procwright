@@ -25,13 +25,13 @@ final class WorkerCloseSupport {
         Objects.requireNonNull(terminalOutcome, "terminalOutcome");
         Objects.requireNonNull(starter, "starter");
 
-        CompletableFuture<Throwable> closeFailure = observe(initiateClose(session, starter));
+        CompletableFuture<WorkerRetirement.Outcome> close = initiateClose(session, starter);
         CompletableFuture<Void> terminalSettlement = terminalOutcome.handle((ignored, failure) -> null);
-        return CompletableFuture.allOf(closeFailure, terminalSettlement)
-                .thenApply(ignored -> outcome(closeFailure.join()));
+        return close.thenCombine(terminalSettlement, (outcome, ignored) -> outcome);
     }
 
-    private static CompletableFuture<Void> initiateClose(AutoCloseable session, CloseStarter starter) {
+    private static CompletableFuture<WorkerRetirement.Outcome> initiateClose(
+            AutoCloseable session, CloseStarter starter) {
         CloseTask task = new CloseTask(session);
         try {
             starter.start(CLOSE_THREAD_PREFIX, task::run);
@@ -50,24 +50,14 @@ final class WorkerCloseSupport {
         }
     }
 
-    private static CompletableFuture<Void> combineFailure(
-            CompletableFuture<Void> completion, Throwable primary, String message) {
-        CompletableFuture<Void> combined = new CompletableFuture<>();
-        completion.whenComplete((ignored, failure) -> {
+    private static CompletableFuture<WorkerRetirement.Outcome> combineFailure(
+            CompletableFuture<WorkerRetirement.Outcome> completion, Throwable primary, String message) {
+        return completion.thenApply(outcome -> {
             FailureAccumulator failures = new FailureAccumulator();
             failures.add(primary);
-            failures.add(failure);
-            combined.completeExceptionally(failures.aggregateErrorFirst(message));
+            failures.add(outcome.failure());
+            return WorkerRetirement.Outcome.failure(failures.aggregateErrorFirst(message));
         });
-        return combined;
-    }
-
-    private static CompletableFuture<Throwable> observe(CompletableFuture<?> future) {
-        return future.handle((ignored, failure) -> failure);
-    }
-
-    private static WorkerRetirement.Outcome outcome(Throwable failure) {
-        return failure == null ? WorkerRetirement.Outcome.success() : WorkerRetirement.Outcome.failure(failure);
     }
 
     @FunctionalInterface
@@ -79,7 +69,7 @@ final class WorkerCloseSupport {
     private static final class CloseTask {
 
         private final AutoCloseable session;
-        private final CompletableFuture<Void> completion = new CompletableFuture<>();
+        private final CompletableFuture<WorkerRetirement.Outcome> completion = new CompletableFuture<>();
         private final AtomicBoolean claimed = new AtomicBoolean();
 
         private CloseTask(AutoCloseable session) {
@@ -92,13 +82,13 @@ final class WorkerCloseSupport {
             }
             try {
                 session.close();
-                completion.complete(null);
+                completion.complete(WorkerRetirement.Outcome.success());
             } catch (Throwable failure) {
-                completion.completeExceptionally(failure);
+                completion.complete(WorkerRetirement.Outcome.failure(failure));
             }
         }
 
-        private CompletableFuture<Void> completion() {
+        private CompletableFuture<WorkerRetirement.Outcome> completion() {
             return completion;
         }
     }

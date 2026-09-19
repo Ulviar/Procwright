@@ -178,10 +178,6 @@ final class ProcessTreeScanner {
         return operations.availablePermits();
     }
 
-    boolean awaitReportingSettlement(Duration timeout) throws InterruptedException {
-        return operations.awaitReportingSettlement(timeout);
-    }
-
     static boolean causedByOperationDeadline(CommandExecutionException failure) {
         return ProcessProviderOperationOwner.causedByOperationDeadline(failure);
     }
@@ -450,16 +446,10 @@ final class ProcessTreeScanner {
             boolean guarded,
             boolean truncated,
             IncompleteReason incompleteReason,
-            Error failure)
-            implements ProcessProviderOperationOwner.AbandonedFailureCarrier {
+            Error failure) {
 
         private RootHandles {
             handlesByIdentity = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(handlesByIdentity));
-        }
-
-        @Override
-        public Error abandonedFailure() {
-            return failure;
         }
     }
 
@@ -476,8 +466,7 @@ final class ProcessTreeScanner {
             Map<HandleIdentity, ProcessHandle> handlesByIdentity,
             Status status,
             IncompleteReason incompleteReason,
-            Error failure)
-            implements ProcessProviderOperationOwner.AbandonedFailureCarrier {
+            Error failure) {
 
         DescendantScan {
             handlesByIdentity = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(handlesByIdentity));
@@ -510,11 +499,6 @@ final class ProcessTreeScanner {
             if (failure != null) {
                 throw failure;
             }
-        }
-
-        @Override
-        public Throwable abandonedFailure() {
-            return failure;
         }
 
         private static DescendantScan observed(

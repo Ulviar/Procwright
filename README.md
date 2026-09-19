@@ -112,7 +112,8 @@ blocking. Raw interactive, Expect, line, protocol, and listen are separate pre-l
 expose competing output consumers.
 
 For line, protocol, and Expect sessions, request timeouts do not bound output drain after process exit. Bound the
-`onExit()` wait and explicitly close the handle when that wait times out; see [cleanup limits](docs/explanations/process-cleanup-limits.md).
+`onExit()` wait and explicitly close the handle when that wait times out. Process-tree cleanup is best effort within the
+JDK process model; see [cleanup limits](docs/explanations/process-cleanup-limits.md).
 
 ## Documentation
 

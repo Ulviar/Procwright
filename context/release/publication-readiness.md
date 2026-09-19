@@ -16,6 +16,8 @@ release, поэтому способ загрузки в registry, signing и re
   consumers через Gradle metadata и принудительный Maven POM-only resolution;
 - Kotlin consumer `check` исполняет также обе канонические точки входа из документации: `KotlinExampleKt` и
   `KotlinPoolExampleKt`, включая запуск вложенного worker с опубликованными runtime dependencies;
+- regression gate проверяет provider deadline/interruption, сохранение capacity до фактического возврата операции и
+  неизменность выбранного timeout при позднем failure; отдельная доставка позднего provider failure не обещается;
 - Public package/scenario surface, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
 
 Агрегирующая локальная проверка:

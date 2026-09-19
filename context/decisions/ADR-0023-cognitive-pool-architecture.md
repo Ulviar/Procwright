@@ -59,6 +59,12 @@ close и deadline через узкий port, запуск, ожидание и 
 стабильным outcome. `WorkerRetirementCoordinator` сначала инициирует весь выбранный batch, затем наблюдает outcomes вне
 pool monitor и возвращает их в state.
 
+`WorkerCloseSupport` сразу представляет результат `close()` как retirement outcome и объединяет два события:
+возврат close и наблюдение terminal future session. Ошибка request в terminal future означает settlement, но не
+повторную ошибку закрытия. Стабильный future `WorkerRetirement` нужен для concurrent/reentrant observers ещё до возврата
+close action. Отдельный bounded dispatch bookkeeping сохраняется, потому что публикация поздних pool failures может
+ждать reporting capacity; при насыщении действует явный caller-runs fallback.
+
 ### Closing
 
 `PoolTermination` владеет construction phase, первым terminal failure, очередью construction diagnostics, единственным

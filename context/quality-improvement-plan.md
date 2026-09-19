@@ -28,7 +28,8 @@ ADR, tests и scorecard.
 - [x] Независимая исходная ревизия API, runtime, tests и документации; подтвердить конкретные разрывы кодом.
 - [x] Pool startup/replenishment и callback cancellation: typed startup outcome, один monitor replenishment и одна
   identity-registration отмены; defects и лишняя координация устранены.
-- [ ] Pool retirement: проверить полезность промежуточных futures и отдельного dispatch bookkeeping.
+- [x] Pool retirement: результат close передаётся без exceptional roundtrip; stable future и bounded bookkeeping
+  dispatch сохранены с конкретным обоснованием и behavioral proofs.
 - [x] Session terminal state и output ownership: один outcome, объяснимые границы settlement и один pair close после
   process outcome и logical mode settlement.
 - [ ] Process-tree cleanup и provider boundary: завершить бюджет гарантий ADR-0025, сохранив полезную очистку.

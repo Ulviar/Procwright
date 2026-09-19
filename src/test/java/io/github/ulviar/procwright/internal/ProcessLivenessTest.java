@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.internal;
 
 import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.MutableProcessHandle;
+import static io.github.ulviar.procwright.internal.ProcessLifecycleTestFixtures.eventually;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -261,7 +262,7 @@ final class ProcessLivenessTest {
             ledger.restoreInterrupt();
             Thread.interrupted();
         }
-        assertTrue(scanner.awaitReportingSettlement(Duration.ofSeconds(1)));
+        assertTrue(eventually(() -> scanner.availableOperationPermits() == 2));
     }
 
     private static Throwable captureFailure(ThrowingOperation operation) {

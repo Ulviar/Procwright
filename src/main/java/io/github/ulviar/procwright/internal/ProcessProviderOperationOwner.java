@@ -13,27 +13,23 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Owns bounded execution, abandonment, and fresh-thread isolation for process-provider calls. */
+/** Owns bounded admission and deadline-bound waiting for process-provider calls. */
 final class ProcessProviderOperationOwner {
 
     private final Semaphore permits;
     private final OperationThreadFactory threadFactory;
-    private final BoundedFailureReporter failureReporter;
     private final AtomicLong threadSequence = new AtomicLong();
 
-    ProcessProviderOperationOwner(
-            int capacity, OperationThreadFactory threadFactory, BoundedFailureReporter failureReporter) {
+    ProcessProviderOperationOwner(int capacity, OperationThreadFactory threadFactory) {
         if (capacity <= 0) {
             throw new IllegalArgumentException("operationCapacity must be positive");
         }
         this.threadFactory = Objects.requireNonNull(threadFactory, "threadFactory");
-        this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
         permits = new Semaphore(capacity, true);
     }
 
     static ProcessProviderOperationOwner production(int capacity) {
-        return new ProcessProviderOperationOwner(
-                capacity, Threading::unstartedPlatformNonInheriting, BoundedFailureReporter.shared());
+        return new ProcessProviderOperationOwner(capacity, Threading::unstartedPlatformNonInheriting);
     }
 
     <T> BestEffortResult<T> bestEffortResult(String threadPrefix, Duration timeout, Callable<T> operation) {
@@ -86,10 +82,6 @@ final class ProcessProviderOperationOwner {
         return permits.availablePermits();
     }
 
-    boolean awaitReportingSettlement(Duration timeout) throws InterruptedException {
-        return failureReporter.awaitSettlement(timeout);
-    }
-
     static boolean causedByOperationDeadline(CommandExecutionException failure) {
         return failure.getCause() instanceof OperationDeadlineExceeded;
     }
@@ -112,88 +104,43 @@ final class ProcessProviderOperationOwner {
 
     private <T> T execute(String threadPrefix, Duration timeout, Callable<T> operation, Permit permit)
             throws Exception {
-        BoundedFailureReporter.ProducerRegistration producer = null;
-        OperationHandoff<T> handoff;
+        CompletableFuture<Outcome<T>> completion;
+        Thread worker;
         try {
+            completion = new CompletableFuture<>();
             Objects.requireNonNull(threadPrefix, "threadPrefix");
             Objects.requireNonNull(timeout, "timeout");
             Objects.requireNonNull(operation, "operation");
-
-            CompletableFuture<Outcome<T>> completion = new CompletableFuture<>();
-            LateTaskFailureReporter lateFailureReporter = new LateTaskFailureReporter(failureReporter);
-            producer = failureReporter.registerProducer();
-            ProcessProviderOperationSettlement settlement =
-                    new ProcessProviderOperationSettlement(lateFailureReporter, producer);
-            ProcessProviderOperationCancellation cancellation = new ProcessProviderOperationCancellation();
-            handoff = new OperationHandoff<>(completion, settlement, cancellation, permit);
             String threadName = threadPrefix + Long.toUnsignedString(threadSequence.getAndIncrement());
-            Thread worker =
-                    Objects.requireNonNull(threadFactory.unstarted(threadName, () -> runOperation(handoff, operation)));
+            worker = Objects.requireNonNull(
+                    threadFactory.unstarted(threadName, () -> runOperation(operation, permit, completion)));
             worker.setDaemon(true);
             worker.start();
         } catch (RuntimeException | Error startFailure) {
-            rollbackAdmission(producer, permit);
+            permit.close();
             throw startFailure;
         }
-        return awaitResult(threadPrefix, timeout, handoff);
+        return awaitResult(threadPrefix, timeout, completion, worker);
     }
 
-    private static <T> void runOperation(OperationHandoff<T> handoff, Callable<T> operation) {
-        CompletableFuture<Outcome<T>> completion = handoff.completion();
-        ProcessProviderOperationSettlement settlement = handoff.settlement();
-        ProcessProviderOperationCancellation cancellation = handoff.cancellation();
-        Permit permit = handoff.permit();
-        Thread worker = Thread.currentThread();
-        boolean bound = false;
+    private static <T> void runOperation(
+            Callable<T> operation, Permit permit, CompletableFuture<Outcome<T>> completion) {
+        Outcome<T> outcome;
         try {
-            settlement.bind(worker);
-            cancellation.bind(worker);
-            bound = true;
-            Outcome<T> outcome;
-            try {
-                outcome = Outcome.completed(operation.call());
-            } catch (Throwable failure) {
-                outcome = Outcome.failed(failure);
-            }
-            permit.close();
-            completion.complete(outcome);
-            settlement.workerCompleted(outcome.lateFailure());
-        } catch (RuntimeException | Error infrastructureFailure) {
-            if (!completion.isDone()) {
-                permit.close();
-                try {
-                    completion.complete(Outcome.failed(infrastructureFailure));
-                } finally {
-                    settlement.workerCompleted(infrastructureFailure);
-                }
-            }
-            throw infrastructureFailure;
-        } finally {
-            permit.close();
-            if (bound) {
-                cancellation.unbind(worker);
-            }
-        }
-    }
-
-    private static void rollbackAdmission(BoundedFailureReporter.ProducerRegistration producer, Permit permit) {
-        try {
-            if (producer != null) {
-                producer.complete();
-            }
-        } catch (RuntimeException | Error ignored) {
-            // Permit recovery is independent from reporting settlement cleanup.
+            outcome = Outcome.completed(operation.call());
+        } catch (Throwable failure) {
+            outcome = Outcome.failed(failure);
         } finally {
             permit.close();
         }
+        completion.complete(outcome);
     }
 
-    private static <T> T awaitResult(String threadPrefix, Duration timeout, OperationHandoff<T> handoff)
+    private static <T> T awaitResult(
+            String threadPrefix, Duration timeout, CompletableFuture<Outcome<T>> completion, Thread worker)
             throws Exception {
         try {
-            Outcome<T> outcome =
-                    handoff.completion().get(DurationSupport.saturatedNanos(timeout), TimeUnit.NANOSECONDS);
-            handoff.settlement().resultObserved();
+            Outcome<T> outcome = completion.get(DurationSupport.saturatedNanos(timeout), TimeUnit.NANOSECONDS);
             if (outcome.failure() instanceof Exception exception) {
                 throw exception;
             }
@@ -202,14 +149,12 @@ final class ProcessProviderOperationOwner {
             }
             return outcome.value();
         } catch (TimeoutException timeoutFailure) {
-            handoff.settlement().abandon();
-            handoff.cancellation().interrupt();
+            worker.interrupt();
             throw operationDeadlineExceeded(threadPrefix, timeoutFailure);
         } catch (ExecutionException impossible) {
             throw new AssertionError("process operation completion stores failures as values", impossible);
         } catch (InterruptedException interruption) {
-            handoff.settlement().abandon();
-            handoff.cancellation().interrupt();
+            worker.interrupt();
             throw interruption;
         }
     }
@@ -220,28 +165,14 @@ final class ProcessProviderOperationOwner {
         Thread unstarted(String threadName, Runnable task);
     }
 
-    private record OperationHandoff<T>(
-            CompletableFuture<Outcome<T>> completion,
-            ProcessProviderOperationSettlement settlement,
-            ProcessProviderOperationCancellation cancellation,
-            Permit permit) {}
-
-    interface AbandonedFailureCarrier {
-
-        Throwable abandonedFailure();
-    }
-
-    private record Outcome<T>(T value, Throwable failure, Throwable lateFailure) {
+    private record Outcome<T>(T value, Throwable failure) {
 
         private static <T> Outcome<T> completed(T value) {
-            Throwable lateFailure =
-                    value instanceof AbandonedFailureCarrier carrier ? carrier.abandonedFailure() : null;
-            return new Outcome<>(value, null, lateFailure);
+            return new Outcome<>(value, null);
         }
 
         private static <T> Outcome<T> failed(Throwable failure) {
-            Throwable observed = Objects.requireNonNull(failure, "failure");
-            return new Outcome<>(null, observed, observed);
+            return new Outcome<>(null, Objects.requireNonNull(failure, "failure"));
         }
     }
 

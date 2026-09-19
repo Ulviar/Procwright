@@ -4,7 +4,6 @@ package io.github.ulviar.procwright.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,6 +23,76 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class ProcessProviderOperationOwnerTest {
+
+    @Test
+    void lateProviderFailureCannotChangeSelectedTimeoutOrRetainRecoveredCapacity() throws Exception {
+        ProcessProviderOperationOwner owner = ProcessProviderOperationOwner.production(1);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AssertionError lateFailure = new AssertionError("late provider failure");
+        CommandExecutionException timeout;
+        try {
+            timeout = assertThrows(
+                    CommandExecutionException.class,
+                    () -> owner.required("procwright-late-provider-failure-", Duration.ofMillis(25), () -> {
+                        entered.countDown();
+                        awaitUninterruptibly(release);
+                        throw lateFailure;
+                    }));
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            assertTrue(ProcessProviderOperationOwner.causedByOperationDeadline(timeout));
+            assertEquals(0, owner.availablePermits());
+        } finally {
+            release.countDown();
+        }
+
+        assertTrue(eventually(() -> owner.availablePermits() == 1));
+        assertEquals(
+                "recovered",
+                owner.required("procwright-after-late-failure-", Duration.ofSeconds(1), () -> "recovered"));
+        assertTrue(ProcessProviderOperationOwner.causedByOperationDeadline(timeout));
+        assertEquals(0, timeout.getSuppressed().length);
+    }
+
+    @Test
+    void callerInterruptionBeforeCallbackEntryReachesTheStartedWorker() throws Exception {
+        CountDownLatch workerStarted = new CountDownLatch(1);
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+        CountDownLatch callbackEntered = new CountDownLatch(1);
+        AtomicReference<Boolean> callbackInterrupted = new AtomicReference<>();
+        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
+                1,
+                (name, task) -> new Thread(
+                        () -> {
+                            workerStarted.countDown();
+                            awaitUninterruptibly(releaseWorker);
+                            task.run();
+                        },
+                        name));
+        AtomicReference<Throwable> observed = new AtomicReference<>();
+        Thread caller = new Thread(() -> observed.set(captureFailure(() ->
+                owner.required("procwright-before-provider-entry-", Duration.ofSeconds(2), () -> {
+                    callbackInterrupted.set(Thread.currentThread().isInterrupted());
+                    callbackEntered.countDown();
+                    return null;
+                }))));
+        caller.start();
+        try {
+            assertTrue(workerStarted.await(1, TimeUnit.SECONDS));
+            caller.interrupt();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+            assertFalse(caller.isAlive());
+            assertTrue(observed.get() instanceof InterruptedException);
+            assertEquals(0, owner.availablePermits());
+        } finally {
+            releaseWorker.countDown();
+            caller.join(TimeUnit.SECONDS.toMillis(1));
+        }
+
+        assertTrue(callbackEntered.await(1, TimeUnit.SECONDS));
+        assertTrue(callbackInterrupted.get());
+        assertTrue(eventually(() -> owner.availablePermits() == 1));
+    }
 
     @Test
     void bestEffortResultDistinguishesDeadlineFromUnavailableProviderState() throws Exception {
@@ -85,44 +154,6 @@ final class ProcessProviderOperationOwnerTest {
     }
 
     @Test
-    void abandonedCompletedCarrierReportsItsEmbeddedFailure() throws Exception {
-        CountDownLatch operationEntered = new CountDownLatch(1);
-        CountDownLatch releaseOperation = new CountDownLatch(1);
-        CountDownLatch failureReported = new CountDownLatch(1);
-        AtomicReference<Throwable> reported = new AtomicReference<>();
-        AssertionError embedded = new AssertionError("embedded provider failure");
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadPrefix, task) -> {
-                    Thread thread = new Thread(task, threadPrefix + "carrier");
-                    thread.setUncaughtExceptionHandler((ignored, failure) -> {
-                        reported.set(failure);
-                        failureReported.countDown();
-                    });
-                    return thread;
-                },
-                failureReporter);
-
-        ProcessProviderOperationOwner.BestEffortResult<EmbeddedFailureValue> result;
-        try {
-            result = owner.bestEffortResult("procwright-embedded-failure-", Duration.ofMillis(25), () -> {
-                operationEntered.countDown();
-                awaitUninterruptibly(releaseOperation);
-                return new EmbeddedFailureValue(embedded);
-            });
-            assertTrue(operationEntered.await(1, TimeUnit.SECONDS));
-            assertSame(ProcessProviderOperationOwner.BestEffortResult.Failure.DEADLINE, result.failure());
-        } finally {
-            releaseOperation.countDown();
-        }
-        assertTrue(failureReported.await(1, TimeUnit.SECONDS));
-        assertSame(embedded, reported.get());
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
-        assertEquals(1, owner.availablePermits());
-    }
-
-    @Test
     void ownerInterruptAfterProviderTimeoutDoesNotReportCheckedInterruption() throws Exception {
         assertOwnerInducedCheckedInterruptionIsSuppressed(false);
     }
@@ -136,15 +167,11 @@ final class ProcessProviderOperationOwnerTest {
         CountDownLatch operationEntered = new CountDownLatch(1);
         CountDownLatch operationInterrupted = new CountDownLatch(1);
         AtomicInteger reports = new AtomicInteger();
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadPrefix, task) -> {
-                    Thread thread = new Thread(null, task, threadPrefix + "checked-interruption", 0, false);
-                    thread.setUncaughtExceptionHandler((ignored, failure) -> reports.incrementAndGet());
-                    return thread;
-                },
-                failureReporter);
+        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(1, (threadPrefix, task) -> {
+            Thread thread = new Thread(null, task, threadPrefix + "checked-interruption", 0, false);
+            thread.setUncaughtExceptionHandler((ignored, failure) -> reports.incrementAndGet());
+            return thread;
+        });
         ExecutorService caller = Executors.newSingleThreadExecutor();
         try {
             Future<Throwable> result = caller.submit(() -> {
@@ -178,7 +205,7 @@ final class ProcessProviderOperationOwnerTest {
             }
             assertTrue(operationInterrupted.await(1, TimeUnit.SECONDS));
             assertTrue(eventually(() -> owner.availablePermits() == 1));
-            assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
+
             assertEquals(0, reports.get());
         } finally {
             caller.shutdownNow();
@@ -187,48 +214,9 @@ final class ProcessProviderOperationOwnerTest {
     }
 
     @Test
-    void abandonedProviderErrorIsReportedExactlyOnceAfterPermitRecovery() throws Exception {
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        AssertionError lateError = new AssertionError("late provider error");
-        AtomicInteger reports = new AtomicInteger();
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadPrefix, task) -> {
-                    Thread thread = new Thread(null, task, threadPrefix + "late-error", 0, false);
-                    thread.setUncaughtExceptionHandler((ignored, failure) -> {
-                        if (failure == lateError) {
-                            reports.incrementAndGet();
-                            reported.countDown();
-                        }
-                    });
-                    return thread;
-                },
-                failureReporter);
-
-        assertThrows(
-                CommandExecutionException.class,
-                () -> owner.required("procwright-scanner-error-", Duration.ofMillis(25), () -> {
-                    entered.countDown();
-                    awaitUninterruptibly(release);
-                    throw lateError;
-                }));
-        assertTrue(entered.await(1, TimeUnit.SECONDS));
-        release.countDown();
-
-        assertTrue(reported.await(1, TimeUnit.SECONDS));
-        assertTrue(eventually(() -> owner.availablePermits() == 1));
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
-        assertEquals(1, reports.get());
-    }
-
-    @Test
-    void validationFailuresReleaseTheAcquiredPermitWithoutCreatingAProducer() throws Exception {
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
+    void validationFailuresReleaseTheAcquiredPermitWithoutInvokingTheOperation() throws Exception {
         ProcessProviderOperationOwner owner =
-                new ProcessProviderOperationOwner(1, Threading::unstartedPlatformNonInheriting, failureReporter);
+                new ProcessProviderOperationOwner(1, Threading::unstartedPlatformNonInheriting);
         AtomicInteger operationCalls = new AtomicInteger();
         List<ThrowingRunnable> invalidInvocations = List.of(
                 () -> owner.required(null, Duration.ofSeconds(1), () -> {
@@ -244,7 +232,6 @@ final class ProcessProviderOperationOwnerTest {
         for (ThrowingRunnable invalidInvocation : invalidInvocations) {
             assertThrows(NullPointerException.class, invalidInvocation::run);
             assertEquals(1, owner.availablePermits());
-            assertTrue(failureReporter.awaitSettlement(Duration.ofMillis(100)));
         }
         assertEquals(0, operationCalls.get());
 
@@ -252,7 +239,6 @@ final class ProcessProviderOperationOwnerTest {
                 "recovered",
                 owner.required("procwright-after-validation-failure-", Duration.ofSeconds(1), () -> "recovered"));
         assertEquals(1, owner.availablePermits());
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
     }
 
     @Test
@@ -301,62 +287,6 @@ final class ProcessProviderOperationOwnerTest {
     }
 
     @Test
-    void disposableProviderWorkersDoNotCarryThreadLocalOrStandardThreadState() throws Exception {
-        ClassLoader baselineLoader = new ClassLoader(null) {};
-        ClassLoader contaminatedLoader = new ClassLoader(null) {};
-        Thread.UncaughtExceptionHandler baselineHandler = (thread, failure) -> {};
-        Thread.UncaughtExceptionHandler contaminatedHandler = (thread, failure) -> {};
-        AtomicInteger threadsCreated = new AtomicInteger();
-        AtomicReference<Thread> firstOwner = new AtomicReference<>();
-        ThreadLocal<Object> contamination = new ThreadLocal<>();
-        Object retainedGraph = new Object();
-        InheritableThreadLocal<String> inherited = new InheritableThreadLocal<>();
-        inherited.set("caller-state");
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadName, task) -> {
-                    Thread thread =
-                            new Thread(null, task, threadName + "-" + threadsCreated.incrementAndGet(), 0, false);
-                    thread.setContextClassLoader(baselineLoader);
-                    thread.setUncaughtExceptionHandler(baselineHandler);
-                    thread.setPriority(Thread.NORM_PRIORITY);
-                    return thread;
-                },
-                new BoundedFailureReporter(1, 4));
-        try {
-            owner.required("procwright-scanner-dirty-", Duration.ofSeconds(1), () -> {
-                Thread worker = Thread.currentThread();
-                assertNull(inherited.get(), "scanner owner inherited caller ThreadLocal state");
-                firstOwner.set(worker);
-                contamination.set(retainedGraph);
-                worker.setContextClassLoader(contaminatedLoader);
-                worker.setUncaughtExceptionHandler(contaminatedHandler);
-                worker.setPriority(Thread.MIN_PRIORITY);
-                worker.interrupt();
-                return null;
-            });
-
-            owner.required("procwright-scanner-clean-", Duration.ofSeconds(1), () -> {
-                Thread worker = Thread.currentThread();
-                assertNotSame(firstOwner.get(), worker);
-                assertNull(contamination.get(), "provider ThreadLocal escaped its disposable owner");
-                assertNull(inherited.get(), "scanner owner inherited caller ThreadLocal state");
-                assertSame(baselineLoader, worker.getContextClassLoader());
-                assertSame(baselineHandler, worker.getUncaughtExceptionHandler());
-                assertEquals(Thread.NORM_PRIORITY, worker.getPriority());
-                assertFalse(worker.isInterrupted());
-                assertTrue(worker.getName().startsWith("procwright-scanner-clean-"));
-                return null;
-            });
-        } finally {
-            inherited.remove();
-            contamination.remove();
-        }
-        assertEquals(2, threadsCreated.get());
-        assertEquals(1, owner.availablePermits());
-    }
-
-    @Test
     void productionProviderOwnerIsDaemonAndDoesNotInheritCallerThreadLocals() throws Exception {
         ProcessProviderOperationOwner owner = ProcessProviderOperationOwner.production(1);
         InheritableThreadLocal<String> inherited = new InheritableThreadLocal<>();
@@ -374,183 +304,15 @@ final class ProcessProviderOperationOwnerTest {
     }
 
     @Test
-    void abandonedProviderFailureIsReportedOnceAndCannotContaminateTheRecoveredOwner() throws Exception {
-        ClassLoader baselineLoader = new ClassLoader(null) {};
-        ClassLoader contaminatedLoader = new ClassLoader(null) {};
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        IllegalStateException lateFailure = new IllegalStateException("late provider failure");
-        AtomicInteger reports = new AtomicInteger();
-        AtomicReference<Thread> firstOwner = new AtomicReference<>();
-        AtomicReference<String> baselineName = new AtomicReference<>();
-        AtomicReference<String> reportedThreadName = new AtomicReference<>();
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        Thread.UncaughtExceptionHandler baselineHandler = (thread, failure) -> {
-            if (failure == lateFailure) {
-                reportedThreadName.set(thread.getName());
-                reports.incrementAndGet();
-                reported.countDown();
-            }
-        };
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadPrefix, task) -> {
-                    Thread thread = new Thread(null, task, threadPrefix + "1", 0, false);
-                    baselineName.set(thread.getName());
-                    thread.setContextClassLoader(baselineLoader);
-                    thread.setUncaughtExceptionHandler(baselineHandler);
-                    return thread;
-                },
-                failureReporter);
-
-        CommandExecutionException timeout = assertThrows(
-                CommandExecutionException.class,
-                () -> owner.required("procwright-scanner-late-", Duration.ofMillis(25), () -> {
-                    Thread worker = Thread.currentThread();
-                    firstOwner.set(worker);
-                    worker.setContextClassLoader(contaminatedLoader);
-                    worker.setUncaughtExceptionHandler((thread, failure) -> {});
-                    worker.setPriority(Thread.MIN_PRIORITY);
-                    entered.countDown();
-                    awaitUninterruptibly(release);
-                    throw lateFailure;
-                }));
-        assertEquals(CommandExecutionException.Reason.RUNTIME_FAILURE, timeout.reason());
-        assertTrue(ProcessProviderOperationOwner.causedByOperationDeadline(timeout));
-        assertTrue(entered.await(1, TimeUnit.SECONDS));
-        assertEquals(0, owner.availablePermits());
-        try {
-            assertThrows(
-                    CommandExecutionException.class,
-                    () -> owner.required("procwright-scanner-rejected-", Duration.ofSeconds(1), () -> null));
-        } finally {
-            release.countDown();
-        }
-        assertTrue(reported.await(1, TimeUnit.SECONDS));
-        assertEquals(baselineName.get(), reportedThreadName.get());
-        assertTrue(eventually(() -> owner.availablePermits() == 1));
-
-        owner.required("procwright-scanner-recovered-", Duration.ofSeconds(1), () -> {
-            Thread worker = Thread.currentThread();
-            assertNotSame(firstOwner.get(), worker);
-            assertSame(baselineLoader, worker.getContextClassLoader());
-            assertSame(baselineHandler, worker.getUncaughtExceptionHandler());
-            assertEquals(Thread.NORM_PRIORITY, worker.getPriority());
-            assertFalse(worker.isInterrupted());
-            return null;
-        });
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
-        assertEquals(1, reports.get());
-    }
-
-    @Test
-    void lateFailureHandlerCannotMutateTheNextDisposableProviderOwner() throws Exception {
-        ClassLoader baselineLoader = new ClassLoader(null) {};
-        ClassLoader hostileLoader = new ClassLoader(null) {};
-        CountDownLatch firstOperationEntered = new CountDownLatch(1);
-        CountDownLatch releaseFirstOperation = new CountDownLatch(1);
-        CountDownLatch secondOperationEntered = new CountDownLatch(1);
-        CountDownLatch handlerMutationCompleted = new CountDownLatch(1);
-        CountDownLatch reported = new CountDownLatch(1);
-        IllegalStateException lateFailure = new IllegalStateException("late disposable-owner failure");
-        AtomicInteger reports = new AtomicInteger();
-        AtomicReference<Thread> firstOwner = new AtomicReference<>();
-        AtomicReference<Thread> reportedSource = new AtomicReference<>();
-        AtomicReference<String> reportedSourceName = new AtomicReference<>();
-        AtomicReference<ClassLoader> reportedSourceLoader = new AtomicReference<>();
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        Thread.UncaughtExceptionHandler hostileHandler = (thread, failure) -> {};
-        Thread.UncaughtExceptionHandler baselineHandler = (source, failure) -> {
-            if (failure != lateFailure) {
-                return;
-            }
-            reportedSource.set(source);
-            reportedSourceName.set(source.getName());
-            reportedSourceLoader.set(source.getContextClassLoader());
-            awaitUninterruptibly(secondOperationEntered);
-            source.setName("hostile-reported-source");
-            source.setContextClassLoader(hostileLoader);
-            source.setUncaughtExceptionHandler(hostileHandler);
-            source.setPriority(Thread.MIN_PRIORITY);
-            source.interrupt();
-            reports.incrementAndGet();
-            handlerMutationCompleted.countDown();
-            reported.countDown();
-        };
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadName, task) -> {
-                    Thread thread = new Thread(null, task, threadName + "-source", 0, false);
-                    thread.setContextClassLoader(baselineLoader);
-                    thread.setUncaughtExceptionHandler(baselineHandler);
-                    thread.setPriority(Thread.NORM_PRIORITY);
-                    return thread;
-                },
-                failureReporter);
-        ExecutorService caller = Executors.newSingleThreadExecutor();
-        try {
-            assertThrows(
-                    CommandExecutionException.class,
-                    () -> owner.required("procwright-scanner-first-", Duration.ofMillis(25), () -> {
-                        firstOwner.set(Thread.currentThread());
-                        firstOperationEntered.countDown();
-                        awaitUninterruptibly(releaseFirstOperation);
-                        throw lateFailure;
-                    }));
-            assertTrue(firstOperationEntered.await(1, TimeUnit.SECONDS));
-            releaseFirstOperation.countDown();
-            assertTrue(eventually(() -> owner.availablePermits() == 1));
-
-            Future<WorkerObservation> second =
-                    caller.submit(() -> owner.required("procwright-scanner-second-", Duration.ofSeconds(1), () -> {
-                        Thread worker = Thread.currentThread();
-                        secondOperationEntered.countDown();
-                        awaitUninterruptibly(handlerMutationCompleted);
-                        return new WorkerObservation(
-                                worker,
-                                worker.getName(),
-                                worker.getContextClassLoader(),
-                                worker.getUncaughtExceptionHandler(),
-                                worker.getPriority(),
-                                worker.isInterrupted());
-                    }));
-
-            WorkerObservation observation = second.get(1, TimeUnit.SECONDS);
-            assertTrue(reported.await(1, TimeUnit.SECONDS));
-            assertNotSame(firstOwner.get(), reportedSource.get());
-            assertTrue(reportedSourceName.get().startsWith("procwright-scanner-first-"));
-            assertSame(baselineLoader, reportedSourceLoader.get());
-            assertNotSame(firstOwner.get(), observation.owner());
-            assertTrue(observation.name().startsWith("procwright-scanner-second-"));
-            assertSame(baselineLoader, observation.contextClassLoader());
-            assertSame(baselineHandler, observation.uncaughtExceptionHandler());
-            assertEquals(Thread.NORM_PRIORITY, observation.priority());
-            assertFalse(observation.interrupted());
-            assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
-            assertEquals(1, reports.get());
-        } finally {
-            releaseFirstOperation.countDown();
-            handlerMutationCompleted.countDown();
-            caller.shutdownNow();
-            assertTrue(caller.awaitTermination(1, TimeUnit.SECONDS));
-        }
-        assertEquals(1, owner.availablePermits());
-    }
-
-    @Test
     void ownerRecoversAfterThreadFactoryRejectionWithoutInvokingRejectedOperation() {
         AtomicInteger factoryCalls = new AtomicInteger();
         AtomicInteger operationCalls = new AtomicInteger();
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadPrefix, task) -> {
-                    if (factoryCalls.getAndIncrement() == 0) {
-                        throw new SecurityException("scan owner denied");
-                    }
-                    return new Thread(task, threadPrefix + factoryCalls.get());
-                },
-                new BoundedFailureReporter(1, 4));
+        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(1, (threadPrefix, task) -> {
+            if (factoryCalls.getAndIncrement() == 0) {
+                throw new SecurityException("scan owner denied");
+            }
+            return new Thread(task, threadPrefix + factoryCalls.get());
+        });
 
         ProcessProviderOperationOwner.BestEffortResult<Integer> rejected = owner.bestEffortResult(
                 "procwright-rejected-owner-", Duration.ofMillis(50), operationCalls::incrementAndGet);
@@ -579,10 +341,8 @@ final class ProcessProviderOperationOwnerTest {
         SecurityException expected = new SecurityException("worker start denied");
         AtomicInteger starts = new AtomicInteger();
         AtomicInteger operationCalls = new AtomicInteger();
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
         ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadName, task) -> new Thread(null, task, threadName, 0, false) {
+                1, (threadName, task) -> new Thread(null, task, threadName, 0, false) {
                     @Override
                     public synchronized void start() {
                         if (starts.getAndIncrement() == 0) {
@@ -590,8 +350,7 @@ final class ProcessProviderOperationOwnerTest {
                         }
                         super.start();
                     }
-                },
-                failureReporter);
+                });
 
         SecurityException actual = assertThrows(
                 SecurityException.class,
@@ -603,7 +362,6 @@ final class ProcessProviderOperationOwnerTest {
         assertSame(expected, actual);
         assertEquals(0, operationCalls.get());
         assertEquals(1, owner.availablePermits());
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
 
         owner.required("procwright-after-worker-start-denial-", Duration.ofSeconds(1), () -> {
             operationCalls.incrementAndGet();
@@ -611,23 +369,18 @@ final class ProcessProviderOperationOwnerTest {
         });
         assertEquals(1, operationCalls.get());
         assertEquals(1, owner.availablePermits());
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
     }
 
     private static void assertWorkerCreationFailureRollsBack(SetupFailureKind failureKind) throws Exception {
         Throwable expected = failureKind.failure();
         AtomicInteger factoryCalls = new AtomicInteger();
         AtomicInteger operationCalls = new AtomicInteger();
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadPrefix, task) -> {
-                    if (factoryCalls.getAndIncrement() == 0) {
-                        throwUnchecked(expected);
-                    }
-                    return new Thread(task, threadPrefix + factoryCalls.get());
-                },
-                failureReporter);
+        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(1, (threadPrefix, task) -> {
+            if (factoryCalls.getAndIncrement() == 0) {
+                throwUnchecked(expected);
+            }
+            return new Thread(task, threadPrefix + factoryCalls.get());
+        });
 
         Throwable actual =
                 captureFailure(() -> owner.required("procwright-worker-start-failure-", Duration.ofSeconds(1), () -> {
@@ -638,7 +391,6 @@ final class ProcessProviderOperationOwnerTest {
         assertSame(expected, actual);
         assertEquals(0, operationCalls.get());
         assertEquals(1, owner.availablePermits());
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
 
         owner.required("procwright-after-worker-start-failure-", Duration.ofSeconds(1), () -> {
             operationCalls.incrementAndGet();
@@ -646,7 +398,6 @@ final class ProcessProviderOperationOwnerTest {
         });
         assertEquals(1, operationCalls.get());
         assertEquals(1, owner.availablePermits());
-        assertTrue(failureReporter.awaitSettlement(Duration.ofSeconds(1)));
     }
 
     private static Throwable captureFailure(ThrowingRunnable action) {
@@ -693,17 +444,6 @@ final class ProcessProviderOperationOwnerTest {
 
         void run() throws Exception;
     }
-
-    private record WorkerObservation(
-            Thread owner,
-            String name,
-            ClassLoader contextClassLoader,
-            Thread.UncaughtExceptionHandler uncaughtExceptionHandler,
-            int priority,
-            boolean interrupted) {}
-
-    private record EmbeddedFailureValue(Throwable abandonedFailure)
-            implements ProcessProviderOperationOwner.AbandonedFailureCarrier {}
 
     private enum SetupFailureKind {
         RUNTIME_EXCEPTION {

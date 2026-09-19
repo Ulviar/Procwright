@@ -29,6 +29,10 @@ descendants while they remain alive. Interactive-session close and pooled worker
 observed-descendant cleanup. If a security policy or platform restriction blocks process-handle access, Procwright
 still attempts to stop the root process, but it may be unable to stop an inaccessible descendant.
 
+Waiting for process-provider operations is bounded. If an operation outlives that wait, it keeps its execution slot until
+it returns; repeated scans cannot create unlimited blocked operations. Its late result cannot replace the selected
+timeout or interruption. Delivery of late provider failures through uncaught-exception handlers is not guaranteed.
+
 JDK process-tree observations are not atomic. A child that is created and fully detaches between observations may never
 be seen and can survive cleanup. Detached descendants and processes that deliberately leave the parent tree can
 therefore require caller-side containment.

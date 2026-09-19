@@ -14,15 +14,11 @@ import io.github.ulviar.procwright.internal.ProcessTreeScannerStubs.StubProcess;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
@@ -57,86 +53,6 @@ final class ProcessTreeScannerOperationOwnershipTest {
         CountingDescendantsProcess recovered = new CountingDescendantsProcess();
         assertTrue(scanner.descendants(recovered).isEmpty());
         assertEquals(1, recovered.calls.get(), "the released owner must accept later provider work");
-    }
-
-    @Test
-    void abandonedRootIndexingReportsItsEmbeddedFatalError() throws Exception {
-        CountDownLatch indexingEntered = new CountDownLatch(1);
-        CountDownLatch releaseIndexing = new CountDownLatch(1);
-        CountDownLatch failureReported = new CountDownLatch(1);
-        AtomicInteger reports = new AtomicInteger();
-        AtomicReference<Throwable> reported = new AtomicReference<>();
-        AssertionError fatal = new AssertionError("fatal root identity");
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                1,
-                (threadPrefix, task) -> {
-                    Thread thread = new Thread(task, threadPrefix + "fatal-root");
-                    thread.setUncaughtExceptionHandler((ignored, failure) -> {
-                        reports.incrementAndGet();
-                        reported.set(failure);
-                        failureReported.countDown();
-                    });
-                    return thread;
-                },
-                failureReporter);
-        ProcessTreeScanner scanner = new ProcessTreeScanner(owner, 4, Duration.ofMillis(25), Duration.ofMillis(25));
-        ProcessHandle root = new StubHandle(728) {
-            @Override
-            public long pid() {
-                indexingEntered.countDown();
-                awaitUninterruptibly(releaseIndexing);
-                throw fatal;
-            }
-        };
-
-        try {
-            ProcessTreeScanner.DescendantScan scan =
-                    scanner.scanDescendantsOfHandles(List.of(root), Duration.ofMillis(25));
-
-            assertTrue(indexingEntered.await(1, TimeUnit.SECONDS));
-            assertTrue(scan.incomplete());
-            assertSame(ProcessTreeScanner.IncompleteReason.CALLER_DEADLINE, scan.incompleteReason());
-            assertEquals(0, scanner.availableOperationPermits());
-        } finally {
-            releaseIndexing.countDown();
-        }
-
-        assertTrue(failureReported.await(1, TimeUnit.SECONDS));
-        assertSame(fatal, reported.get());
-        assertEquals(1, reports.get());
-        assertTrue(scanner.awaitReportingSettlement(Duration.ofSeconds(1)));
-        assertEquals(1, scanner.availableOperationPermits());
-    }
-
-    @Test
-    void longScanLoopUsesOneDisposableDaemonOwnerPerAcceptedOperation() {
-        int capacity = 3;
-        int scans = 512;
-        AtomicInteger threadsCreated = new AtomicInteger();
-        List<Thread> createdThreads = Collections.synchronizedList(new ArrayList<>());
-        BoundedFailureReporter failureReporter = new BoundedFailureReporter(1, 4);
-        ProcessProviderOperationOwner owner = new ProcessProviderOperationOwner(
-                capacity,
-                (threadName, task) -> {
-                    int sequence = threadsCreated.incrementAndGet();
-                    Thread thread = new Thread(null, task, threadName + "-" + sequence, 0, false);
-                    createdThreads.add(thread);
-                    return thread;
-                },
-                failureReporter);
-        ProcessTreeScanner scanner = new ProcessTreeScanner(owner, 4, Duration.ofMillis(50), Duration.ofMillis(50));
-        CountingDescendantsProcess process = new CountingDescendantsProcess();
-
-        for (int index = 0; index < scans; index++) {
-            assertTrue(scanner.descendants(process).isEmpty());
-        }
-
-        assertEquals(scans, process.calls.get());
-        assertEquals(scans, threadsCreated.get());
-        assertEquals((long) scans, createdThreads.stream().distinct().count());
-        assertTrue(createdThreads.stream().allMatch(Thread::isDaemon), "scan owners must be daemon threads");
-        assertEquals(capacity, scanner.availableOperationPermits());
     }
 
     @Test

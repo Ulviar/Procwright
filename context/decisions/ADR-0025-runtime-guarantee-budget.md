@@ -119,6 +119,11 @@ truncation.
 Cleanup failure может быть suppressed exception или diagnostic event. Точная форма secondary failure graph не является
 API-контрактом и не должна создавать отдельный state machine.
 
+Provider operation имеет bounded admission и deadline ожидания. После timeout/interruption caller прерывает уже
+запущенный disposable worker напрямую; bind/unbind и отдельный cancellation owner не нужны. Slot остаётся занят до
+физического возврата операции. Её поздний result, включая Error, игнорируется: он не переписывает выбранный outcome и
+не требует producer registration или reporting settlement. Своевременно полученный Error сохраняет identity.
+
 ## Целевая архитектура
 
 Runtime строится вокруг небольшого числа владельцев:

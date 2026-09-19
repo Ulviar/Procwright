@@ -16,8 +16,40 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 final class WorkerCloseSupportTest {
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void retirementWaitsForBothCloseReturnAndTerminalObservation(boolean terminalFirst) throws Exception {
+        CompletableFuture<Void> terminal = new CompletableFuture<>();
+        AtomicReference<Runnable> closeOwner = new AtomicReference<>();
+        AtomicInteger closes = new AtomicInteger();
+        CompletableFuture<WorkerRetirement.Outcome> retirement =
+                WorkerCloseSupport.closeOutcome(closes::incrementAndGet, terminal, (prefix, task) -> {
+                    closeOwner.set(task);
+                    return Thread.currentThread();
+                });
+        IllegalStateException terminalFailure = new IllegalStateException("request failed before retirement");
+
+        assertFalse(retirement.isDone());
+        if (terminalFirst) {
+            terminal.completeExceptionally(terminalFailure);
+        } else {
+            closeOwner.get().run();
+        }
+        assertFalse(retirement.isDone(), "both logical retirement events must settle");
+        if (terminalFirst) {
+            closeOwner.get().run();
+        } else {
+            terminal.completeExceptionally(terminalFailure);
+        }
+
+        assertNull(retirement.get(1, TimeUnit.SECONDS).failure());
+        assertEquals(1, closes.get());
+    }
 
     @Test
     void closeFailureKeepsItsIdentity() throws Exception {

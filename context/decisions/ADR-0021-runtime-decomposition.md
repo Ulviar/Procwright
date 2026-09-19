@@ -111,8 +111,9 @@ status. Итоговое решение о completion root и всего дер�
   переносит тот же prefix вместе с исходным `Error` и немедленно прекращает дальнейший graph traversal: cleanup сначала
   принимает и сигналит handles, затем возвращает одиночный `Error` без замены identity. Если закрытие traversal stream
   также завершилось ошибкой, scanner возвращает новый detached aggregate: исходный fatal остаётся primary, порядок
-  failures сохраняется, а исходные `Throwable` не изменяются. Если caller успел abandon-нуть provider operation на
-  границе deadline, operation owner публикует embedded Error через тот же bounded late-failure channel.
+  failures сохраняется, а исходные `Throwable` не изменяются. После abandonment provider operation её поздний результат,
+  включая embedded Error, игнорируется согласно ADR-0025; отдельного reporting settlement нет. Slot освобождается только
+  после фактического возврата операции, поэтому повторные scans не создают неограниченное число зависших owners.
 - У каждого protocol limit есть один runtime-владелец: request limits у writer, response limits у reader/budget,
   backlog limit у queue.
 - Failure taxonomy остается в публичных scenario-specific exceptions, а внутренние helpers только строят эти failures.
