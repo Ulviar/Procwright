@@ -9,37 +9,32 @@ Pass the executable and each argument separately. The JDK process API then prese
 package io.github.ulviar.procwright.examples;
 
 import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CapturePolicy;
 import io.github.ulviar.procwright.command.CommandResult;
 import java.nio.file.Path;
-import java.time.Duration;
+import java.util.Arrays;
 
 public final class RunExample {
 
     private RunExample() {}
 
     public static void main(String[] args) {
-        CommandResult result = Procwright.command(javaExecutable())
-                .run()
-                .withArgs("--version")
-                .withCapture(CapturePolicy.bounded(256 * 1024))
-                .withTimeout(Duration.ofSeconds(5))
-                .execute();
+        String executable = args.length == 0 ? javaExecutable() : args[0];
+        String[] arguments = args.length == 0 ? new String[] {"--version"} : Arrays.copyOfRange(args, 1, args.length);
+
+        // docs:start run
+        CommandResult result =
+                Procwright.command(executable).run().withArgs(arguments).execute();
+        // docs:end run
 
         System.out.print(result.stdout());
         System.err.print(result.stderr());
-        System.err.printf(
-                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
-                result.exitCode().isPresent()
-                        ? Integer.toString(result.exitCode().getAsInt())
-                        : "unavailable",
-                result.timedOut(),
-                result.stdoutTruncated(),
-                result.stderrTruncated());
+        System.out.println("succeeded=" + result.succeeded());
 
+        // docs:start failure
         if (!result.succeeded()) {
             throw result.toException();
         }
+        // docs:end failure
     }
 
     private static String javaExecutable() {

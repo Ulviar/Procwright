@@ -20,10 +20,22 @@ See [installation](../release/installation.md#optional-modules) for Maven and Gr
 | --- | --- | --- |
 | One JSON value per line | `jsonLines(...)` | [JSON Lines](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
 | Delimiter-framed bytes | `delimited(...)` | [JSON Lines and delimiter transports](../examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLineIntegrationExample.java) |
-| Content-Length JSON with domain types | `typedJson(..., contentLengthJson(...))` | [Typed Content-Length session](../how-to/wrap-cli-tool.md) |
+| Content-Length JSON with domain types | `typedJson(..., contentLengthJson(...))` | [Typed Content-Length session](../examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java) |
 
+Start with [a typed JSON Lines service](../how-to/wrap-cli-tool.md). Its configuration combines domain mapping with the
+ready-made transport:
+
+<!-- procwright-example: examples/integrations/io/github/ulviar/procwright/examples/integration/TextWorkerService.java#protocol -->
 ```java
---8<-- "examples/integrations/io/github/ulviar/procwright/examples/integration/TypedContentLengthJsonSessionExample.java"
+public static ProtocolSessionScenario.Draft<Request, Metrics> draft(CommandSpec command) {
+    var adapters = ProtocolAdapters.typedJson(
+            (Request request) -> JsonNodeFactory.instance.objectNode().put("text", request.text()),
+            response -> new Metrics(
+                    response.required("codePoints").intValue(),
+                    response.required("utf8Bytes").intValue()),
+            ProtocolAdapters.jsonLines(64 * 1024));
+    return Procwright.command(command).protocolSession(adapters);
+}
 ```
 
 `ProtocolAdapters.jsonLines(...)`, `delimited(...)`, and `contentLengthJson(...)` return factories

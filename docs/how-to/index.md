@@ -1,6 +1,7 @@
 # How-to guides
 
-Choose the task that matches the process you need to control:
+Start with [a finite command](../getting-started.md), [a worker service](wrap-cli-tool.md), or
+[live output](follow-logs.md). Continue with the task that matches your process:
 
 - [Choose a process scenario](choose-process-scenario.md)
 - [Replace a finite `ProcessBuilder` call](replace-processbuilder.md)
@@ -11,4 +12,4 @@ Choose the task that matches the process you need to control:
 - [Automate prompts](automate-prompts.md)
 - [Require terminal capability](require-terminal.md)
 - [Pool workers for concurrent requests](reuse-workers.md)
-- [Wrap a CLI tool](wrap-cli-tool.md)
+- [Use a JSON Lines worker as a service](wrap-cli-tool.md)

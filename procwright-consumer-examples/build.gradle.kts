@@ -19,3 +19,10 @@ java {
         java.srcDir(rootProject.layout.projectDirectory.dir("docs/examples/java"))
     }
 }
+
+tasks.register<JavaExec>("demoRun") {
+    description = "Runs the current JDK, or your executable and argv supplied with --args."
+    group = "application"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.ulviar.procwright.examples.RunExample")
+}

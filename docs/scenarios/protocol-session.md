@@ -2,6 +2,17 @@
 
 `protocolSession(adapterFactory)` models request/response protocols whose adapter owns framing and typed conversion.
 
+## Ready-made protocols
+
+For JSON Lines, delimiter-framed bytes, or Content-Length JSON, start with the
+[ready-made adapters](integrations.md). The [typed JSON Lines walkthrough](../how-to/wrap-cli-tool.md) turns one worker
+into a service without implementing a framing adapter.
+
+## Custom framing
+
+Implement an adapter when the worker uses another wire format. The following complete example uses byte-length requests
+and multi-line responses. Its adapter and worker sources are linked below.
+
 <!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ProtocolSessionExample.java -->
 ```java
 /* SPDX-License-Identifier: Apache-2.0 */

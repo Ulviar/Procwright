@@ -1,100 +1,74 @@
-# Getting started
+# Run your first command
 
-Procwright requires Java 25. Until the planned `0.1.0` release is published, install it from this checkout:
+Start from the checkout root with JDK 25 on your path. If you have several JDKs, point `JAVA_HOME` at JDK 25.
+Gradle downloads its wrapper and dependencies on the first run.
+
+## Run the included demo
 
 ```shell
-./gradlew publishToMavenLocal \
-  --project-prop=procwright.version=0.1.0 \
-  --no-daemon
+./gradlew -q demoRun
 ```
 
-Add Maven Local and the core dependency with Gradle Kotlin DSL:
+On Windows, use `.\gradlew.bat -q demoRun`. No external CLI is needed: the demo invokes the current JDK.
+You should see its version information and then:
 
-<!-- procwright-docs: build-configuration -->
-```kotlin
-repositories {
-    mavenLocal()
-    mavenCentral()
-}
-
-dependencies {
-    implementation("io.github.ulviar:procwright:0.1.0")
-}
+```text
+succeeded=true
 ```
 
-For Maven or Gradle Groovy, use the [installation snippets](release/installation.md).
+The exact Java version text depends on your JDK. The task builds Procwright and the example directly from this checkout.
 
-## Run one command
+## Substitute your command
 
-The canonical example below is compiled and executed as an external consumer.
+Pass the executable followed by its arguments. For example, if Git is installed:
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
+```shell
+./gradlew -q demoRun --args='git --version'
+```
+
+Edit `executable` and `arguments` in the [complete example](examples/java/io/github/ulviar/procwright/examples/RunExample.java)
+when embedding this call in your own code:
+
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java#run -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
+CommandResult result =
+        Procwright.command(executable).run().withArgs(arguments).execute();
+```
 
-package io.github.ulviar.procwright.examples;
+Keep executable and argv separate. `"git status"` is not an executable name, and Procwright does not interpret shell syntax
+in ordinary arguments. [Command construction](reference/command-model.md) covers working directories, environment, and
+explicit shell commands.
 
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CapturePolicy;
-import io.github.ulviar.procwright.command.CommandResult;
-import java.nio.file.Path;
-import java.time.Duration;
+## Use the result
 
-public final class RunExample {
+`result.stdout()` and `result.stderr()` contain captured text. The default timeout is 30 seconds, with up to 1 MiB retained
+from each stream. Check `stdoutTruncated()` and `stderrTruncated()` when your task requires complete output; larger output
+continues to be drained. [Output policies](scenarios/run.md) explain file and discard alternatives.
 
-    private RunExample() {}
+A non-zero exit is a `CommandResult`. This demo prints `succeeded=false` and makes the Gradle task fail using:
 
-    public static void main(String[] args) {
-        CommandResult result = Procwright.command(javaExecutable())
-                .run()
-                .withArgs("--version")
-                .withCapture(CapturePolicy.bounded(256 * 1024))
-                .withTimeout(Duration.ofSeconds(5))
-                .execute();
-
-        System.out.print(result.stdout());
-        System.err.print(result.stderr());
-        System.err.printf(
-                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
-                result.exitCode().isPresent()
-                        ? Integer.toString(result.exitCode().getAsInt())
-                        : "unavailable",
-                result.timedOut(),
-                result.stdoutTruncated(),
-                result.stderrTruncated());
-
-        if (!result.succeeded()) {
-            throw result.toException();
-        }
-    }
-
-    private static String javaExecutable() {
-        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", name).toString();
-    }
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java#failure -->
+```java
+if (!result.succeeded()) {
+    throw result.toException();
 }
 ```
 
-[Open `RunExample.java`](examples/java/io/github/ulviar/procwright/examples/RunExample.java).
+A launch or supervision failure throws `CommandExecutionException` directly. See [results and errors](reference/results-and-errors.md)
+when you need to distinguish failure reasons.
 
-The example explicitly retains up to 256 KiB from each output stream. The [run scenario](scenarios/run.md) explains
-what happens when either stream exceeds that byte limit.
+## Keep this model
 
-`run()` returns an immutable Draft. Configuration does not start the process. `execute()` starts it and returns a
-`CommandResult` containing the exit status, bounded output, truncation flags, timeout status, and elapsed time.
-Inspect captured output and status before converting an unsuccessful result with `toException()`; the exception keeps the
-complete `CommandResult`.
+| Part | Meaning |
+| --- | --- |
+| `command(...)` | Executable and reusable launch context |
+| `run()`, `protocolSession(...)`, or another scenario | How you interact with that process |
+| `with*` | A new configuration snapshot; the original remains unchanged |
+| `execute()` / `open()` | Start work and obtain a result / owned handle |
 
-## Choose the next scenario
+## Take the next step
 
-- Use [`interactive()`](scenarios/interactive.md) for direct stdin/stdout control.
-- Use [`interactive().expect().open()`](scenarios/expect.md) for prompts.
-- Use [`lineSession()`](scenarios/line-session.md) for one-line request/response workers.
-- Use [`protocolSession(adapterFactory)`](scenarios/protocol-session.md) for custom framing or typed messages.
-- Use [`listen()`](scenarios/streaming.md) for continuous output.
-- Add [`pooled()`](scenarios/pooling.md) for concurrent independent requests to interchangeable workers. A direct line or
-  protocol session already reuses one process and serializes requests; use it for sequential work or worker-local state.
-
-Sessions and pools own processes and can use try-with-resources in Java or `use` in Kotlin. Pool close is synchronous but
-bounded; configure its budget with `withCloseTimeout(...)`. See the [pooling scenario](scenarios/pooling.md) for copyable
-Java examples.
+- [Use a JSON Lines worker as a service](how-to/wrap-cli-tool.md): two calls through one process, with explicit ownership.
+- [Follow live output](how-to/follow-logs.md): receive chunks without retaining all output.
+- [Choose another process scenario](how-to/choose-process-scenario.md): line protocols, prompts, and raw I/O.
+- [Use Procwright in your application](release/installation.md): Gradle and Maven dependency setup.

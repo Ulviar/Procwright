@@ -1,6 +1,6 @@
 # Kotlin extensions
 
-After [installing Procwright from this checkout](../getting-started.md), configure a Kotlin/JVM 25 project:
+After [adding Procwright to your application](../release/installation.md#optional-modules), configure a Kotlin/JVM 25 project:
 
 <!-- procwright-docs: build-configuration -->
 ```kotlin
@@ -43,8 +43,20 @@ module example.application {
 
 The module transitively requires core, Kotlin stdlib, and coroutines.
 
+Inside a coroutine, execute a command and inspect its result. Here `javaExecutable()` selects the current JDK;
+the linked complete example includes this helper and the imports.
+
+<!-- procwright-example: examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt#run -->
 ```kotlin
---8<-- "examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt"
+val version =
+    Procwright.command(javaExecutable())
+        .run()
+        .withArgs("--version")
+        .withTimeout(5.seconds)
+        .executeAwait()
+if (!version.succeeded()) {
+    throw version.toException()
+}
 ```
 
 [Open `KotlinExample.kt`](../examples/kotlin/io/github/ulviar/procwright/examples/kotlin/KotlinExample.kt) and the

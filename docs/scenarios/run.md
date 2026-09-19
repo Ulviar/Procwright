@@ -1,52 +1,12 @@
 # Run
 
-`run()` executes a finite command and returns `CommandResult`.
+`run()` executes a finite command and returns `CommandResult`. Here, `executable` and `arguments` are the program and
+separate argv entries; [Getting started](../getting-started.md) runs the complete example.
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java#run -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CapturePolicy;
-import io.github.ulviar.procwright.command.CommandResult;
-import java.nio.file.Path;
-import java.time.Duration;
-
-public final class RunExample {
-
-    private RunExample() {}
-
-    public static void main(String[] args) {
-        CommandResult result = Procwright.command(javaExecutable())
-                .run()
-                .withArgs("--version")
-                .withCapture(CapturePolicy.bounded(256 * 1024))
-                .withTimeout(Duration.ofSeconds(5))
-                .execute();
-
-        System.out.print(result.stdout());
-        System.err.print(result.stderr());
-        System.err.printf(
-                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
-                result.exitCode().isPresent()
-                        ? Integer.toString(result.exitCode().getAsInt())
-                        : "unavailable",
-                result.timedOut(),
-                result.stdoutTruncated(),
-                result.stderrTruncated());
-
-        if (!result.succeeded()) {
-            throw result.toException();
-        }
-    }
-
-    private static String javaExecutable() {
-        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", name).toString();
-    }
-}
+CommandResult result =
+        Procwright.command(executable).run().withArgs(arguments).execute();
 ```
 
 [Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
@@ -55,9 +15,9 @@ The Draft is immutable and reusable. `withArg` and `withArgs` append scenario ar
 `CommandSpec`. Only `execute()` starts a process.
 
 Procwright drains stdout and stderr, applies the configured timeout and shutdown policy, then returns captured bytes and
-decoded text. In the example, `CapturePolicy.bounded(256 * 1024)` retains the first 262,144 bytes separately from each
-stream while continuing to drain later output. `stdoutTruncated()` and `stderrTruncated()` identify streams whose later
-bytes were discarded. Redirected or discarded streams produce empty captured values.
+decoded text. The default capture retains the first 1 MiB separately from each stream while continuing to drain later
+output. Use `withCapture(CapturePolicy.bounded(bytes))` to change that budget. `stdoutTruncated()` and `stderrTruncated()`
+identify streams whose later bytes were discarded. Redirected or discarded streams produce empty captured values.
 
 The timeout is one deadline for stdin writing, process waiting, and output drain. A child process that keeps an
 inherited output pipe open can therefore make the result timed out after the root process has already exited. Required

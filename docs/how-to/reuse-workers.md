@@ -1,168 +1,53 @@
-# Pool workers for concurrent requests
+# Handle concurrent independent requests
 
-A direct [line session](../scenarios/line-session.md) or [protocol session](../scenarios/protocol-session.md) already
-reuses one initialized process and serializes requests. Use it when requests are sequential or depend on worker-local
-state. Choose a pool for concurrent independent requests to interchangeable workers whose state can be reset or
-health-checked.
+A [direct worker service](wrap-cli-tool.md) already reuses one process and serializes requests. Add a pool when calls are
+independent and multiple interchangeable workers should handle them concurrently. Keep one session when later calls
+rely on the state of a particular worker.
 
-## Line worker
+## Run the pool demo
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/LinePoolExample.java -->
+```shell
+./gradlew -q demoPool
+```
+
+On Windows, use `.\gradlew.bat -q demoPool`. It prints the same two results as `demoWorker`, using concurrent callers:
+
+```text
+hello: Metrics[codePoints=5, utf8Bytes=5]
+café: Metrics[codePoints=4, utf8Bytes=5]
+```
+
+## Extend the same configuration
+
+Use `TextWorkerService.draft(command)` from the previous walkthrough. The pool adds `.pooled().withMaxSize(2).open()`:
+
+<!-- procwright-example: examples/integrations/io/github/ulviar/procwright/examples/integration/WorkerPoolExample.java#pool -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.session.LineResponse;
-import io.github.ulviar.procwright.session.PooledLineSession;
-import java.time.Duration;
-
-public final class LinePoolExample {
-
-    private LinePoolExample() {}
-
-    public static void main(String[] args) {
-        try (PooledLineSession pool = Procwright.command(ExampleSupport.workerCommand("line"))
-                .lineSession()
-                .withRequestTimeout(Duration.ofSeconds(5))
-                .withMaxRequestBytes(16 * 1024)
-                .withMaxRequestChars(8 * 1024)
-                .withMaxLineChars(8 * 1024)
-                .withMaxResponseLines(1)
-                .withMaxResponseChars(8 * 1024)
-                .withStdoutBacklogLines(128)
-                .withStdoutBacklogChars(64 * 1024)
-                .pooled()
-                .withMaxSize(2)
-                .withWarmupSize(1)
-                .withAcquireTimeout(Duration.ofSeconds(2))
-                .withHookTimeout(Duration.ofSeconds(1))
-                .withCloseTimeout(Duration.ofSeconds(15))
-                .withMaxRequestsPerWorker(100)
-                .open()) {
-            LineResponse response = pool.request("Привет", Duration.ofSeconds(5));
-            if (!response.text().equals("response:Привет")) {
-                throw new IllegalStateException("Unexpected pooled response");
-            }
-        }
-    }
+try (var pool = TextWorkerService.draft(command).pooled().withMaxSize(2).open();
+        var requests = Executors.newVirtualThreadPerTaskExecutor()) {
+    var first = requests.submit(() -> pool.request(new TextWorkerService.Request("hello")));
+    var second = requests.submit(() -> pool.request(new TextWorkerService.Request("café")));
+    System.out.println("hello: " + first.get(15, TimeUnit.SECONDS));
+    System.out.println("café: " + second.get(15, TimeUnit.SECONDS));
 }
 ```
 
-[Open `LinePoolExample.java`](../examples/java/io/github/ulviar/procwright/examples/LinePoolExample.java) and the
-[shared example sources](../examples.md#core).
+[Complete pool client](../examples/integrations/io/github/ulviar/procwright/examples/integration/WorkerPoolExample.java).
+The executor here submits only these two requests. Each call acquires a worker, performs one exchange, and returns or
+retires it. The maximum is two workers; the pool creates them on demand and can reuse a worker for later requests.
 
-## Framed or typed worker
+The `command` still launches the bundled JSON Lines worker. To use a compatible worker of your own:
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/ProtocolPoolExample.java -->
-```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CharsetPolicy;
-import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentRequest;
-import io.github.ulviar.procwright.examples.DocumentProtocol.DocumentResponse;
-import io.github.ulviar.procwright.session.PooledProtocolSession;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-
-public final class ProtocolPoolExample {
-
-    private ProtocolPoolExample() {}
-
-    public static void main(String[] args) {
-        try (PooledProtocolSession<DocumentRequest, DocumentResponse> pool = Procwright.command(
-                        ExampleSupport.workerCommand("protocol"))
-                .protocolSession(LengthLineFrameAdapter::new)
-                .withReadiness(worker -> {
-                    DocumentResponse response = worker.request(new DocumentRequest("readiness"), Duration.ofSeconds(2));
-                    if (!response.text().equals("readiness")) {
-                        throw new IllegalStateException("Protocol worker is not ready");
-                    }
-                })
-                .withReadinessTimeout(Duration.ofSeconds(3))
-                .withRequestTimeout(Duration.ofSeconds(5))
-                .withTranscriptLimit(16 * 1024)
-                .withOutputBacklogLimit(128 * 1024)
-                .withMaxRequestBytes(64 * 1024)
-                .withMaxRequestChars(64 * 1024)
-                .withMaxResponseBytes(64 * 1024)
-                .withMaxResponseChars(64 * 1024)
-                .withCharsetPolicy(CharsetPolicy.report(StandardCharsets.UTF_8))
-                .pooled()
-                .withMaxSize(2)
-                .withWarmupSize(1)
-                .withMinIdle(1)
-                .open()) {
-            DocumentResponse response = pool.request(new DocumentRequest("document\nданные ✓"), Duration.ofSeconds(5));
-            if (!response.text().equals("document\nданные ✓")) {
-                throw new IllegalStateException("Unexpected pooled protocol response");
-            }
-        }
-    }
-}
+```shell
+./gradlew -q demoPool --args='my-worker --json-lines'
 ```
 
-[Open `ProtocolPoolExample.java`](../examples/java/io/github/ulviar/procwright/examples/ProtocolPoolExample.java) and
-the [shared example sources](../examples.md#core).
+## Know the boundaries
 
-Configure worker behavior on the session Draft, call `pooled()`, then configure pool size and lifecycle on the returned
-PoolDraft. `open()` performs configured warmup. A protocol adapter factory must create a fresh adapter for every worker.
+- Configure worker settings before `pooled()` and pool settings after it.
+- Acquisition, request, and reset have separate budgets; there is no single pooled-call deadline.
+- `close()` stops new requests and waits for logical worker drain, for at most 15 seconds by default.
+- Calls may use different workers. The pool supplies no affinity; configure reset/health hooks when your worker needs them.
 
-The pool keeps leases internal. Concurrent callers may use different workers, so do not rely on caller affinity.
-Worker request timeout, EOF or process exit, response or backlog overflow, write, decode, and protocol failures are
-thrown directly as `LineSessionException` or `ProtocolSessionException`. Pooled exceptions instead report acquisition,
-startup, surfaced hook or lifecycle failures, and close.
-`close()` is a bounded synchronous close-and-drain, so normal Java code uses try-with-resources and Kotlin uses `use`.
-The default close timeout is 15 seconds and `withCloseTimeout(...)` accepts any positive duration. Java resource scopes
-automatically suppress a close failure when the body already failed.
-
-Use `closeAsync()` when you need a future for logical worker drain. It starts the same idempotent cleanup without waiting
-for workers to drain and returns a cancellation-isolated future. Completion actions never run while internal pool state
-is locked. `DRAIN_TIMEOUT` does not cancel cleanup; another `closeAsync()` view can observe its eventual logical
-completion. Healthy in-flight requests are allowed to finish, while a callback that ignores interruption can keep the
-future incomplete until its operation reaches logical abandonment. The callback thread may then continue after the
-future completes. Logical completion observes neither that physical return nor a potentially blocking close of process
-streams; a later physical-close failure cannot change the future.
-
-## Observe cleanup after a close timeout
-
-Keep the pool handle outside the resource declaration and register the `closeAsync()` observer in `finally`. This also
-covers a request failure whose `close()` failure is suppressed: Java preserves the request exception as primary, while
-the observer still follows eventual cleanup. `closeAsync()` observes the same idempotent close operation; it does not
-start a second worker cleanup. Do not block on the returned future because logical completion can still depend on an
-in-flight operation reaching its deadline.
-
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/PoolDrainTimeoutExample.java -->
-```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.LineSessionScenario;
-import io.github.ulviar.procwright.session.LineResponse;
-import io.github.ulviar.procwright.session.PooledLineSession;
-
-public final class PoolDrainTimeoutExample {
-
-    private PoolDrainTimeoutExample() {}
-
-    public static LineResponse requestAndClose(LineSessionScenario.PoolDraft draft, String request) {
-        PooledLineSession pool = draft.open();
-        try (pool) {
-            return pool.request(request);
-        } finally {
-            pool.closeAsync().whenComplete((ignored, cleanupFailure) -> {
-                if (cleanupFailure != null) {
-                    cleanupFailure.printStackTrace(System.err);
-                }
-            });
-        }
-    }
-}
-```
-
-[Open `PoolDrainTimeoutExample.java`](../examples/java/io/github/ulviar/procwright/examples/PoolDrainTimeoutExample.java).
+See [pooling contracts](../scenarios/pooling.md) for timeouts, readiness, hooks, metrics, and drain failure handling.
+[Line pools](../examples/java/io/github/ulviar/procwright/examples/LinePoolExample.java) use the same lifecycle.

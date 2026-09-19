@@ -1,29 +1,25 @@
 # Procwright
 
-Procwright controls external command-line processes through workflow-specific APIs. Start with the process behavior you
-need, configure its immutable Draft with `with*` methods, then call `execute()` or `open()`.
+Use an external CLI as a managed component of your Java or Kotlin application. Procwright handles the process lifecycle,
+timeouts, and output bounds while your code calls the tool.
 
-## Start here
+## Start with a task
 
-- [Install Procwright and run a command](getting-started.md).
-- [Choose the right process scenario](how-to/choose-process-scenario.md).
-- [Open a complete, runnable example](examples.md).
-- [Check lifecycle, timeout, output, and error contracts](reference/index.md).
-- [Use the optional Kotlin extensions](reference/kotlin-api.md).
-
-## Scenario map
-
-| Task | Scenario |
+| Task | Walkthrough |
 | --- | --- |
-| Run a finite command and capture a result | [`run`](scenarios/run.md) |
-| Control a live process or automate prompts | [`interactive`](scenarios/interactive.md) and [`Expect`](scenarios/expect.md) |
-| Exchange line requests | [`lineSession`](scenarios/line-session.md) |
-| Implement a custom framed protocol | [`protocolSession`](scenarios/protocol-session.md) |
-| Consume output as it arrives | [`listen`](scenarios/streaming.md) |
-| Distribute independent concurrent requests across interchangeable workers | [pooling](scenarios/pooling.md) |
+| Run a command and inspect its result | [First command](getting-started.md) |
+| Make repeated typed requests to one worker | [CLI worker as a service](how-to/wrap-cli-tool.md) |
+| Receive logs or events continuously | [Follow live output](how-to/follow-logs.md) |
 
-A direct line or protocol session already reuses one process. Pooling adds concurrent workers; it is unnecessary for
-sequential requests to one worker and does not provide worker affinity for stateful requests.
+The checkout demos require JDK 25 and include their own workers. Start with `./gradlew -q demoRun`.
 
-The planned first release is `0.1.0`. It targets and requires Java 25. No public artifact has been
-published yet; [installation](release/installation.md) uses Maven Local from this checkout.
+One session already reuses one process. Once independent requests need multiple workers, continue to
+[concurrent requests with a pool](how-to/reuse-workers.md).
+
+## Find the right level of detail
+
+- [Choose a scenario](how-to/choose-process-scenario.md) for line protocols, custom framing, prompts, and raw streams.
+- [Runnable examples](examples.md) lists demo commands and their source files.
+- [Reference](reference/index.md) defines settings, defaults, results, and lifecycle contracts.
+- [Kotlin extensions](reference/kotlin-api.md) adds coroutines and Flow to the same core API.
+- [Dependency setup](release/installation.md) connects a separate application to this checkout.

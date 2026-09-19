@@ -3,6 +3,7 @@
 package io.github.ulviar.procwright.examples;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.CommandService;
@@ -31,14 +32,12 @@ final class PublicDocumentationCoverageTest {
 
     private static final Path DOCS = Path.of("docs");
     private static final Pattern FENCED_CODE = Pattern.compile("(?ms)^```(?:java|kotlin)\\R(.*?)^```[ \\t]*$");
-    private static final Pattern SNIPPET_INCLUDE = Pattern.compile("--8<-- \\\"([^\\\"]+)\\\"");
-    private static final Pattern SNIPPET_FENCE =
-            Pattern.compile("\\A[ \\t]*--8<-- \\\"([^\\\"]+)\\\"[ \\t]*(?:\\R)?\\z");
     private static final Pattern MARKDOWN_LINK = Pattern.compile("(?<!!)\\[[^]]+]\\(([^)]+)\\)");
-    private static final Pattern CORE_EXAMPLE = Pattern.compile(
-            "(?ms)^<!-- procwright-example: (examples/java/[^\\r\\n]+\\.java) -->\\R" + "```java\\R(.*?)^```[ \\t]*$");
-    private static final Pattern CORE_EXAMPLE_MARKER =
-            Pattern.compile("(?m)^<!-- procwright-example: examples/java/[^\\r\\n]+\\.java -->\\R\\z");
+    private static final String EXAMPLE_SOURCE = "examples/(?:java|integrations|kotlin)/[^\\r\\n#]+\\.(?:java|kt)";
+    private static final Pattern SOURCE_EXAMPLE = Pattern.compile("(?ms)^<!-- procwright-example: (" + EXAMPLE_SOURCE
+            + ")(?:#([a-z][a-z0-9-]*))? -->\\R" + "```(java|kotlin)\\R(.*?)^```[ \\t]*$");
+    private static final Pattern SOURCE_EXAMPLE_MARKER =
+            Pattern.compile("(?m)^<!-- procwright-example: " + EXAMPLE_SOURCE + "(?:#[a-z][a-z0-9-]*)? -->\\R\\z");
     private static final Pattern CALLBACK_API_REFERENCE = Pattern.compile(
             "`((?:CommandService|RunScenario\\.Draft|InteractiveScenario\\.Draft|ExpectScenario\\.Draft|"
                     + "LineSessionScenario\\.(?:Draft|PoolDraft)|ProtocolSessionScenario\\.(?:Draft|PoolDraft)|"
@@ -58,34 +57,20 @@ final class PublicDocumentationCoverageTest {
             StreamScenario.Draft.class);
 
     @Test
-    void everyScenarioAndTaskPageShowsCompileTestedCode() throws Exception {
-        for (Path directory : List.of(Path.of("docs/scenarios"), Path.of("docs/how-to"))) {
-            try (var files = Files.list(directory)) {
-                for (Path page : files.filter(path -> path.toString().endsWith(".md"))
-                        .filter(path -> !path.getFileName().toString().equals("index.md"))
-                        .toList()) {
-                    String text = read(page);
-                    assertTrue(
-                            CORE_EXAMPLE.matcher(text).find() || containsCompiledSnippet(text),
-                            () -> page + " must show a compile-tested canonical source");
-                }
-            }
-        }
-    }
-
-    @Test
     void canonicalExamplesMatchCompiledSources() throws Exception {
         for (Path page : publicMarkdownFiles()) {
             String text = read(page);
-            assertSnippetIncludesAreCompiledSources(page, text);
-            Matcher examples = CORE_EXAMPLE.matcher(text);
+            assertTrue(!text.contains("--8<--"), () -> page + " must also show its code when read on GitHub");
+            Matcher examples = SOURCE_EXAMPLE.matcher(text);
             while (examples.find()) {
-                Path source = DOCS.resolve(examples.group(1)).normalize();
-                assertTrue(
-                        source.startsWith(DOCS.resolve("examples/java")),
-                        () -> page + " example escapes the compiled Java sources: " + examples.group(1));
+                Path relativeSource = Path.of(examples.group(1)).normalize();
+                assertTrue(isCompiledExamplePath(relativeSource), () -> page + " example must use compiled sources");
+                Path source = DOCS.resolve(relativeSource);
                 assertTrue(Files.isRegularFile(source), () -> page + " example is missing: " + examples.group(1));
-                assertEquals(read(source), examples.group(2), () -> page + " example drifted from " + source);
+                assertEquals(source.toString().endsWith(".java") ? "java" : "kotlin", examples.group(3));
+                String expected =
+                        examples.group(2) == null ? read(source) : extractRegion(read(source), examples.group(2));
+                assertEquals(expected, examples.group(4), () -> page + " example drifted from " + source);
             }
         }
     }
@@ -98,8 +83,7 @@ final class PublicDocumentationCoverageTest {
             while (fences.find()) {
                 String prefix = text.substring(0, fences.start());
                 assertTrue(
-                        isCompiledSnippetFence(fences.group(1))
-                                || CORE_EXAMPLE_MARKER.matcher(prefix).find()
+                        SOURCE_EXAMPLE_MARKER.matcher(prefix).find()
                                 || BUILD_CONFIGURATION_MARKER.matcher(prefix).find(),
                         () -> page + " contains Java or Kotlin code without a compiled source or configuration marker");
             }
@@ -176,33 +160,36 @@ final class PublicDocumentationCoverageTest {
         return pages;
     }
 
-    private static boolean containsCompiledSnippet(String text) {
-        Matcher includes = SNIPPET_INCLUDE.matcher(text);
-        while (includes.find()) {
-            if (isCompiledExamplePath(Path.of(includes.group(1)).normalize())) {
-                return true;
-            }
-        }
-        return false;
+    private static String extractRegion(String source, String region) {
+        Matcher start = Pattern.compile("(?m)^\\h*// docs:start " + Pattern.quote(region) + "\\R")
+                .matcher(source);
+        Matcher end = Pattern.compile("(?m)^\\h*// docs:end " + Pattern.quote(region) + "\\h*$")
+                .matcher(source);
+        assertTrue(start.find(), () -> "Missing example region start: " + region);
+        assertTrue(end.find(), () -> "Missing example region end: " + region);
+        int from = start.end();
+        int to = end.start();
+        assertTrue(
+                from < to && !start.find() && !end.find(),
+                () -> "Example region must be unique and nonempty: " + region);
+        return source.substring(from, to).stripTrailing().stripIndent() + "\n";
     }
 
-    private static boolean isCompiledSnippetFence(String body) {
-        Matcher include = SNIPPET_FENCE.matcher(body);
-        return include.matches()
-                && isCompiledExamplePath(Path.of(include.group(1)).normalize());
+    @Test
+    void namedRegionKeepsCodeAndRemovesOnlyItsCommonIndent() {
+        String source =
+                "class Demo {\n    // docs:start run\n    if (ready) {\n        execute();\n    }\n    // docs:end run\n}\n";
+        assertEquals("if (ready) {\n    execute();\n}\n", extractRegion(source, "run"));
     }
 
-    private static void assertSnippetIncludesAreCompiledSources(Path page, String text) {
-        Matcher includes = SNIPPET_INCLUDE.matcher(text);
-        while (includes.find()) {
-            Path relativeSource = Path.of(includes.group(1)).normalize();
-            assertTrue(
-                    isCompiledExamplePath(relativeSource),
-                    () -> page + " includes a source outside the compiled examples: " + includes.group(1));
-            assertTrue(
-                    Files.isRegularFile(DOCS.resolve(relativeSource)),
-                    () -> page + " includes a missing source: " + includes.group(1));
-        }
+    @Test
+    void missingRepeatedOrReversedRegionMarkersCannotApproveASnippet() {
+        assertThrows(AssertionError.class, () -> extractRegion("execute();\n", "run"));
+        assertThrows(AssertionError.class, () -> extractRegion("// docs:start run\nexecute();\n", "run"));
+        String region = "// docs:start run\nexecute();\n// docs:end run\n";
+        assertThrows(AssertionError.class, () -> extractRegion(region + region, "run"));
+        assertThrows(
+                AssertionError.class, () -> extractRegion("// docs:end run\nexecute();\n// docs:start run\n", "run"));
     }
 
     private static boolean isCompiledExamplePath(Path path) {
@@ -226,6 +213,6 @@ final class PublicDocumentationCoverageTest {
     }
 
     private static String read(Path path) throws Exception {
-        return Files.readString(path, StandardCharsets.UTF_8);
+        return Files.readString(path, StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
 }

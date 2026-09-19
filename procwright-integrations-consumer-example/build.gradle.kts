@@ -7,6 +7,9 @@ dependencies {
     } else {
         implementation("io.github.ulviar:procwright-integrations:$consumerVersion")
     }
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 java {
@@ -40,4 +43,28 @@ val runTypedContentLengthExample =
         doFirst { systemProperty("java.class.path", sourceSets.main.get().runtimeClasspath.asPath) }
     }
 
-tasks.check { dependsOn(runCanonicalIntegrationExample, runTypedContentLengthExample) }
+val demoWorker =
+    tasks.register<JavaExec>("demoWorker") {
+        description = "Runs two typed requests through one long-lived JSON Lines worker."
+        group = "application"
+        classpath = sourceSets.main.get().runtimeClasspath
+        modularity.inferModulePath.set(true)
+        mainModule.set("io.github.ulviar.procwright.integrations.consumer.example")
+        mainClass.set("io.github.ulviar.procwright.examples.integration.WorkerServiceExample")
+        doFirst { systemProperty("java.class.path", sourceSets.main.get().runtimeClasspath.asPath) }
+    }
+
+val demoPool =
+    tasks.register<JavaExec>("demoPool") {
+        description = "Runs independent concurrent requests through a JSON Lines worker pool."
+        group = "application"
+        classpath = sourceSets.main.get().runtimeClasspath
+        modularity.inferModulePath.set(true)
+        mainModule.set("io.github.ulviar.procwright.integrations.consumer.example")
+        mainClass.set("io.github.ulviar.procwright.examples.integration.WorkerPoolExample")
+        doFirst { systemProperty("java.class.path", sourceSets.main.get().runtimeClasspath.asPath) }
+    }
+
+tasks.check {
+    dependsOn(runCanonicalIntegrationExample, runTypedContentLengthExample, demoWorker, demoPool)
+}

@@ -2,6 +2,10 @@
 
 package io.github.ulviar.procwright.consumer.examples;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import io.github.ulviar.procwright.command.CommandException;
 import io.github.ulviar.procwright.examples.AnsiExpectExample;
 import io.github.ulviar.procwright.examples.DiagnosticsExample;
 import io.github.ulviar.procwright.examples.ExpectExample;
@@ -25,6 +29,16 @@ final class CanonicalExamplesTest {
     @Test
     void runExampleExecutes() {
         RunExample.main(new String[0]);
+    }
+
+    @Test
+    void runExampleAcceptsAnExecutableAndPropagatesItsNonzeroExit() {
+        String executable = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
+        String java =
+                Path.of(System.getProperty("java.home"), "bin", executable).toString();
+        CommandException failure = assertThrows(
+                CommandException.class, () -> RunExample.main(new String[] {java, "--procwright-invalid-option"}));
+        assertFalse(failure.result().succeeded());
     }
 
     @Test

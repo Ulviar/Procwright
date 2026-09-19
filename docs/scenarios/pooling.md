@@ -173,7 +173,7 @@ failure cannot change the result. Each call returns a cancellation-isolated futu
 view cannot mutate cleanup. Completion actions never run while internal pool state is locked. Worker-close failure
 reports `WORKER_FAILED`, and caller interruption reports `INTERRUPTED` after restoring the interrupt flag.
 
-The [close-timeout handling variant](../how-to/reuse-workers.md#observe-cleanup-after-a-close-timeout) declares the pool
+The [close-timeout handling example](../examples/java/io/github/ulviar/procwright/examples/PoolDrainTimeoutExample.java) declares the pool
 before `try (pool)` and registers a `closeAsync()` observer in `finally`. It therefore observes cleanup even when a
 request exception remains primary and `DRAIN_TIMEOUT` is suppressed by try-with-resources.
 

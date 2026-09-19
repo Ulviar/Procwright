@@ -27,6 +27,12 @@ Scorecard оценивает текущий MVP в пределах [бюдже�
 
 ## Состояние возможностей
 
+Первое знакомство начинается с checkout demos `demoRun`, `demoWorker` и `demoPool`. JSON Lines walkthrough показывает
+application-owned service, повторные вызовы одной session и переход к конкурентным независимым requests через тот же
+protocol Draft. Короткие Java/Kotlin фрагменты сверяются с именованными участками компилируемых examples; Markdown
+показывает одинаковый код на GitHub и сайте. Этот механизм доказывает исполнимость и отсутствие drift, но сам по себе не
+измеряет время освоения API новым пользователем.
+
 | Область | Состояние | Текущий контракт |
 | --- | --- | --- |
 | Scenario API | Готово | `Procwright.command(...)` -> scenario -> persistent `Draft.with*` -> `execute/open`. |

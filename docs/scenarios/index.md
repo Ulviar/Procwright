@@ -6,7 +6,7 @@
 | Direct live I/O | [Interactive](interactive.md) | [Interactive example](interactive.md#interactive-sessions) |
 | Prompt matching | [Expect](expect.md) | [Automate prompts](../how-to/automate-prompts.md) |
 | Line-oriented request/response | [Line session](line-session.md) | [Talk to a line worker](../how-to/talk-to-line-worker.md) |
-| Custom framed or typed messages | [Protocol session](protocol-session.md) | [Choose a process scenario](../how-to/choose-process-scenario.md#framed-or-typed-protocol-worker) |
+| Custom framed or typed messages | [Protocol session](protocol-session.md) | [Typed JSON Lines service](../how-to/wrap-cli-tool.md) |
 | Continuous output | [Streaming](streaming.md) | [Follow logs](../how-to/follow-logs.md) |
 | Concurrent interchangeable workers | [Pooling](pooling.md) | [Pool workers](../how-to/reuse-workers.md) |
 | Terminal-dependent process | [Terminal capability](terminal.md) | [Require a terminal](../how-to/require-terminal.md) |

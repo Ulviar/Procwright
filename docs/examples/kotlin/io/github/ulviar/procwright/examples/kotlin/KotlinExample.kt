@@ -33,6 +33,7 @@ fun main(args: Array<String>) {
     }
 
     runBlocking {
+        // docs:start run
         val version =
             Procwright.command(javaExecutable())
                 .run()
@@ -42,6 +43,7 @@ fun main(args: Array<String>) {
         if (!version.succeeded()) {
             throw version.toException()
         }
+        // docs:end run
 
         val service = Procwright.command(lineWorkerCommand())
         val adapters =

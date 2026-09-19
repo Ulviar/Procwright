@@ -1,14 +1,37 @@
 # Runnable examples
 
-These sources compile and run in external consumer modules. Most launch included workers; the finite-command and Kotlin
-quick-start examples invoke the current JDK through its absolute path.
+Run these commands from the checkout root with JDK 25. Gradle supplies the dependencies, classpath, and bundled worker;
+you do not need to assemble source files to try them. On Windows, replace `./gradlew` with `.\gradlew.bat`.
+
+| Command | What you see | Walkthrough |
+| --- | --- | --- |
+| `./gradlew -q demoRun` | Current Java version and `succeeded=true` | [Use your own command](getting-started.md) |
+| `./gradlew -q demoWorker` | Two text metrics results from one long-lived session | [Worker as a service](how-to/wrap-cli-tool.md) |
+| `./gradlew -q demoPool` | The same results from concurrent independent requests | [Add a pool](how-to/reuse-workers.md) |
+
+`demoRun --args='git --version'` runs your executable and argv. `demoWorker` and `demoPool` also accept `--args`, but the
+replacement worker must implement the JSON contract in their walkthrough. Each example closes the resources it opens.
+
+## Service example files
+
+- [TextWorkerService.java](examples/integrations/io/github/ulviar/procwright/examples/integration/TextWorkerService.java):
+  domain records, the JSON adapter configuration, and the session's application owner.
+- [WorkerServiceExample.java](examples/integrations/io/github/ulviar/procwright/examples/integration/WorkerServiceExample.java):
+  two calls through one service.
+- [WorkerPoolExample.java](examples/integrations/io/github/ulviar/procwright/examples/integration/WorkerPoolExample.java):
+  the same protocol configuration used by concurrent callers.
+- [JsonLinesTextWorker.java](examples/integrations/io/github/ulviar/procwright/examples/integration/JsonLinesTextWorker.java):
+  the bundled demo process; replace its command with your existing CLI in an application.
 
 ## Core
 
-Most examples share [ExampleSupport.java](examples/java/io/github/ulviar/procwright/examples/ExampleSupport.java) and
+The finite-command example is standalone. The other examples below share
+[ExampleSupport.java](examples/java/io/github/ulviar/procwright/examples/ExampleSupport.java) and
 [ExampleWorker.java](examples/java/io/github/ulviar/procwright/examples/ExampleWorker.java). Protocol examples also use
 [LengthLineFrameAdapter.java](examples/java/io/github/ulviar/procwright/examples/LengthLineFrameAdapter.java) and
 [DocumentProtocol.java](examples/java/io/github/ulviar/procwright/examples/DocumentProtocol.java).
+Those helpers launch the bundled worker on the consumer module's classpath. If you copy a core example, copy its linked
+helpers into the same package or replace `ExampleSupport.workerCommand(...)` with a `CommandSpec` for your own CLI.
 
 - [Finite command](examples/java/io/github/ulviar/procwright/examples/RunExample.java)
 - [Stop a hung command](examples/java/io/github/ulviar/procwright/examples/StopHungCommandExample.java)

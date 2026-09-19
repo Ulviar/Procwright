@@ -1,61 +1,21 @@
 # Replace a finite ProcessBuilder call
 
-For a command that exits, move the executable, argv, working directory, and environment to the `run()` Draft. Keep argv
-separate; do not join it into a shell string.
+Move the executable and argv into `run()`. Procwright drains both output streams, applies its timeout and shutdown policy,
+and returns output with exit metadata:
 
-<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java -->
+<!-- procwright-example: examples/java/io/github/ulviar/procwright/examples/RunExample.java#run -->
 ```java
-/* SPDX-License-Identifier: Apache-2.0 */
-
-package io.github.ulviar.procwright.examples;
-
-import io.github.ulviar.procwright.Procwright;
-import io.github.ulviar.procwright.command.CapturePolicy;
-import io.github.ulviar.procwright.command.CommandResult;
-import java.nio.file.Path;
-import java.time.Duration;
-
-public final class RunExample {
-
-    private RunExample() {}
-
-    public static void main(String[] args) {
-        CommandResult result = Procwright.command(javaExecutable())
-                .run()
-                .withArgs("--version")
-                .withCapture(CapturePolicy.bounded(256 * 1024))
-                .withTimeout(Duration.ofSeconds(5))
-                .execute();
-
-        System.out.print(result.stdout());
-        System.err.print(result.stderr());
-        System.err.printf(
-                "exit=%s, timedOut=%s, stdoutTruncated=%s, stderrTruncated=%s%n",
-                result.exitCode().isPresent()
-                        ? Integer.toString(result.exitCode().getAsInt())
-                        : "unavailable",
-                result.timedOut(),
-                result.stdoutTruncated(),
-                result.stderrTruncated());
-
-        if (!result.succeeded()) {
-            throw result.toException();
-        }
-    }
-
-    private static String javaExecutable() {
-        String name = System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java";
-        return Path.of(System.getProperty("java.home"), "bin", name).toString();
-    }
-}
+CommandResult result =
+        Procwright.command(executable).run().withArgs(arguments).execute();
 ```
 
-[Open `RunExample.java`](../examples/java/io/github/ulviar/procwright/examples/RunExample.java).
+Set `executable` to the program path and `arguments` to its argv entries. Keep arguments separate; ordinary arguments are
+not interpreted as shell commands. The defaults are a 30-second timeout and 1 MiB retained per output stream.
 
-Use `CommandSpec.of(executable).withArgs(...)` when several calls share base arguments or environment. Use
-`CommandSpec.shell(commandLine)` only when shell syntax is intentional; shell quoting and portability then belong to
-your application.
+[Run this example and substitute your command](../getting-started.md). Inspect `result.succeeded()` and output truncation
+before using the result. A normal non-zero exit is a result; launch or supervision failure throws an exception.
 
-For a process that remains alive, choose [interactive](../scenarios/interactive.md),
-[line-session](../scenarios/line-session.md), [protocol-session](../scenarios/protocol-session.md), or
-[streaming](../scenarios/streaming.md) instead of manually pumping streams.
+Use `CommandSpec` to share a working directory, base arguments, or environment across calls. See
+[command configuration](../reference/command-model.md) and [run policies](../scenarios/run.md).
+
+For a process that stays alive across requests, continue with [a worker service](wrap-cli-tool.md).
