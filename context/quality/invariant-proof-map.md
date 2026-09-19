@@ -156,6 +156,16 @@ handles сохраняются. Необнаруженный detached descendant
 
 **Proof:** `ShutdownTreeStateTest`, `ProcessLifecycleCompletionProofTest`.
 
+### Shutdown failure retention
+
+**Инвариант:** повторные observation failures удерживают не более 32 источников и отдельно первое interruption после
+заполнения лимита; выбранная primary и восстановление interrupt status сохраняются без изменения исходных exceptions.
+Ограничение diagnostic detail не прекращает cleanup.
+
+**Владелец:** `ShutdownFailureLedger`.
+
+**Proof:** `ShutdownFailureLedgerTest`, `ProcessLifecycleCompletionProofTest`.
+
 ### Destroy fallback capacity
 
 **Инвариант:** fallback-вызовы потенциально блокирующих `Process.destroy*` используют общую bounded capacity; при её
@@ -359,7 +369,8 @@ malformed input.
 ### Protocol request transaction
 
 **Инвариант:** serialization, adapter write, response decode и ожидание admission входят в один request deadline;
-partial write, timeout или проглоченное adapter-ом I/O failure закрывают session.
+partial write, timeout после admission или проглоченное adapter-ом I/O failure закрывают session. Timeout ожидания
+serialized slot не допускает write и сохраняет session для следующего request.
 
 **Владелец:** `DefaultProtocolSession`.
 

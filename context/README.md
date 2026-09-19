@@ -10,8 +10,6 @@
 
 ## Активная карта
 
-- [backlog.md](backlog.md) — следующий этап упрощения runtime и прояснения контрактов.
-- [quality-improvement-plan.md](quality-improvement-plan.md) — временный план закрытия шести технических критериев качества.
 - [architecture.md](architecture.md) — текущие слои, модули и границы runtime.
 - [invariant-architecture.md](invariant-architecture.md) — как изолируются инварианты API и runtime.
 - [scenario-api.md](scenario-api.md) — scenario-first пользовательский язык.

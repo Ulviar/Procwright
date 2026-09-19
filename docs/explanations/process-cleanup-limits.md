@@ -37,6 +37,11 @@ Waiting for process-provider operations is bounded. If an operation outlives tha
 it returns; repeated scans cannot create unlimited blocked operations. Its late result cannot replace the selected
 timeout or interruption. Delivery of late provider failures through uncaught-exception handlers is not guaranteed.
 
+Repeated observation failures do not grow the shutdown error report indefinitely. One cleanup retains at most 32 source
+failures, plus its first interruption if that occurs after the limit is reached. The original primary cause remains
+selected unless interruption takes priority; reaching the detail limit does not stop cleanup attempts. This bounds the
+number of retained failure sources, not the size of an exception graph supplied by application code.
+
 JDK process-tree observations are not atomic. A child that is created and fully detaches between observations may never
 be seen and can survive cleanup. Detached descendants and processes that deliberately leave the parent tree can
 therefore require caller-side containment.

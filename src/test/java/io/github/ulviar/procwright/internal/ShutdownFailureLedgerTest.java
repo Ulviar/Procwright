@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ulviar.procwright.command.CommandExecutionException;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -146,5 +147,59 @@ final class ShutdownFailureLedgerTest {
         CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
         assertSame(first, actual.getCause());
         assertEquals(List.of(second, third), List.of(actual.getSuppressed()));
+    }
+
+    @Test
+    void repeatedObservationFailuresKeepBoundedDetailsAndTheFirstCause() {
+        ShutdownFailureLedger ledger = new ShutdownFailureLedger();
+        IllegalStateException first = new IllegalStateException("first");
+        ledger.record(first);
+        for (int index = 0; index < 10_000; index++) {
+            ledger.record(new IllegalStateException("repeated observation failure " + index));
+        }
+
+        CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
+        assertSame(first, actual.getCause());
+        assertEquals(31, actual.getSuppressed().length);
+        assertEquals(0, first.getSuppressed().length);
+    }
+
+    @Test
+    void aggregatePrimaryIsRetainedEvenWhenItsSourceOrderExceedsTheDetailLimit() {
+        ShutdownFailureLedger ledger = new ShutdownFailureLedger();
+        var sources = new ArrayList<Throwable>();
+        for (int index = 0; index < 100; index++) {
+            sources.add(new IllegalStateException("secondary " + index));
+        }
+        AssertionError primary = new AssertionError("selected primary");
+        sources.add(primary);
+        ledger.record(FailureAggregation.combineWithPrimary(primary, sources, "provider failures"));
+
+        Error actual = assertThrows(Error.class, ledger::rethrowIfPresent);
+        assertSame(primary, actual.getCause());
+        assertEquals(31, actual.getSuppressed().length);
+        assertEquals(0, primary.getSuppressed().length);
+    }
+
+    @Test
+    void interruptionAfterSaturationStillBecomesPrimaryAndRestoresStatus() {
+        ShutdownFailureLedger ledger = new ShutdownFailureLedger();
+        for (int index = 0; index < 100; index++) {
+            ledger.record(new IllegalStateException("observation failure " + index));
+        }
+        InterruptedException interruption = new InterruptedException("stop cleanup wait");
+        ledger.interrupted(interruption);
+
+        try {
+            CommandExecutionException actual = assertThrows(CommandExecutionException.class, ledger::rethrowIfPresent);
+            assertSame(interruption, actual.getCause().getCause());
+            assertEquals(32, actual.getSuppressed().length);
+            assertTrue(ledger.wasInterrupted());
+            assertFalse(Thread.currentThread().isInterrupted());
+            ledger.restoreInterrupt();
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
     }
 }

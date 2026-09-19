@@ -176,18 +176,20 @@
 
 - Один input дает один response.
 - Параллельные вызовы не перемешивают stdin/stdout.
-- Validation, charset encoding, write и response decoding входят в один request deadline; пользовательский
-  `CharsetEncoder`, который игнорирует interrupt, не может удерживать caller thread за пределами deadline.
+- Validation, charset encoding, write и response decoding входят в один request deadline. Синхронный encoder проверяет
+  deadline и interruption между encoding steps; пользовательский `CharsetEncoder`, который не возвращается из JDK
+  method, может удерживать caller thread и не получает отдельного execution owner.
 - Если bounded callback возвращает результат или failure уже после timeout, cancellation или interruption caller-а,
-  поздний outcome не меняет выбранный результат operation и отдельно не публикуется; admission освобождается только
-  после фактического возврата callback.
+  поздний outcome не меняет выбранный результат operation и отдельно не публикуется. Abandoned callback может физически
+  завершиться позднее; terminal handle не запускает следующий callback.
 - Incremental stdout/stderr decoder ограничивает retained undecoded bytes и output без input consumption; decoder,
   который сообщает overflow без progress или перемещает input position назад, закрывает session с `DECODE_ERROR`.
 - При `CodingErrorAction.REPLACE` decoder не может опубликовать replacement, если заявленная error length не помещается
   в оставшийся input; нарушение также становится `DECODE_ERROR`.
 - Response decoder сохраняет значимые переносы строк через `LineResponse.lines()`; `text()` соединяет lines через `\n`.
 - Timeout ожидания response дает bounded transcript.
-- Timeout закрывает `LineSession`, чтобы следующий request не читал хвосты старого ответа.
+- Timeout после передачи request writer-у закрывает `LineSession`, чтобы следующий request не читал хвосты старого
+  ответа. До handoff timeout сохраняет session, если request гарантированно не сможет записаться позже.
 - EOF до response отличается от timeout.
 - Stderr дренируется в transcript, чтобы line workflow не зависал на заполненном stderr.
 - Незавершенный partial output попадает в transcript с корректной привязкой к потоку.

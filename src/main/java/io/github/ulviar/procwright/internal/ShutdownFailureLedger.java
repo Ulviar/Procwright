@@ -6,8 +6,10 @@ import io.github.ulviar.procwright.command.CommandExecutionException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Retains cleanup failures and interruption state for one shutdown operation without mutating source failures. */
+/** Retains bounded cleanup failure details and interruption state without mutating source failures. */
 final class ShutdownFailureLedger {
+
+    private static final int MAX_RETAINED_FAILURES = 32;
 
     private List<Throwable> failures;
     private Throwable firstPrimary;
@@ -30,8 +32,12 @@ final class ShutdownFailureLedger {
         }
         if (firstPrimary == null) {
             firstPrimary = FailureAggregation.primary(failure);
+            recordSource(firstPrimary);
         }
         for (Throwable source : FailureAggregation.sources(failure)) {
+            if (failures.size() == MAX_RETAINED_FAILURES) {
+                break;
+            }
             recordSource(source);
         }
     }

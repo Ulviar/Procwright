@@ -32,5 +32,5 @@
 Переход доказывают regression/stress, Kotlin ABI и nullness, строгие Java/Kotlin/public docs, внешние consumers с
 Gradle metadata и POM-only resolution и Java 25 CI на трёх ОС. System PTY обязателен на Linux/macOS runners.
 Точные версии инструментов находятся в build configuration и [dependency review](../release/dependency-review.md).
-Пользователи должны перейти на Java 25; JSON integrations используют Jackson 3 API. Дальнейшее упрощение runtime
-и пересмотр дорогих гарантий остаются отдельным пунктом [бэклога](../backlog.md).
+Пользователи должны перейти на Java 25; JSON integrations используют Jackson 3 API. Границы сложности runtime
+и поддерживаемых гарантий определяет [ADR-0025](ADR-0025-runtime-guarantee-budget.md).

@@ -2,10 +2,10 @@
 
 ## Статус
 
-Принято, реализация выполняется.
+Принято и реализовано.
 
-Этот ADR задаёт целевую границу упрощения. Действующее поведение меняется только атомарным изменением кода, тестов,
-public docs и proof map. До такого изменения текущий код и его black-box tests остаются источником истины.
+Этот ADR задаёт действующую границу гарантий. Её изменение требует согласованного изменения кода, тестов,
+public docs и proof map; текущий код и его black-box tests остаются источником истины.
 
 ## Контекст
 
@@ -117,14 +117,18 @@ process-global квоту на число одновременно живых se
 truncation.
 
 Cleanup failure может быть suppressed exception или diagnostic event. Точная форма secondary failure graph не является
-API-контрактом и не должна создавать отдельный state machine.
+API-контрактом и не должна создавать отдельный state machine. `ShutdownFailureLedger` удерживает не более 32 исходных
+ошибок одной shutdown operation и отдельно первое interruption, если оно возникло после заполнения лимита. Первая
+выбранная причина сохраняется; interruption имеет прежний приоритет. Повторные observation failures не увеличивают
+retention после лимита и не прекращают попытки cleanup. Это предел числа сохранённых источников, а не размера
+переданного пользователем `Throwable` graph.
 
 Provider operation имеет bounded admission и deadline ожидания. После timeout/interruption caller прерывает уже
 запущенный disposable worker напрямую; bind/unbind и отдельный cancellation owner не нужны. Slot остаётся занят до
 физического возврата операции. Её поздний result, включая Error, игнорируется: он не переписывает выбранный outcome и
 не требует producer registration или reporting settlement. Своевременно полученный Error сохраняет identity.
 
-## Целевая архитектура
+## Архитектура runtime
 
 Runtime строится вокруг небольшого числа владельцев:
 
