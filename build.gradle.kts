@@ -1,12 +1,15 @@
+import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.external.javadoc.StandardJavadocDocletOptions
+import org.gradle.plugins.signing.SigningExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
     `java-library`
     `maven-publish`
+    id("com.vanniktech.maven.publish.base") version "0.37.0" apply false
     id("com.diffplug.spotless") version "8.10.2"
     id("org.jetbrains.kotlin.jvm") version "2.4.20" apply false
     id("org.jetbrains.dokka") version "2.2.0" apply false
@@ -44,10 +47,36 @@ val requireSystemPty =
         .orElse(false)
         .get()
 val publicMavenGroup = "io.github.ulviar"
+val centralPublishing =
+    providers
+        .gradleProperty("procwright.centralPublishing")
+        .map(String::toBooleanStrict)
+        .orElse(false)
+        .get()
+
+if (
+    centralPublishing &&
+        (procwrightVersionProperty == null && conventionalVersionProperty == null ||
+            procwrightVersion.isBlank() ||
+            procwrightVersion.endsWith("-SNAPSHOT"))
+) {
+    throw GradleException(
+        "Central publication requires an explicit release version: -Pprocwright.version=0.1.0"
+    )
+}
 
 allprojects {
     group = publicMavenGroup
     version = procwrightVersion
+
+    if (centralPublishing && path in setOf(":", ":procwright-kotlin", ":procwright-integrations")) {
+        pluginManager.apply("com.vanniktech.maven.publish.base")
+        extensions.configure<MavenPublishBaseExtension> {
+            publishToMavenCentral(automaticRelease = false)
+            signAllPublications()
+        }
+        extensions.configure<SigningExtension> { useGpgCmd() }
+    }
 
     pluginManager.withPlugin("java") {
         extensions.configure<JavaPluginExtension> {

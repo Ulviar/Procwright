@@ -4,7 +4,7 @@
 
 - Runtime JDK: Java 25.
 - Artifact bytecode target: Java 25.
-- Current status: no public release; `0.1.0` is the planned first version.
+- Current status: `0.1.0` is a release candidate, not yet available from Maven Central.
 - Core coordinates: `io.github.ulviar:procwright`.
 - Optional coordinates: `io.github.ulviar:procwright-kotlin` and
   `io.github.ulviar:procwright-integrations`.
@@ -24,8 +24,9 @@ factory-backed `protocolSession`, `listen`, line and protocol pools, and the opt
 Session handles are sealed and are not extension points. Backend-specific process types and implementation classes
 are not supported application APIs.
 
-Before `1.0.0`, public signatures can change between releases. Code should use stable reason enums rather than exception
-messages. Compatibility decisions are reflected in the current API docs and compile-tested examples.
+Before `1.0.0`, public signatures can change between releases. After the first release, breaking changes will be
+identified in release notes. Code should use reason enums rather than exception messages. The API docs and examples
+describe the current version.
 
 ## Platform boundary
 

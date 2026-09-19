@@ -4,7 +4,8 @@
 
 Procwright имеет единый scenario-first Draft API, Java core, optional Kotlin и integrations modules, line/protocol
 pools, PTY capability boundary, diagnostics, test CLI, bounded stress suite, external consumer fixtures и Maven
-publication metadata. Публичный artifact не считается доступным до первого выпуска.
+publication metadata. Первый кандидат `0.1.0` готовится для Maven Central; валидация deployment не означает публикацию.
+Публичный artifact не считается доступным до состояния `PUBLISHED` и проверки установки из Central.
 
 Scorecard оценивает текущий MVP в пределах [бюджета гарантий runtime](../decisions/ADR-0025-runtime-guarantee-budget.md).
 Оценка 10/10 означает, что согласованные критерии выполнены, доказательства проверены и независимый аудит не оставил
@@ -63,13 +64,14 @@ Pool не создаёт timed tasks для отсутствующих hooks и 
 | API boundary | Готово | До первого выпуска Java surface защищают целевые tests, JPMS и external consumers; Kotlin DSL дополнительно имеет ABI baseline. После первой публикации нужен стандартный binary compatibility gate относительно выпущенного artifact. |
 | Documentation | Готово | Public docs, context owners, snippets и canonical examples описывают текущий API и pool lifecycle contract; strict docs и executable examples входят в gate. |
 | Java/platform matrix | Проверяется CI | Java 25 runtime/target на Linux/macOS/Windows; major 69 и JVM 25 metadata всех public artifacts. |
-| Publication | Proof-механизм готов, не выпущено | Три Maven publications и isolated normal/POM-only consumers проверяются без преждевременного выбора remote registry и signing. |
+| Publication | Подготовка `0.1.0`, не выпущено | Три Maven publications, isolated normal/POM-only consumers и manual deployment в Maven Central через Vanniktech plugin. `VALIDATED` подтверждает приём кандидата, но не доступность release. |
 
 ## Блокеры первого выпуска
 
 - Прогнать `publicationReadinessCheck` и isolated local publication/consumer smoke на одном release commit.
-- Выбрать актуальный remote publication/signing path и проверить его staging перед созданием tag.
+- Получить `VALIDATED` в Maven Central Portal и проверить загруженный кандидат тремя consumers в normal/POM-only режимах.
 - Получить зеленую cross-platform/runtime CI-матрицу для exact release commit.
+- Отдельно подтвердить публикацию, проверить consumers против доступного Central release и только затем создать tag.
 
 ## Устойчивые границы
 

@@ -1,13 +1,9 @@
 # Use Procwright in your application
 
-Procwright requires JDK 25 to build and run. From the checkout root, install its artifacts into your local Maven
-repository, then add the dependency to your application:
+Procwright requires JDK 25 to build and run.
 
-```shell
-./gradlew publishToMavenLocal \
-  --project-prop=procwright.version=0.1.0 \
-  --no-daemon
-```
+The first release, `0.1.0`, is being prepared and is not yet available from Maven Central. The dependency setup below
+applies once it is published. To use the current code now, [install from a checkout](#use-a-checkout).
 
 ## Core dependency
 
@@ -16,7 +12,6 @@ Gradle Kotlin DSL:
 <!-- procwright-docs: build-configuration -->
 ```kotlin
 repositories {
-    mavenLocal()
     mavenCentral()
 }
 
@@ -29,7 +24,6 @@ Gradle Groovy:
 
 ```groovy
 repositories {
-    mavenLocal()
     mavenCentral()
 }
 
@@ -96,3 +90,24 @@ Maven:
 
 See [Kotlin usage](../reference/kotlin-api.md) for coroutine imports and JPMS setup, or
 [protocol integrations](../scenarios/integrations.md) to choose a framing adapter.
+
+## Use a checkout
+
+From the checkout root, install all three modules into your local Maven repository:
+
+```shell
+./gradlew publishToMavenLocal \
+  --project-prop=procwright.version=0.1.0-SNAPSHOT \
+  --no-daemon
+```
+
+On Windows, run:
+
+```powershell
+.\gradlew.bat publishToMavenLocal --project-prop=procwright.version=0.1.0-SNAPSHOT --no-daemon
+```
+
+Use `0.1.0-SNAPSHOT` in your application's dependency declarations to keep this local build separate from release
+`0.1.0`. For Gradle, add `mavenLocal()` before `mavenCentral()` in the application's `repositories` block. Maven uses
+its local repository automatically. When switching to a published release, restore the release version and remove
+`mavenLocal()` from Gradle's repository list.

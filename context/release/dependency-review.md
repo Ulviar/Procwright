@@ -95,8 +95,13 @@ JSpecify отсутствует в Gradle `runtimeClasspath` всех трех p
 и JVM 25 во всех Gradle library variants. CI проверяет локальные publications внешними consumers как
 через Gradle module metadata, так и в принудительном Maven POM-only режиме с `ignoreGradleMetadataRedirection()`.
 
-Конкретный remote registry, signing и credentials до первого release не выбраны и не являются build dependencies.
-Они добавляются только вместе с реальным publication path; текущее состояние описано в
+Для первого release выбран Maven Central Portal и `com.vanniktech.maven.publish.base` 0.37.0. Base plugin подключается
+к существующим `mavenJava` publications и не создаёт второй набор координат или артефактов. Его зависимости нужны
+только Gradle и не попадают в runtime опубликованной библиотеки.
+
+Deployment использует режим `USER_MANAGED`: загрузка и валидация кандидата не публикуют его автоматически. Подписание
+выполняет локальный GnuPG через Gradle Signing Plugin; credentials и параметры ключа остаются в пользовательских
+настройках, вне репозитория. Порядок проверки и граница между `VALIDATED` и `PUBLISHED` описаны в
 [publication-readiness.md](publication-readiness.md).
 
 Gradle dependency verification metadata обновляется при изменении plugin versions или новых build dependencies.

@@ -48,12 +48,23 @@ final class ApiUsageExamplesTest {
         String reply = "café 世界";
         ApiUsageExamples.answerPrompt(ExampleSupport.workerCommand("expect"), reply);
 
+        // The rejection token crosses argv; Unicode round-trip is covered through UTF-8 stdin above.
+        String rejectedInput = ":exit";
         CommandSpec rejectedReply = testCommand()
-                .withArgs("line-repl", "--prompt=ready> ", "--exit-command=" + reply, "--bye-text=rejected reply");
+                .withArgs(
+                        "line-repl",
+                        "--prompt=ready> ",
+                        "--exit-command=" + rejectedInput,
+                        "--bye-text=rejected reply");
         ExpectException exception =
-                assertThrows(ExpectException.class, () -> ApiUsageExamples.answerPrompt(rejectedReply, reply));
-        assertEquals(ExpectException.Reason.EOF, exception.reason());
-        assertTrue(exception.transcript().text().contains("rejected reply"));
+                assertThrows(ExpectException.class, () -> ApiUsageExamples.answerPrompt(rejectedReply, rejectedInput));
+        assertEquals(
+                ExpectException.Reason.EOF,
+                exception.reason(),
+                () -> "Unexpected rejection outcome: " + exception.transcript().text());
+        assertTrue(
+                exception.transcript().text().contains("rejected reply"),
+                () -> "Missing rejection output: " + exception.transcript().text());
     }
 
     private static CommandSpec testCommand() {

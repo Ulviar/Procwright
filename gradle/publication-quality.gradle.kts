@@ -6,6 +6,7 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 import org.gradle.api.publish.tasks.GenerateModuleMetadata
+import org.gradle.api.tasks.bundling.Jar
 import org.w3c.dom.Element
 
 private fun Element.directChild(name: String): Element? =
@@ -102,12 +103,22 @@ val publicPublications =
         )
         .map { (projectPath, artifactId) -> project(projectPath) to artifactId }
 val expectedMavenGroup = group.toString()
+val projectLicense = rootProject.layout.projectDirectory.file("LICENSE")
+
+publicPublications.forEach { (checkedProject, _) ->
+    checkedProject.tasks.withType<Jar>().configureEach {
+        if (name in setOf("jar", "sourcesJar", "javadocJar")) {
+            from(projectLicense) { into("META-INF") }
+        }
+    }
+}
 
 val publicationStructureCheck =
     tasks.register("publicationStructureCheck") {
         description =
-            "Checks registry-independent artifact and POM structure for every public module."
+            "Checks artifact structure, bundled project licenses, and POM metadata for every public module."
         group = LifecycleBasePlugin.VERIFICATION_GROUP
+        inputs.file(projectLicense)
 
         publicPublications.forEach { (checkedProject, _) ->
             val projectPath = checkedProject.path
@@ -122,6 +133,7 @@ val publicationStructureCheck =
         }
 
         doLast {
+            val expectedLicense = projectLicense.asFile.readBytes()
             publicPublications.forEach { (checkedProject, artifactId) ->
                 val projectPath = checkedProject.path
                 val publication =
@@ -149,6 +161,25 @@ val publicationStructureCheck =
                         throw GradleException(
                             "Publication artifact is missing or empty: ${artifact.file}"
                         )
+                    }
+                    JarFile(artifact.file).use { jar ->
+                        val licenses =
+                            jar.entries()
+                                .asSequence()
+                                .filter { it.name == "META-INF/LICENSE" }
+                                .toList()
+                        if (licenses.size != 1 || licenses.single().isDirectory) {
+                            throw GradleException(
+                                "Publication JAR must contain exactly one META-INF/LICENSE: ${artifact.file}"
+                            )
+                        }
+                        val bundledLicense =
+                            jar.getInputStream(licenses.single()).use { it.readBytes() }
+                        if (!bundledLicense.contentEquals(expectedLicense)) {
+                            throw GradleException(
+                                "Bundled license must exactly match the project LICENSE: ${artifact.file}!/META-INF/LICENSE"
+                            )
+                        }
                     }
                 }
 

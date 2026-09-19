@@ -27,7 +27,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -221,8 +220,7 @@ abstract class ProtocolSessionContractSupport {
 
     static final class ControllableProcess extends Process {
 
-        final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        final AtomicBoolean alive = new AtomicBoolean(true);
+        private final CompletableFuture<Integer> exit = new CompletableFuture<>();
         final OutputStream stdin;
         final InputStream stdout;
         final InputStream stderr;
@@ -288,8 +286,7 @@ abstract class ProtocolSessionContractSupport {
 
         @Override
         public void destroy() {
-            alive.set(false);
-            exit.complete(143);
+            exitNaturally(143);
         }
 
         @Override
@@ -306,7 +303,7 @@ abstract class ProtocolSessionContractSupport {
                 entered.countDown();
                 awaitUninterruptibly(release);
             }
-            return alive.get();
+            return !exit.isDone();
         }
 
         void blockLivenessQueries() {
@@ -331,7 +328,6 @@ abstract class ProtocolSessionContractSupport {
         }
 
         void exitNaturally(int exitCode) {
-            alive.set(false);
             exit.complete(exitCode);
         }
 

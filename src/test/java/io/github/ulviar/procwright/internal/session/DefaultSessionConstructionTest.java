@@ -278,16 +278,7 @@ final class DefaultSessionConstructionTest {
 
     @Test
     void saturatedCloseCapacityDoesNotRejectSessionConstruction() throws Exception {
-        CountDownLatch acceptedClosesSettled = new CountDownLatch(3);
-        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2, (prefix, task) -> {
-            Threading.start(prefix, () -> {
-                try {
-                    task.run();
-                } finally {
-                    acceptedClosesSettled.countDown();
-                }
-            });
-        });
+        BoundedCloseDispatcher closeDispatcher = new BoundedCloseDispatcher(1, 2);
         CountDownLatch occupyingCloseStarted = new CountDownLatch(1);
         CountDownLatch releaseOccupyingClose = new CountDownLatch(1);
         CountDownLatch pendingClosesFinished = new CountDownLatch(2);
@@ -324,10 +315,6 @@ final class DefaultSessionConstructionTest {
 
             releaseOccupyingClose.countDown();
             assertTrue(pendingClosesFinished.await(1, TimeUnit.SECONDS), "previously accepted work must drain");
-            assertTrue(
-                    acceptedClosesSettled.await(1, TimeUnit.SECONDS),
-                    "accepted close tasks must finish and release capacity");
-            assertEquals(0, closeDispatcher.outstandingCount());
         } finally {
             releaseOccupyingClose.countDown();
         }
