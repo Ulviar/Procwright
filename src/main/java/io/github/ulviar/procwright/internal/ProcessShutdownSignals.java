@@ -40,7 +40,6 @@ final class ProcessShutdownSignals {
     }
 
     void destroyRoot(ShutdownPhase phase) {
-        boolean useFallback = false;
         try {
             ProcessHandle handle = process.toHandle();
             failures.interruptionBoundary();
@@ -64,26 +63,19 @@ final class ProcessShutdownSignals {
                     // the graceful deadline first; the forceful phase may use the fallback if the root stays alive.
                     return;
                 }
-                useFallback = true;
             } catch (UnsupportedOperationException | SecurityException ignored) {
-                useFallback = true;
+                // Use the Process API fallback below.
             } catch (RuntimeException | Error failure) {
                 failures.record(failure);
-                useFallback = true;
             }
             failures.interruptionBoundary();
         } catch (UnsupportedOperationException | SecurityException exception) {
             // Fall back to the Process API below. It must remain off the lifecycle thread because some JDK
             // implementations close a contended stdin stream before signalling the process.
-            useFallback = true;
         } catch (RuntimeException | Error failure) {
             failures.record(failure);
-            useFallback = true;
         }
         failures.interruptionBoundary();
-        if (!useFallback) {
-            return;
-        }
         failures.attempt(() -> dispatchDestroyFallback(
                 phase.isForceful() ? "procwright-process-force-destroy-" : "procwright-process-destroy-",
                 phase.isForceful() ? process::destroyForcibly : process::destroy));

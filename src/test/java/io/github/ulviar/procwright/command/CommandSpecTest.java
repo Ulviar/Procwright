@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -197,6 +198,23 @@ final class CommandSpecTest {
         assertEquals(workingDirectory, spec.workingDirectory().orElseThrow());
         assertEquals("1", spec.environment().get("PYTHONUTF8"));
         assertEquals(EnvironmentPolicy.CLEAN, spec.environmentPolicy());
+    }
+
+    @Test
+    void environmentSnapshotsRemainImmutableAcrossCommandBranches() {
+        CommandSpec base = CommandSpec.of("tool").withEnvironment("MODE", "original");
+        CommandSpec branch =
+                base.withArg("status").withWorkingDirectory(Path.of("project")).withCleanEnvironment();
+        CommandSpec changed = branch.withEnvironment("MODE", "updated").withEnvironment("EXTRA", "value");
+
+        assertEquals(Map.of("MODE", "original"), base.environment());
+        assertEquals(Map.of("MODE", "original"), branch.environment());
+        assertEquals(Map.of("MODE", "updated", "EXTRA", "value"), changed.environment());
+        for (CommandSpec spec : List.of(base, branch, changed)) {
+            assertThrows(
+                    UnsupportedOperationException.class,
+                    () -> spec.environment().put("MODE", "external"));
+        }
     }
 
     @Test

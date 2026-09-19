@@ -37,10 +37,8 @@ public final class CommandSpec {
             throw new IllegalArgumentException("shell commands do not accept argv arguments");
         }
         this.workingDirectory = workingDirectory;
-        LinkedHashMap<String, String> copiedEnvironment = new LinkedHashMap<>();
-        environment.forEach((name, value) -> copiedEnvironment.put(
-                CommandValidation.requireEnvironmentName(name), CommandValidation.requireEnvironmentValue(value)));
-        this.environment = Map.copyOf(copiedEnvironment);
+        // Factories and withEnvironment supply validated, immutable environment snapshots.
+        this.environment = Objects.requireNonNull(environment, "environment");
         this.environmentPolicy = Objects.requireNonNull(environmentPolicy, "environmentPolicy");
         this.shell = shell;
     }
@@ -141,7 +139,7 @@ public final class CommandSpec {
     public CommandSpec withEnvironment(String name, String value) {
         LinkedHashMap<String, String> updated = new LinkedHashMap<>(environment);
         updated.put(CommandValidation.requireEnvironmentName(name), CommandValidation.requireEnvironmentValue(value));
-        return copy(arguments, workingDirectory, updated, environmentPolicy);
+        return copy(arguments, workingDirectory, Map.copyOf(updated), environmentPolicy);
     }
 
     /**
