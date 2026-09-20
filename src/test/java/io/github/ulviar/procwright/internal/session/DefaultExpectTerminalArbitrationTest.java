@@ -103,7 +103,7 @@ final class DefaultExpectTerminalArbitrationTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<ExpectMatch> match =
-                    executor.submit(() -> expect.expectRegexMatch(Pattern.compile("never"), Duration.ofHours(1)));
+                    executor.submit(() -> expect.expectRegexMatch(Pattern.compile("never"), Duration.ofSeconds(1)));
             assertTrue(evaluator.awaitStarted());
 
             stdout.finish();
@@ -116,6 +116,11 @@ final class DefaultExpectTerminalArbitrationTest {
             assertFalse(process.isAlive());
             assertEquals(
                     143, expect.onExit().get(1, TimeUnit.SECONDS).exitCode().orElseThrow());
+            assertEquals(
+                    ExpectException.Reason.EOF,
+                    assertThrows(ExpectException.class, () -> expect.expectRegexMatch(Pattern.compile("never")))
+                            .reason());
+            assertEquals(1, evaluator.invocations.get());
         } finally {
             stdout.finish();
             evaluator.release();
@@ -220,6 +225,11 @@ final class DefaultExpectTerminalArbitrationTest {
         try {
             stdout.finish();
             assertTrue(pumps.awaitStdoutStopped());
+
+            assertEquals(
+                    ExpectException.Reason.EOF,
+                    assertThrows(ExpectException.class, () -> expect.expectTextMatch("never"))
+                            .reason());
 
             expect.close();
             ExpectException failure = assertThrows(ExpectException.class, () -> expect.expectTextMatch("never"));

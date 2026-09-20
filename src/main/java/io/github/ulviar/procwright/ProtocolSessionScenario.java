@@ -485,6 +485,8 @@ public final class ProtocolSessionScenario {
          * @throws IllegalArgumentException if maximum size exceeds 256, or warmup or minimum idle exceeds maximum size
          * @throws PooledSessionException with reason {@link PooledSessionException.Reason#STARTUP_FAILED} if
          *     synchronous warmup fails
+         * @throws PooledSessionException with reason {@link PooledSessionException.Reason#INTERRUPTED} if
+         *     the thread waiting for synchronous warmup is interrupted; its interrupt flag is restored
          */
         PooledProtocolSession<I, O> open();
     }

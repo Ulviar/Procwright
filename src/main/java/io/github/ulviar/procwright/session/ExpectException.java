@@ -73,7 +73,7 @@ public final class ExpectException extends ProcwrightException {
     public enum Reason {
         /** Matcher access, output waiting, or regex evaluation exceeded the deadline; see {@link Expect} for retryability. */
         TIMEOUT,
-        /** Process stdout reached EOF before expected output appeared. */
+        /** Stdout reached EOF; see {@link Expect} for matching retained output before EOF becomes terminal. */
         EOF,
         /** Expect handle was closed before the operation could complete. */
         CLOSED,

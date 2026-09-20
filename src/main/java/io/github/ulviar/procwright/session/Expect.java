@@ -25,6 +25,11 @@ import java.util.regex.Pattern;
  * {@link io.github.ulviar.procwright.ExpectScenario.Draft#withMatchBufferLimit(int)} for the expected prompt size.
  * The initial match timeout is five seconds and covers waiting for matcher access as well as matching.
  *
+ * <p>Stdout EOF does not discard retained output. Until a terminal operation is selected, literal and regex calls can
+ * still match that output, including a final acknowledgment after natural process exit. An unmatched search reports EOF
+ * once no more output can arrive. Regex evaluation of the final buffer still uses its match deadline; handle close or
+ * an output failure can cancel it. Once EOF is reported to an operation, later operations retain that terminal reason.
+ *
  * <p>A timeout while waiting for new output or the serialized matcher slot leaves this handle open for another match.
  * If a regex evaluation is abandoned before it completes, the timeout is terminal: the process is stopped and no new
  * matcher task is admitted, even if the abandoned evaluation later returns. The {@code TIMEOUT} reason alone therefore

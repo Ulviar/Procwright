@@ -237,8 +237,7 @@ final class StreamRuntimeTerminalLifecycleTest extends StreamRuntimeTestSupport 
             assertTrue(stdout.awaitReadStarted());
             assertTrue(stderr.awaitReadStarted());
 
-            process.alive.set(false);
-            process.exit.complete(0);
+            process.complete(0);
 
             assertTrue(stream.onExit().get(1, TimeUnit.SECONDS).timedOut());
         } finally {

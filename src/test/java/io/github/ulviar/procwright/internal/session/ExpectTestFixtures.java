@@ -371,7 +371,7 @@ final class ExpectTestFixtures {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

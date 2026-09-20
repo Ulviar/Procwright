@@ -23,7 +23,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -233,7 +232,6 @@ final class LineSessionTestFixtures {
     static final class ControllableProcess extends Process {
 
         final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        final AtomicBoolean alive = new AtomicBoolean(true);
         final OutputStream stdin;
         final InputStream stdout;
         final InputStream stderr;
@@ -245,7 +243,6 @@ final class LineSessionTestFixtures {
         }
 
         void complete(int exitCode) {
-            alive.set(false);
             exit.complete(exitCode);
         }
 
@@ -296,8 +293,7 @@ final class LineSessionTestFixtures {
 
         @Override
         public void destroy() {
-            alive.set(false);
-            exit.complete(143);
+            complete(143);
         }
 
         @Override
@@ -308,7 +304,7 @@ final class LineSessionTestFixtures {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

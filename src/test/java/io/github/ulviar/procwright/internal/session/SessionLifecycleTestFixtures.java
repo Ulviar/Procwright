@@ -54,7 +54,6 @@ final class SessionLifecycleTestFixtures {
 
         private final OutputStream stdin;
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicBoolean alive = new AtomicBoolean(true);
 
         ControllableProcess(OutputStream stdin) {
             this.stdin = stdin;
@@ -107,7 +106,6 @@ final class SessionLifecycleTestFixtures {
 
         @Override
         public void destroy() {
-            alive.set(false);
             exit.complete(143);
         }
 
@@ -119,7 +117,7 @@ final class SessionLifecycleTestFixtures {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override
@@ -222,7 +220,7 @@ final class SessionLifecycleTestFixtures {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

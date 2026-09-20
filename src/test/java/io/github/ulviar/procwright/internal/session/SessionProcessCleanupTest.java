@@ -19,7 +19,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -122,11 +121,9 @@ final class SessionProcessCleanupTest {
     private static class ControlledProcess extends Process {
 
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicBoolean alive = new AtomicBoolean(true);
         private final AtomicInteger terminationCalls = new AtomicInteger();
 
         private void complete(int exitCode) {
-            alive.set(false);
             exit.complete(exitCode);
         }
 
@@ -192,7 +189,7 @@ final class SessionProcessCleanupTest {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

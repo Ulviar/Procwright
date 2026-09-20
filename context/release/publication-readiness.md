@@ -20,6 +20,8 @@
   per-call isolation для trusted PTY provider не обещается; bounded scan и asynchronous destroy fallback сохраняются;
 - protocol proofs проверяют bounded chunk decoding и ранний отказ oversized text field, не закрепляя точную byte
   position после terminal failure;
+- session proofs проверяют terminal cleanup при исключениях пользовательского decoder/adapter и matching финального
+  Expect output после EOF и natural exit; контракты и владельцы проверок — в [карте инвариантов](../quality/invariant-proof-map.md);
 - cleanup proofs проверяют восстановление после временно неполного scan и сохранение известных descendants,
   недоступности observation и overflow; последний combined refresh должен завершиться до phase deadline. Повторные
   observation failures имеют ограниченный retained detail с сохранением primary и interruption;

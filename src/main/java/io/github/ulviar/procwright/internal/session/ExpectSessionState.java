@@ -29,6 +29,7 @@ final class ExpectSessionState {
 
     private long cursorOffset;
     private long cursorRevision;
+    private boolean stdoutEnded;
     private Terminal terminal;
     private Throwable outputFailure;
 
@@ -65,17 +66,23 @@ final class ExpectSessionState {
     }
 
     synchronized void beginOperation(String unavailableMessage, String action) {
-        throwIfUnavailableAtOperationStart(unavailableMessage);
+        throwIfUnavailableAtOperationStart();
+        throwIfStdoutEnded(unavailableMessage);
+        transcript.appendAction(action);
+    }
+
+    synchronized void beginMatch(String action) {
+        throwIfUnavailableAtOperationStart();
         transcript.appendAction(action);
     }
 
     synchronized ExpectMatch awaitLiteral(
             String text, long deadlineNanos, String timeoutMessage, String transcriptAction) {
-        throwIfUnavailableAtOperationStart(timeoutMessage);
+        throwIfUnavailableAtOperationStart();
         transcript.appendAction(transcriptAction);
         BoundedMatchBuffer.LiteralMatcher matcher = output.literalMatcher(text);
         while (true) {
-            throwIfTerminal(timeoutMessage);
+            throwIfTerminal();
             long searchStart = boundedCursorOffset();
             BoundedMatchBuffer.Match match = matcher.find(searchStart);
             if (match != null) {
@@ -100,7 +107,7 @@ final class ExpectSessionState {
             ExpectRegexMatcher.Evaluation evaluation,
             long deadlineNanos,
             String timeoutMessage) {
-        throwIfTerminal(timeoutMessage);
+        throwIfTerminal();
         if (cursorRevision != snapshot.cursorRevision()) {
             return null;
         }
@@ -128,15 +135,24 @@ final class ExpectSessionState {
         }
     }
 
-    void recordStdoutEof() {
-        boolean selected = false;
-        synchronized (this) {
-            if (!stopping.get()) {
-                selected = claimTerminalLocked(new Terminal(TerminalKind.EOF, null));
-                notifyAll();
-            }
+    synchronized void recordStdoutEof() {
+        if (!stopping.get()) {
+            stdoutEnded = true;
+            notifyAll();
         }
-        signalTerminal(selected);
+    }
+
+    ExpectException recordObservedEof(ExpectException failure) {
+        ExpectException selected;
+        synchronized (this) {
+            if (claimTerminalLocked(new Terminal(TerminalKind.EOF, failure))) {
+                stopping.set(true);
+            }
+            selected = terminalFailure();
+            notifyAll();
+        }
+        signalTerminal(true);
+        return Objects.requireNonNull(selected, "selected EOF outcome");
     }
 
     OutputFailureDecision recordOutputFailure(Throwable failure) {
@@ -175,7 +191,7 @@ final class ExpectSessionState {
             if (selected) {
                 stopping.set(true);
             }
-            selectedFailure = selected ? candidate : terminalFailure(message);
+            selectedFailure = selected ? candidate : terminalFailure();
             notifyAll();
         }
         signalTerminal(selected);
@@ -211,30 +227,30 @@ final class ExpectSessionState {
         return first;
     }
 
-    synchronized void throwIfTerminal(String message) {
-        ExpectException failure = terminalFailure(message);
+    synchronized void throwIfTerminal() {
+        ExpectException failure = terminalFailure();
         if (failure != null) {
             throw failure;
         }
     }
 
     synchronized ExpectException terminalFailureOrTimeout(String message) {
-        ExpectException failure = terminalFailure(message);
-        return failure == null ? timeout(message) : failure;
+        ExpectException failure = terminalFailure();
+        return failure == null ? (stdoutEnded ? selectEof(message) : timeout(message)) : failure;
     }
 
-    synchronized ExpectException terminalFailureRequired(String message) {
-        ExpectException failure = terminalFailure(message);
+    synchronized ExpectException terminalFailureRequired() {
+        ExpectException failure = terminalFailure();
         if (failure == null) {
             throw new IllegalStateException("expect matcher cancellation has no terminal owner");
         }
         return failure;
     }
 
-    RuntimeException arbitrateRegexFailure(String message, Throwable cause, Thread evaluatorThread) {
+    RuntimeException arbitrateRegexFailure(Throwable cause, Thread evaluatorThread) {
         RegexFailureResolution resolution;
         synchronized (this) {
-            ExpectException selected = terminalFailure(message);
+            ExpectException selected = terminalFailure();
             if (selected == null) {
                 return propagateRegexFailure(cause);
             }
@@ -257,13 +273,16 @@ final class ExpectSessionState {
         boolean selected = false;
         ExpectException failure;
         synchronized (this) {
-            failure = terminalFailure(timeoutMessage);
+            failure = terminalFailure();
             if (failure == null) {
-                failure = cause instanceof java.util.concurrent.TimeoutException
-                        ? timeout(timeoutMessage)
-                        : failure("Interrupted while matching expected output", cause);
+                failure = stdoutEnded
+                        ? eof(timeoutMessage)
+                        : cause instanceof java.util.concurrent.TimeoutException
+                                ? timeout(timeoutMessage)
+                                : failure("Interrupted while matching expected output", cause);
                 stopping.set(true);
-                selected = claimTerminalLocked(new Terminal(TerminalKind.FAILURE, failure));
+                selected = claimTerminalLocked(
+                        new Terminal(stdoutEnded ? TerminalKind.EOF : TerminalKind.FAILURE, failure));
                 notifyAll();
             }
         }
@@ -286,7 +305,8 @@ final class ExpectSessionState {
     }
 
     private synchronized void waitForMore(long deadlineNanos, String message) {
-        throwIfTerminal(message);
+        throwIfTerminal();
+        throwIfStdoutEnded(message);
         long remainingNanos = deadlineNanos - System.nanoTime();
         if (remainingNanos <= 0) {
             throw timeout(message);
@@ -299,19 +319,29 @@ final class ExpectSessionState {
         }
     }
 
-    private void throwIfUnavailableAtOperationStart(String message) {
-        throwIfTerminal(message);
+    private void throwIfUnavailableAtOperationStart() {
+        throwIfTerminal();
         if (closed.get()) {
             throw closed();
         }
     }
 
-    private ExpectException terminalFailure(String message) {
+    private void throwIfStdoutEnded(String message) {
+        if (stdoutEnded) {
+            throw selectEof(message);
+        }
+    }
+
+    private ExpectException selectEof(String message) {
+        ExpectException failure = eof(message);
+        claimTerminalLocked(new Terminal(TerminalKind.EOF, failure));
+        stopping.set(true);
+        return Objects.requireNonNull(terminalFailure(), "selected EOF outcome");
+    }
+
+    private ExpectException terminalFailure() {
         if (terminal == null) {
             return null;
-        }
-        if (terminal.kind() == TerminalKind.EOF && terminal.failure() == null) {
-            terminal = new Terminal(TerminalKind.EOF, eof(message));
         }
         Throwable failure = terminal.failure();
         if (failure instanceof Error error) {
@@ -375,9 +405,7 @@ final class ExpectSessionState {
 
         private Terminal {
             Objects.requireNonNull(kind, "kind");
-            if (kind != TerminalKind.EOF) {
-                Objects.requireNonNull(failure, "failure");
-            }
+            Objects.requireNonNull(failure, "failure");
         }
     }
 

@@ -29,7 +29,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -102,7 +101,6 @@ abstract class SessionOutputOwnershipTestSupport {
         private final InputStream stderr;
         private final OutputStream stdin = OutputStream.nullOutputStream();
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicBoolean alive = new AtomicBoolean(true);
         private final Runnable onDestroy;
 
         protected StubProcess(InputStream stdout) {
@@ -121,7 +119,6 @@ abstract class SessionOutputOwnershipTestSupport {
 
         protected void completeExit(int exitCode) {
             exit.complete(exitCode);
-            alive.set(false);
         }
 
         @Override
@@ -173,7 +170,6 @@ abstract class SessionOutputOwnershipTestSupport {
         public void destroy() {
             onDestroy.run();
             exit.complete(143);
-            alive.set(false);
         }
 
         @Override
@@ -184,7 +180,7 @@ abstract class SessionOutputOwnershipTestSupport {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

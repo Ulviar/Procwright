@@ -348,7 +348,7 @@ final class OutputPumpTestFixtures {
             if (Thread.currentThread() == isAliveFailureThread) {
                 throw isAliveFailure;
             }
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

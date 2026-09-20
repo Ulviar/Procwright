@@ -12,6 +12,9 @@ transcript. Raw output streams are not exposed. Close the handle with try-with-r
   groups, and the output before the match. These returned values are live output, not redacted transcript text.
 - Match and transcript buffers have separate limits. Increase the match buffer for large prompts and the transcript
   limit when you need more diagnostic history.
+- Retained output stays matchable after stdout EOF and natural process exit. You can therefore match a final
+  acknowledgment even if the child has already exited. Once a search cannot find its match and no more output can
+  arrive, it reports EOF and makes the handle terminal.
 - `sendLine(...)` writes a reply followed by LF; `send(...)` writes text without a line separator.
 - `closeStdin()` rejects later writes and starts closing input without stopping output matching. Use it when the command
   prints its final response after EOF. Its return does not confirm that the child has observed EOF. A later close failure
@@ -24,9 +27,10 @@ transcript. Raw output streams are not exposed. Close the handle with try-with-r
 matcher leaves the handle open. A regex evaluation that outlives its deadline makes the handle terminal: Procwright stops
 the process and rejects later matches. After a regex timeout, use a fresh handle instead of assuming it is safe to retry.
 
-Input or output failures stop the process. If stdout reaches EOF before a match and the process is still running,
-Procwright stops it; an already selected natural exit keeps its process result. When close, EOF, and output failures race,
-the first selected failure reason is retained.
+Input or output failures stop the process. If a search reports EOF and the process is still running, Procwright stops it;
+an already selected natural exit keeps its process result. Regex evaluation of the final buffer remains bounded by the
+match timeout; close and output failure can still cancel it. When close, an observed EOF failure, and output failures
+race, the first selected failure reason is retained.
 
 ## ANSI-decorated prompts
 

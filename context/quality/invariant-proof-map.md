@@ -372,7 +372,7 @@ output pump передают в cleanup одну выбранную первич
 **Владелец:** `LineSessionState`.
 
 **Proof:** `LineSessionStateTest`, `LineSessionBacklogAndTerminalIntegrationTest`,
-`DefaultLineSessionOutputDecodingTest`, `LineSessionDecoderSafetyIntegrationTest`.
+`DefaultLineSessionOutputDecodingTest`, `LineSessionDecoderSafetyIntegrationTest`, `CallbackClosedFailureContractTest`.
 
 ### Line backlog
 
@@ -421,12 +421,13 @@ staging. Commit расходует только прочитанный prefix и
 
 **Инвариант:** serialization, adapter write, response decode и ожидание admission входят в один request deadline;
 partial write, timeout после admission или проглоченное adapter-ом I/O failure закрывают session. Timeout ожидания
-serialized slot не допускает write и сохраняет session для следующего request.
+serialized slot не допускает write и сохраняет session для следующего request. Reason `CLOSED` в исключении adapter-а
+не доказывает фактическое закрытие и не отменяет terminal cleanup допущенного request.
 
 **Владелец:** `DefaultProtocolSession`.
 
 **Proof:** `ProtocolSessionRequestAdmissionAndSerializationTest`,
-`ProtocolRequestAdmissionAndDeadlineIntegrationTest`.
+`ProtocolRequestAdmissionAndDeadlineIntegrationTest`, `CallbackClosedFailureContractTest`.
 
 ### Protocol request framing
 
@@ -506,13 +507,15 @@ callback заменить timeout или cancellation.
 ### Expect
 
 **Инвариант:** matching не меняет stdin/transcript/cursor после invalid или terminal operation; output публикуется
-incrementally, а terminal outcomes разрешаются first-terminal-wins. Обычный timeout ожидания вывода остаётся
+incrementally, а terminal outcomes разрешаются first-terminal-wins. Сам EOF stdout не является terminal match failure:
+оставшийся buffer доступен до первого отсутствующего match. Close или output failure отменяет ещё не принятый match.
+Обычный timeout ожидания вывода остаётся
 recoverable: повторная regex evaluation начинается только после изменения output или cursor. Изменение cursor будит
 ожидающий matcher даже без нового output.
 
 **Владелец:** `ExpectSessionState`.
 
-**Proof:** `ExpectSessionStateTest`, `ExpectIntegrationTest`.
+**Proof:** `ExpectSessionStateTest`, `DefaultExpectTerminalArbitrationTest`, `ExpectIntegrationTest`.
 
 ### Streaming
 

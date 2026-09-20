@@ -160,14 +160,15 @@ public final class DefaultLineSession implements LineSession {
         } catch (LineSessionException exception) {
             LineSessionException primary = state.primaryFailure(requestFailures, exception);
             LineSessionState.TerminalSnapshot outcome = state.terminal();
-            if (primary.reason() != LineSessionException.Reason.CLOSED) {
+            boolean terminalFailure = primary.reason() != LineSessionException.Reason.CLOSED || !state.isClosed();
+            if (terminalFailure) {
                 outcome = state.recordTerminalFailure(primary.reason(), primary.getMessage(), primary);
             }
             if (outcome instanceof LineSessionState.FatalSnapshot fatal) {
                 closePreserving(fatal.error());
                 throw fatal.error();
             }
-            if (primary.reason() != LineSessionException.Reason.CLOSED) {
+            if (terminalFailure) {
                 closePreserving(outcome.primary());
             }
             throw primary;

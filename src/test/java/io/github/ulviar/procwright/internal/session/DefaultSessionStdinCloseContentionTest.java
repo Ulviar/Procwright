@@ -25,7 +25,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -162,7 +161,6 @@ final class DefaultSessionStdinCloseContentionTest {
     private static final class BlockingDestroyProcess extends Process {
 
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicBoolean alive = new AtomicBoolean(true);
         private final CountDownLatch destroyStarted = new CountDownLatch(1);
         private final CountDownLatch releaseDestroy = new CountDownLatch(1);
 
@@ -211,7 +209,6 @@ final class DefaultSessionStdinCloseContentionTest {
         public void destroy() {
             destroyStarted.countDown();
             awaitIgnoringInterrupts(releaseDestroy);
-            alive.set(false);
             exit.complete(143);
         }
 
@@ -223,7 +220,7 @@ final class DefaultSessionStdinCloseContentionTest {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

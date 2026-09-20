@@ -45,6 +45,7 @@ and `--version`. Defaults are a 30-second timeout and at most 1 MiB of retained 
 | Read input from a file or save large output | [File input and output](docs/scenarios/run.md#files) |
 | Call a long-lived CLI as a typed service | [JSON Lines worker → service](docs/how-to/wrap-cli-tool.md) |
 | Show logs and progress as they arrive | [Follow live output](docs/how-to/follow-logs.md) |
+| Answer interactive prompts and read the final reply | [Automate prompts](docs/how-to/automate-prompts.md) |
 
 A session already reuses one process. Add a [pool](docs/how-to/reuse-workers.md) for independent concurrent requests to
 interchangeable workers. For prompts, raw streams, or custom framing, use the [scenario chooser](docs/how-to/choose-process-scenario.md).

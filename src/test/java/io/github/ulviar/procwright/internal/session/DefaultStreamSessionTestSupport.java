@@ -27,7 +27,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -117,7 +116,6 @@ abstract class DefaultStreamSessionTestSupport {
         private final InputStream stdout;
         private final InputStream stderr;
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicBoolean alive = new AtomicBoolean(true);
 
         ControllableProcess(InputStream stdout, InputStream stderr) {
             this.stdout = stdout;
@@ -182,7 +180,7 @@ abstract class DefaultStreamSessionTestSupport {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override
@@ -191,7 +189,6 @@ abstract class DefaultStreamSessionTestSupport {
         }
 
         void complete(int exitCode) {
-            alive.set(false);
             exit.complete(exitCode);
         }
     }

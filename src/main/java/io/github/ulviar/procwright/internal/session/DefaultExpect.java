@@ -67,7 +67,7 @@ public final class DefaultExpect implements Expect {
                 Objects.requireNonNull(lateFatalFailureReporter, "lateFatalFailureReporter"));
         output = new ExpectOutputTransport(
                 session, options, Objects.requireNonNull(zeroReadBackoff, "zeroReadBackoff"), state);
-        regexMatcher = new ExpectRegexMatcher(state, regexEvaluator, output::closeSessionAfterFailure);
+        regexMatcher = new ExpectRegexMatcher(state, regexEvaluator, this::closeAfterMatcherFailure);
         output.start(Objects.requireNonNull(pumpStarter, "pumpStarter"));
     }
 
@@ -329,8 +329,20 @@ public final class DefaultExpect implements Expect {
 
     private ExpectException terminalizeObservedEof(ExpectException failure) {
         if (failure.reason() == ExpectException.Reason.EOF) {
-            output.closeSessionAfterObservedEof(failure);
+            ExpectException selected = state.recordObservedEof(failure);
+            if (selected.reason() == ExpectException.Reason.EOF) {
+                output.closeSessionAfterObservedEof(selected);
+            }
+            return selected;
         }
         return failure;
+    }
+
+    private void closeAfterMatcherFailure(Throwable failure) {
+        if (failure instanceof ExpectException expectFailure && expectFailure.reason() == ExpectException.Reason.EOF) {
+            output.closeSessionAfterObservedEof(failure);
+        } else {
+            output.closeSessionAfterFailure(failure);
+        }
     }
 }

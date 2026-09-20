@@ -108,8 +108,8 @@ abstract class StreamRuntimeTestSupport {
 
     protected static final class ControllableProcess extends Process {
 
-        protected final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        protected final AtomicBoolean alive;
+        private final CompletableFuture<Integer> exit = new CompletableFuture<>();
+        private final AtomicBoolean alive;
         protected final CountDownLatch destroyed = new CountDownLatch(1);
         protected final CountDownLatch waitEntered = new CountDownLatch(1);
         protected final CountDownLatch waitFailureRelease = new CountDownLatch(1);
@@ -193,8 +193,7 @@ abstract class StreamRuntimeTestSupport {
 
         @Override
         public void destroy() {
-            alive.set(false);
-            exit.complete(143);
+            complete(143);
             destroyed.countDown();
         }
 
@@ -206,12 +205,17 @@ abstract class StreamRuntimeTestSupport {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override
         public Stream<ProcessHandle> descendants() {
             return Stream.empty();
+        }
+
+        protected void complete(int exitCode) {
+            alive.set(false);
+            exit.complete(exitCode);
         }
 
         protected boolean awaitDestroyed() throws InterruptedException {

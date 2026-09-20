@@ -93,6 +93,9 @@ bounded cleanup, не ожидая физического возврата ка�
 - transcript bounded и доступен в `ExpectException`;
 - send/expect values редактируются в transcript по умолчанию;
 - EOF, timeout, closed Expect handle и read failure имеют разные reasons;
+- EOF stdout не отбрасывает уже прочитанное: literal/regex matching сначала проверяет оставшийся match buffer,
+  в том числе после natural `onExit()`. Отсутствующий match при EOF завершает helper; close и output failure
+  сохраняют приоритет над ещё не принятым match;
 - timeout ожидания output или matcher slot допускает следующий match; abandonment незавершённой regex evaluation
   делает handle terminal и запрещает новые matcher tasks, поэтому один reason `TIMEOUT` не доказывает retryability;
 - `closeStdin()` посылает EOF без остановки процесса и matcher;
@@ -121,7 +124,7 @@ bounded cleanup, не ожидая физического возврата ка�
   не сможет записаться позже;
 - после передачи request writer-у timeout, interruption или write failure закрывает session, даже если факт получения
   первого byte процессом неизвестен;
-- response и остальные protocol failures закрывают session.
+- response и остальные protocol failures закрывают session, включая исключение decoder-а с пользовательским reason `CLOSED`.
 
 Caller выбирает decoder и limits, соответствующие worker protocol.
 
@@ -144,7 +147,7 @@ Caller выбирает decoder и limits, соответствующие worker
   не дочитывая остаток поля; точная byte position после terminal failure не обещается;
 - timeout, EOF, broken pipe, decode, oversized data и adapter failure имеют стабильные reasons; превышение response или
   соответствующей output queue даёт `RESPONSE_TOO_LARGE`, stderr overflow становится ошибкой только при чтении adapter-ом;
-- protocol failure закрывает session.
+- protocol failure после допуска adapter-а закрывает session, включая пользовательское исключение с reason `CLOSED`.
 
 Adapter владеет framing и domain decoding. Runtime владеет процессом, readers/writer, deadline, bounds и diagnostics.
 

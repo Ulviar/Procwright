@@ -138,7 +138,8 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
             return response;
         } catch (ProtocolSessionException exception) {
             ProtocolSessionException primary = state.primaryFailure(requestOutcome, exception);
-            if (primary.reason() != ProtocolSessionException.Reason.CLOSED) {
+            boolean terminalFailure = primary.reason() != ProtocolSessionException.Reason.CLOSED || !state.isClosed();
+            if (terminalFailure) {
                 state.recordTerminalFailure(primary.reason(), primary.getMessage(), primary);
             }
             ProtocolSessionException selected;
@@ -148,7 +149,7 @@ public final class DefaultProtocolSession<I extends Object, O extends Object> im
                 closePreserving(fatal);
                 throw fatal;
             }
-            if (selected.reason() != ProtocolSessionException.Reason.CLOSED) {
+            if (terminalFailure) {
                 closePreserving(selected);
             }
             throw selected;

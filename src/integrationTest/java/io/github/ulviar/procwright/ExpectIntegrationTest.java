@@ -15,6 +15,8 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 final class ExpectIntegrationTest {
 
@@ -339,8 +341,9 @@ final class ExpectIntegrationTest {
         }
     }
 
-    @Test
-    void expectCanCloseStdinAndMatchOutputProducedAfterEof() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void expectCanMatchFinalOutputAfterProcessExit(boolean regex) throws Exception {
         try (Expect expect = fixtureService()
                 .interactive()
                 .expect()
@@ -351,8 +354,16 @@ final class ExpectIntegrationTest {
             expect.closeStdin();
             expect.closeStdin();
 
-            expect.expectText("final:payload");
             assertEquals(0, expect.onExit().get(2, TimeUnit.SECONDS).exitCode().orElseThrow());
+            if (regex) {
+                expect.expectRegex(Pattern.compile("final:payload"));
+            } else {
+                expect.expectText("final:payload");
+            }
+            assertEquals(
+                    ExpectException.Reason.EOF,
+                    assertThrows(ExpectException.class, () -> expect.expectText("missing"))
+                            .reason());
         }
     }
 

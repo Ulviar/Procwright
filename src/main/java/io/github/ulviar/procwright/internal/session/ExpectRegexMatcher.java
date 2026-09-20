@@ -50,7 +50,7 @@ final class ExpectRegexMatcher {
 
     private ExpectMatch matchWhileLocked(
             Pattern pattern, long deadlineNanos, String timeoutMessage, String transcriptAction) {
-        state.beginOperation(timeoutMessage, transcriptAction);
+        state.beginMatch(transcriptAction);
         AtomicReference<Thread> evaluatorThread = new AtomicReference<>();
         AtomicReference<ExpectException> abandoned = new AtomicReference<>();
         while (true) {
@@ -83,15 +83,13 @@ final class ExpectRegexMatcher {
                 if (failure != null) {
                     throw failure;
                 }
-                state.throwIfTerminal(timeoutMessage);
+                state.throwIfTerminal();
                 throw state.failure("Interrupted while matching expected output", exception);
             } catch (TimedTaskRunner.TaskCancelledException exception) {
-                throw state.terminalFailureRequired(timeoutMessage);
+                throw state.terminalFailureRequired();
             } catch (ExecutionException exception) {
                 throw state.arbitrateRegexFailure(
-                        timeoutMessage,
-                        Objects.requireNonNull(exception.getCause(), "regex failure cause"),
-                        evaluatorThread.get());
+                        Objects.requireNonNull(exception.getCause(), "regex failure cause"), evaluatorThread.get());
             }
 
             ExpectMatch match = state.acceptRegexEvaluation(
@@ -109,7 +107,7 @@ final class ExpectRegexMatcher {
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            state.throwIfTerminal(timeoutMessage);
+            state.throwIfTerminal();
             throw state.failure("Interrupted while waiting to match expected output", exception);
         }
     }

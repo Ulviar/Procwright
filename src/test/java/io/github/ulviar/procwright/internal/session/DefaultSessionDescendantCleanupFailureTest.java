@@ -26,7 +26,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -170,7 +169,6 @@ final class DefaultSessionDescendantCleanupFailureTest {
         private final FailingProcessHandle descendant;
         private final CountDownLatch descendantObserved = new CountDownLatch(1);
         private final CompletableFuture<Integer> exit = new CompletableFuture<>();
-        private final AtomicBoolean alive = new AtomicBoolean(true);
         private final AtomicInteger rootDestroyCalls = new AtomicInteger();
         private final OutputStream stdin;
 
@@ -235,7 +233,6 @@ final class DefaultSessionDescendantCleanupFailureTest {
         @Override
         public void destroy() {
             rootDestroyCalls.incrementAndGet();
-            alive.set(false);
             exit.complete(143);
         }
 
@@ -247,7 +244,7 @@ final class DefaultSessionDescendantCleanupFailureTest {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override

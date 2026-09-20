@@ -417,7 +417,7 @@ final class DefaultSessionStdinCloseTerminalRaceTest {
 
         @Override
         public boolean isAlive() {
-            return alive.get();
+            return !exit.isDone();
         }
 
         @Override
