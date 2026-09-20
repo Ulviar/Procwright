@@ -1,70 +1,59 @@
-# Готовность к публикации
+# Публикация релиза
 
-## Назначение
+Текущая версия `0.1.0` всех трёх модулей доступна из Maven Central. Для следующего релиза выбрать новую версию по
+[политике версий](versioning-policy.md); опубликованные coordinates нельзя использовать повторно.
 
-Документ описывает подготовку первой версии `0.1.0` для Maven Central. Кандидат загружается через Central Portal
-в режиме `USER_MANAGED`; состояние `VALIDATED` означает успешную проверку, но не публикацию. Завершение публикации
-остаётся отдельным действием. До него public docs не должны обещать доступность версии из Central.
+## Подготовка
 
-## Что готово сейчас
+Для одного release commit должны пройти:
 
-- `procwright`, `procwright-integrations` и `procwright-kotlin` имеют стабильные coordinates и Maven publications;
-- все три publication содержат sources, API documentation, лицензию проекта в каждом JAR и обязательные POM metadata; это проверяет
-  `publicationStructureCheck` без привязки к remote registry;
-- public artifacts собираются с Java 25 target и требуют JVM 25 в Gradle metadata;
-- CI публикует все три модуля в изолированный Maven Local repository и запускает внешние Java, Kotlin и integrations
-  consumers через Gradle metadata и принудительный Maven POM-only resolution;
-- Kotlin consumer `check` исполняет также обе канонические точки входа из документации: `KotlinExampleKt` и
-  `KotlinPoolExampleKt`, включая запуск вложенного worker с опубликованными runtime dependencies;
-- regression gate проверяет scan deadline/interruption и сохранение scan capacity до фактического возврата операции;
-  per-call isolation для trusted PTY provider не обещается; bounded scan и asynchronous destroy fallback сохраняются;
-- protocol proofs проверяют bounded chunk decoding и ранний отказ oversized text field, не закрепляя точную byte
-  position после terminal failure;
-- session proofs проверяют terminal cleanup при исключениях пользовательского decoder/adapter и matching финального
-  Expect output после EOF и natural exit; контракты и владельцы проверок — в [карте инвариантов](../quality/invariant-proof-map.md);
-- pool startup proofs проверяют тихую отмену readiness при close, timeout и interruption, сохраняя late-failure
-  reporting для настоящих ошибок запуска и cleanup;
-- cleanup proofs проверяют восстановление после временно неполного scan и сохранение известных descendants,
-  недоступности observation и overflow; последний combined refresh должен завершиться до phase deadline. Повторные
-  observation failures имеют ограниченный retained detail с сохранением primary и interruption;
-- capture identity proofs разрешают разные существующие файлы с portable-alias names и сохраняют защиту от одного
-  файла через hardlink/symlink; неизвестные targets остаются под консервативной проверкой;
-- Public package/scenario surface, Kotlin ABI, документация и cross-platform behavior имеют отдельные gates.
+- `publicationReadinessCheck`: runtime regression/stress, public API boundary, документация и структура publications;
+- cross-platform CI на Linux, macOS и Windows;
+- CI publication smoke: все три модуля публикуются в изолированный Maven Local repository, затем Java, Kotlin и
+  integrations consumers компилируются и исполняются через Gradle metadata и отдельно через Maven POM-only resolution.
 
-Агрегирующая локальная проверка кандидата:
+`publicationStructureCheck` проверяет sources, API documentation, лицензию в каждом JAR, POM metadata и Java 25
+bytecode/Gradle variants. Kotlin consumer исполняет также канонические `KotlinExampleKt` и `KotlinPoolExampleKt`.
+Runtime guarantees и их proofs находятся в [карте инвариантов](../quality/invariant-proof-map.md).
+Локальные проверки и CI не заменяют проверку загруженных в Central артефактов.
+
+В командах ниже заменить `<release-version>` выбранной новой версией:
 
 ```bash
-./gradlew publicationReadinessCheck -Pprocwright.version=0.1.0
+procwright_release_version='<release-version>'
+./gradlew publicationReadinessCheck "-Pprocwright.version=$procwright_release_version"
 ```
 
-Она доказывает согласованность исходников, API и документации. Maven publication metadata отдельно доказывает CI
-publication smoke: он публикует все три модуля в изолированный Maven Local repository, а затем запускает normal и
-POM-only consumers. Ни одна из этих проверок не доказывает прием артефактов конкретным remote registry.
+До первого изменения public API после `0.1.0` обязателен bootstrap из
+[политики совместимости](compatibility-policy.md#стабильность-публичного-api): подключить
+`javaBinaryCompatibilityCheck` к опубликованным core/integrations coordinates и зафиксировать Kotlin ABI release baseline.
+Java binary gate пока не подключён; до выполнения bootstrap public API не меняется.
 
 ## Загрузка и проверка кандидата
 
-Для загрузки используется `com.vanniktech.maven.publish.base` 0.37.0 поверх существующих трёх `mavenJava`
-publications. Release version передаётся явно. Plugin и GnuPG-подписание включаются только флагом
-`procwright.centralPublishing=true`: обычная сборка и `publishToMavenLocal` не требуют ключа или Portal credentials.
+Для загрузки используется `com.vanniktech.maven.publish.base` поверх существующих трёх `mavenJava` publications.
+Plugin и GnuPG-подписание включаются только флагом `procwright.centralPublishing=true`: обычная сборка и
+`publishToMavenLocal` не требуют ключа или Portal credentials.
 
-В пользовательском `~/.gradle/gradle.properties` должны быть настроены `mavenCentralUsername`,
-`mavenCentralPassword` и параметры `signing.gnupg.*`. Gradle вызывает локальный GnuPG через `useGpgCmd()`.
-Ключи, пароли и токены не входят в репозиторий или команды ниже.
-Если ключ защищён паролем, GnuPG должен иметь доступ к локальному pinentry. Перед запуском из фонового процесса
-разблокировать ключ в своём терминале; пароль не передавать через аргументы Gradle или репозиторий.
+В пользовательском `~/.gradle/gradle.properties` настроить `mavenCentralUsername`, `mavenCentralPassword` и параметры
+`signing.gnupg.*`. Gradle вызывает локальный GnuPG через `useGpgCmd()`. Публичный ключ должен быть доступен на
+[поддерживаемом Central keyserver](https://central.sonatype.org/publish/requirements/gpg/#distributing-your-public-key).
+Ключи, пароли и токены не входят в репозиторий или команды ниже. Если ключ защищён паролем, перед фоновой сборкой
+разблокировать его через локальный pinentry в своём терминале; пароль не передавать в аргументах Gradle.
 
-После `publicationReadinessCheck` и isolated local publication smoke загрузить тот же кандидат:
+После локальных проверок и CI загрузить тот же кандидат:
 
 ```bash
 ./gradlew publishToMavenCentral \
-  -Pprocwright.version=0.1.0 \
+  "-Pprocwright.version=$procwright_release_version" \
   -Pprocwright.centralPublishing=true
 ```
 
-Автоматическая публикация отключена (`automaticRelease = false`). Убедиться, что deployment получил состояние `VALIDATED`;
-ошибки Portal нужно исправить и проверить на новом кандидате. Сам факт успешной Gradle-сборки не доказывает приём в Central.
+Автоматическая публикация отключена (`automaticRelease = false`). Deployment создаётся в режиме `USER_MANAGED`.
+Дождаться состояния `VALIDATED`; оно означает успешную проверку Central, но ещё не публикацию. Ошибки Portal
+исправить и проверить на новом кандидате.
 
-Проверить именно загруженные артефакты через temporary deployment repository. В URL ниже заменить `<deployment-id>`
+Проверить загруженные артефакты через temporary deployment repository. В URL заменить `<deployment-id>`
 идентификатором, полученным при загрузке:
 
 ```bash
@@ -72,39 +61,27 @@ publications. Release version передаётся явно. Plugin и GnuPG-п�
   :procwright-consumer-examples:test \
   :procwright-integrations-consumer-example:check \
   :procwright-kotlin-consumer-example:check \
-  -Pprocwright.consumerVersion=0.1.0 \
+  "-Pprocwright.consumerVersion=$procwright_release_version" \
   -Pprocwright.consumerRepository="https://central.sonatype.com/api/v1/publisher/deployment/<deployment-id>/download/" \
   --dependency-verification=off \
   --refresh-dependencies --rerun-tasks --no-daemon
 ```
 
-Повторить команду с дополнительным `-Pprocwright.consumerPomOnly=true`, чтобы проверить Maven POM без Gradle metadata.
-Проверка dependency verification отключается для smoke, потому что собственный новый кандидат ещё не внесён в
-`verification-metadata.xml`, как и при isolated local publication smoke в CI. Обычный build сохраняет dependency verification.
-Repository credentials берутся из тех же пользовательских Central properties и передаются только endpoint загрузки
-deployment на `central.sonatype.com`; локальные или другие consumer repositories их не получают.
+Повторить с `-Pprocwright.consumerPomOnly=true`, чтобы проверить Maven POM без Gradle metadata. Все три consumers
+должны компилироваться и исполняться в обоих режимах. Dependency verification отключается только для smoke:
+собственные новые артефакты ещё не внесены в `verification-metadata.xml`. Обычная сборка сохраняет эту проверку.
 
-Все три consumers должны компилироваться и исполняться в обоих режимах. Deployment ID — результат конкретной загрузки,
-его не нужно сохранять в контекстных документах. Отдельный release workflow или собственный Portal client для этого пути
-не требуется.
+Repository credentials берутся из пользовательских Central properties и передаются только endpoint загрузки
+deployment на `central.sonatype.com`; локальные или другие consumer repositories их не получают.
+Deployment ID относится к конкретной загрузке и не сохраняется в контекстных документах.
 
 ## Завершение публикации
 
-Подготовка до `VALIDATED` и staging smoke не завершает release. Для публикации нужны:
-
-1. зелёный `publicationReadinessCheck`, local/staging consumers и полный cross-platform CI для одного release commit;
-2. отдельное подтверждение публикации проверенного deployment в Central Portal и состояние `PUBLISHED`;
-3. повтор consumer smoke для `0.1.0` без `procwright.consumerRepository`, в normal и POM-only режимах: зависимости
-   должны разрешиться непосредственно из Maven Central;
-4. удаление пометки о недоступности candidate из README и public installation/compatibility/Kotlin docs;
-5. tag и release для проверенного commit после доступности всех трёх артефактов.
+1. После подтверждения публикации выпустить проверенный deployment в Central Portal и дождаться `PUBLISHED`.
+2. Повторить consumer smoke выше без `procwright.consumerRepository`, в normal и POM-only режимах. Все три зависимости
+   должны разрешиться непосредственно из Maven Central.
+3. Обновить версии в README и public installation/compatibility/Kotlin docs после подтверждения доступности артефактов.
+4. Создать tag и GitHub Release для проверенного release commit; описать пользовательские изменения и breaking changes.
 
 Если артефакты изменились после валидации, сначала собрать и проверить новый кандидат. Не публиковать прежний deployment
-под видом обновлённого кода.
-
-## После первого release
-
-До первого изменения public API после `0.1.0` нужно подключить описанный в
-[compatibility-policy.md](compatibility-policy.md#стабильность-публичного-api) `javaBinaryCompatibilityCheck` к
-опубликованным core/integrations coordinates и зафиксировать Kotlin ABI release baseline. Это обязательный bootstrap
-следующего цикла разработки, а не условие публикации версии, с которой ещё нечего сравнивать.
+под видом обновлённого кода. После `PUBLISHED` исправления требуют новой версии.

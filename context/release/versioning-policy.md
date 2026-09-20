@@ -2,23 +2,21 @@
 
 ## Текущий статус
 
-Для первой публичной версии проекта выбрана `0.1.0`; сейчас готовится её кандидат для Maven Central. Состояние deployment
-`VALIDATED` ещё не означает публикацию: до `PUBLISHED` версия не считается доступной потребителям.
-До её выпуска точные JVM signatures не заморожены: их можно
-менять вместе с public docs, compile-tested examples и релевантными behavior checks. ADR нужен только для решения,
-которое должно ограничивать дальнейшее развитие архитектуры, а не для ведения истории pre-release правок.
+Текущая публичная версия — `0.1.0`, доступная из Maven Central. Опубликованные артефакты неизменяемы: исправления
+выпускаются под новой версией. До первого изменения public API после `0.1.0` обязателен bootstrap из
+[политики совместимости](compatibility-policy.md#стабильность-публичного-api).
 
 Root project и optional modules должны иметь одинаковые `group` и `version`. Версия относится ко всему набору
 артефактов текущего публичного release, а не только к core module.
 
-Release build получает версию явно через `-Pprocwright.version=0.1.0`; development default остаётся
+Release build получает выбранную версию явно через `-Pprocwright.version`; development default остаётся
 `0.0.0-SNAPSHOT`. Для установки текущего checkout пользовательская документация использует `0.1.0-SNAPSHOT`, чтобы
-локальная сборка не подменяла будущий release с теми же coordinates. Изменения артефактов после проверки кандидата
+локальная сборка не подменяла опубликованный release с теми же coordinates. Изменения артефактов после проверки кандидата
 требуют новой сборки и повторной проверки перед публикацией.
 
 ## До `1.0.0`
 
-- После первой публикации версии `0.x` допускают breaking changes в public API только с явным описанием в release notes
+- Версии `0.x` допускают breaking changes в public API только с явным описанием в release notes
   и осознанным обновлением binary compatibility policy.
 - Breaking change не должен попадать в код без обновления compile-tested examples и релевантных behavior checks.
 - Пользовательский API остается scenario-first: новые возможности добавляются через сценарии или typed policies, а не
@@ -48,5 +46,5 @@ Release build получает версию явно через `-Pprocwright.ve
 `context/` не являются binary compatibility surface. Public package boundary tests должны сканировать весь production
 artifact, а не только ожидаемый package subtree. Единственное структурное исключение — binary names внутренних
 реализаций, записанные JVM в `PermittedSubclasses` публичных sealed handles: сами реализации не являются доступным API,
-но после первого выпуска их release-locked allowlist в `SessionContractShapeTest` проверяет изменение публичной sealed
+но их release-locked allowlist в `SessionContractShapeTest` проверяет изменение публичной sealed
 hierarchy отдельно от общего bytecode compatibility tool.

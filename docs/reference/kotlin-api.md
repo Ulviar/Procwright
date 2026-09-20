@@ -2,9 +2,6 @@
 
 After [adding Procwright to your application](../release/installation.md#optional-modules), configure a Kotlin/JVM 25 project:
 
-The `0.1.0` release is not yet available from Maven Central. To try the candidate now, follow the
-[checkout installation](../release/installation.md#use-a-checkout) instructions and use `0.1.0-SNAPSHOT` below.
-
 <!-- procwright-docs: build-configuration -->
 ```kotlin
 plugins {

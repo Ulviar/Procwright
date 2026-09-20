@@ -4,8 +4,8 @@
 
 Procwright имеет единый scenario-first Draft API, Java core, optional Kotlin и integrations modules, line/protocol
 pools, PTY capability boundary, diagnostics, test CLI, bounded stress suite, external consumer fixtures и Maven
-publication metadata. Первый кандидат `0.1.0` готовится для Maven Central; валидация deployment не означает публикацию.
-Публичный artifact не считается доступным до состояния `PUBLISHED` и проверки установки из Central.
+publication metadata. Текущая версия `0.1.0` всех трёх модулей опубликована в Maven Central; внешние consumers
+проверяют установку через Gradle metadata и Maven POM-only resolution.
 
 Scorecard оценивает текущий MVP в пределах [бюджета гарантий runtime](../decisions/ADR-0025-runtime-guarantee-budget.md).
 Оценка 10/10 означает, что согласованные критерии выполнены, доказательства проверены и независимый аудит не оставил
@@ -24,7 +24,7 @@ Scorecard оценивает текущий MVP в пределах [бюдже�
 | Документация разработчика | 10/10 | Task walkthrough покрывает выбор сценария, запуск, failure и cleanup. Канонические Java/Kotlin/integrations примеры исполняются; Javadoc, KDoc, MkDocs и context links имеют строгие gates. |
 
 Переносимость, доказанная производительность и устойчивость сопровождения командой не включены в эти оценки.
-Ограничения PTY, отсутствие performance guarantees и pre-release status сохраняются.
+Ограничения PTY и отсутствие performance guarantees сохраняются.
 
 ## Состояние возможностей
 
@@ -32,8 +32,8 @@ Line/protocol API задаёт размеры сообщений, а внутр�
 очереди и незавершённой строки нет; превышение response или его pending output имеет один `RESPONSE_TOO_LARGE`.
 Transport tests доказывают полный burst выше стандартных defaults до начала чтения, а также overflow и framing boundaries.
 
-Первое знакомство начинается с checkout demos `demoRun`, `demoWorker` и `demoPool`. JSON Lines walkthrough показывает
-application-owned service, повторные вызовы одной session и переход к конкурентным независимым requests через тот же
+Для знакомства доступны установка из Maven Central и checkout demos `demoRun`, `demoWorker` и `demoPool`.
+JSON Lines walkthrough показывает application-owned service, повторные вызовы одной session и переход к конкурентным независимым requests через тот же
 protocol Draft. Короткие Java/Kotlin фрагменты сверяются с именованными участками компилируемых examples; Markdown
 показывает одинаковый код на GitHub и сайте. Этот механизм доказывает исполнимость и отсутствие drift, но сам по себе не
 измеряет время освоения API новым пользователем.
@@ -61,17 +61,14 @@ Pool не создаёт timed tasks для отсутствующих hooks и 
 | Integrations | Готово | JSON Lines, delimiter, Content-Length и typed Jackson adapters поверх `protocolSession`; Jackson только в optional module. |
 | Memory/concurrency | Готово на уровне contracts | Bounded retained data и per-scenario queues, fixed execution concurrency, один pending replenishment turn на live pool и stress proofs; абсолютные heap/throughput guarantees не даются. |
 | Public consumers | Готово | Java, Kotlin и integrations consumers компилируются и исполняются через source dependency и опубликованные Maven metadata/POM-only artifacts. |
-| API boundary | Готово | До первого выпуска Java surface защищают целевые tests, JPMS и external consumers; Kotlin DSL дополнительно имеет ABI baseline. После первой публикации нужен стандартный binary compatibility gate относительно выпущенного artifact. |
+| API boundary | Surface gates готовы | Java surface защищают целевые tests, JPMS и external consumers; Kotlin DSL имеет ABI baseline. Java binary compatibility gate пока не подключён. |
 | Documentation | Готово | Public docs, context owners, snippets и canonical examples описывают текущий API и pool lifecycle contract; strict docs и executable examples входят в gate. |
 | Java/platform matrix | Проверяется CI | Java 25 runtime/target на Linux/macOS/Windows; major 69 и JVM 25 metadata всех public artifacts. |
-| Publication | Подготовка `0.1.0`, не выпущено | Три Maven publications, isolated normal/POM-only consumers и manual deployment в Maven Central через Vanniktech plugin. `VALIDATED` подтверждает приём кандидата, но не доступность release. |
+| Publication | Опубликовано `0.1.0` | Три модуля доступны из Maven Central; isolated и external normal/POM-only consumers проверяют Maven metadata и использование артефактов. Процесс публикации сохраняет отдельную валидацию кандидата перед выпуском. |
 
-## Блокеры первого выпуска
-
-- Прогнать `publicationReadinessCheck` и isolated local publication/consumer smoke на одном release commit.
-- Получить `VALIDATED` в Maven Central Portal и проверить загруженный кандидат тремя consumers в normal/POM-only режимах.
-- Получить зеленую cross-platform/runtime CI-матрицу для exact release commit.
-- Отдельно подтвердить публикацию, проверить consumers против доступного Central release и только затем создать tag.
+До первого изменения public API после `0.1.0` обязателен
+[compatibility bootstrap](../release/compatibility-policy.md#стабильность-публичного-api). До его выполнения public API
+не меняется.
 
 ## Устойчивые границы
 
@@ -81,5 +78,5 @@ Pool не создаёт timed tasks для отсутствующих hooks и 
 - Новая настройка добавляется только scenario Draft, где имеет однозначную семантику.
 - Новая возможность без владельца инварианта и executable proof не считается прогрессом.
 
-Текущая граница готовности описана в [publication-readiness.md](../release/publication-readiness.md), а связи инвариантов
-с проверками — в [invariant-proof-map.md](invariant-proof-map.md).
+Процесс публикации и проверки артефактов описан в [publication-readiness.md](../release/publication-readiness.md),
+а связи инвариантов с проверками — в [invariant-proof-map.md](invariant-proof-map.md).

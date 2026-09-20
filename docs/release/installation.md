@@ -2,8 +2,7 @@
 
 Procwright requires JDK 25 to build and run.
 
-The first release, `0.1.0`, is being prepared and is not yet available from Maven Central. The dependency setup below
-applies once it is published. To use the current code now, [install from a checkout](#use-a-checkout).
+Version `0.1.0` is available from Maven Central. To try unreleased changes instead, [use a checkout](#use-a-checkout).
 
 ## Core dependency
 
@@ -93,7 +92,7 @@ See [Kotlin usage](../reference/kotlin-api.md) for coroutine imports and JPMS se
 
 ## Use a checkout
 
-From the checkout root, install all three modules into your local Maven repository:
+For unreleased changes, install all three modules from the checkout root into your local Maven repository:
 
 ```shell
 ./gradlew publishToMavenLocal \

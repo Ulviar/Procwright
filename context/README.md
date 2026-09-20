@@ -34,7 +34,7 @@
 - [release/compatibility-policy.md](release/compatibility-policy.md) — совместимость и platform support.
 - [release/public-api-boundary.md](release/public-api-boundary.md) — intended public surface и API guard.
 - [release/dependency-review.md](release/dependency-review.md) — runtime/build dependency boundary.
-- [release/publication-readiness.md](release/publication-readiness.md) — доказанная готовность артефактов и отложенные release-решения.
+- [release/publication-readiness.md](release/publication-readiness.md) — процесс публикации и проверки артефактов.
 
 ## Решения
 

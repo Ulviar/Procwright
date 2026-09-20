@@ -2,17 +2,15 @@
 
 ## Назначение
 
-Документ фиксирует намеренную пользовательскую поверхность до первого выпуска. Это проектная граница, а не обещание
-совместимости с ещё не опубликованным artifact. Она защищается тремя независимыми механизмами:
+Документ фиксирует намеренную пользовательскую поверхность Procwright. Она защищается тремя независимыми механизмами:
 
 - surface tests проверяют сценарные точки входа, форму Draft API, public packages и отсутствие утечек недоступных типов;
 - JPMS descriptors экспортируют только утвержденные packages;
 - external consumer modules компилируют и выполняют канонические Java, Kotlin и integrations scenarios.
 
-Kotlin ABI baseline остаётся машинной проверкой Kotlin DSL, потому что для него уже используется стандартный Gradle
-инструмент. До первого Java-релиза отдельный exact-signature baseline не нужен: осознанное API-решение должно менять
-surface tests, external consumers и public documentation в одном срезе. После первого выпуска binary compatibility
-сравнивается стандартным инструментом с опубликованным artifact.
+Kotlin ABI baseline проверяется стандартным Gradle инструментом. Java binary compatibility gate пока не подключён;
+до первого изменения public API после `0.1.0` обязателен
+[bootstrap из политики совместимости](compatibility-policy.md#стабильность-публичного-api).
 
 ## Core module
 
@@ -97,7 +95,7 @@ cancellation сохраняется при secondary cleanup failure; новый
 
 ## Изменение поверхности
 
-До первого выпуска утвержденная поверхность меняется только вместе с:
+Утвержденная поверхность меняется только вместе с:
 
 - public surface tests;
 - Kotlin ABI file, если затронут Kotlin DSL;
@@ -105,4 +103,4 @@ cancellation сохраняется при secondary cleanup failure; новый
 - public documentation/examples;
 - этим документом и релевантным ADR при изменении lifecycle/ownership.
 
-После публикации изменение подчиняется [compatibility-policy.md](compatibility-policy.md) и SemVer.
+Изменение подчиняется [compatibility-policy.md](compatibility-policy.md) и SemVer.

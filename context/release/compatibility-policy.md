@@ -26,7 +26,7 @@ scenario gate. Linux и macOS требуют system PTY; его отсутств
 Все кроссплатформенные сценарии должны проходить на всех трех платформах. Сценарии, которым нужен POSIX shell или
 system PTY provider, skip-аются через JUnit assumptions, если платформа не предоставляет нужную возможность.
 
-Windows ConPTY provider не входит в планируемый первый выпуск. `TerminalPolicy.REQUIRED` должен давать explicit
+Встроенный Windows ConPTY provider не поддерживается. `TerminalPolicy.REQUIRED` должен давать explicit
 unsupported behavior, если provider недоступен, и не должен silently fallback в pipes.
 
 ## Стабильность публичного API
@@ -45,29 +45,28 @@ unsupported behavior, если provider недоступен, и не долже
   `io.github.ulviar.procwright.internal` и вложенные runtime-пакеты не экспортируются. Integrations module экспортирует только
   `io.github.ulviar.procwright.integration` и требует core module.
 - Session handles являются sealed interfaces. Их разрешенные реализации остаются недоступными из-за JPMS
-  encapsulation и не становятся пользовательским SPI. После первого выпуска binary compatibility gate должен учитывать
-  их JVM `PermittedSubclasses`.
-- Планируемый public API scope и scenario grammar зафиксированы в
+  encapsulation и не становятся пользовательским SPI. `SessionContractShapeTest` проверяет их release-locked
+  JVM `PermittedSubclasses`.
+- Public API scope и scenario grammar зафиксированы в
   [public-api-boundary.md](public-api-boundary.md). Поведение принадлежит
   [scenario-contracts.md](../scenario-contracts.md). Новые сценарии или изменение caller-visible invariants требуют
   отдельного ADR и обновления surface tests/consumers.
-- До первого выпуска точные JVM signatures можно менять осознанно вместе с surface tests, external consumers и public
-  docs.
 
-После публикации `0.1.0`, до первого следующего изменения public API:
+Java binary compatibility gate пока не подключён. До первого изменения public API после опубликованной `0.1.0`
+нужно выполнить обязательный bootstrap:
 
-- задача `javaBinaryCompatibilityCheck` на базе `japicmp` сравнивает текущие `procwright` и
+- подключить задачу `javaBinaryCompatibilityCheck` на базе `japicmp`, которая сравнивает текущие `procwright` и
   `procwright-integrations` с `io.github.ulviar:procwright:0.1.0` и
   `io.github.ulviar:procwright-integrations:0.1.0`;
-- `japicmp` проверяет public/protected bytecode API, hierarchy, generic signatures и checked exceptions;
+- настроить проверку public/protected bytecode API, hierarchy, generic signatures и checked exceptions;
   `SessionContractShapeTest` остаётся release-locked владельцем `PermittedSubclasses`, а module descriptor tests —
   владельцем JPMS exports/requires;
-- `quickCheck`, CI и publication-readiness зависят от этой задачи;
-- `procwright-kotlin` продолжает использовать стандартный Kotlin ABI gate; baseline для него фиксируется на release
-  tag `0.1.0`;
-- следующий release становится новым baseline только после осознанного SemVer/compatibility decision.
+- включить эту задачу в `quickCheck`, CI и publication-readiness;
+- сохранить стандартный Kotlin ABI gate для `procwright-kotlin` и зафиксировать baseline по tag опубликованной
+  версии `0.1.0`.
 
 До выполнения bootstrap public API после `0.1.0` не меняется.
+Следующий release становится новым baseline только после осознанного SemVer/compatibility decision.
 
 ## Поведенческая совместимость
 

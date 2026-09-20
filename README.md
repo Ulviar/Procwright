@@ -10,12 +10,12 @@ prompt matching, and live output callbacks.
 Requires **Java 25**. The core has no runtime dependencies outside the JDK. Ordinary process execution works on
 macOS, Linux, and Windows; [terminal support](docs/reference/platforms-and-pty.md) has additional requirements.
 
-The first release, `0.1.0`, is being prepared and is not yet available from Maven Central. You can try it from this checkout.
+Version **0.1.0** is available from Maven Central.
 
 ## Try it
 
-To try the included demo, run this from the checkout with JDK 25 available. To use Procwright in an existing application,
-start with [dependency setup](docs/release/installation.md).
+To use Procwright in your application, start with [dependency setup](docs/release/installation.md).
+To run the included demo from a checkout, use JDK 25 and run:
 
 ```shell
 ./gradlew -q demoRun
