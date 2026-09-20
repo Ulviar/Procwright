@@ -577,6 +577,8 @@ public lease API.
 **Инвариант:** один `WorkerStartup` запускает не более одного factory callback, выбирает один typed terminal outcome и
 передаёт проигравший late result ровно один раз. Последующие close, deadline или interruption не переписывают outcome;
 interruption вызывающего потока сохраняет interrupt flag. Coordinator отображает выбранный outcome без второго выбора.
+Прерывание readiness после выбранной отмены не отправляется в late-failure reporter, если cleanup успешен; обычные
+ошибки, fatal failures и ошибки cleanup остаются наблюдаемыми.
 
 **Владелец:** `WorkerStartup`.
 

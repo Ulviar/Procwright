@@ -22,6 +22,8 @@
   position после terminal failure;
 - session proofs проверяют terminal cleanup при исключениях пользовательского decoder/adapter и matching финального
   Expect output после EOF и natural exit; контракты и владельцы проверок — в [карте инвариантов](../quality/invariant-proof-map.md);
+- pool startup proofs проверяют тихую отмену readiness при close, timeout и interruption, сохраняя late-failure
+  reporting для настоящих ошибок запуска и cleanup;
 - cleanup proofs проверяют восстановление после временно неполного scan и сохранение известных descendants,
   недоступности observation и overflow; последний combined refresh должен завершиться до phase deadline. Повторные
   observation failures имеют ограниченный retained detail с сохранением primary и interruption;

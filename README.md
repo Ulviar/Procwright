@@ -58,6 +58,7 @@ The API follows one sequence: **command → scenario → configuration → execu
 - A scenario chooses how you interact with the process.
 - Each `with*` call returns a new configuration (called a Draft); retain its return value.
 - `execute()` returns a result. `open()` returns a handle to close with try-with-resources or Kotlin `use`.
+  Closing a pool also cancels workers that are still starting.
 
 See [Getting started](docs/getting-started.md), [runnable examples](docs/examples.md), and the
 [API and policy reference](docs/reference/index.md).

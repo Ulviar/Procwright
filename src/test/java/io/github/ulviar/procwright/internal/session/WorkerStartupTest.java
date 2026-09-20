@@ -4,11 +4,13 @@ package io.github.ulviar.procwright.internal.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -17,8 +19,120 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 final class WorkerStartupTest {
+
+    @ParameterizedTest
+    @EnumSource(WorkerStartup.StopReason.class)
+    void cancelledReadinessDoesNotProduceALateFailureReport(WorkerStartup.StopReason reason) throws Exception {
+        CountDownLatch probeEntered = new CountDownLatch(1);
+        CountDownLatch releaseProbe = new CountDownLatch(1);
+        CountDownLatch probeStopped = new CountDownLatch(1);
+        AtomicInteger closes = new AtomicInteger();
+        AtomicReference<WorkerStartup.LateCompletion<String>> late = new AtomicReference<>();
+        WorkerStartup<String> startup = new WorkerStartup<>(
+                () -> {
+                    ReadinessSupport.check(
+                            "worker",
+                            worker -> {
+                                probeEntered.countDown();
+                                try {
+                                    awaitIgnoringInterrupt(releaseProbe);
+                                } finally {
+                                    probeStopped.countDown();
+                                }
+                            },
+                            Duration.ofHours(1),
+                            closes::incrementAndGet);
+                    return "worker";
+                },
+                "cancelled-readiness-test-",
+                late::set);
+        try {
+            startup.start();
+            assertTrue(probeEntered.await(1, TimeUnit.SECONDS));
+            stop(startup, reason);
+
+            WorkerStartup.LateCompletion<String> completion = awaitLate(late);
+            assertNotNull(completion);
+            assertNull(completion.session());
+            assertInstanceOf(CommandExecutionException.class, completion.failure());
+            assertNull(completion.failureTarget(), "an owned readiness interruption is expected cancellation");
+            assertEquals(1, closes.get(), "cancellation must still close the worker");
+            assertStopped(reason, startup.await(deadline()));
+        } finally {
+            startup.signalClosed();
+            releaseProbe.countDown();
+            assertTrue(probeStopped.await(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void cancelledReadinessStillReportsCleanupFailures(boolean fatal) throws Exception {
+        CountDownLatch probeEntered = new CountDownLatch(1);
+        CountDownLatch releaseProbe = new CountDownLatch(1);
+        CountDownLatch probeStopped = new CountDownLatch(1);
+        Throwable closeFailure =
+                fatal ? new AssertionError("cleanup failed") : new IllegalStateException("cleanup failed");
+        AtomicReference<WorkerStartup.LateCompletion<String>> late = new AtomicReference<>();
+        WorkerStartup<String> startup = new WorkerStartup<>(
+                () -> {
+                    ReadinessSupport.check(
+                            "worker",
+                            worker -> {
+                                probeEntered.countDown();
+                                try {
+                                    awaitIgnoringInterrupt(releaseProbe);
+                                } finally {
+                                    probeStopped.countDown();
+                                }
+                            },
+                            Duration.ofHours(1),
+                            () -> {
+                                if (closeFailure instanceof Error error) {
+                                    throw error;
+                                }
+                                throw (RuntimeException) closeFailure;
+                            });
+                    return "worker";
+                },
+                "cancelled-readiness-cleanup-test-",
+                late::set);
+        try {
+            startup.start();
+            assertTrue(probeEntered.await(1, TimeUnit.SECONDS));
+            startup.signalClosed();
+
+            WorkerStartup.LateCompletion<String> completion = awaitLate(late);
+            assertNotNull(completion);
+            assertNotNull(completion.failureTarget());
+            assertSame(closeFailure, completion.failure().getSuppressed()[0]);
+        } finally {
+            startup.signalClosed();
+            releaseProbe.countDown();
+            assertTrue(probeStopped.await(1, TimeUnit.SECONDS));
+        }
+    }
+
+    private static void stop(WorkerStartup<?> startup, WorkerStartup.StopReason reason) {
+        switch (reason) {
+            case CLOSED -> assertStopped(reason, startup.signalClosed());
+            case TIMED_OUT -> assertStopped(reason, startup.signalTimeout());
+            case INTERRUPTED -> {
+                Thread.currentThread().interrupt();
+                try {
+                    assertStopped(reason, startup.await(deadline()));
+                    assertTrue(Thread.currentThread().isInterrupted());
+                } finally {
+                    Thread.interrupted();
+                }
+            }
+        }
+    }
 
     @Test
     void factoryCompletionOwnsTheResultWhenItWins() throws Exception {

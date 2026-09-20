@@ -2,6 +2,7 @@
 
 package io.github.ulviar.procwright.internal.session;
 
+import io.github.ulviar.procwright.command.CommandExecutionException;
 import io.github.ulviar.procwright.internal.BoundedFailureReporter;
 import io.github.ulviar.procwright.internal.Threading;
 import io.github.ulviar.procwright.session.PooledWorkerRetireReason;
@@ -90,7 +91,9 @@ final class WorkerStartup<S> {
                 session = Objects.requireNonNull(factory.get(), "workerFactory returned null");
             } catch (Throwable startupFailure) {
                 failure = startupFailure;
-                failureTarget = captureFailureTarget();
+                if (!isExpectedReadinessCancellation(startupFailure)) {
+                    failureTarget = captureFailureTarget();
+                }
             }
         }
         if (beforeFactory != null) {
@@ -107,6 +110,18 @@ final class WorkerStartup<S> {
         Outcome<S> selected = outcome.join();
         lateCompletion.accept(
                 new LateCompletion<>(session, startupNanos, retireReason(selected), failure, failureTarget));
+    }
+
+    private boolean isExpectedReadinessCancellation(Throwable failure) {
+        // Only silence cancellation we selected; cleanup failures must remain observable.
+        return outcome.getNow(null) instanceof Stopped<?>
+                && Thread.currentThread().isInterrupted()
+                && failure instanceof CommandExecutionException executionFailure
+                && executionFailure.reason() == CommandExecutionException.Reason.READINESS_FAILED
+                && executionFailure.getSuppressed().length == 0
+                && executionFailure.getCause() instanceof InterruptedException interruption
+                && interruption.getCause() == null
+                && interruption.getSuppressed().length == 0;
     }
 
     private Outcome<S> awaitOutcome(long deadlineNanos) throws TimeoutException, InterruptedException {

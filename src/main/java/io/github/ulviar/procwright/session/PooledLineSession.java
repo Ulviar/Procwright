@@ -79,7 +79,9 @@ public sealed interface PooledLineSession extends AutoCloseable permits DefaultP
      * processing have settled. It does not wait for a potentially blocking physical close of process streams; a later
      * physical-close failure cannot change the result.
      *
-     * <p>A worker factory still running when close begins is interrupted and its pool slot is released. If the factory
+     * <p>A worker factory still running when close begins is interrupted and its pool slot is released. Interruption
+     * of its readiness wait is normal cancellation and is not reported as an unhandled failure when cleanup succeeds.
+     * If the factory
      * ignores interruption and later returns a worker, Procwright retires that worker asynchronously. That late worker
      * is not current pool state, and its retirement does not delay or rewrite an already completed close future.
      *
