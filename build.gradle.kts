@@ -10,7 +10,7 @@ plugins {
     `java-library`
     `maven-publish`
     id("com.vanniktech.maven.publish.base") version "0.37.0" apply false
-    id("com.diffplug.spotless") version "8.10.2"
+    id("com.diffplug.spotless") version "8.10.3"
     id("org.jetbrains.kotlin.jvm") version "2.4.20" apply false
     id("org.jetbrains.dokka") version "2.2.0" apply false
 }
