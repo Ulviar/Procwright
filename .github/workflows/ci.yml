@@ -43,7 +43,7 @@ jobs:
 
       # Provides build caching and validates Gradle wrapper jars automatically.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Verify system PTY prerequisites
         if: runner.os != 'Windows'
@@ -129,7 +129,7 @@ jobs:
           version: "0.12.17"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Build docs site in strict mode
         run: ./gradlew publicDocsCheck --no-daemon
