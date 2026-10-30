@@ -16,11 +16,11 @@ val kotlinNullnessCompiler = configurations.create("kotlinNullnessCompiler")
 
 dependencies {
     api(project(":"))
-    api("org.jetbrains.kotlin:kotlin-stdlib:2.4.20")
+    api("org.jetbrains.kotlin:kotlin-stdlib:2.4.21")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation(kotlin("test"))
-    kotlinNullnessCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.20")
+    kotlinNullnessCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.21")
 }
 
 java {
