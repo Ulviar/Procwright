@@ -8,7 +8,7 @@ plugins {
 
 dependencies {
     api(project(":"))
-    api("tools.jackson.core:jackson-databind:3.2.2")
+    api("tools.jackson.core:jackson-databind:3.2.4")
     compileOnlyApi("org.jspecify:jspecify:1.0.1")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
